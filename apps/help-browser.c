@@ -467,7 +467,7 @@ static void _menu_action_forward(struct MenuEntry * entry) {
 static void _menu_action_about(struct MenuEntry * entry) {
 	/* Show About dialog */
 	char about_cmd[1024] = "\0";
-	strcat(about_cmd, "about \"About Help Browser\" /usr/share/icons/48/help.png \"ZRL Help Browser\" \"\xc2\xa9 2018-2026 K. Lange\n-\nPart of ZRL, which is free software\nreleased under the NCSA/University of Illinois\nlicense.\n-\n%https://zrl.os\" ");
+	strcat(about_cmd, "about \"\xe5\x85\xb3\xe4\xba\x8e\xe5\xb8\xae\xe5\x8a\xa9\xe6\xb5\x8f\xe8\xa7\x88\xe5\x99\xa8\" /usr/share/icons/48/help.png \"ZRL \xe5\xb8\xae\xe5\x8a\xa9\xe6\xb5\x8f\xe8\xa7\x88\xe5\x99\xa8\" \"\xc2\xa9 2018-2026 K. Lange\n-\nZRL \xe5\xb8\xae\xe5\x8a\xa9\xe6\xb5\x8f\xe8\xa7\x88\xe5\x99\xa8\xef\xbc\x8c\xe6\x98\xaf ZRL \xe7\x9a\x84\xe4\xb8\x80\xe4\xb8\xaa\xe7\xbb\x84\xe6\x88\x90\xe9\x83\xa8\xe5\x88\x86\n-\nZRL \xe6\x98\xaf\xe5\x9f\xba\xe4\xba\x8e NCSA/\xe4\xbc\x8a\xe5\x88\xa9\xe8\xaf\xba\xe4\xbc\x8a\xe5\xa4\xa7\xe5\xad\xa6\xe8\xae\xb8\xe5\x8f\xaf\xe8\xaf\x81\xe5\x8f\x91\xe5\xb8\x83\xe7\x9a\x84\xe8\x87\xaa\xe7\x94\xb1\xe8\xbd\xaf\xe4\xbb\xb6\xe3\x80\x82\n-\n%https://zrl.os\" ");
 	char coords[100];
 	sprintf(coords, "%d %d &", (int)main_window->x + (int)main_window->width / 2, (int)main_window->y + (int)main_window->height / 2);
 	strcat(about_cmd, coords);
@@ -517,9 +517,9 @@ int main(int argc, char * argv[]) {
 	menu_set_insert(menu_bar.set, "go", m);
 
 	m = menu_create();
-	menu_insert(m, menu_create_normal("help","help-browser.trt","Contents",_menu_action_navigate));
+	menu_insert(m, menu_create_normal("help","help-browser.trt","\xe5\x86\x85\xe5\xae\xb9",_menu_action_navigate));
 	menu_insert(m, menu_create_separator());
-	menu_insert(m, menu_create_normal("star",NULL,"About " APPLICATION_TITLE,_menu_action_about));
+	menu_insert(m, menu_create_normal("star",NULL,"\xe5\x85\xb3\xe4\xba\x8e" APPLICATION_TITLE,_menu_action_about));
 	menu_set_insert(menu_bar.set, "help", m);
 
 	if (argc > 1) {

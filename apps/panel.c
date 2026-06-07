@@ -333,7 +333,7 @@ static void redraw_alttab(void) {
 
 static pthread_t _waiter_thread;
 static void * logout_prompt_waiter(void * arg) {
-	if (system("showdialog --title 'Log Out' --icon exit 'Are you sure you want to log out?'") == 0) {
+	if (system("showdialog --title '\xe6\xb3\xa8\xe9\x94\x80' --icon exit '\xe7\xa1\xae\xe5\xae\x9a\xe8\xa6\x81\xe6\xb3\xa8\xe9\x94\x80\xe5\x90\x97\xef\xbc\x9f'") == 0) {
 		yutani_session_end(yctx);
 		_continue = 0;
 	}
@@ -351,7 +351,7 @@ void launch_application_menu(struct MenuEntry * self) {
 			system("reboot");
 		}
 	} else if (!strcmp((char *)_self->action,"poweroff")) {
-		if (system("showdialog --title 'Power Off' --icon exit 'Are you sure you want to shut down?'") == 0) {
+		if (system("showdialog --title '\xe5\x85\xb3\xe6\x9c\xba' --icon exit '\xe7\xa1\xae\xe5\xae\x9a\xe8\xa6\x81\xe5\x85\xb3\xe6\x9c\xba\xe7\xb3\xbb\xe7\xbb\x9f\xe5\x90\x97\xef\xbc\x9f'") == 0) {
 			system("poweroff");
 		}
 	} else {
