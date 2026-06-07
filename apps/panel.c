@@ -118,18 +118,19 @@ static volatile int _continue = 1;
 
 static void toggle_hide_panel(void) {
 	static int panel_hidden = 0;
+	int panel_y = yctx->display_height - PANEL_HEIGHT;
 
 	if (panel_hidden) {
-		/* Unhide the panel */
-		for (int i = PANEL_HEIGHT-1; i >= 0; i--) {
-			yutani_window_move(yctx, panel, 0, -i);
+		/* Unhide the panel - slide up from below */
+		for (int i = PANEL_HEIGHT; i >= 0; i--) {
+			yutani_window_move(yctx, panel, 0, panel_y + i);
 			usleep(3000);
 		}
 		panel_hidden = 0;
 	} else {
-		/* Hide the panel */
-		for (int i = 1; i <= PANEL_HEIGHT-1; i++) {
-			yutani_window_move(yctx, panel, 0, -i);
+		/* Hide the panel - slide down */
+		for (int i = 1; i <= PANEL_HEIGHT; i++) {
+			yutani_window_move(yctx, panel, 0, panel_y + i);
 			usleep(3000);
 		}
 		panel_hidden = 1;
@@ -825,8 +826,9 @@ int main (int argc, char ** argv) {
 	panel_context.font_size_default    = 14;
 	panel_context.extra_widget_spacing = 12;
 
-	/* Create the panel window */
+	/* Create the panel window at BOTTOM of screen */
 	panel = yutani_window_create_flags(yctx, width, PANEL_HEIGHT, YUTANI_WINDOW_FLAG_NO_STEAL_FOCUS | YUTANI_WINDOW_FLAG_ALT_ANIMATION);
+	yutani_window_move(yctx, panel, 0, height - PANEL_HEIGHT);
 	panel_context.basewindow = panel;
 
 	/* And move it to the top layer */
@@ -930,6 +932,7 @@ int main (int argc, char ** argv) {
 							width = mw->display_width;
 							height = mw->display_height;
 							yutani_window_resize(yctx, panel, mw->display_width, PANEL_HEIGHT);
+							yutani_window_move(yctx, panel, 0, height - PANEL_HEIGHT);
 						}
 						break;
 					case YUTANI_MSG_RESIZE_OFFER:

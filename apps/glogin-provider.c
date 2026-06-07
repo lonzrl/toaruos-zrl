@@ -56,7 +56,7 @@ static int BOX_COLOR_G=0;
 static int BOX_COLOR_B=0;
 static int BOX_COLOR_A=127;
 static char * WALLPAPER = "/usr/share/wallpaper.jpg";
-static char * LOGO = "/usr/share/logo_login.png";
+static char * LOGO = "/usr/share/icon.ico";
 static struct TT_Font * tt_font_thin = NULL;
 static struct TT_Font * tt_font_bold = NULL;
 

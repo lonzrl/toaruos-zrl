@@ -25,7 +25,7 @@ int main(int argc, char * argv[]) {
 		execvp("about-dialog",(char *const[]){
 			"about-dialog",
 			"--title-about", "ZRL",
-			"--logo", "/usr/share/logo_login.png",
+			"--logo", "/usr/share/icon.ico",
 			"--icon", "star",
 			"--name", version_str,
 			"--",
