@@ -333,7 +333,7 @@ static void redraw_alttab(void) {
 
 static pthread_t _waiter_thread;
 static void * logout_prompt_waiter(void * arg) {
-	if (system("showdialog --title '\xe6\xb3\xa8\xe9\x94\x80' --icon exit '\xe7\xa1\xae\xe5\xae\x9a\xe8\xa6\x81\xe6\xb3\xa8\xe9\x94\x80\xe5\x90\x97\xef\xbc\x9f'") == 0) {
+	if (system("showdialog --title 'Log Out' --icon exit 'Are you sure you want to log out?'") == 0) {
 		yutani_session_end(yctx);
 		_continue = 0;
 	}
@@ -347,11 +347,11 @@ void launch_application_menu(struct MenuEntry * self) {
 		/* Spin off a thread for this */
 		pthread_create(&_waiter_thread, NULL, logout_prompt_waiter, NULL);
 	} else if (!strcmp((char *)_self->action,"reboot")) {
-		if (system("showdialog --title '\xe9\x87\x8d\xe5\x90\xaf' --icon exit '\xe7\xa1\xae\xe5\xae\x9a\xe8\xa6\x81\xe9\x87\x8d\xe5\x90\xaf\xe7\xb3\xbb\xe7\xbb\x9f\xe5\x90\x97\xef\xbc\x9f'") == 0) {
+		if (system("showdialog --title 'Reboot' --icon exit 'Are you sure you want to reboot?'") == 0) {
 			system("reboot");
 		}
 	} else if (!strcmp((char *)_self->action,"poweroff")) {
-		if (system("showdialog --title '\xe5\x85\xb3\xe6\x9c\xba' --icon exit '\xe7\xa1\xae\xe5\xae\x9a\xe8\xa6\x81\xe5\x85\xb3\xe6\x9c\xba\xe7\xb3\xbb\xe7\xbb\x9f\xe5\x90\x97\xef\xbc\x9f'") == 0) {
+		if (system("showdialog --title 'Power Off' --icon exit 'Are you sure you want to shut down?'") == 0) {
 			system("poweroff");
 		}
 	} else {
@@ -618,11 +618,7 @@ static uint32_t lerp_rgba(uint32_t c1, uint32_t c2, float t) {
 }
 
 static void redraw_panel_background(gfx_context_t * ctx, int width, int height) {
-	for (int i = 0; i < height; ++i) {
-		float t = (float)i / (float)height;
-		uint32_t c = lerp_rgba(rgba(25,55,120,0xF0), rgba(45,85,160,0xF0), t);
-		draw_line(ctx, 0, i, width, i, c);
-	}
+	draw_fill(ctx, rgba(30,60,120,0xE8));
 }
 
 static void resize_finish(int xwidth, int xheight) {

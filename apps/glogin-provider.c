@@ -173,7 +173,7 @@ void draw_login_container(gfx_context_t * ctx, struct login_container * lc) {
 
 	/* Draw labels */
 	if (lc->show_error) {
-		char * error_message = "\xe7\x94\xa8\xe6\x88\xb7\xe5\x90\x8d\xe6\x88\x96\xe5\xaf\x86\xe7\xa0\x81\xe9\x94\x99\xe8\xaf\xaf";
+		char * error_message = "Incorrect username or password.";
 		tt_set_size(tt_font_thin, 13);
 		tt_draw_string(ctx, tt_font_thin, lc->x + (lc->width - tt_string_width(tt_font_thin, error_message)) / 2, lc->y + 6 + EXTRA_TEXT_OFFSET - 1, error_message, rgb(240,20,20));
 	}
@@ -363,8 +363,8 @@ redo_everything:
 		int hostname_label_left = width - 10 - tt_string_width(tt_font_bold, hostname);
 		int kernel_v_label_left = 10;
 
-		struct text_box username_box = { (BOX_WIDTH - 170) / 2, 30, 170, 20, rgb(0,0,0), NULL, 0, 0, 0, username, "\xe7\x94\xa8\xe6\x88\xb7\xe5\x90\x8d" };
-	struct text_box password_box = { (BOX_WIDTH - 170) / 2, 58, 170, 20, rgb(0,0,0), NULL, 0, 1, 0, password, "\xe5\xaf\x86\xe7\xa0\x81" };
+		struct text_box username_box = { (BOX_WIDTH - 170) / 2, 30, 170, 20, rgb(0,0,0), NULL, 0, 0, 0, username, "Username" };
+	struct text_box password_box = { (BOX_WIDTH - 170) / 2, 58, 170, 20, rgb(0,0,0), NULL, 0, 1, 0, password, "Password" };
 
 		struct login_container lc = { box_x, box_y, BOX_WIDTH, BOX_HEIGHT, &username_box, &password_box, 0 };
 

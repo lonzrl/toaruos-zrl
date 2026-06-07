@@ -31,7 +31,7 @@ static int32_t height = 250;
 
 static char * logo_path = "generic";
 static char * icon_name = "generic";
-static char * title_str = "\xe5\x85\xb3\xe4\xba\x8e";
+static char * title_str = "About";
 static char * version_str = "";
 static char ** body_text = NULL;
 

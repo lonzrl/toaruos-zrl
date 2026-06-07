@@ -30,11 +30,11 @@ static sprite_t * icon = NULL;
 static int32_t width = 600;
 static int32_t height = 150;
 
-static char * title_str = "\xe5\xaf\xb9\xe8\x9d\x9d\xe6\xa1\x86";
+static char * title_str = "Dialog Prompt";
 static char * icon_path = "generic";
 static char * ad_icon = "generic";
-static char * okay_str = "\xe7\xa1\xae\xe5\xae\x9a";
-static char * cancel_str = "\xe5\x8f\x96\xe6\xb6\x88";
+static char * okay_str = "Okay";
+static char * cancel_str = "Cancel";
 static char ** body_text = NULL;
 static int disable_cancel = 0;
 

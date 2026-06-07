@@ -17,7 +17,7 @@
 #include <sys/reboot.h>
 
 int main(int argc, char ** argv) {
-	fprintf(stderr, "\xe7\xb3\xbb\xe7\xbb\x9f\xe6\xad\xa3\xe5\x9c\xa8\xe5\x85\xb3\xe6\x9c\xba...\n");
+	fprintf(stderr, "System is powering off...\n");
 	if (reboot(0) < 0) {
 		fprintf(stderr, "%s: %s\n", argv[0], strerror(errno));
 	}

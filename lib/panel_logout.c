@@ -31,9 +31,9 @@ struct PanelWidget * widget_init_logout(void) {
 	load_sprite(sprite_logout, "/usr/share/icons/panel-shutdown.png");
 	logout_menu = menu_create();
 	logout_menu->flags |= MENU_FLAG_BUBBLE_RIGHT;
-	menu_insert(logout_menu, menu_create_normal("exit", "log-out", "\xe6\xb3\xa8\xe9\x94\x80", launch_application_menu));
-	menu_insert(logout_menu, menu_create_normal("exit", "reboot", "\xe9\x87\x8d\xe5\x90\xaf", launch_application_menu));
-	menu_insert(logout_menu, menu_create_normal("exit", "poweroff", "\xe5\x85\xb3\xe6\x9c\xba", launch_application_menu));
+	menu_insert(logout_menu, menu_create_normal("exit", "log-out", "Log Out", launch_application_menu));
+	menu_insert(logout_menu, menu_create_normal("exit", "reboot", "Reboot", launch_application_menu));
+	menu_insert(logout_menu, menu_create_normal("exit", "poweroff", "Power Off", launch_application_menu));
 
 	struct PanelWidget * widget = widget_new();
 

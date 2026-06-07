@@ -221,9 +221,9 @@ static int parser_data(struct markup_state * self, void * user, char * data) {
 
 static struct menu_bar menu_bar = {0};
 static struct menu_bar_entries menu_entries[] = {
-	{"\xe6\x96\x87\xe4\xbb\xb6", "file"},
-	{"\xe8\xbd\xac\xe5\x88\xb0", "go"},
-	{"\xe5\xb8\xae\xe5\x8a\xa9", "help"},
+	{"File", "file"},
+	{"Go", "go"},
+	{"Help", "help"},
 	{NULL, NULL},
 };
 
@@ -467,7 +467,7 @@ static void _menu_action_forward(struct MenuEntry * entry) {
 static void _menu_action_about(struct MenuEntry * entry) {
 	/* Show About dialog */
 	char about_cmd[1024] = "\0";
-	strcat(about_cmd, "about \"\xe5\x85\xb3\xe4\xba\x8e\xe5\xb8\xae\xe5\x8a\xa9\xe6\xb5\x8f\xe8\xa7\x88\xe5\x99\xa8\" /usr/share/icons/48/help.png \"ZRL \xe5\xb8\xae\xe5\x8a\xa9\xe6\xb5\x8f\xe8\xa7\x88\xe5\x99\xa8\" \"\xc2\xa9 2018-2026 K. Lange\n-\nZRL \xe7\x9a\x84\xe4\xb8\x80\xe9\x83\xa8\xe5\x88\x86\xef\xbc\x8c\xe4\xb8\xba\xe8\x87\xaa\xe7\x94\xb1\xe8\xbd\xaf\xe4\xbb\xb6\n-\n%https://zrl.os\" ");
+	strcat(about_cmd, "about \"About Help Browser\" /usr/share/icons/48/help.png \"ZRL Help Browser\" \"\xc2\xa9 2018-2026 K. Lange\n-\nPart of ZRL, which is free software\nreleased under the NCSA/University of Illinois\nlicense.\n-\n%https://zrl.os\" ");
 	char coords[100];
 	sprintf(coords, "%d %d &", (int)main_window->x + (int)main_window->width / 2, (int)main_window->y + (int)main_window->height / 2);
 	strcat(about_cmd, coords);
@@ -502,12 +502,12 @@ int main(int argc, char * argv[]) {
 	menu_bar.set = menu_set_create();
 
 	struct MenuList * m = menu_create(); /* File */
-	menu_insert(m, menu_create_normal("exit",NULL,"\xe9\x80\x80\xe5\x87\xba", _menu_action_exit));
+	menu_insert(m, menu_create_normal("exit",NULL,"Exit", _menu_action_exit));
 	menu_set_insert(menu_bar.set, "file", m);
 
 	m = menu_create(); /* Go */
-	menu_insert(m, menu_create_normal("home","0_index.trt","\xe4\xb8\xbb\xe9\xa1\xb5",_menu_action_navigate));
-	menu_insert(m, menu_create_normal("bookmark","special:contents","\xe4\xb8\xbb\xe9\xa2\x98",_menu_action_navigate));
+	menu_insert(m, menu_create_normal("home","0_index.trt","Home",_menu_action_navigate));
+	menu_insert(m, menu_create_normal("bookmark","special:contents","Topics",_menu_action_navigate));
 #if 0
 	/* TODO: History */
 	menu_insert(m, menu_create_separator());
@@ -517,9 +517,9 @@ int main(int argc, char * argv[]) {
 	menu_set_insert(menu_bar.set, "go", m);
 
 	m = menu_create();
-	menu_insert(m, menu_create_normal("help","help-browser.trt","\xe5\x86\x85\xe5\xae\xb9",_menu_action_navigate));
+	menu_insert(m, menu_create_normal("help","help-browser.trt","Contents",_menu_action_navigate));
 	menu_insert(m, menu_create_separator());
-	menu_insert(m, menu_create_normal("star",NULL,"\xe5\x85\xb3\xe4\xba\x8e " APPLICATION_TITLE,_menu_action_about));
+	menu_insert(m, menu_create_normal("star",NULL,"About " APPLICATION_TITLE,_menu_action_about));
 	menu_set_insert(menu_bar.set, "help", m);
 
 	if (argc > 1) {
