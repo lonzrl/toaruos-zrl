@@ -294,6 +294,25 @@ long arch_reboot(void) {
 	return 0;
 }
 
+/**
+ * @brief Power off the system via ACPI or QEMU debug exit.
+ *
+ * Tries multiple methods:
+ * 1. QEMU isa-debug-exit device (port 0x604, value 0x2000)
+ * 2. ACPI PM1a_CNT.SLP_EN (port 0xB004, value 0x2000)
+ * 3. Fallback to keyboard reset (reboot)
+ */
+long arch_poweroff(void) {
+	/* Method 1: QEMU isa-debug-exit (port 0x604) */
+	outports(0x604, 0x2000);
+
+	/* Method 2: ACPI PM1 control (port 0xB004) - SLP_TYP=5(S5), SLP_EN=1 */
+	outports(0xB004, 0x2000);
+
+	/* Method 3: If nothing worked, at least reboot */
+	return arch_reboot();
+}
+
 /* Syscall parameter accessors */
 void arch_syscall_return(struct regs * r, long retval) { r->rax = retval; }
 long arch_syscall_number(struct regs * r) { return (unsigned long)r->rax; }

@@ -874,6 +874,22 @@ int tt_draw_string(gfx_context_t * ctx, struct TT_Font * font, int x, int y, con
 
 
 static int tt_font_load(struct TT_Font * font) {
+	/* Check for TTC (TrueType Collection) header */
+	uint32_t ttc_tag = 0;
+	if (!tt_seek(font, 0)) {
+		ttc_tag = tt_read_32(font);
+		if (ttc_tag == 0x74746366) { /* 'ttcf' */
+			/* uint32_t version = */ tt_read_32(font);
+			uint32_t numFonts = tt_read_32(font);
+			if (numFonts < 1) goto _fail_free;
+			uint32_t first_offset = tt_read_32(font);
+			/* Seek to the first font's SFNT offset */
+			tt_seek(font, first_offset);
+		} else {
+			tt_seek(font, 0); /* Reset, it's a regular TTF */
+		}
+	}
+
 	if (tt_seek(font, 4)) {
 		fprintf(stderr, "tt: failed to seek to 4\n");
 		goto _fail_free;

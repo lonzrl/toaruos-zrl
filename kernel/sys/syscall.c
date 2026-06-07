@@ -1166,12 +1166,16 @@ long sys_sigqueue(pid_t process, int signal, union sigval value) {
 	return send_signal_info(process, signal, 0, &cause);
 }
 
-long sys_reboot(int unused) {
-	(void)unused;
+long sys_reboot(int cmd) {
 	if (this_core->current_process->user != USER_ROOT_UID) {
 		return -EPERM;
 	}
 
+	/* cmd == 0 (RB_AUTOBOOT) or default: reboot */
+	/* cmd != 0 (e.g. RB_POWER_OFF): power off */
+	if (cmd != 0) {
+		return arch_poweroff();
+	}
 	return arch_reboot();
 }
 
