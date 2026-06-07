@@ -606,6 +606,17 @@ static void update_window_list(void) {
 	redraw();
 }
 
+static uint32_t lerp_rgba(uint32_t c1, uint32_t c2, float t) {
+	uint8_t r1 = (c1 >> 16) & 0xFF, g1 = (c1 >> 8) & 0xFF, b1 = c1 & 0xFF, a1 = (c1 >> 24) & 0xFF;
+	uint8_t r2 = (c2 >> 16) & 0xFF, g2 = (c2 >> 8) & 0xFF, b2 = c2 & 0xFF, a2 = (c2 >> 24) & 0xFF;
+	return rgba(
+		(uint8_t)(r1 + (r2 - r1) * t),
+		(uint8_t)(g1 + (g2 - g1) * t),
+		(uint8_t)(b1 + (b2 - b1) * t),
+		(uint8_t)(a1 + (a2 - a1) * t)
+	);
+}
+
 static void redraw_panel_background(gfx_context_t * ctx, int width, int height) {
 	for (int i = 0; i < height; ++i) {
 		float t = (float)i / (float)height;
