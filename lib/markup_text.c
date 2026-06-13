@@ -7,6 +7,7 @@
  * Copyright (C) 2021 K. Lange
  */
 #include <math.h>
+#include <stdio.h>
 #include <toaru/markup.h>
 #include <toaru/list.h>
 #include <toaru/graphics.h>

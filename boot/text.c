@@ -311,7 +311,7 @@ void draw_logo(int stage) {
 		print_(tmp);
 		return;
 	}
-	uint64_t logo_squares = 0x981818181818FFFFUL;
+	uint64_t logo_squares = 0xFF040810204080FFUL;
 	for (int y = 0; y < 8; ++y) {
 		for (int x = 0; x < 8; ++x) {
 			if (logo_squares & (1 << x)) {

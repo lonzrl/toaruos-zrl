@@ -9,6 +9,7 @@
 
 /* Methods for loading fonts */
 extern struct TT_Font * tt_font_from_file(const char * fileName);
+extern struct TT_Font * tt_font_from_file_mem(const char * fileName);
 extern struct TT_Font * tt_font_from_shm(const char * identifier);
 
 /* Methods for changing font sizes */

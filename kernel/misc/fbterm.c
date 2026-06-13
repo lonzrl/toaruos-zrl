@@ -157,7 +157,7 @@ static void draw_square(int x, int y) {
 	}
 }
 
-static uint64_t logo_squares = 0xFF201008040201FFUL;
+static uint64_t logo_squares = 0xFF040810204080FFUL;
 void fbterm_draw_logo(void) {
 	for (size_t y = 0; y < 8; ++y) {
 		for (size_t x = 0; x < 8; ++x) {
