@@ -46,7 +46,7 @@ static void say_hello(void) {
 	char * tmp = strstr(u.release, "-");
 	if (tmp) *tmp = '\0';
 
-	printf("ToaruOS %s is starting up...\n", u.release);
+	printf("ZRL OS %s is starting up...\n", u.release);
 }
 
 #include "../kernel/misc/args.c"
