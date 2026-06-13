@@ -349,13 +349,9 @@ void launch_application_menu(struct MenuEntry * self) {
 		/* Spin off a thread for this */
 		pthread_create(&_waiter_thread, NULL, logout_prompt_waiter, NULL);
 	} else if (!strcmp((char *)_self->action,"reboot")) {
-		if (system("showdialog --title 'Reboot' --icon exit 'Are you sure you want to reboot?'") == 0) {
-			reboot(RB_AUTOBOOT);
-		}
+		reboot(RB_AUTOBOOT);
 	} else if (!strcmp((char *)_self->action,"poweroff")) {
-		if (system("showdialog --title '\xe5\x85\xb3\xe6\x9c\xba' --icon exit '\xe7\xa1\xae\xe5\xae\x9a\xe8\xa6\x81\xe5\x85\xb3\xe6\x9c\xba\xe7\xb3\xbb\xe7\xbb\x9f\xe5\x90\x97\xef\xbc\x9f'") == 0) {
-			reboot(RB_POWER_OFF);
-		}
+		reboot(RB_POWER_OFF);
 	} else {
 		launch_application((char *)_self->action);
 	}
