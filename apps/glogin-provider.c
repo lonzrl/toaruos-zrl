@@ -59,6 +59,7 @@ static char * WALLPAPER = "/usr/share/wallpaper.jpg";
 static char * LOGO = "/usr/share/icon.ico";
 static struct TT_Font * tt_font_thin = NULL;
 static struct TT_Font * tt_font_bold = NULL;
+static struct TT_Font * tt_font_cjk = NULL;
 
 #define TEXTBOX_INTERIOR_LEFT 4
 #define EXTRA_TEXT_OFFSET 15
@@ -271,7 +272,7 @@ int main (int argc, char ** argv) {
 
 	tt_font_thin = tt_font_from_shm("sans-serif");
 	tt_font_bold = tt_font_from_shm("sans-serif.bold");
-	struct TT_Font * tt_font_cjk = tt_font_from_shm("cjk");
+	tt_font_cjk = tt_font_from_shm("cjk");
 
 redo_everything:
 	win_width = width;
