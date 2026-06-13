@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>icon_cache.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "lib\\icon_cache.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>icon_cache.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/hashmap.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">hashmap_t</span> * icon_cache_16;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">hashmap_t</span> * icon_cache_48;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * icon_directories_16[] = {
+	<span class="hljs-string">"/usr/share/icons/16"</span>,
+	<span class="hljs-string">"/usr/share/icons/24"</span>,
+	<span class="hljs-string">"/usr/share/icons/48"</span>,
+	<span class="hljs-string">"/usr/share/icons"</span>,
+	<span class="hljs-string">"/usr/share/icons/external"</span>,
+	<span class="hljs-literal">NULL</span>
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * icon_directories_48[] = {
+	<span class="hljs-string">"/usr/share/icons/48"</span>,
+	<span class="hljs-string">"/usr/share/icons/24"</span>,
+	<span class="hljs-string">"/usr/share/icons/16"</span>,
+	<span class="hljs-string">"/usr/share/icons"</span>,
+	<span class="hljs-string">"/usr/share/icons/external"</span>,
+	<span class="hljs-literal">NULL</span>
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * prefixes[] = {
+	<span class="hljs-string">"png"</span>,
+	<span class="hljs-string">"bmp"</span>,
+	<span class="hljs-literal">NULL</span>
+};
+
+__attribute__((constructor))
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _init_caches(<span class="hljs-keyword">void</span>) {
+	icon_cache_16 = hashmap_create(<span class="hljs-number">10</span>);
+	{ <span class="hljs-comment">/* Generic fallback icon */</span>
+		<span class="hljs-keyword">sprite_t</span> * app_icon = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">sprite_t</span>));
+		load_sprite(app_icon, <span class="hljs-string">"/usr/share/icons/16/applications-generic.png"</span>);
+		hashmap_set(icon_cache_16, <span class="hljs-string">"generic"</span>, app_icon);
+	}
+
+	icon_cache_48 = hashmap_create(<span class="hljs-number">10</span>);
+	{ <span class="hljs-comment">/* Generic fallback icon */</span>
+		<span class="hljs-keyword">sprite_t</span> * app_icon = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">sprite_t</span>));
+		load_sprite(app_icon, <span class="hljs-string">"/usr/share/icons/48/applications-generic.png"</span>);
+		hashmap_set(icon_cache_48, <span class="hljs-string">"generic"</span>, app_icon);
+	}
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">sprite_t</span> * <span class="hljs-title">icon_get_int</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name, <span class="hljs-keyword">hashmap_t</span> * icon_cache, <span class="hljs-keyword">char</span> ** icon_directories)</span> </span>{
+
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(name,<span class="hljs-string">""</span>)) {
+		<span class="hljs-comment">/* If a window doesn't have an icon set, return the generic icon */</span>
+		<span class="hljs-keyword">return</span> hashmap_get(icon_cache, <span class="hljs-string">"generic"</span>);
+	}
+
+	<span class="hljs-comment">/* Check the icon cache */</span>
+	<span class="hljs-keyword">sprite_t</span> * icon = hashmap_get(icon_cache, (<span class="hljs-keyword">void</span>*)name);
+
+	<span class="hljs-keyword">if</span> (!icon) {
+		<span class="hljs-comment">/* We don't have an icon cached for this identifier, try search */</span>
+		<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">char</span> path[<span class="hljs-number">100</span>];
+		<span class="hljs-keyword">while</span> (icon_directories[i]) {
+			<span class="hljs-comment">/* Check each path... */</span>
+			<span class="hljs-keyword">char</span> ** prefix = prefixes;
+			<span class="hljs-keyword">while</span> (*prefix) {
+				<span class="hljs-built_in">sprintf</span>(path, <span class="hljs-string">"%s/%s.%s"</span>, icon_directories[i], name, *prefix);
+				<span class="hljs-keyword">if</span> (access(path, R_OK) == <span class="hljs-number">0</span>) {
+					<span class="hljs-comment">/* And if we find one, cache it */</span>
+					icon = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">sprite_t</span>));
+					load_sprite(icon, path);
+					hashmap_set(icon_cache, (<span class="hljs-keyword">void</span>*)name, icon);
+					<span class="hljs-keyword">return</span> icon;
+				}
+				prefix++;
+			}
+			i++;
+		}
+
+		<span class="hljs-comment">/* If we've exhausted our search paths, just return the generic icon */</span>
+		icon = hashmap_get(icon_cache, <span class="hljs-string">"generic"</span>);
+		hashmap_set(icon_cache, (<span class="hljs-keyword">void</span>*)name, icon);
+	}
+
+	<span class="hljs-comment">/* We have an icon, return it */</span>
+	<span class="hljs-keyword">return</span> icon;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">sprite_t</span> * <span class="hljs-title">icon_get_16</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-keyword">return</span> icon_get_int(name, icon_cache_16, icon_directories_16);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">sprite_t</span> * <span class="hljs-title">icon_get_48</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-keyword">return</span> icon_get_int(name, icon_cache_48, icon_directories_48);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

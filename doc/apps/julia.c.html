@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>julia.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\julia.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>julia.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;getopt.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;math.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;libgen.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/yutani.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/decorations.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/markup_text.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> GFX_(xpt, ypt) (GFX(ctx,xpt+decor_left_width,ypt+decor_top_height))</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * app_name = <span class="hljs-string">"Julia Fractals"</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * app_desc = <span class="hljs-string">"Julia fractal generator"</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * app_icon = <span class="hljs-string">"julia"</span>;
+
+<span class="hljs-comment">/* Pointer to graphics memory */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_t</span> * yctx;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_window_t</span> * window = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">gfx_context_t</span> * ctx = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> decor_left_width = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> decor_top_height = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> decor_right_width = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> decor_bottom_height = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> decor_width = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> decor_height = <span class="hljs-number">0</span>;
+
+
+<span class="hljs-comment">/* Julia fractals elements */</span>
+<span class="hljs-keyword">double</span> conx = <span class="hljs-number">-0.752</span>;  <span class="hljs-comment">/* real part of c */</span>
+<span class="hljs-keyword">double</span> cony = <span class="hljs-number">0.117</span>;    <span class="hljs-comment">/* imag part of c */</span>
+<span class="hljs-keyword">double</span> expx = <span class="hljs-number">0.0</span>;
+<span class="hljs-keyword">double</span> expy = <span class="hljs-number">0.0</span>;
+<span class="hljs-keyword">double</span> expz = <span class="hljs-number">1.0</span>; <span class="hljs-comment">/* scale */</span>
+<span class="hljs-keyword">double</span> Maxx = <span class="hljs-number">2</span>;      <span class="hljs-comment">/* X bounds */</span>
+<span class="hljs-keyword">double</span> Minx = <span class="hljs-number">-2</span>;
+<span class="hljs-keyword">double</span> Maxy = <span class="hljs-number">1</span>;      <span class="hljs-comment">/* Y bounds */</span>
+<span class="hljs-keyword">double</span> Miny = <span class="hljs-number">-1</span>;
+<span class="hljs-keyword">double</span> pixcorx;       <span class="hljs-comment">/* Internal values */</span>
+<span class="hljs-keyword">double</span> pixcory;
+<span class="hljs-keyword">double</span> rotation = <span class="hljs-number">4.1888</span>; <span class="hljs-comment">/* Blue */</span>
+<span class="hljs-keyword">int</span> maxiter = <span class="hljs-number">1000</span>; <span class="hljs-comment">/* Iteration levels */</span>
+<span class="hljs-keyword">int</span> explore_mode = <span class="hljs-number">0</span>;
+
+<span class="hljs-keyword">uint32_t</span> * palette = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">hsv_to_rgb</span><span class="hljs-params">(<span class="hljs-keyword">float</span> h, <span class="hljs-keyword">float</span> s, <span class="hljs-keyword">float</span> v)</span> </span>{
+	<span class="hljs-keyword">float</span> c  = v * s;
+	<span class="hljs-keyword">float</span> hp = <span class="hljs-built_in">fmod</span>(h, <span class="hljs-number">2</span> * M_PI);
+	<span class="hljs-keyword">float</span> x = c * (<span class="hljs-number">1.0</span> - <span class="hljs-built_in">fabs</span>(<span class="hljs-built_in">fmod</span>(hp / <span class="hljs-number">1.0472</span>, <span class="hljs-number">2</span>) - <span class="hljs-number">1.0</span>));
+	<span class="hljs-keyword">float</span> m = v - c;
+	<span class="hljs-keyword">float</span> rp, gp, bp;
+	<span class="hljs-keyword">if</span> (hp &lt;= <span class="hljs-number">1.0472</span>)      { rp = c; gp = x; bp = <span class="hljs-number">0</span>; }
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (hp &lt;= <span class="hljs-number">2.0944</span>) { rp = x; gp = c; bp = <span class="hljs-number">0</span>; }
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (hp &lt;= <span class="hljs-number">3.1416</span>) { rp = <span class="hljs-number">0</span>; gp = c; bp = x; }
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (hp &lt;= <span class="hljs-number">4.1888</span>) { rp = <span class="hljs-number">0</span>; gp = x; bp = c; }
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (hp &lt;= <span class="hljs-number">5.2360</span>) { rp = x; gp = <span class="hljs-number">0</span>; bp = c; }
+	<span class="hljs-keyword">else</span>                   { rp = c; gp = <span class="hljs-number">0</span>; bp = x; }
+	<span class="hljs-keyword">return</span> rgb((rp + m) * <span class="hljs-number">255</span>, (gp + m) * <span class="hljs-number">255</span>, (bp + m) * <span class="hljs-number">255</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">hue_palette</span><span class="hljs-params">(<span class="hljs-keyword">int</span> k)</span> </span>{
+	<span class="hljs-keyword">double</span> ratio = (<span class="hljs-keyword">double</span>)k / (<span class="hljs-keyword">double</span>)maxiter;
+	<span class="hljs-keyword">double</span> hue   = <span class="hljs-built_in">sin</span>(ratio * M_PI / <span class="hljs-number">2.0</span>);
+	<span class="hljs-keyword">return</span> hsv_to_rgb(<span class="hljs-number">4.18879</span> * hue + rotation, <span class="hljs-number">1.0</span>, <span class="hljs-number">1.0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">rhue_palette</span><span class="hljs-params">(<span class="hljs-keyword">int</span> k)</span> </span>{
+	<span class="hljs-keyword">double</span> ratio = (<span class="hljs-keyword">double</span>)k / (<span class="hljs-keyword">double</span>)maxiter;
+	<span class="hljs-keyword">double</span> hue   = <span class="hljs-built_in">sin</span>(ratio * M_PI / <span class="hljs-number">2.0</span>);
+	<span class="hljs-keyword">return</span> hsv_to_rgb(<span class="hljs-number">-4.18879</span> * hue + rotation, <span class="hljs-number">1.0</span>, <span class="hljs-number">1.0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">bnw_palette</span><span class="hljs-params">(<span class="hljs-keyword">int</span> k)</span> </span>{
+	<span class="hljs-keyword">return</span> rgb(<span class="hljs-number">255</span> * k / maxiter, <span class="hljs-number">255</span> * k / maxiter, <span class="hljs-number">255</span> * k / maxiter);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">mix</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> base, <span class="hljs-keyword">uint32_t</span> mixer, <span class="hljs-keyword">float</span> ratio)</span> </span>{
+	<span class="hljs-keyword">return</span> rgb(
+		_RED(base) * (<span class="hljs-number">1.0</span> - ratio) + _RED(mixer) * (ratio),
+		_GRE(base) * (<span class="hljs-number">1.0</span> - ratio) + _GRE(mixer) * (ratio),
+		_BLU(base) * (<span class="hljs-number">1.0</span> - ratio) + _BLU(mixer) * (ratio));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">wiki_palette</span><span class="hljs-params">(<span class="hljs-keyword">int</span> k)</span> </span>{
+	<span class="hljs-keyword">double</span> ratio = (<span class="hljs-keyword">double</span>)k / (<span class="hljs-keyword">double</span>)maxiter;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">100</span>; ++i) {
+		<span class="hljs-keyword">if</span> (ratio &lt;= <span class="hljs-number">0.025</span>) <span class="hljs-keyword">return</span> mix(rgb(<span class="hljs-number">14</span>,<span class="hljs-number">21</span>,<span class="hljs-number">101</span>), rgb(<span class="hljs-number">40</span>,<span class="hljs-number">100</span>,<span class="hljs-number">200</span>), ratio / <span class="hljs-number">0.025</span>);
+		ratio -= <span class="hljs-number">0.025</span>;
+		ratio /= <span class="hljs-number">0.975</span>;
+		<span class="hljs-keyword">if</span> (ratio &lt;= <span class="hljs-number">0.025</span>) <span class="hljs-keyword">return</span> mix(rgb(<span class="hljs-number">40</span>,<span class="hljs-number">100</span>,<span class="hljs-number">200</span>), rgb(<span class="hljs-number">90</span>,<span class="hljs-number">200</span>,<span class="hljs-number">225</span>), ratio / <span class="hljs-number">0.025</span>);
+		ratio -= <span class="hljs-number">0.025</span>;
+		ratio /= <span class="hljs-number">0.975</span>;
+		<span class="hljs-keyword">if</span> (ratio &lt;= <span class="hljs-number">0.025</span>) <span class="hljs-keyword">return</span> mix(rgb(<span class="hljs-number">90</span>,<span class="hljs-number">200</span>,<span class="hljs-number">225</span>), rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>), ratio / <span class="hljs-number">0.025</span>);
+		ratio -= <span class="hljs-number">0.025</span>;
+		ratio /= <span class="hljs-number">0.975</span>;
+		<span class="hljs-keyword">if</span> (ratio &lt;= <span class="hljs-number">0.025</span>) <span class="hljs-keyword">return</span> mix(rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>), rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">100</span>), ratio / <span class="hljs-number">0.025</span>);
+		ratio -= <span class="hljs-number">0.025</span>;
+		ratio /= <span class="hljs-number">0.975</span>;
+		<span class="hljs-keyword">if</span> (ratio &lt;= <span class="hljs-number">0.025</span>) <span class="hljs-keyword">return</span> mix(rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">100</span>), rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">0</span>), ratio / <span class="hljs-number">0.025</span>);
+		ratio -= <span class="hljs-number">0.025</span>;
+		ratio /= <span class="hljs-number">0.975</span>;
+		<span class="hljs-keyword">if</span> (ratio &lt;= <span class="hljs-number">0.025</span>) <span class="hljs-keyword">return</span> mix(rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">0</span>), rgb(<span class="hljs-number">255</span>,<span class="hljs-number">120</span>,<span class="hljs-number">0</span>), ratio / <span class="hljs-number">0.025</span>);
+		ratio -= <span class="hljs-number">0.025</span>;
+		ratio /= <span class="hljs-number">0.975</span>;
+		<span class="hljs-keyword">if</span> (ratio &lt;= <span class="hljs-number">0.025</span>) <span class="hljs-keyword">return</span> mix(rgb(<span class="hljs-number">255</span>,<span class="hljs-number">120</span>,<span class="hljs-number">0</span>), rgb(<span class="hljs-number">255</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>), ratio / <span class="hljs-number">0.025</span>);
+		ratio -= <span class="hljs-number">0.025</span>;
+		ratio /= <span class="hljs-number">0.975</span>;
+		<span class="hljs-keyword">if</span> (ratio &lt;= <span class="hljs-number">0.025</span>) <span class="hljs-keyword">return</span> mix(rgb(<span class="hljs-number">255</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>), rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>), ratio / <span class="hljs-number">0.025</span>);
+		ratio -= <span class="hljs-number">0.025</span>;
+		ratio /= <span class="hljs-number">0.975</span>;
+		<span class="hljs-keyword">if</span> (i &lt; <span class="hljs-number">99</span>) {
+			<span class="hljs-keyword">if</span> (ratio &lt;= <span class="hljs-number">0.025</span>) <span class="hljs-keyword">return</span> mix(rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>), rgb(<span class="hljs-number">14</span>,<span class="hljs-number">21</span>,<span class="hljs-number">101</span>), ratio / <span class="hljs-number">0.025</span>);
+			ratio -= <span class="hljs-number">0.025</span>;
+			ratio /= <span class="hljs-number">0.975</span>;
+		}
+	}
+	<span class="hljs-keyword">return</span> rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-title">uint32_t</span> <span class="hljs-params">(*palette_funcs[])</span><span class="hljs-params">(<span class="hljs-keyword">int</span>)</span> </span>= {
+	wiki_palette,
+	hue_palette,
+	rhue_palette,
+	bnw_palette,
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> current_palette = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">initialize_palette</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (!palette) {
+		palette = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>) * (maxiter + <span class="hljs-number">1</span>));
+	}
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> k = <span class="hljs-number">0</span>; k &lt; maxiter; ++k) {
+		palette[k] = palette_funcs[current_palette](k);
+	}
+	palette[maxiter] = rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">next_palette</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	current_palette = (current_palette + <span class="hljs-number">1</span>) % (<span class="hljs-keyword">sizeof</span>(palette_funcs) / <span class="hljs-keyword">sizeof</span>(*palette_funcs));
+	initialize_palette();
+}
+
+<span class="hljs-keyword">int</span> left   = <span class="hljs-number">40</span>;
+<span class="hljs-keyword">int</span> top    = <span class="hljs-number">40</span>;
+<span class="hljs-keyword">int</span> <span class="hljs-built_in">width</span>  = <span class="hljs-number">300</span>;
+<span class="hljs-keyword">int</span> <span class="hljs-built_in">height</span> = <span class="hljs-number">300</span>;
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">julia</span><span class="hljs-params">(<span class="hljs-keyword">int</span> xpt, <span class="hljs-keyword">int</span> ypt)</span> </span>{
+	<span class="hljs-keyword">long</span> <span class="hljs-keyword">double</span> x = (xpt * pixcorx + Minx) * expz + expx;
+	<span class="hljs-keyword">long</span> <span class="hljs-keyword">double</span> y = (Maxy - ypt * pixcory) * expz + expy;
+	<span class="hljs-keyword">long</span> <span class="hljs-keyword">double</span> xnew = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">long</span> <span class="hljs-keyword">double</span> ynew = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">int</span> k = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (k = <span class="hljs-number">0</span>; k &lt; maxiter; k++) {
+		xnew = x * x - y * y + conx;
+		ynew = <span class="hljs-number">2</span> * x * y     + cony;
+		x    = xnew;
+		y    = ynew;
+		<span class="hljs-keyword">if</span> ((x * x + y * y) &gt; <span class="hljs-number">4.0</span>)
+			<span class="hljs-keyword">break</span>;
+	}
+
+	<span class="hljs-keyword">return</span> palette[k];
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">mandelbrot</span><span class="hljs-params">(<span class="hljs-keyword">int</span> xpt, <span class="hljs-keyword">int</span> ypt)</span> </span>{
+	<span class="hljs-keyword">long</span> <span class="hljs-keyword">double</span> x0 = (xpt * pixcorx + Minx) * expz + expx;
+	<span class="hljs-keyword">long</span> <span class="hljs-keyword">double</span> y0 = (Maxy - ypt * pixcory) * expz + expy;
+	<span class="hljs-keyword">long</span> <span class="hljs-keyword">double</span> x = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">long</span> <span class="hljs-keyword">double</span> y = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">long</span> <span class="hljs-keyword">double</span> xnew = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">long</span> <span class="hljs-keyword">double</span> ynew = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">int</span> k = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (k = <span class="hljs-number">0</span>; k &lt; maxiter; k++) {
+		xnew = x * x - y * y + x0;
+		ynew = <span class="hljs-number">2</span> * x * y + y0;
+		x    = xnew;
+		y    = ynew;
+		<span class="hljs-keyword">if</span> ((x * x + y * y) &gt; <span class="hljs-number">4.0</span>)
+			<span class="hljs-keyword">break</span>;
+	}
+
+	<span class="hljs-keyword">return</span> palette[k];
+}
+
+<span class="hljs-keyword">uint32_t</span> (*function)(<span class="hljs-keyword">int</span>,<span class="hljs-keyword">int</span>) = julia;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> T_I <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> T_N <span class="hljs-meta-string">"\033[0m"</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> USAGE_STRING \
+	<span class="hljs-meta-string">"usage: %s [-i "</span> T_I <span class="hljs-meta-string">"iterations"</span> T_N <span class="hljs-meta-string">"] [-x "</span> T_I <span class="hljs-meta-string">"minx"</span> T_N <span class="hljs-meta-string">"]\n"</span> \
+	<span class="hljs-meta-string">"          [-X "</span> T_I <span class="hljs-meta-string">"maxx"</span> T_N <span class="hljs-meta-string">"] [-c "</span> T_I <span class="hljs-meta-string">"real"</span> T_N <span class="hljs-meta-string">"] [-C "</span> T_I <span class="hljs-meta-string">"imag"</span> T_N <span class="hljs-meta-string">"]\n"</span> \
+	<span class="hljs-meta-string">"          [-W "</span> T_I <span class="hljs-meta-string">"width"</span> T_N <span class="hljs-meta-string">"] [-H "</span> T_I <span class="hljs-meta-string">"height"</span> T_N <span class="hljs-meta-string">"] [-h]\n"</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">full_help</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-built_in">printf</span>(
+			<span class="hljs-string">"%s.\n"</span>
+			<span class="hljs-string">"\n"</span>
+			USAGE_STRING
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -i --iterations  "</span> T_I <span class="hljs-string">"Number of iterations to run"</span> T_N <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -x --center-x    "</span> T_I <span class="hljs-string">"Center X"</span> T_N <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -y --center-y    "</span> T_I <span class="hljs-string">"Center Y"</span> T_N <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -c --creal       "</span> T_I <span class="hljs-string">"Real component of c"</span> T_N <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -C --cimag       "</span> T_I <span class="hljs-string">"Imaginary component of c"</span> T_N <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -r --rotate      "</span> T_I <span class="hljs-string">"Hue rotation for color mapping"</span> T_N <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -W --width       "</span> T_I <span class="hljs-string">"Window width"</span> T_N <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -H --height      "</span> T_I <span class="hljs-string">"Window height"</span> T_N <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -h --help        "</span> T_I <span class="hljs-string">"Show this help message."</span> T_N <span class="hljs-string">"\n"</span>,
+			app_desc,
+			argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, USAGE_STRING, argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">decors</span><span class="hljs-params">()</span> </span>{
+	render_decorations(window, ctx, app_name);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">do_line</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">int</span> j)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">width</span>; ++i) {
+		GFX_(i,j) = function(i,j);
+	}
+	<span class="hljs-built_in">memcpy</span>(&amp;GFXR(ctx,<span class="hljs-number">0</span>,decor_top_height+j),&amp;GFX(ctx,<span class="hljs-number">0</span>,decor_top_height+j),ctx-&gt;stride);
+	yutani_flip_region(yctx, window, decor_left_width, decor_top_height + j, <span class="hljs-built_in">width</span>, <span class="hljs-number">1</span>);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> step_res;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> step_n;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> step_y;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> step_i;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> processing = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">clock_t</span> time_before;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> START_POINT -4</span>
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">step_once</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">start_processing</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">double</span> _x = Maxx - Minx;
+	<span class="hljs-keyword">double</span> _y = _x / <span class="hljs-built_in">width</span> * <span class="hljs-built_in">height</span>;
+
+	Miny = <span class="hljs-number">0</span> - _y / <span class="hljs-number">2</span>;
+	Maxy = _y / <span class="hljs-number">2</span>;
+
+	pixcorx = (Maxx - Minx) / <span class="hljs-built_in">width</span>;
+	pixcory = (Maxy - Miny) / <span class="hljs-built_in">height</span>;
+
+	step_n = START_POINT;
+	step_y = <span class="hljs-number">0</span>;
+	step_i = <span class="hljs-number">0</span>;
+	step_res = <span class="hljs-number">64</span>;
+
+	processing = <span class="hljs-number">1</span>;
+	draw_fill(ctx, rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+
+	decors();
+
+	time_before = clock();
+	step_once();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">draw_label</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">clock_t</span> time_after = clock();
+	<span class="hljs-keyword">char</span> description[<span class="hljs-number">100</span>];
+	<span class="hljs-keyword">if</span> (explore_mode) {
+		<span class="hljs-built_in">snprintf</span>(description, <span class="hljs-number">100</span>, <span class="hljs-string">"&lt;i&gt;x&lt;/i&gt;=%g &lt;i&gt;y&lt;/i&gt;=%g, &lt;i&gt;zoom&lt;/i&gt;=%g×, %ld ms%s"</span>, expx, expy, <span class="hljs-number">1.0</span>/expz, (time_after - time_before) / <span class="hljs-number">1000</span>, step_n == <span class="hljs-number">0</span> ? <span class="hljs-string">"*"</span> : <span class="hljs-string">""</span>);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">snprintf</span>(description, <span class="hljs-number">100</span>, <span class="hljs-string">"&lt;i&gt;c&lt;/i&gt; = %g + %g&lt;i&gt;i&lt;/i&gt;, %ld ms%s"</span>, conx, cony, (time_after - time_before) / <span class="hljs-number">1000</span>, step_n == <span class="hljs-number">0</span> ? <span class="hljs-string">"*"</span> : <span class="hljs-string">""</span>);
+	}
+
+	<span class="hljs-comment">/* Set up a clip box */</span>
+	<span class="hljs-keyword">gfx_context_t</span> * tmp = init_graphics_subregion(ctx, decor_left_width, decor_top_height, <span class="hljs-built_in">width</span>, <span class="hljs-built_in">height</span>);
+
+	<span class="hljs-comment">/* Create a sprite to draw into */</span>
+	<span class="hljs-keyword">sprite_t</span> * stmp = create_sprite(<span class="hljs-built_in">width</span>, <span class="hljs-built_in">height</span>, ALPHA_EMBEDDED);
+	<span class="hljs-keyword">gfx_context_t</span> * sctx = init_graphics_sprite(stmp);
+
+	<span class="hljs-comment">/* Draw shadow */</span>
+	draw_fill(sctx, rgba(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+	markup_draw_string(sctx, <span class="hljs-number">2</span>, <span class="hljs-built_in">height</span> - <span class="hljs-number">2</span>, description, rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+	blur_context_box(sctx, <span class="hljs-number">2</span>);
+	blur_context_box(sctx, <span class="hljs-number">2</span>);
+
+	<span class="hljs-comment">/* Paint it twice */</span>
+	draw_sprite(tmp, stmp, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>);
+	draw_sprite(tmp, stmp, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>);
+
+	<span class="hljs-comment">/* Free the sprite part */</span>
+	<span class="hljs-built_in">free</span>(sctx);
+	sprite_free(stmp);
+
+	<span class="hljs-comment">/* Now draw the white text */</span>
+	markup_draw_string(tmp, <span class="hljs-number">2</span>, <span class="hljs-built_in">height</span> - <span class="hljs-number">2</span>, description, rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>));
+
+	<span class="hljs-comment">/* Free clip space */</span>
+	<span class="hljs-built_in">free</span>(tmp);
+
+	flip(ctx);
+	yutani_flip(yctx,window);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">step_once</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (step_n &lt; <span class="hljs-number">0</span> &amp;&amp; step_y &gt; <span class="hljs-built_in">height</span>) {
+		flip(ctx);
+		yutani_flip(yctx, window);
+
+		step_res /= <span class="hljs-number">2</span>;
+		step_y = <span class="hljs-number">0</span>;
+		step_i = <span class="hljs-number">0</span>;
+		step_n++;
+	}
+
+	<span class="hljs-keyword">if</span> (step_n &gt;= <span class="hljs-built_in">height</span>) {
+		processing = <span class="hljs-number">0</span>;
+		draw_label();
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (step_n == <span class="hljs-number">0</span>) {
+		draw_label();
+	}
+
+	<span class="hljs-keyword">if</span> (step_n &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>, i = <span class="hljs-number">0</span>; x &lt; <span class="hljs-built_in">width</span>; x += step_res, i++) {
+			<span class="hljs-keyword">if</span> ((step_n != START_POINT) &amp;&amp; (step_i &amp; <span class="hljs-number">1</span>) == <span class="hljs-number">0</span> &amp;&amp; (i &amp; <span class="hljs-number">1</span>) == <span class="hljs-number">0</span>) <span class="hljs-keyword">continue</span>;
+
+			<span class="hljs-keyword">uint32_t</span> c = function(x,step_y);
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> _y = <span class="hljs-number">0</span>; _y &lt; step_res &amp;&amp; _y + step_y &lt; <span class="hljs-built_in">height</span>; _y++) {
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> _x = <span class="hljs-number">0</span>; _x &lt; step_res &amp;&amp; _x + x &lt; <span class="hljs-built_in">width</span>; _x++) {
+					GFX_(_x+x,_y+step_y) = c;
+				}
+			}
+		}
+
+		step_i += <span class="hljs-number">1</span>;
+		step_y += step_res;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (step_n % <span class="hljs-number">2</span>) {
+		do_line(ctx,<span class="hljs-built_in">height</span>/<span class="hljs-number">2</span> + step_n/<span class="hljs-number">2</span>);
+		step_n++;
+	} <span class="hljs-keyword">else</span> {
+		do_line(ctx,<span class="hljs-built_in">height</span>/<span class="hljs-number">2</span> - step_n/<span class="hljs-number">2</span> - <span class="hljs-number">1</span>);
+		step_n++;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">resize_finish</span><span class="hljs-params">(<span class="hljs-keyword">int</span> w, <span class="hljs-keyword">int</span> h)</span> </span>{
+	yutani_window_resize_accept(yctx, window, w, h);
+	reinit_graphics_yutani(ctx, window);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(window, &amp;bounds);
+
+	decor_left_width = bounds.left_width;
+	decor_top_height = bounds.top_height;
+	decor_right_width = bounds.right_width;
+	decor_bottom_height = bounds.bottom_height;
+	decor_width = bounds.<span class="hljs-built_in">width</span>;
+	decor_height = bounds.<span class="hljs-built_in">height</span>;
+
+	<span class="hljs-built_in">width</span>  = w - decor_left_width - decor_right_width;
+	<span class="hljs-built_in">height</span> = h - decor_top_height - decor_bottom_height;
+
+	start_processing();
+	yutani_window_resize_done(yctx, window);
+	yutani_flip(yctx, window);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">double</span> shift_amount = <span class="hljs-number">0.001</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">double</span> pan_amount = <span class="hljs-number">0.1</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">double</span> zoom_amount = <span class="hljs-number">2.0</span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">double</span> <span class="hljs-title">amount</span><span class="hljs-params">(struct yutani_msg_key_event * ke, <span class="hljs-keyword">double</span> basis)</span> </span>{
+	<span class="hljs-keyword">if</span> (ke-&gt;event.modifiers &amp; (KEY_MOD_LEFT_SHIFT | KEY_MOD_RIGHT_SHIFT)) basis *= <span class="hljs-number">10.0</span>;
+	<span class="hljs-keyword">if</span> (ke-&gt;event.modifiers &amp; (KEY_MOD_LEFT_CTRL | KEY_MOD_RIGHT_CTRL)) basis *= <span class="hljs-number">5.0</span>;
+
+	<span class="hljs-keyword">return</span> basis;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(basename(argv[<span class="hljs-number">0</span>]),<span class="hljs-string">"mandelbrot"</span>)) {
+		function = mandelbrot;
+		app_name = <span class="hljs-string">"Mandelbrot Explorer"</span>;
+		app_desc = <span class="hljs-string">"Mandelbrot set plotter"</span>;
+		app_icon = <span class="hljs-string">"mandelbrot"</span>;
+		explore_mode = <span class="hljs-number">1</span>;
+		expx = <span class="hljs-number">-0.75</span>;
+	}
+
+	<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">option</span> <span class="hljs-title">long_opts</span>[] = {</span>
+		{<span class="hljs-string">"iterations"</span>, required_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'i'</span>},
+		{<span class="hljs-string">"center-x"</span>,   required_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'x'</span>},
+		{<span class="hljs-string">"center-y"</span>,   required_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'y'</span>},
+		{<span class="hljs-string">"creal"</span>,      required_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'c'</span>},
+		{<span class="hljs-string">"cimag"</span>,      required_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'C'</span>},
+		{<span class="hljs-string">"rotate"</span>,     required_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'r'</span>},
+		{<span class="hljs-string">"width"</span>,      required_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'W'</span>},
+		{<span class="hljs-string">"height"</span>,     required_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'H'</span>},
+		{<span class="hljs-string">"help"</span>,       no_argument,       <span class="hljs-number">0</span>, <span class="hljs-string">'h'</span>},
+		{<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>}
+	};
+
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-comment">/* Read some arguments */</span>
+		<span class="hljs-keyword">int</span> index, c;
+		<span class="hljs-keyword">while</span> ((c = getopt_long(argc, argv, <span class="hljs-string">"ni:x:X:c:C:W:H:h"</span>, long_opts, &amp;index)) != <span class="hljs-number">-1</span>) {
+			<span class="hljs-keyword">if</span> (!c) {
+				<span class="hljs-keyword">if</span> (long_opts[index].flag == <span class="hljs-number">0</span>) {
+					c = long_opts[index].val;
+				}
+			}
+			<span class="hljs-keyword">switch</span> (c) {
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'i'</span>:
+					maxiter = atoi(optarg);
+					<span class="hljs-keyword">if</span> (maxiter &lt; <span class="hljs-number">10</span>) maxiter = <span class="hljs-number">10</span>;
+					<span class="hljs-keyword">if</span> (maxiter &gt; <span class="hljs-number">1000</span>) maxiter = <span class="hljs-number">1000</span>;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'x'</span>:
+					expx = atof(optarg);
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'y'</span>:
+					expy = atof(optarg);
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'c'</span>:
+					conx = atof(optarg);
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'C'</span>:
+					cony = atof(optarg);
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'r'</span>:
+					rotation = atof(optarg);
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'W'</span>:
+					<span class="hljs-built_in">width</span> = atoi(optarg);
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'H'</span>:
+					<span class="hljs-built_in">height</span> = atoi(optarg);
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'h'</span>:
+					<span class="hljs-keyword">return</span> full_help(argv);
+				<span class="hljs-keyword">default</span>:
+					<span class="hljs-keyword">return</span> usage(argv);
+			}
+		}
+	}
+
+	yctx = yutani_init();
+	<span class="hljs-keyword">if</span> (!yctx) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: failed to connect to compositor\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	init_decorations();
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(<span class="hljs-literal">NULL</span>, &amp;bounds);
+
+	decor_left_width = bounds.left_width;
+	decor_top_height = bounds.top_height;
+	decor_right_width = bounds.right_width;
+	decor_bottom_height = bounds.bottom_height;
+	decor_width = bounds.<span class="hljs-built_in">width</span>;
+	decor_height = bounds.<span class="hljs-built_in">height</span>;
+
+	window = yutani_window_create(yctx, <span class="hljs-built_in">width</span> + decor_width, <span class="hljs-built_in">height</span> + decor_height);
+	yutani_window_move(yctx, window, left, top);
+
+	yutani_window_advertise_icon(yctx, window, app_name, app_icon);
+
+	ctx = init_graphics_yutani_double_buffer(window);
+
+	initialize_palette();
+
+	start_processing();
+
+	<span class="hljs-keyword">int</span> playing = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">int</span> needs_redraw = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">while</span> (playing) {
+
+		<span class="hljs-keyword">if</span> (processing &amp;&amp; !yutani_query(yctx)) {
+			step_once();
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-keyword">yutani_msg_t</span> * m = yutani_poll(yctx);
+
+		<span class="hljs-keyword">while</span> (m) {
+			<span class="hljs-keyword">switch</span> (decor_handle_event_flags(yctx, m, DECOR_HANDLE_SIMPLE)) {
+				<span class="hljs-keyword">case</span> DECOR_REDRAW:
+					decors();
+					flip(ctx);
+					yutani_flip(yctx, window);
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> DECOR_CLOSE:
+					playing = <span class="hljs-number">0</span>;
+					<span class="hljs-keyword">break</span>;
+			}
+			<span class="hljs-keyword">switch</span> (m-&gt;type) {
+				<span class="hljs-keyword">case</span> YUTANI_MSG_KEY_EVENT:
+					{
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_key_event</span> * <span class="hljs-title">ke</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+						<span class="hljs-keyword">if</span> (ke-&gt;wid != window-&gt;wid) <span class="hljs-keyword">break</span>;
+						<span class="hljs-keyword">if</span> (ke-&gt;event.action == KEY_ACTION_DOWN) {
+							<span class="hljs-keyword">if</span> (explore_mode) {
+								<span class="hljs-keyword">switch</span> (ke-&gt;event.keycode) {
+									<span class="hljs-keyword">case</span> KEY_ARROW_LEFT:
+										expx -= amount(ke, pan_amount) * expz;
+										needs_redraw = <span class="hljs-number">1</span>;
+										<span class="hljs-keyword">break</span>;
+									<span class="hljs-keyword">case</span> KEY_ARROW_RIGHT:
+										expx += amount(ke, pan_amount) * expz;
+										needs_redraw = <span class="hljs-number">1</span>;
+										<span class="hljs-keyword">break</span>;
+									<span class="hljs-keyword">case</span> KEY_ARROW_UP:
+										expy += amount(ke, pan_amount) * expz;
+										needs_redraw = <span class="hljs-number">1</span>;
+										<span class="hljs-keyword">break</span>;
+									<span class="hljs-keyword">case</span> KEY_ARROW_DOWN:
+										expy -= amount(ke, pan_amount) * expz;
+										needs_redraw = <span class="hljs-number">1</span>;
+										<span class="hljs-keyword">break</span>;
+									<span class="hljs-keyword">case</span> KEY_PAGE_UP:
+										expz /= amount(ke, zoom_amount);
+										needs_redraw = <span class="hljs-number">1</span>;
+										<span class="hljs-keyword">break</span>;
+									<span class="hljs-keyword">case</span> KEY_PAGE_DOWN:
+										expz *= amount(ke, zoom_amount);
+										needs_redraw = <span class="hljs-number">1</span>;
+										<span class="hljs-keyword">break</span>;
+									<span class="hljs-keyword">case</span> <span class="hljs-string">'q'</span>:
+										playing = <span class="hljs-number">0</span>;
+										<span class="hljs-keyword">break</span>;
+									<span class="hljs-keyword">case</span> <span class="hljs-string">'p'</span>:
+										next_palette();
+										needs_redraw = <span class="hljs-number">1</span>;
+										<span class="hljs-keyword">break</span>;
+									<span class="hljs-keyword">case</span> <span class="hljs-string">'e'</span>:
+										explore_mode = <span class="hljs-number">0</span>;
+										needs_redraw = <span class="hljs-number">1</span>;
+										<span class="hljs-keyword">break</span>;
+								}
+
+							} <span class="hljs-keyword">else</span> {
+								<span class="hljs-keyword">switch</span> (ke-&gt;event.keycode) {
+									<span class="hljs-keyword">case</span> <span class="hljs-string">'q'</span>:
+										playing = <span class="hljs-number">0</span>;
+										<span class="hljs-keyword">break</span>;
+									<span class="hljs-keyword">case</span> KEY_ARROW_LEFT:
+										conx -= amount(ke, shift_amount);
+										needs_redraw = <span class="hljs-number">1</span>;
+										<span class="hljs-keyword">break</span>;
+									<span class="hljs-keyword">case</span> KEY_ARROW_RIGHT:
+										conx += amount(ke, shift_amount);
+										needs_redraw = <span class="hljs-number">1</span>;
+										<span class="hljs-keyword">break</span>;
+									<span class="hljs-keyword">case</span> KEY_ARROW_UP:
+										cony += amount(ke, shift_amount);
+										needs_redraw = <span class="hljs-number">1</span>;
+										<span class="hljs-keyword">break</span>;
+									<span class="hljs-keyword">case</span> KEY_ARROW_DOWN:
+										cony -= amount(ke, shift_amount);
+										needs_redraw = <span class="hljs-number">1</span>;
+										<span class="hljs-keyword">break</span>;
+									<span class="hljs-keyword">case</span> <span class="hljs-string">'p'</span>:
+										next_palette();
+										needs_redraw = <span class="hljs-number">1</span>;
+										<span class="hljs-keyword">break</span>;
+									<span class="hljs-keyword">case</span> <span class="hljs-string">'e'</span>:
+										explore_mode = <span class="hljs-number">1</span>;
+										needs_redraw = <span class="hljs-number">1</span>;
+										<span class="hljs-keyword">break</span>;
+								}
+							}
+						}
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> YUTANI_MSG_RESIZE_OFFER:
+					{
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_resize</span> * <span class="hljs-title">wr</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+						<span class="hljs-keyword">if</span> (wr-&gt;wid != window-&gt;wid) <span class="hljs-keyword">break</span>;
+						resize_finish(wr-&gt;<span class="hljs-built_in">width</span>, wr-&gt;<span class="hljs-built_in">height</span>);
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_CLOSE:
+				<span class="hljs-keyword">case</span> YUTANI_MSG_SESSION_END:
+					playing = <span class="hljs-number">0</span>;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">default</span>:
+					<span class="hljs-keyword">break</span>;
+			}
+			<span class="hljs-built_in">free</span>(m);
+			m = yutani_poll_async(yctx);
+		}
+
+		<span class="hljs-keyword">if</span> (needs_redraw) {
+			start_processing();
+			needs_redraw = <span class="hljs-number">0</span>;
+		}
+	}
+
+	yutani_close(yctx, window);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

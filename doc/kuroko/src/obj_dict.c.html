@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>obj_dict.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\src\\obj_dict.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>obj_dict.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/value.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/memory.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__TINYC__) || (defined(_MSC_VER) &amp;&amp; !defined(__clang__))</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> __builtin_clz(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> x) {
+	<span class="hljs-keyword">int</span> i = <span class="hljs-number">31</span>;
+	<span class="hljs-keyword">while</span> (!(x &amp; (<span class="hljs-number">1</span> &lt;&lt; i)) &amp;&amp; i &gt;= <span class="hljs-number">0</span>) i--;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">31</span>-i;
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Exposed method called to produce dictionaries from <code>{expr: expr, ...}</code> sequences in managed code.
+Expects arguments as <code>key,value,key,value</code>...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function">KrkValue <span class="hljs-title">krk_dict_of</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">const</span> KrkValue argv[], <span class="hljs-keyword">int</span> hasKw)</span> </span>{
+	<span class="hljs-keyword">if</span> (argc % <span class="hljs-number">2</span> != <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;argumentError, <span class="hljs-string">"Expected even number of arguments to krk_dict_of"</span>);
+	KrkInstance * outDict = krk_newInstance(vm.baseClasses-&gt;dictClass);
+	krk_push(OBJECT_VAL(outDict));
+	krk_initTable(&amp;((KrkDict*)outDict)-&gt;entries);
+	<span class="hljs-keyword">if</span> (argc) {
+		<span class="hljs-keyword">size_t</span> capacity = argc;
+		<span class="hljs-keyword">size_t</span> powerOfTwoCapacity = __builtin_clz(<span class="hljs-number">1</span>) - __builtin_clz(capacity);
+		<span class="hljs-keyword">if</span> ((<span class="hljs-number">1U</span>L &lt;&lt; powerOfTwoCapacity) != capacity) powerOfTwoCapacity++;
+		capacity = (<span class="hljs-number">1U</span>L &lt;&lt; powerOfTwoCapacity);
+		krk_tableAdjustCapacity(&amp;((KrkDict*)outDict)-&gt;entries, capacity);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> ind = <span class="hljs-number">0</span>; ind &lt; argc; ind += <span class="hljs-number">2</span>) {
+			krk_tableSet(&amp;((KrkDict*)outDict)-&gt;entries, argv[ind], argv[ind+<span class="hljs-number">1</span>]);
+		}
+	}
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _dict_gcscan(KrkInstance * self) {
+	krk_markTable(&amp;((KrkDict*)self)-&gt;entries);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _dict_gcsweep(KrkInstance * self) {
+	krk_freeTable(&amp;((KrkDict*)self)-&gt;entries);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE KrkDict *</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_NAME  self</span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> _<span class="hljs-title">keyvalue_pair_context</span> {</span>
+	KrkDict * self;
+	KrkValue key;
+	<span class="hljs-keyword">int</span> counter;
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> _keyvalue_pair_callback(<span class="hljs-keyword">void</span> * context, <span class="hljs-keyword">const</span> KrkValue * entries, <span class="hljs-keyword">size_t</span> count) {
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> _<span class="hljs-title">keyvalue_pair_context</span> * _<span class="hljs-title">context</span> = <span class="hljs-title">context</span>;</span>
+
+	<span class="hljs-keyword">if</span> (count &gt; <span class="hljs-number">2</span>) {
+		_context-&gt;counter = count;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+		<span class="hljs-keyword">if</span> (_context-&gt;counter == <span class="hljs-number">0</span>) {
+			_context-&gt;counter = <span class="hljs-number">1</span>;
+			_context-&gt;key = entries[i];
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (_context-&gt;counter == <span class="hljs-number">1</span>) {
+			_context-&gt;counter = <span class="hljs-number">2</span>;
+			krk_tableSet(&amp;_context-&gt;self-&gt;entries, _context-&gt;key, entries[i]);
+		} <span class="hljs-keyword">else</span> {
+			_context-&gt;counter = <span class="hljs-number">-1</span>;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (unlikely(krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">unpackKeyValuePair</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * self, <span class="hljs-keyword">const</span> KrkValue * pairs, <span class="hljs-keyword">size_t</span> count)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> _<span class="hljs-title">keyvalue_pair_context</span> <span class="hljs-title">context</span> = {</span> (KrkDict*)self, NONE_VAL(), <span class="hljs-number">0</span> };
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+		<span class="hljs-keyword">if</span> (krk_unpackIterable(pairs[i], &amp;context, _keyvalue_pair_callback)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (context.counter != <span class="hljs-number">2</span>) {
+		krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-string">"dictionary update sequence element has invalid length"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+KRK_Method(dict,__init__) {
+	METHOD_TAKES_AT_MOST(<span class="hljs-number">1</span>);
+	krk_initTable(&amp;self-&gt;entries);
+
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">if</span> (krk_unpackIterable(argv[<span class="hljs-number">1</span>], self, unpackKeyValuePair)) <span class="hljs-keyword">return</span> NONE_VAL();
+	}
+
+	<span class="hljs-keyword">if</span> (hasKw) {
+		krk_tableAddAll(AS_DICT(argv[argc]), &amp;self-&gt;entries);
+	}
+
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(dict,__eq__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (!IS_dict(argv[<span class="hljs-number">1</span>]))
+		<span class="hljs-keyword">return</span> NOTIMPL_VAL();
+	CHECK_ARG(<span class="hljs-number">1</span>,dict,KrkDict*,them);
+	<span class="hljs-keyword">if</span> (self-&gt;entries.count != them-&gt;entries.count)
+		<span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">0</span>);
+
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; self-&gt;entries.capacity; ++i) {
+		<span class="hljs-keyword">if</span> (IS_KWARGS(self-&gt;entries.entries[i].key)) <span class="hljs-keyword">continue</span>;
+		KrkValue val;
+		<span class="hljs-keyword">if</span> (!krk_tableGet(&amp;them-&gt;entries, self-&gt;entries.entries[i].key, &amp;val)) <span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">0</span>);
+		<span class="hljs-keyword">if</span> (!krk_valuesSameOrEqual(self-&gt;entries.entries[i].value, val)) <span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">0</span>);
+	}
+
+	<span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">1</span>);
+}
+
+
+KRK_Method(dict,__getitem__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	KrkValue out;
+	<span class="hljs-keyword">if</span> (!krk_tableGet(&amp;self-&gt;entries, argv[<span class="hljs-number">1</span>], &amp;out)) {
+		<span class="hljs-keyword">if</span> (!IS_NONE(krk_currentThread.currentException)) <span class="hljs-keyword">return</span> NONE_VAL();
+		<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;keyError, <span class="hljs-string">"%V"</span>, argv[<span class="hljs-number">1</span>]);
+	}
+	<span class="hljs-keyword">return</span> out;
+}
+
+KRK_Method(dict,__setitem__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">2</span>);
+	krk_tableSet(&amp;self-&gt;entries, argv[<span class="hljs-number">1</span>], argv[<span class="hljs-number">2</span>]);
+	<span class="hljs-keyword">return</span> argv[<span class="hljs-number">2</span>];
+}
+
+KRK_Method(dict,__or__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,dict,KrkDict*,them);
+	KrkValue outDict = krk_dict_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	krk_push(outDict);
+	krk_tableAddAll(&amp;self-&gt;entries, AS_DICT(outDict));
+	krk_tableAddAll(&amp;them-&gt;entries, AS_DICT(outDict));
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+
+KRK_Method(dict,__delitem__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (!krk_tableDelete(&amp;self-&gt;entries, argv[<span class="hljs-number">1</span>])) {
+		<span class="hljs-keyword">if</span> (!IS_NONE(krk_currentThread.currentException)) <span class="hljs-keyword">return</span> NONE_VAL();
+		<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;keyError, <span class="hljs-string">"%V"</span>, argv[<span class="hljs-number">1</span>]);
+	}
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(dict,__len__) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">return</span> INTEGER_VAL(self-&gt;entries.count);
+}
+
+KRK_Method(dict,__contains__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	KrkValue v;
+	<span class="hljs-keyword">return</span> BOOLEAN_VAL(krk_tableGet(&amp;self-&gt;entries, argv[<span class="hljs-number">1</span>], &amp;v));
+}
+
+KRK_Method(dict,capacity) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">return</span> INTEGER_VAL(self-&gt;entries.capacity);
+}
+
+KRK_Method(dict,__repr__) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">if</span> (((KrkObj*)self)-&gt;flags &amp; KRK_OBJ_FLAGS_IN_REPR) <span class="hljs-keyword">return</span> OBJECT_VAL(S(<span class="hljs-string">"{...}"</span>));
+	((KrkObj*)self)-&gt;flags |= KRK_OBJ_FLAGS_IN_REPR;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+	pushStringBuilder(&amp;sb,<span class="hljs-string">'{'</span>);
+
+	<span class="hljs-keyword">size_t</span> c = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> len = self-&gt;entries.capacity;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; len; ++i) {
+		KrkTableEntry * entry = &amp;self-&gt;entries.entries[i];
+		<span class="hljs-keyword">if</span> (IS_KWARGS(entry-&gt;key)) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">if</span> (c) pushStringBuilderStr(&amp;sb, <span class="hljs-string">", "</span>, <span class="hljs-number">2</span>);
+		c++;
+		<span class="hljs-keyword">if</span> (!krk_pushStringBuilderFormat(&amp;sb, <span class="hljs-string">"%R"</span>, entry-&gt;key)) <span class="hljs-keyword">goto</span> _error;
+		pushStringBuilderStr(&amp;sb, <span class="hljs-string">": "</span>, <span class="hljs-number">2</span>);
+		<span class="hljs-keyword">if</span> (!krk_pushStringBuilderFormat(&amp;sb, <span class="hljs-string">"%R"</span>, entry-&gt;value)) <span class="hljs-keyword">goto</span> _error;
+	}
+
+	pushStringBuilder(&amp;sb,<span class="hljs-string">'}'</span>);
+	((KrkObj*)self)-&gt;flags &amp;= ~(KRK_OBJ_FLAGS_IN_REPR);
+	<span class="hljs-keyword">return</span> finishStringBuilder(&amp;sb);
+
+_error:
+	((KrkObj*)self)-&gt;flags &amp;= ~(KRK_OBJ_FLAGS_IN_REPR);
+	krk_discardStringBuilder(&amp;sb);
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(dict,copy) {
+	METHOD_TAKES_NONE();
+	KrkValue dictOut = krk_dict_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	krk_push(dictOut);
+	krk_tableAddAll(&amp;self-&gt;entries, AS_DICT(dictOut));
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+
+KRK_Method(dict,<span class="hljs-built_in">clear</span>) {
+	METHOD_TAKES_NONE();
+	krk_freeTable(&amp;self-&gt;entries);
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(dict,<span class="hljs-built_in">get</span>) {
+	METHOD_TAKES_AT_LEAST(<span class="hljs-number">1</span>);
+	METHOD_TAKES_AT_MOST(<span class="hljs-number">2</span>);
+	KrkValue out = NONE_VAL();
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">2</span>) out = argv[<span class="hljs-number">2</span>];
+	krk_tableGet(&amp;self-&gt;entries, argv[<span class="hljs-number">1</span>], &amp;out);
+	<span class="hljs-keyword">return</span> out;
+}
+
+KRK_Method(dict,setdefault) {
+	METHOD_TAKES_AT_LEAST(<span class="hljs-number">1</span>);
+	METHOD_TAKES_AT_MOST(<span class="hljs-number">2</span>);
+	KrkValue out = NONE_VAL();
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">2</span>) out = argv[<span class="hljs-number">2</span>];
+
+	<span class="hljs-comment">/* TODO this is slow; use findEntry instead! */</span>
+	<span class="hljs-keyword">if</span> (!krk_tableGet(&amp;self-&gt;entries, argv[<span class="hljs-number">1</span>], &amp;out)) {
+		krk_tableSet(&amp;self-&gt;entries, argv[<span class="hljs-number">1</span>], out);
+	}
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+KRK_Method(dict,update) {
+	METHOD_TAKES_AT_MOST(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-comment">/* TODO sequence */</span>
+		CHECK_ARG(<span class="hljs-number">1</span>,dict,KrkDict*,other);
+		krk_tableAddAll(&amp;other-&gt;entries, &amp;self-&gt;entries);
+	}
+	<span class="hljs-keyword">if</span> (hasKw) {
+		krk_tableAddAll(AS_DICT(argv[argc]), &amp;self-&gt;entries);
+	}
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(dict,__ior__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,dict,KrkDict*,other);
+	krk_tableAddAll(&amp;other-&gt;entries, &amp;self-&gt;entries);
+	<span class="hljs-keyword">return</span> argv[<span class="hljs-number">0</span>];
+}
+
+FUNC_SIG(dictkeys,__init__);
+
+KRK_Method(dict,keys) {
+	METHOD_TAKES_NONE();
+	KrkInstance * output = krk_newInstance(vm.baseClasses-&gt;dictkeysClass);
+	krk_push(OBJECT_VAL(output));
+	FUNC_NAME(dictkeys,__init__)(<span class="hljs-number">2</span>, (KrkValue[]){krk_peek(<span class="hljs-number">0</span>), argv[<span class="hljs-number">0</span>]},<span class="hljs-number">0</span>);
+	krk_pop();
+	<span class="hljs-keyword">return</span> OBJECT_VAL(output);
+}
+
+FUNC_SIG(dictitems,__init__);
+
+KRK_Method(dict,items) {
+	METHOD_TAKES_NONE();
+	KrkInstance * output = krk_newInstance(vm.baseClasses-&gt;dictitemsClass);
+	krk_push(OBJECT_VAL(output));
+	FUNC_NAME(dictitems,__init__)(<span class="hljs-number">2</span>, (KrkValue[]){krk_peek(<span class="hljs-number">0</span>), argv[<span class="hljs-number">0</span>]},<span class="hljs-number">0</span>);
+	krk_pop();
+	<span class="hljs-keyword">return</span> OBJECT_VAL(output);
+}
+
+FUNC_SIG(dictvalues,__init__);
+
+KRK_Method(dict,values) {
+	METHOD_TAKES_NONE();
+	KrkInstance * output = krk_newInstance(vm.baseClasses-&gt;dictvaluesClass);
+	krk_push(OBJECT_VAL(output));
+	FUNC_NAME(dictvalues,__init__)(<span class="hljs-number">2</span>, (KrkValue[]){krk_peek(<span class="hljs-number">0</span>), argv[<span class="hljs-number">0</span>]},<span class="hljs-number">0</span>);
+	krk_pop();
+	<span class="hljs-keyword">return</span> OBJECT_VAL(output);
+}
+
+<span class="hljs-function">KrkValue <span class="hljs-title">krk_dict_nth_key_fast</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> capacity, KrkTableEntry * entries, <span class="hljs-keyword">size_t</span> index)</span> </span>{
+	<span class="hljs-keyword">size_t</span> found = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; capacity; ++i) {
+		<span class="hljs-keyword">if</span> (IS_KWARGS(entries[i].key)) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">if</span> (found == index) <span class="hljs-keyword">return</span> entries[i].key;
+		found++;
+	}
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> CURRENT_CTYPE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE struct DictItems *</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _dictitems_gcscan(KrkInstance * self) {
+	krk_markValue(((struct DictItems*)self)-&gt;dict);
+}
+
+KRK_Method(dictitems,__init__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,dict,KrkDict*,source);
+	self-&gt;dict = argv[<span class="hljs-number">1</span>];
+	self-&gt;i = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(dictitems,__iter__) {
+	METHOD_TAKES_NONE();
+	self-&gt;i = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> argv[<span class="hljs-number">0</span>];
+}
+
+KRK_Method(dictitems,__call__) {
+	<span class="hljs-keyword">do</span> {
+		<span class="hljs-keyword">if</span> (self-&gt;i &gt;= AS_DICT(self-&gt;dict)-&gt;used) <span class="hljs-keyword">return</span> argv[<span class="hljs-number">0</span>];
+		<span class="hljs-keyword">if</span> (!IS_KWARGS(AS_DICT(self-&gt;dict)-&gt;entries[self-&gt;i].key)) {
+			KrkTuple * outValue = krk_newTuple(<span class="hljs-number">2</span>);
+			krk_push(OBJECT_VAL(outValue));
+			outValue-&gt;values.values[<span class="hljs-number">0</span>] = AS_DICT(self-&gt;dict)-&gt;entries[self-&gt;i].key;
+			outValue-&gt;values.values[<span class="hljs-number">1</span>] = AS_DICT(self-&gt;dict)-&gt;entries[self-&gt;i].value;
+			outValue-&gt;values.count = <span class="hljs-number">2</span>;
+			self-&gt;i++;
+			<span class="hljs-keyword">return</span> krk_pop();
+		}
+		self-&gt;i++;
+	} <span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>);
+}
+
+KRK_Method(dictitems,__repr__) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">if</span> (((KrkObj*)self)-&gt;flags &amp; KRK_OBJ_FLAGS_IN_REPR) <span class="hljs-keyword">return</span> OBJECT_VAL(S(<span class="hljs-string">"dictitems([...])"</span>));
+	((KrkObj*)self)-&gt;flags |= KRK_OBJ_FLAGS_IN_REPR;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+	pushStringBuilderStr(&amp;sb,<span class="hljs-string">"dictitems(["</span>,<span class="hljs-number">11</span>);
+
+	<span class="hljs-keyword">size_t</span> c = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> len = AS_DICT(self-&gt;dict)-&gt;used;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; len; ++i) {
+		KrkTableEntry * entry = &amp;AS_DICT(self-&gt;dict)-&gt;entries[i];
+		<span class="hljs-keyword">if</span> (IS_KWARGS(entry-&gt;key)) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">if</span> (c) pushStringBuilderStr(&amp;sb, <span class="hljs-string">", "</span>, <span class="hljs-number">2</span>);
+		c++;
+		pushStringBuilder(&amp;sb,<span class="hljs-string">'('</span>);
+		<span class="hljs-keyword">if</span> (!krk_pushStringBuilderFormat(&amp;sb, <span class="hljs-string">"%R"</span>, entry-&gt;key)) <span class="hljs-keyword">goto</span> _error;
+		pushStringBuilderStr(&amp;sb, <span class="hljs-string">", "</span>, <span class="hljs-number">2</span>);
+		<span class="hljs-keyword">if</span> (!krk_pushStringBuilderFormat(&amp;sb, <span class="hljs-string">"%R"</span>, entry-&gt;value)) <span class="hljs-keyword">goto</span> _error;
+		pushStringBuilder(&amp;sb,<span class="hljs-string">')'</span>);
+	}
+
+	pushStringBuilderStr(&amp;sb,<span class="hljs-string">"])"</span>,<span class="hljs-number">2</span>);
+	((KrkObj*)self)-&gt;flags &amp;= ~(KRK_OBJ_FLAGS_IN_REPR);
+	<span class="hljs-keyword">return</span> finishStringBuilder(&amp;sb);
+
+_error:
+	((KrkObj*)self)-&gt;flags &amp;= ~(KRK_OBJ_FLAGS_IN_REPR);
+	krk_discardStringBuilder(&amp;sb);
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> CURRENT_CTYPE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE struct DictKeys *</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _dictkeys_gcscan(KrkInstance * self) {
+	krk_markValue(((struct DictKeys*)self)-&gt;dict);
+}
+
+KRK_Method(dictkeys,__init__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,dict,KrkDict*,source);
+	self-&gt;dict = argv[<span class="hljs-number">1</span>];
+	self-&gt;i = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(dictkeys,__iter__) {
+	METHOD_TAKES_NONE();
+	self-&gt;i = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> argv[<span class="hljs-number">0</span>];
+}
+
+KRK_Method(dictkeys,__call__) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">do</span> {
+		<span class="hljs-keyword">if</span> (self-&gt;i &gt;= AS_DICT(self-&gt;dict)-&gt;used) <span class="hljs-keyword">return</span> argv[<span class="hljs-number">0</span>];
+		<span class="hljs-keyword">if</span> (!IS_KWARGS(AS_DICT(self-&gt;dict)-&gt;entries[self-&gt;i].key)) {
+			krk_push(AS_DICT(self-&gt;dict)-&gt;entries[self-&gt;i].key);
+			self-&gt;i++;
+			<span class="hljs-keyword">return</span> krk_pop();
+		}
+		self-&gt;i++;
+	} <span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>);
+}
+
+KRK_Method(dictkeys,__repr__) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">if</span> (((KrkObj*)self)-&gt;flags &amp; KRK_OBJ_FLAGS_IN_REPR) <span class="hljs-keyword">return</span> OBJECT_VAL(S(<span class="hljs-string">"dictkeys([...])"</span>));
+	((KrkObj*)self)-&gt;flags |= KRK_OBJ_FLAGS_IN_REPR;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+	pushStringBuilderStr(&amp;sb,<span class="hljs-string">"dictkeys(["</span>,<span class="hljs-number">10</span>);
+
+	<span class="hljs-keyword">size_t</span> c = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> len = AS_DICT(self-&gt;dict)-&gt;used;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; len; ++i) {
+		KrkTableEntry * entry = &amp;AS_DICT(self-&gt;dict)-&gt;entries[i];
+		<span class="hljs-keyword">if</span> (IS_KWARGS(entry-&gt;key)) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">if</span> (c) pushStringBuilderStr(&amp;sb, <span class="hljs-string">", "</span>, <span class="hljs-number">2</span>);
+		c++;
+		<span class="hljs-keyword">if</span> (!krk_pushStringBuilderFormat(&amp;sb, <span class="hljs-string">"%R"</span>, entry-&gt;key)) <span class="hljs-keyword">goto</span> _error;
+	}
+
+	pushStringBuilderStr(&amp;sb,<span class="hljs-string">"])"</span>,<span class="hljs-number">2</span>);
+	((KrkObj*)self)-&gt;flags &amp;= ~(KRK_OBJ_FLAGS_IN_REPR);
+	<span class="hljs-keyword">return</span> finishStringBuilder(&amp;sb);
+
+_error:
+	((KrkObj*)self)-&gt;flags &amp;= ~(KRK_OBJ_FLAGS_IN_REPR);
+	krk_discardStringBuilder(&amp;sb);
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> CURRENT_CTYPE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE struct DictValues *</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _dictvalues_gcscan(KrkInstance * self) {
+	krk_markValue(((struct DictValues*)self)-&gt;dict);
+}
+
+KRK_Method(dictvalues,__init__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,dict,KrkDict*,source);
+	self-&gt;dict = argv[<span class="hljs-number">1</span>];
+	self-&gt;i = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(dictvalues,__iter__) {
+	METHOD_TAKES_NONE();
+	self-&gt;i = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> argv[<span class="hljs-number">0</span>];
+}
+
+KRK_Method(dictvalues,__call__) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">do</span> {
+		<span class="hljs-keyword">if</span> (self-&gt;i &gt;= AS_DICT(self-&gt;dict)-&gt;used) <span class="hljs-keyword">return</span> argv[<span class="hljs-number">0</span>];
+		<span class="hljs-keyword">if</span> (!IS_KWARGS(AS_DICT(self-&gt;dict)-&gt;entries[self-&gt;i].key)) {
+			krk_push(AS_DICT(self-&gt;dict)-&gt;entries[self-&gt;i].value);
+			self-&gt;i++;
+			<span class="hljs-keyword">return</span> krk_pop();
+		}
+		self-&gt;i++;
+	} <span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>);
+}
+
+KRK_Method(dictvalues,__repr__) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">if</span> (((KrkObj*)self)-&gt;flags &amp; KRK_OBJ_FLAGS_IN_REPR) <span class="hljs-keyword">return</span> OBJECT_VAL(S(<span class="hljs-string">"dictvalues([...])"</span>));
+	((KrkObj*)self)-&gt;flags |= KRK_OBJ_FLAGS_IN_REPR;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+	pushStringBuilderStr(&amp;sb,<span class="hljs-string">"dictvalues(["</span>,<span class="hljs-number">12</span>);
+
+	<span class="hljs-keyword">size_t</span> c = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> len = AS_DICT(self-&gt;dict)-&gt;used;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; len; ++i) {
+		KrkTableEntry * entry = &amp;AS_DICT(self-&gt;dict)-&gt;entries[i];
+		<span class="hljs-keyword">if</span> (IS_KWARGS(entry-&gt;key)) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">if</span> (c) pushStringBuilderStr(&amp;sb, <span class="hljs-string">", "</span>, <span class="hljs-number">2</span>);
+		c++;
+		<span class="hljs-keyword">if</span> (!krk_pushStringBuilderFormat(&amp;sb, <span class="hljs-string">"%R"</span>, entry-&gt;value)) <span class="hljs-keyword">goto</span> _error;
+	}
+
+	pushStringBuilderStr(&amp;sb,<span class="hljs-string">"])"</span>,<span class="hljs-number">2</span>);
+	((KrkObj*)self)-&gt;flags &amp;= ~(KRK_OBJ_FLAGS_IN_REPR);
+	<span class="hljs-keyword">return</span> finishStringBuilder(&amp;sb);
+
+_error:
+	((KrkObj*)self)-&gt;flags &amp;= ~(KRK_OBJ_FLAGS_IN_REPR);
+	krk_discardStringBuilder(&amp;sb);
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+_noexport
+<span class="hljs-keyword">void</span> _createAndBind_dictClass(<span class="hljs-keyword">void</span>) {
+	KrkClass * dict = ADD_BASE_CLASS(vm.baseClasses-&gt;dictClass, <span class="hljs-string">"dict"</span>, vm.baseClasses-&gt;objectClass);
+	dict-&gt;allocSize = <span class="hljs-keyword">sizeof</span>(KrkDict);
+	dict-&gt;_ongcscan = _dict_gcscan;
+	dict-&gt;_ongcsweep = _dict_gcsweep;
+	BIND_METHOD(dict,__init__);
+	BIND_METHOD(dict,__repr__);
+	BIND_METHOD(dict,__getitem__);
+	BIND_METHOD(dict,__setitem__);
+	BIND_METHOD(dict,__or__);
+	BIND_METHOD(dict,__delitem__);
+	BIND_METHOD(dict,__len__);
+	BIND_METHOD(dict,__contains__);
+	BIND_METHOD(dict,__ior__);
+	BIND_METHOD(dict,__eq__);
+	BIND_METHOD(dict,keys);
+	BIND_METHOD(dict,items);
+	BIND_METHOD(dict,values);
+	BIND_METHOD(dict,capacity);
+	BIND_METHOD(dict,copy);
+	BIND_METHOD(dict,<span class="hljs-built_in">clear</span>);
+	BIND_METHOD(dict,<span class="hljs-built_in">get</span>);
+	BIND_METHOD(dict,setdefault);
+	BIND_METHOD(dict,update);
+	krk_defineNative(&amp;dict-&gt;methods, <span class="hljs-string">"__iter__"</span>, FUNC_NAME(dict,keys));
+	krk_defineNative(&amp;dict-&gt;methods, <span class="hljs-string">"__class_getitem__"</span>, krk_GenericAlias)-&gt;obj.flags |= KRK_OBJ_FLAGS_FUNCTION_IS_CLASS_METHOD;
+	krk_attachNamedValue(&amp;dict-&gt;methods, <span class="hljs-string">"__hash__"</span>, NONE_VAL());
+	krk_finalizeClass(dict);
+	KRK_DOC(dict, <span class="hljs-string">"Mapping of arbitrary keys to values."</span>);
+
+	KrkClass * dictitems = ADD_BASE_CLASS(vm.baseClasses-&gt;dictitemsClass, <span class="hljs-string">"dictitems"</span>, vm.baseClasses-&gt;objectClass);
+	dictitems-&gt;allocSize = <span class="hljs-keyword">sizeof</span>(struct DictItems);
+	dictitems-&gt;_ongcscan = _dictitems_gcscan;
+	BIND_METHOD(dictitems,__init__);
+	BIND_METHOD(dictitems,__iter__);
+	BIND_METHOD(dictitems,__call__);
+	BIND_METHOD(dictitems,__repr__);
+	krk_finalizeClass(dictitems);
+
+	KrkClass * dictkeys = ADD_BASE_CLASS(vm.baseClasses-&gt;dictkeysClass, <span class="hljs-string">"dictkeys"</span>, vm.baseClasses-&gt;objectClass);
+	dictkeys-&gt;allocSize = <span class="hljs-keyword">sizeof</span>(struct DictKeys);
+	dictkeys-&gt;_ongcscan = _dictkeys_gcscan;
+	BIND_METHOD(dictkeys,__init__);
+	BIND_METHOD(dictkeys,__iter__);
+	BIND_METHOD(dictkeys,__call__);
+	BIND_METHOD(dictkeys,__repr__);
+	krk_finalizeClass(dictkeys);
+
+	KrkClass * dictvalues = ADD_BASE_CLASS(vm.baseClasses-&gt;dictvaluesClass, <span class="hljs-string">"dictvalues"</span>, vm.baseClasses-&gt;objectClass);
+	dictvalues-&gt;allocSize = <span class="hljs-keyword">sizeof</span>(struct DictValues);
+	dictvalues-&gt;_ongcscan = _dictvalues_gcscan;
+	BIND_METHOD(dictvalues,__init__);
+	BIND_METHOD(dictvalues,__iter__);
+	BIND_METHOD(dictvalues,__call__);
+	BIND_METHOD(dictvalues,__repr__);
+	krk_finalizeClass(dictvalues);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>rpi_miniuart.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kernel\\arch\\aarch64\\rpi_miniuart.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>rpi_miniuart.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pty.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/aarch64/dtb.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/aarch64/gic.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> UART_BAUD 921600</span>
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<p>#define UART_BAUD 115200</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uintptr_t</span> gpio_base = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">mmio_read</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> addr)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> res = *((<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span>*)(addr));
+	<span class="hljs-keyword">return</span> res;
+}
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">mmio_write</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> addr, <span class="hljs-keyword">uint32_t</span> val)</span> </span>{
+	(*((<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span>*)(addr))) = val;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>GPIO initialization mostly from Adam Greenwood-Byrne's rpi4-osdev</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PERI_BASE 0xFE000000</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> GPIO_BASE (PERI_BASE + 0x200000)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> GPFSEL0   (0x00)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> GPSET0    (0x1c)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> GPCLR0    (0x28)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> GPPUPPDN0 (0xe4)</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>AUX register offsets from the peripheral manual</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AUX_IRQ          0x00</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AUX_ENABLES      0x04</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AUX_MU_IO_REG    0x40</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AUX_MU_IER_REG   0x44</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AUX_MU_IIR_REG   0x48</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AUX_MU_LCR_REG   0x4c</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AUX_MU_MCR_REG   0x50</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AUX_MU_LSR_REG   0x54</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AUX_MU_CNTL_REG  0x60</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AUX_MU_BAUD_REG  0x68</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BAUD_CALC(rate) ((500000000UL/(rate*8))-1)</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">gpio_call</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> pin, <span class="hljs-keyword">uint32_t</span> value, <span class="hljs-keyword">uint32_t</span> base, <span class="hljs-keyword">uint32_t</span> field_size, <span class="hljs-keyword">uint32_t</span> field_max)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> mask = (<span class="hljs-number">1</span> &lt;&lt; field_size) - <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (pin &gt; field_max) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (value &gt; mask) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">uint32_t</span> fields = <span class="hljs-number">32</span> / field_size;
+	<span class="hljs-keyword">uint32_t</span> reg    = base + (pin / fields) * <span class="hljs-number">4</span>;
+	<span class="hljs-keyword">uint32_t</span> shift  = (pin % fields) * field_size;
+	<span class="hljs-keyword">uint32_t</span> cur    = mmio_read(gpio_base + reg);
+	cur &amp;= ~(mask &lt;&lt; shift);
+	cur |= (value &lt;&lt; shift);
+	mmio_write(gpio_base + reg, cur);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">miniuart_irq</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">int</span> irq, <span class="hljs-keyword">void</span> * data)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> uart_mapped = (<span class="hljs-keyword">uintptr_t</span>)data;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dmb sy"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+	<span class="hljs-keyword">uint32_t</span> aux_cause = mmio_read(uart_mapped + AUX_IRQ);
+	<span class="hljs-keyword">if</span> (aux_cause &amp; <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">uint32_t</span> uart_iir =  mmio_read(uart_mapped + AUX_MU_IIR_REG);
+		<span class="hljs-keyword">if</span> (uart_iir &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">2</span>)) {
+			make_process_ready(<span class="hljs-keyword">this</span>);
+		}
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">miniuart_fill_name</span><span class="hljs-params">(<span class="hljs-keyword">pty_t</span> * pty, <span class="hljs-keyword">size_t</span> len, <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">snprintf</span>(name, len, <span class="hljs-string">"/dev/ttyUART1"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">miniuart_write_out</span><span class="hljs-params">(<span class="hljs-keyword">pty_t</span> * pty, <span class="hljs-keyword">uint8_t</span> c)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> uart_mapped = (<span class="hljs-keyword">uintptr_t</span>)pty-&gt;_private;
+	<span class="hljs-keyword">while</span> (!(mmio_read(uart_mapped + AUX_MU_LSR_REG) &amp; <span class="hljs-number">0x20</span>));
+	mmio_write(uart_mapped + AUX_MU_IO_REG, (<span class="hljs-keyword">uint8_t</span>)c);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">miniuart_thread</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * arg)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> uart_mapped = (<span class="hljs-keyword">uintptr_t</span>)arg;
+
+	gic_assign_interrupt(<span class="hljs-number">0x5D</span>, miniuart_irq, (<span class="hljs-keyword">void</span>*)uart_mapped);
+
+	mmio_write(uart_mapped + AUX_ENABLES,     <span class="hljs-number">1</span>); <span class="hljs-comment">/* Enable mini uart */</span>
+	mmio_write(uart_mapped + AUX_MU_IER_REG,  <span class="hljs-number">0</span>); <span class="hljs-comment">/* Disable interrupts while we set up */</span>
+	mmio_write(uart_mapped + AUX_MU_CNTL_REG, <span class="hljs-number">0</span>); <span class="hljs-comment">/* Disable transmit/receive */</span>
+	mmio_write(uart_mapped + AUX_MU_LCR_REG,  <span class="hljs-number">3</span>); <span class="hljs-comment">/* 8-bit output (XXX shouldn't this just be '1'?) */</span>
+	mmio_write(uart_mapped + AUX_MU_MCR_REG,  <span class="hljs-number">0</span>); <span class="hljs-comment">/* RTS is high */</span>
+	mmio_write(uart_mapped + AUX_MU_IER_REG,  <span class="hljs-number">0</span>); <span class="hljs-comment">/* Disable interrupts again? */</span>
+	mmio_write(uart_mapped + AUX_MU_IIR_REG,  <span class="hljs-number">0xC6</span>); <span class="hljs-comment">/* ack and clear interrupts */</span>
+	mmio_write(uart_mapped + AUX_MU_BAUD_REG, BAUD_CALC(UART_BAUD));
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dmb sy"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+	gpio_call(<span class="hljs-number">14</span>, <span class="hljs-number">0</span>, GPPUPPDN0, <span class="hljs-number">2</span>, <span class="hljs-number">53</span>);
+	gpio_call(<span class="hljs-number">14</span>, <span class="hljs-number">2</span>, GPFSEL0, <span class="hljs-number">3</span>, <span class="hljs-number">53</span>);
+	gpio_call(<span class="hljs-number">15</span>, <span class="hljs-number">0</span>, GPPUPPDN0, <span class="hljs-number">2</span>, <span class="hljs-number">53</span>);
+	gpio_call(<span class="hljs-number">15</span>, <span class="hljs-number">2</span>, GPFSEL0, <span class="hljs-number">3</span>, <span class="hljs-number">53</span>);
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dmb sy"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+	mmio_write(uart_mapped + AUX_MU_CNTL_REG, <span class="hljs-number">3</span>); <span class="hljs-comment">/* tx, rx enable */</span>
+
+	<span class="hljs-keyword">pty_t</span> * pty = pty_new(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>);
+	pty-&gt;write_out = miniuart_write_out;
+	pty-&gt;fill_name = miniuart_fill_name;
+	pty-&gt;slave-&gt;gid = <span class="hljs-number">2</span>; <span class="hljs-comment">/* dialout group */</span>
+	pty-&gt;slave-&gt;mask = <span class="hljs-number">0660</span>;
+	pty-&gt;_private = arg;
+	pty-&gt;tios.c_cflag = CREAD | CS8 | B921600;
+	vfs_mount(<span class="hljs-string">"/dev/ttyUART1"</span>, pty-&gt;slave, <span class="hljs-string">"rpiminiuart"</span>, <span class="hljs-string">""</span>);
+
+	<span class="hljs-comment">/* Enable interrupts */</span>
+	mmio_write(uart_mapped + AUX_MU_IER_REG, <span class="hljs-number">1</span>); <span class="hljs-comment">/* enable receive interrupt */</span>
+	mmio_write(uart_mapped + AUX_MU_IIR_REG, <span class="hljs-number">0xC6</span>); <span class="hljs-comment">/* ack and clear interrupts */</span>
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+	<span class="hljs-comment">/* Handle incoming data */</span>
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">while</span> (!(mmio_read(uart_mapped + AUX_MU_LSR_REG) &amp; <span class="hljs-number">0x01</span>)) {
+			switch_task(<span class="hljs-number">0</span>);
+		}
+
+		<span class="hljs-keyword">uint8_t</span> rx = mmio_read(uart_mapped + AUX_MU_IO_REG);
+		tty_input_process(pty, rx);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">miniuart_start</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	gpio_base = (<span class="hljs-keyword">uintptr_t</span>)mmu_map_mmio_region(GPIO_BASE, <span class="hljs-number">0x1000</span>);
+	<span class="hljs-keyword">void</span> * uart_mapped = mmu_map_mmio_region(<span class="hljs-number">0xFE215000</span>, <span class="hljs-number">0x1000</span>);
+
+	spawn_worker_thread(miniuart_thread, <span class="hljs-string">"[miniuart]"</span>, uart_mapped);
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

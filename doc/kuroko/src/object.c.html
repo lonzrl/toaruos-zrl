@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>object.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\src\\object.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>object.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/memory.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/object.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/value.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/table.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/threads.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"private.h"</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ALLOCATE_OBJECT(type, objectType) \
+	(type*)allocateObject(sizeof(type), objectType)</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_DISABLE_THREADS</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">volatile</span> <span class="hljs-keyword">int</span> _stringLock = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">volatile</span> <span class="hljs-keyword">int</span> _objectLock = <span class="hljs-number">0</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> KrkObj * <span class="hljs-title">allocateObject</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, KrkObjType type)</span> </span>{
+	KrkObj * object = (KrkObj*)krk_reallocate(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, <span class="hljs-built_in">size</span>);
+	<span class="hljs-built_in">memset</span>(object,<span class="hljs-number">0</span>,<span class="hljs-built_in">size</span>);
+	object-&gt;type = type;
+
+	_obtain_lock(_objectLock);
+	object-&gt;next = vm.objects;
+	krk_currentThread.scratchSpace[<span class="hljs-number">2</span>] = OBJECT_VAL(object);
+	vm.objects = object;
+	_release_lock(_objectLock);
+
+	object-&gt;hash = (<span class="hljs-keyword">uint32_t</span>)((<span class="hljs-keyword">intptr_t</span>)(object) &gt;&gt; <span class="hljs-number">4</span> | ((<span class="hljs-keyword">intptr_t</span>)object &amp; <span class="hljs-number">0xf</span>) &lt;&lt; <span class="hljs-number">28</span>);
+
+	<span class="hljs-keyword">return</span> object;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">size_t</span> <span class="hljs-title">krk_codepointToBytes</span><span class="hljs-params">(krk_integer_type value, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> * out)</span> </span>{
+	<span class="hljs-keyword">if</span> (value &gt; <span class="hljs-number">0xFFFF</span>) {
+		out[<span class="hljs-number">0</span>] = (<span class="hljs-number">0xF0</span> | (value &gt;&gt; <span class="hljs-number">18</span>));
+		out[<span class="hljs-number">1</span>] = (<span class="hljs-number">0x80</span> | ((value &gt;&gt; <span class="hljs-number">12</span>) &amp; <span class="hljs-number">0x3F</span>));
+		out[<span class="hljs-number">2</span>] = (<span class="hljs-number">0x80</span> | ((value &gt;&gt; <span class="hljs-number">6</span>) &amp; <span class="hljs-number">0x3F</span>));
+		out[<span class="hljs-number">3</span>] = (<span class="hljs-number">0x80</span> | ((value) &amp; <span class="hljs-number">0x3F</span>));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">4</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (value &gt; <span class="hljs-number">0x7FF</span>) {
+		out[<span class="hljs-number">0</span>] = (<span class="hljs-number">0xE0</span> | (value &gt;&gt; <span class="hljs-number">12</span>));
+		out[<span class="hljs-number">1</span>] = (<span class="hljs-number">0x80</span> | ((value &gt;&gt; <span class="hljs-number">6</span>) &amp; <span class="hljs-number">0x3F</span>));
+		out[<span class="hljs-number">2</span>] = (<span class="hljs-number">0x80</span> | (value &amp; <span class="hljs-number">0x3F</span>));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">3</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (value &gt; <span class="hljs-number">0x7F</span>) {
+		out[<span class="hljs-number">0</span>] = (<span class="hljs-number">0xC0</span> | (value &gt;&gt; <span class="hljs-number">6</span>));
+		out[<span class="hljs-number">1</span>] = (<span class="hljs-number">0x80</span> | (value &amp; <span class="hljs-number">0x3F</span>));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+	} <span class="hljs-keyword">else</span> {
+		out[<span class="hljs-number">0</span>] = (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span>)value;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> UTF8_ACCEPT 0</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> UTF8_REJECT 1</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">decode</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span>* state, <span class="hljs-keyword">uint32_t</span>* codep, <span class="hljs-keyword">uint32_t</span> <span class="hljs-keyword">byte</span>)</span> </span>{
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">int</span> state_table[<span class="hljs-number">32</span>] = {
+		<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>, <span class="hljs-comment">/* 0xxxxxxx */</span>
+		<span class="hljs-number">1</span>,<span class="hljs-number">1</span>,<span class="hljs-number">1</span>,<span class="hljs-number">1</span>,<span class="hljs-number">1</span>,<span class="hljs-number">1</span>,<span class="hljs-number">1</span>,<span class="hljs-number">1</span>,                 <span class="hljs-comment">/* 10xxxxxx */</span>
+		<span class="hljs-number">2</span>,<span class="hljs-number">2</span>,<span class="hljs-number">2</span>,<span class="hljs-number">2</span>,                         <span class="hljs-comment">/* 110xxxxx */</span>
+		<span class="hljs-number">3</span>,<span class="hljs-number">3</span>,                             <span class="hljs-comment">/* 1110xxxx */</span>
+		<span class="hljs-number">4</span>,                               <span class="hljs-comment">/* 11110xxx */</span>
+		<span class="hljs-number">1</span>                                <span class="hljs-comment">/* 11111xxx */</span>
+	};
+
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">int</span> mask_bytes[<span class="hljs-number">32</span>] = {
+		<span class="hljs-number">0x7F</span>,<span class="hljs-number">0x7F</span>,<span class="hljs-number">0x7F</span>,<span class="hljs-number">0x7F</span>,<span class="hljs-number">0x7F</span>,<span class="hljs-number">0x7F</span>,<span class="hljs-number">0x7F</span>,<span class="hljs-number">0x7F</span>,
+		<span class="hljs-number">0x7F</span>,<span class="hljs-number">0x7F</span>,<span class="hljs-number">0x7F</span>,<span class="hljs-number">0x7F</span>,<span class="hljs-number">0x7F</span>,<span class="hljs-number">0x7F</span>,<span class="hljs-number">0x7F</span>,<span class="hljs-number">0x7F</span>,
+		<span class="hljs-number">0x00</span>,<span class="hljs-number">0x00</span>,<span class="hljs-number">0x00</span>,<span class="hljs-number">0x00</span>,<span class="hljs-number">0x00</span>,<span class="hljs-number">0x00</span>,<span class="hljs-number">0x00</span>,<span class="hljs-number">0x00</span>,
+		<span class="hljs-number">0x1F</span>,<span class="hljs-number">0x1F</span>,<span class="hljs-number">0x1F</span>,<span class="hljs-number">0x1F</span>,
+		<span class="hljs-number">0x0F</span>,<span class="hljs-number">0x0F</span>,
+		<span class="hljs-number">0x07</span>,
+		<span class="hljs-number">0x00</span>
+	};
+
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">int</span> next[<span class="hljs-number">5</span>] = {
+		<span class="hljs-number">0</span>,
+		<span class="hljs-number">1</span>,
+		<span class="hljs-number">0</span>,
+		<span class="hljs-number">2</span>,
+		<span class="hljs-number">3</span>
+	};
+
+	<span class="hljs-keyword">if</span> (*state == UTF8_ACCEPT) {
+		<span class="hljs-keyword">if</span> (<span class="hljs-keyword">byte</span> &gt;= <span class="hljs-number">0x80</span> &amp;&amp; <span class="hljs-keyword">byte</span> &lt;= <span class="hljs-number">0xC1</span>) <span class="hljs-keyword">goto</span> _reject;
+		*codep = <span class="hljs-keyword">byte</span> &amp; mask_bytes[<span class="hljs-keyword">byte</span> &gt;&gt; <span class="hljs-number">3</span>];
+		*state = state_table[<span class="hljs-keyword">byte</span> &gt;&gt; <span class="hljs-number">3</span>];
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (*state &gt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">if</span> (<span class="hljs-keyword">byte</span> &lt; <span class="hljs-number">0x80</span> || <span class="hljs-keyword">byte</span> &gt;= <span class="hljs-number">0xC0</span>) <span class="hljs-keyword">goto</span> _reject;
+		*codep = (<span class="hljs-keyword">byte</span> &amp; <span class="hljs-number">0x3F</span>) | (*codep &lt;&lt; <span class="hljs-number">6</span>);
+		*state = next[*state];
+	}
+	<span class="hljs-keyword">return</span> *state;
+_reject:
+	*state = UTF8_REJECT;
+	<span class="hljs-keyword">return</span> *state;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">checkString</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * chars, <span class="hljs-keyword">size_t</span> length, <span class="hljs-keyword">size_t</span> *codepointCount)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> state = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint32_t</span> codepoint = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> * <span class="hljs-built_in">end</span> = (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> *)chars + length;
+	<span class="hljs-keyword">uint32_t</span> maxCodepoint = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> * c = (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> *)chars; c &lt; <span class="hljs-built_in">end</span>; ++c) {
+		<span class="hljs-keyword">if</span> (!decode(&amp;state, &amp;codepoint, *c)) {
+			<span class="hljs-keyword">if</span> (codepoint &gt; maxCodepoint) maxCodepoint = codepoint;
+			(*codepointCount)++;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (state == UTF8_REJECT) {
+			_release_lock(_stringLock);
+			krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-string">"Invalid UTF-8 sequence in string."</span>);
+			*codepointCount = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+		}
+	}
+	<span class="hljs-keyword">if</span> (maxCodepoint &gt; <span class="hljs-number">0xFFFF</span>) {
+		<span class="hljs-keyword">return</span> KRK_OBJ_FLAGS_STRING_UCS4;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (maxCodepoint &gt; <span class="hljs-number">0xFF</span>) {
+		<span class="hljs-keyword">return</span> KRK_OBJ_FLAGS_STRING_UCS2;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (maxCodepoint &gt; <span class="hljs-number">0x7F</span>) {
+		<span class="hljs-keyword">return</span> KRK_OBJ_FLAGS_STRING_UCS1;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">return</span> KRK_OBJ_FLAGS_STRING_ASCII;
+	}
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> GENREADY(size,type) \
+	static void _readyUCS ## size (KrkString * string) { \
+		uint32_t state = 0; \
+		uint32_t codepoint = 0; \
+		unsigned char * end = (unsigned char *)string-&gt;chars + string-&gt;length; \
+		string-&gt;codes = malloc(sizeof(type) * string-&gt;codesLength); \
+		type *outPtr = (type *)string-&gt;codes; \
+		for (unsigned char * c = (unsigned char *)string-&gt;chars; c &lt; end; ++c) { \
+			<span class="hljs-meta-keyword">if</span> (!decode(&amp;state, &amp;codepoint, *c)) { \
+				*(outPtr++) = (type)codepoint; \
+			} <span class="hljs-meta-keyword">else</span> <span class="hljs-meta-keyword">if</span> (state == UTF8_REJECT) { \
+				state = 0; \
+			} \
+		} \
+	}</span>
+GENREADY(<span class="hljs-number">1</span>,<span class="hljs-keyword">uint8_t</span>)
+GENREADY(<span class="hljs-number">2</span>,<span class="hljs-keyword">uint16_t</span>)
+GENREADY(<span class="hljs-number">4</span>,<span class="hljs-keyword">uint32_t</span>)
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> GENREADY</span>
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> * <span class="hljs-title">krk_unicodeString</span><span class="hljs-params">(KrkString * <span class="hljs-built_in">string</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">string</span>-&gt;codes) <span class="hljs-keyword">return</span> <span class="hljs-built_in">string</span>-&gt;codes;
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> ((<span class="hljs-built_in">string</span>-&gt;obj.flags &amp; KRK_OBJ_FLAGS_STRING_MASK) == KRK_OBJ_FLAGS_STRING_UCS1) _readyUCS1(<span class="hljs-built_in">string</span>);
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> ((<span class="hljs-built_in">string</span>-&gt;obj.flags &amp; KRK_OBJ_FLAGS_STRING_MASK) == KRK_OBJ_FLAGS_STRING_UCS2) _readyUCS2(<span class="hljs-built_in">string</span>);
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> ((<span class="hljs-built_in">string</span>-&gt;obj.flags &amp; KRK_OBJ_FLAGS_STRING_MASK) == KRK_OBJ_FLAGS_STRING_UCS4) _readyUCS4(<span class="hljs-built_in">string</span>);
+	<span class="hljs-keyword">else</span> krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-string">"Internal string error."</span>);
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">string</span>-&gt;codes;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">krk_unicodeCodepoint</span><span class="hljs-params">(KrkString * <span class="hljs-built_in">string</span>, <span class="hljs-keyword">size_t</span> index)</span> </span>{
+	krk_unicodeString(<span class="hljs-built_in">string</span>);
+	<span class="hljs-keyword">switch</span> (<span class="hljs-built_in">string</span>-&gt;obj.flags &amp; KRK_OBJ_FLAGS_STRING_MASK) {
+		<span class="hljs-keyword">case</span> KRK_OBJ_FLAGS_STRING_ASCII:
+		<span class="hljs-keyword">case</span> KRK_OBJ_FLAGS_STRING_UCS1: <span class="hljs-keyword">return</span> ((<span class="hljs-keyword">uint8_t</span>*)<span class="hljs-built_in">string</span>-&gt;codes)[index];
+		<span class="hljs-keyword">case</span> KRK_OBJ_FLAGS_STRING_UCS2: <span class="hljs-keyword">return</span> ((<span class="hljs-keyword">uint16_t</span>*)<span class="hljs-built_in">string</span>-&gt;codes)[index];
+		<span class="hljs-keyword">case</span> KRK_OBJ_FLAGS_STRING_UCS4: <span class="hljs-keyword">return</span> ((<span class="hljs-keyword">uint32_t</span>*)<span class="hljs-built_in">string</span>-&gt;codes)[index];
+		<span class="hljs-keyword">default</span>:
+			krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-string">"Internal string error."</span>);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">int</span> <span class="hljs-title">krk_tableSetExact</span><span class="hljs-params">(KrkTable * table, KrkValue key, KrkValue value)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> KrkString * <span class="hljs-title">allocateString</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * chars, <span class="hljs-keyword">size_t</span> length, <span class="hljs-keyword">uint32_t</span> hash)</span> </span>{
+	<span class="hljs-keyword">size_t</span> codesLength = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> type = checkString(chars,length,&amp;codesLength);
+	<span class="hljs-keyword">if</span> (type == <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">return</span> krk_copyString(<span class="hljs-string">""</span>,<span class="hljs-number">0</span>);
+	}
+	KrkString * <span class="hljs-built_in">string</span> = ALLOCATE_OBJECT(KrkString, KRK_OBJ_STRING);
+	<span class="hljs-built_in">string</span>-&gt;length = length;
+	<span class="hljs-built_in">string</span>-&gt;chars = chars;
+	<span class="hljs-built_in">string</span>-&gt;obj.hash = hash;
+	<span class="hljs-built_in">string</span>-&gt;obj.flags |= KRK_OBJ_FLAGS_VALID_HASH | type;
+	<span class="hljs-built_in">string</span>-&gt;codesLength = codesLength;
+	<span class="hljs-built_in">string</span>-&gt;codes = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">if</span> (type == KRK_OBJ_FLAGS_STRING_ASCII) <span class="hljs-built_in">string</span>-&gt;codes = <span class="hljs-built_in">string</span>-&gt;chars;
+	krk_push(OBJECT_VAL(<span class="hljs-built_in">string</span>));
+	krk_tableSetExact(&amp;vm.strings, OBJECT_VAL(<span class="hljs-built_in">string</span>), NONE_VAL());
+	krk_pop();
+	_release_lock(_stringLock);
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">string</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">hashString</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * key, <span class="hljs-keyword">size_t</span> length)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> hash = <span class="hljs-number">0</span>;
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>This is the so-called &quot;sdbm&quot; hash. It comes from a piece of
+public domain code from a clone of ndbm.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; length; ++i) {
+		krk_hash_advance(hash,key[i]);
+	}
+	<span class="hljs-keyword">return</span> hash;
+}
+
+<span class="hljs-function">KrkString * <span class="hljs-title">krk_takeString</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * chars, <span class="hljs-keyword">size_t</span> length)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> hash = hashString(chars, length);
+	_obtain_lock(_stringLock);
+	KrkString * interned = krk_tableFindString(&amp;vm.strings, chars, length, hash);
+	<span class="hljs-keyword">if</span> (interned != <span class="hljs-literal">NULL</span>) {
+		<span class="hljs-built_in">free</span>(chars); <span class="hljs-comment">/* This string isn't owned by us yet, so free, not KRK_FREE_ARRAY */</span>
+		_release_lock(_stringLock);
+		<span class="hljs-keyword">return</span> interned;
+	}
+
+	<span class="hljs-comment">/* Part of taking ownership of this string is that we track its memory usage */</span>
+	krk_gcTakeBytes(chars, length + <span class="hljs-number">1</span>);
+	KrkString * result = allocateString(chars, length, hash);
+	<span class="hljs-keyword">return</span> result;
+}
+
+<span class="hljs-function">KrkString * <span class="hljs-title">krk_copyString</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * chars, <span class="hljs-keyword">size_t</span> length)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> hash = hashString(chars, length);
+	_obtain_lock(_stringLock);
+	KrkString * interned = krk_tableFindString(&amp;vm.strings, chars ? chars : <span class="hljs-string">""</span>, length, hash);
+	<span class="hljs-keyword">if</span> (interned) {
+		_release_lock(_stringLock);
+		<span class="hljs-keyword">return</span> interned;
+	}
+	<span class="hljs-keyword">char</span> * heapChars = KRK_ALLOCATE(<span class="hljs-keyword">char</span>, length + <span class="hljs-number">1</span>);
+	<span class="hljs-built_in">memcpy</span>(heapChars, chars ? chars : <span class="hljs-string">""</span>, length);
+	heapChars[length] = <span class="hljs-string">'\0'</span>;
+	KrkString * result = allocateString(heapChars, length, hash);
+	<span class="hljs-keyword">if</span> (result-&gt;chars != heapChars) <span class="hljs-built_in">free</span>(heapChars);
+	_release_lock(_stringLock);
+	<span class="hljs-keyword">return</span> result;
+}
+
+<span class="hljs-function">KrkString * <span class="hljs-title">krk_takeStringVetted</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * chars, <span class="hljs-keyword">size_t</span> length, <span class="hljs-keyword">size_t</span> codesLength, KrkStringType type, <span class="hljs-keyword">uint32_t</span> hash)</span> </span>{
+	_obtain_lock(_stringLock);
+	KrkString * interned = krk_tableFindString(&amp;vm.strings, chars, length, hash);
+	<span class="hljs-keyword">if</span> (interned != <span class="hljs-literal">NULL</span>) {
+		KRK_FREE_ARRAY(<span class="hljs-keyword">char</span>, chars, length + <span class="hljs-number">1</span>);
+		_release_lock(_stringLock);
+		<span class="hljs-keyword">return</span> interned;
+	}
+	KrkString * <span class="hljs-built_in">string</span> = ALLOCATE_OBJECT(KrkString, KRK_OBJ_STRING);
+	<span class="hljs-built_in">string</span>-&gt;length = length;
+	<span class="hljs-built_in">string</span>-&gt;chars = chars;
+	<span class="hljs-built_in">string</span>-&gt;obj.hash = hash;
+	<span class="hljs-built_in">string</span>-&gt;obj.flags |= KRK_OBJ_FLAGS_VALID_HASH | type;
+	<span class="hljs-built_in">string</span>-&gt;codesLength = codesLength;
+	<span class="hljs-built_in">string</span>-&gt;codes = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">if</span> (type == KRK_OBJ_FLAGS_STRING_ASCII) <span class="hljs-built_in">string</span>-&gt;codes = <span class="hljs-built_in">string</span>-&gt;chars;
+	krk_push(OBJECT_VAL(<span class="hljs-built_in">string</span>));
+	krk_tableSetExact(&amp;vm.strings, OBJECT_VAL(<span class="hljs-built_in">string</span>), NONE_VAL());
+	krk_pop();
+	_release_lock(_stringLock);
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">string</span>;
+}
+
+<span class="hljs-function">KrkCodeObject * <span class="hljs-title">krk_newCodeObject</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	KrkCodeObject * codeobject = ALLOCATE_OBJECT(KrkCodeObject, KRK_OBJ_CODEOBJECT);
+	codeobject-&gt;requiredArgs = <span class="hljs-number">0</span>;
+	codeobject-&gt;keywordArgs = <span class="hljs-number">0</span>;
+	codeobject-&gt;potentialPositionals = <span class="hljs-number">0</span>;
+	codeobject-&gt;upvalueCount = <span class="hljs-number">0</span>;
+	codeobject-&gt;name = <span class="hljs-literal">NULL</span>;
+	codeobject-&gt;docstring = <span class="hljs-literal">NULL</span>;
+	codeobject-&gt;localNameCount = <span class="hljs-number">0</span>;
+	codeobject-&gt;localNames = <span class="hljs-literal">NULL</span>;
+	krk_initValueArray(&amp;codeobject-&gt;positionalArgNames);
+	krk_initValueArray(&amp;codeobject-&gt;keywordArgNames);
+	krk_initChunk(&amp;codeobject-&gt;chunk);
+	codeobject-&gt;jumpTargets = NONE_VAL();
+	<span class="hljs-keyword">return</span> codeobject;
+}
+
+<span class="hljs-function">KrkNative * <span class="hljs-title">krk_newNative</span><span class="hljs-params">(NativeFn function, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name, <span class="hljs-keyword">int</span> type)</span> </span>{
+	KrkNative * native = ALLOCATE_OBJECT(KrkNative, KRK_OBJ_NATIVE);
+	native-&gt;function = function;
+	native-&gt;obj.flags = type;
+	native-&gt;name = name;
+	native-&gt;doc = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">return</span> native;
+}
+
+<span class="hljs-function">KrkClosure * <span class="hljs-title">krk_newClosure</span><span class="hljs-params">(KrkCodeObject * function, KrkValue globals)</span> </span>{
+	KrkUpvalue ** upvalues = KRK_ALLOCATE(KrkUpvalue*, function-&gt;upvalueCount);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; function-&gt;upvalueCount; ++i) {
+		upvalues[i] = <span class="hljs-literal">NULL</span>;
+	}
+	KrkClosure * closure = ALLOCATE_OBJECT(KrkClosure, KRK_OBJ_CLOSURE);
+	closure-&gt;function = function;
+	closure-&gt;upvalues = upvalues;
+	closure-&gt;upvalueCount = function-&gt;upvalueCount;
+	closure-&gt;annotations = krk_dict_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	closure-&gt;globalsOwner = globals;
+	<span class="hljs-keyword">if</span> (IS_INSTANCE(globals)) {
+		<span class="hljs-keyword">if</span> (AS_INSTANCE(globals)-&gt;_class == vm.baseClasses-&gt;dictClass) {
+			closure-&gt;globalsTable = AS_DICT(globals);
+		} <span class="hljs-keyword">else</span> {
+			closure-&gt;globalsTable = &amp;AS_INSTANCE(globals)-&gt;fields;
+		}
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Invalid globals context: %s\n"</span>, krk_typeName(globals));
+		<span class="hljs-built_in">abort</span>();
+	}
+	krk_initTable(&amp;closure-&gt;fields);
+	<span class="hljs-keyword">return</span> closure;
+}
+
+<span class="hljs-function">KrkUpvalue * <span class="hljs-title">krk_newUpvalue</span><span class="hljs-params">(<span class="hljs-keyword">int</span> slot)</span> </span>{
+	KrkUpvalue * upvalue = ALLOCATE_OBJECT(KrkUpvalue, KRK_OBJ_UPVALUE);
+	upvalue-&gt;location = slot;
+	upvalue-&gt;next = <span class="hljs-literal">NULL</span>;
+	upvalue-&gt;closed = NONE_VAL();
+	upvalue-&gt;owner = &amp;krk_currentThread;
+	<span class="hljs-keyword">return</span> upvalue;
+}
+
+<span class="hljs-function">KrkClass * <span class="hljs-title">krk_newClass</span><span class="hljs-params">(KrkString * name, KrkClass * baseClass)</span> </span>{
+	KrkClass * _class = ALLOCATE_OBJECT(KrkClass, KRK_OBJ_CLASS);
+	_class-&gt;name = name;
+	_class-&gt;allocSize = <span class="hljs-keyword">sizeof</span>(KrkInstance);
+	krk_initTable(&amp;_class-&gt;methods);
+	krk_initTable(&amp;_class-&gt;subclasses);
+
+	<span class="hljs-keyword">if</span> (baseClass) {
+		_class-&gt;base = baseClass;
+		_class-&gt;allocSize = baseClass-&gt;allocSize;
+		_class-&gt;_ongcscan = baseClass-&gt;_ongcscan;
+		_class-&gt;_ongcsweep = baseClass-&gt;_ongcsweep;
+
+		krk_tableSet(&amp;baseClass-&gt;subclasses, OBJECT_VAL(_class), NONE_VAL());
+	}
+
+	<span class="hljs-keyword">return</span> _class;
+}
+
+<span class="hljs-function">KrkInstance * <span class="hljs-title">krk_newInstance</span><span class="hljs-params">(KrkClass * _class)</span> </span>{
+	KrkInstance * instance = (KrkInstance*)allocateObject(_class-&gt;allocSize, KRK_OBJ_INSTANCE);
+	instance-&gt;_class = _class;
+	krk_initTable(&amp;instance-&gt;fields);
+	<span class="hljs-keyword">return</span> instance;
+}
+
+<span class="hljs-function">KrkBoundMethod * <span class="hljs-title">krk_newBoundMethod</span><span class="hljs-params">(KrkValue receiver, KrkObj * method)</span> </span>{
+	KrkBoundMethod * bound = ALLOCATE_OBJECT(KrkBoundMethod, KRK_OBJ_BOUND_METHOD);
+	bound-&gt;receiver = receiver;
+	bound-&gt;method = method;
+	<span class="hljs-keyword">return</span> bound;
+}
+
+<span class="hljs-function">KrkTuple * <span class="hljs-title">krk_newTuple</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> length)</span> </span>{
+	KrkTuple * tuple = ALLOCATE_OBJECT(KrkTuple, KRK_OBJ_TUPLE);
+	krk_initValueArray(&amp;tuple-&gt;values);
+	krk_push(OBJECT_VAL(tuple));
+	tuple-&gt;values.capacity = length;
+	tuple-&gt;values.values = KRK_GROW_ARRAY(KrkValue,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>,length);
+	krk_pop();
+	<span class="hljs-keyword">return</span> tuple;
+}
+
+<span class="hljs-function">KrkBytes * <span class="hljs-title">krk_newBytes</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> length, <span class="hljs-keyword">uint8_t</span> * source)</span> </span>{
+	KrkBytes * bytes = ALLOCATE_OBJECT(KrkBytes, KRK_OBJ_BYTES);
+	bytes-&gt;length = length;
+	bytes-&gt;bytes  = <span class="hljs-literal">NULL</span>;
+	krk_push(OBJECT_VAL(bytes));
+	bytes-&gt;bytes  = KRK_ALLOCATE(<span class="hljs-keyword">uint8_t</span>, length);
+	bytes-&gt;obj.hash = <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">if</span> (source) {
+		<span class="hljs-built_in">memcpy</span>(bytes-&gt;bytes, source, length);
+	}
+	krk_pop();
+	<span class="hljs-keyword">return</span> bytes;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

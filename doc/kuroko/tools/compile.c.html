@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>compile.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\tools\\compile.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>compile.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Bytecode Compiler for Kuroko</p>
+</div>
+<div class="body">
+<p>Prototype bytecode marshaling tool to write binary forms of Kuroko source files.</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;assert.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/kuroko.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/compiler.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"simple-repl.h"</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> ISDEBUG</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DEBUGOUT(...) fprintf(stderr, __VA_ARGS__)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DEBUGOUT(...)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MarshalHeader</span> {</span>
+	<span class="hljs-keyword">uint8_t</span>  magic[<span class="hljs-number">4</span>];   <span class="hljs-comment">/* K R K B */</span>
+	<span class="hljs-keyword">uint8_t</span>  version[<span class="hljs-number">4</span>]; <span class="hljs-comment">/* 1 0 1 2 */</span>
+} __attribute__((packed));
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">FunctionHeader</span> {</span>
+	<span class="hljs-keyword">uint32_t</span> nameInd;
+	<span class="hljs-keyword">uint32_t</span> docInd;
+	<span class="hljs-keyword">uint32_t</span> qualInd;
+	<span class="hljs-keyword">uint16_t</span> reqArgs;
+	<span class="hljs-keyword">uint16_t</span> kwArgs;
+	<span class="hljs-keyword">uint16_t</span> posArgs;
+	<span class="hljs-keyword">uint16_t</span> upvalues;
+	<span class="hljs-keyword">uint32_t</span> locals;
+	<span class="hljs-keyword">uint32_t</span> bcSize;
+	<span class="hljs-keyword">uint32_t</span> lmSize;
+	<span class="hljs-keyword">uint32_t</span> ctSize;
+	<span class="hljs-keyword">uint8_t</span>  flags;
+	<span class="hljs-keyword">uint8_t</span>  data[];
+} __attribute__((packed));
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">LineMapEntry</span> {</span>
+	<span class="hljs-keyword">uint16_t</span> startOffset;
+	<span class="hljs-keyword">uint16_t</span> <span class="hljs-built_in">line</span>;
+} __attribute__((packed));
+
+NativeFn ListPop;
+NativeFn ListAppend;
+NativeFn ListContains;
+NativeFn ListIndex;
+KrkValue SeenFunctions;
+KrkValue UnseenFunctions;
+KrkValue StringTable;
+KrkValue Ellipsis;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _initListFunctions(<span class="hljs-keyword">void</span>) {
+	KrkValue _list_pop;
+	KrkValue _list_append;
+	KrkValue _list_contains;
+	KrkValue _list_index;
+	krk_tableGet(&amp;vm.baseClasses-&gt;listClass-&gt;methods, OBJECT_VAL(S(<span class="hljs-string">"pop"</span>)), &amp;_list_pop);
+	krk_tableGet(&amp;vm.baseClasses-&gt;listClass-&gt;methods, OBJECT_VAL(S(<span class="hljs-string">"append"</span>)), &amp;_list_append);
+	krk_tableGet(&amp;vm.baseClasses-&gt;listClass-&gt;methods, OBJECT_VAL(S(<span class="hljs-string">"__contains__"</span>)), &amp;_list_contains);
+	krk_tableGet(&amp;vm.baseClasses-&gt;listClass-&gt;methods, OBJECT_VAL(S(<span class="hljs-string">"index"</span>)), &amp;_list_index);
+	ListPop = AS_NATIVE(_list_pop)-&gt;function;
+	ListAppend = AS_NATIVE(_list_append)-&gt;function;
+	ListContains = AS_NATIVE(_list_contains)-&gt;function;
+	ListIndex = AS_NATIVE(_list_index)-&gt;function;
+
+	krk_tableGet_fast(&amp;vm.builtins-&gt;fields, S(<span class="hljs-string">"Ellipsis"</span>), &amp;Ellipsis);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">findInterpreter</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> _WIN32</span>
+	vm.binpath = strdup(_pgmptr);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+	<span class="hljs-comment">/* Try asking /proc */</span>
+	<span class="hljs-keyword">char</span> * binpath = realpath(<span class="hljs-string">"/proc/self/exe"</span>, <span class="hljs-literal">NULL</span>);
+	<span class="hljs-keyword">if</span> (!binpath || (access(binpath, X_OK) != <span class="hljs-number">0</span>)) {
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strchr</span>(argv[<span class="hljs-number">0</span>], <span class="hljs-string">'/'</span>)) {
+			binpath = realpath(argv[<span class="hljs-number">0</span>], <span class="hljs-literal">NULL</span>);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-comment">/* Search PATH for argv[0] */</span>
+			<span class="hljs-keyword">char</span> * _path = strdup(getenv(<span class="hljs-string">"PATH"</span>));
+			<span class="hljs-keyword">char</span> * path = _path;
+			<span class="hljs-keyword">while</span> (path) {
+				<span class="hljs-keyword">char</span> * next = <span class="hljs-built_in">strchr</span>(path,<span class="hljs-string">':'</span>);
+				<span class="hljs-keyword">if</span> (next) *next++ = <span class="hljs-string">'\0'</span>;
+
+				<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">4096</span>];
+				<span class="hljs-built_in">snprintf</span>(tmp, <span class="hljs-number">4096</span>, <span class="hljs-string">"%s/%s"</span>, path, argv[<span class="hljs-number">0</span>]);
+				<span class="hljs-keyword">if</span> (access(tmp, X_OK) == <span class="hljs-number">0</span>) {
+					binpath = strdup(tmp);
+					<span class="hljs-keyword">break</span>;
+				}
+				path = next;
+			}
+			<span class="hljs-built_in">free</span>(_path);
+		}
+	}
+	<span class="hljs-keyword">if</span> (binpath) {
+		vm.binpath = binpath;
+	} <span class="hljs-comment">/* Else, give up at this point and just don't attach it at all. */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+}
+
+<span class="hljs-keyword">static</span> KrkString ** myStrings = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">available</span> = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> count = <span class="hljs-number">0</span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> <span class="hljs-title">internString</span><span class="hljs-params">(KrkString * str)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+		<span class="hljs-keyword">if</span> (myStrings[i] == str) <span class="hljs-keyword">return</span> i;
+	}
+
+	<span class="hljs-keyword">if</span> (count + <span class="hljs-number">1</span> &gt; <span class="hljs-built_in">available</span>) {
+		<span class="hljs-built_in">available</span> = (<span class="hljs-built_in">available</span> == <span class="hljs-number">0</span>) ? <span class="hljs-number">8</span> : (<span class="hljs-built_in">available</span> * <span class="hljs-number">2</span>);
+		myStrings = <span class="hljs-built_in">realloc</span>(myStrings,<span class="hljs-built_in">available</span> * <span class="hljs-keyword">sizeof</span>(KrkString*));
+	}
+
+	myStrings[count] = str;
+	<span class="hljs-keyword">return</span> count++;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">doStringTable</span><span class="hljs-params">(FILE * out)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> stringCount = count;
+	fwrite(&amp;stringCount, <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>), out);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+		<span class="hljs-keyword">uint32_t</span> strLen = myStrings[i]-&gt;length;
+		fwrite(&amp;strLen, <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>), out);
+		fwrite(myStrings[i]-&gt;chars, <span class="hljs-number">1</span>, strLen, out);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> WRITE_INTEGER(i) _writeInteger(out, i)</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _writeInteger(FILE* out, krk_integer_type i) {
+	<span class="hljs-keyword">if</span> (i &gt;= <span class="hljs-number">0</span> &amp;&amp; i &lt; <span class="hljs-number">256</span>) { \
+		fwrite((<span class="hljs-keyword">uint8_t</span>[]){<span class="hljs-string">'i'</span>,i}, <span class="hljs-number">1</span>, <span class="hljs-number">2</span>, out);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">uint8_t</span> data[<span class="hljs-number">9</span>];
+		data[<span class="hljs-number">0</span>] = <span class="hljs-string">'I'</span>;
+		<span class="hljs-keyword">int64_t</span> value = i;
+		<span class="hljs-built_in">memcpy</span>(&amp;data[<span class="hljs-number">1</span>], &amp;value, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int64_t</span>));
+		fwrite(data, <span class="hljs-number">1</span>, <span class="hljs-number">9</span>, out);
+	}
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> WRITE_FLOATING(f) _writeFloating(out, f)</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _writeFloating(FILE * out, <span class="hljs-keyword">double</span> f) {
+	<span class="hljs-keyword">uint64_t</span> doubleOut;
+	<span class="hljs-built_in">memcpy</span>(&amp;doubleOut, &amp;f, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">double</span>));
+	fwrite(<span class="hljs-string">"d"</span>, <span class="hljs-number">1</span>, <span class="hljs-number">1</span>, out);
+	fwrite(&amp;doubleOut, <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint64_t</span>), out);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> WRITE_KWARGS(k) fwrite(<span class="hljs-meta-string">"k"</span>,1,1,out);</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> WRITE_STRING(s) _writeString(out, s)</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _writeString(FILE * out, KrkString * s) {
+	<span class="hljs-keyword">uint32_t</span> ind = internString(s);
+	<span class="hljs-keyword">if</span> (ind &lt; <span class="hljs-number">256</span>) {
+		fwrite((<span class="hljs-keyword">uint8_t</span>[]){<span class="hljs-string">'s'</span>,(<span class="hljs-keyword">uint8_t</span>)ind}, <span class="hljs-number">1</span>, <span class="hljs-number">2</span>, out);
+	} <span class="hljs-keyword">else</span> {
+		fwrite(<span class="hljs-string">"S"</span>,<span class="hljs-number">1</span>,<span class="hljs-number">1</span>,out);
+		fwrite(&amp;ind,<span class="hljs-number">1</span>,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>),out);
+	}
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> WRITE_BYTES(b) _writeBytes(out,b)</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _writeBytes(FILE * out, KrkBytes * b) {
+	<span class="hljs-keyword">if</span> (b-&gt;length &lt; <span class="hljs-number">256</span>) {
+		fwrite((<span class="hljs-keyword">uint8_t</span>[]){<span class="hljs-string">'b'</span>, (<span class="hljs-keyword">uint8_t</span>)b-&gt;length}, <span class="hljs-number">1</span>, <span class="hljs-number">2</span>, out);
+		fwrite(b-&gt;bytes, <span class="hljs-number">1</span>, b-&gt;length, out);
+	} <span class="hljs-keyword">else</span> {
+		fwrite(<span class="hljs-string">"B"</span>,<span class="hljs-number">1</span>,<span class="hljs-number">1</span>,out);
+		<span class="hljs-keyword">uint32_t</span> len = b-&gt;length;
+		fwrite(&amp;len, <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>), out);
+		fwrite(b-&gt;bytes, <span class="hljs-number">1</span>, b-&gt;length, out);
+	}
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> WRITE_FUNCTION(f) _writeFunction(out,f)</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _writeFunction(FILE * out, KrkCodeObject * f) {
+	<span class="hljs-comment">/* Find this function in the function table. */</span>
+	KrkValue <span class="hljs-keyword">this</span> = OBJECT_VAL(f);
+	KrkValue index = ListIndex(<span class="hljs-number">2</span>,(KrkValue[]){SeenFunctions,<span class="hljs-keyword">this</span>},<span class="hljs-number">0</span>);
+	<span class="hljs-keyword">if</span> (!IS_INTEGER(index)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Internal error: Expected int from list.index, got '%s'\n"</span>, krk_typeName(index));
+		<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+	}
+	krk_integer_type i = AS_INTEGER(index);
+	<span class="hljs-keyword">if</span> (i &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Internal error: expected an index, not %ld\n"</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)i);
+		<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+	}
+	<span class="hljs-keyword">if</span> (i &lt; <span class="hljs-number">256</span>) {
+		fwrite((<span class="hljs-keyword">uint8_t</span>[]){<span class="hljs-string">'f'</span>,(<span class="hljs-keyword">uint8_t</span>)i},<span class="hljs-number">1</span>,<span class="hljs-number">2</span>,out);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">uint32_t</span> val = i;
+		fwrite(<span class="hljs-string">"F"</span>,<span class="hljs-number">1</span>,<span class="hljs-number">1</span>,out);
+		fwrite(&amp;val,<span class="hljs-number">1</span>,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>),out);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">doFirstPass</span><span class="hljs-params">(FILE * out)</span> </span>{
+	<span class="hljs-comment">/* Go through all functions and build string tables and function index */</span>
+
+	<span class="hljs-keyword">while</span> (AS_LIST(UnseenFunctions)-&gt;count) {
+		KrkValue nextFunc = ListPop(<span class="hljs-number">2</span>,(KrkValue[]){UnseenFunctions,INTEGER_VAL(<span class="hljs-number">0</span>)},<span class="hljs-number">0</span>);
+		krk_push(nextFunc);
+		ListAppend(<span class="hljs-number">2</span>,(KrkValue[]){SeenFunctions,nextFunc},<span class="hljs-number">0</span>);
+
+		<span class="hljs-comment">/* Examine */</span>
+		KrkCodeObject * func = AS_codeobject(nextFunc);
+
+		<span class="hljs-keyword">if</span> (func-&gt;name) internString(func-&gt;name);
+		<span class="hljs-keyword">if</span> (func-&gt;docstring) internString(func-&gt;docstring);
+		<span class="hljs-keyword">if</span> (func-&gt;qualname) internString(func-&gt;qualname);
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; (<span class="hljs-keyword">size_t</span>)func-&gt;potentialPositionals + !!(func-&gt;obj.flags &amp; KRK_OBJ_FLAGS_CODEOBJECT_COLLECTS_ARGS); ++i) {
+			internString(AS_STRING(func-&gt;positionalArgNames.values[i]));
+		}
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; (<span class="hljs-keyword">size_t</span>)func-&gt;keywordArgs + !!(func-&gt;obj.flags &amp; KRK_OBJ_FLAGS_CODEOBJECT_COLLECTS_KWS); ++i) {
+			internString(AS_STRING(func-&gt;keywordArgNames.values[i]));
+		}
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; func-&gt;chunk.constants.count; ++i) {
+			KrkValue value = func-&gt;chunk.constants.values[i];
+			<span class="hljs-keyword">if</span> (IS_OBJECT(value)) {
+				<span class="hljs-keyword">if</span> (IS_STRING(value)) {
+					internString(AS_STRING(value));
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_codeobject(value)) {
+					<span class="hljs-comment">/* If we haven't seen this function yet, append it to the list */</span>
+					krk_push(value);
+					KrkValue boolResult = ListContains(<span class="hljs-number">2</span>,(KrkValue[]){SeenFunctions,value},<span class="hljs-number">0</span>);
+					<span class="hljs-keyword">if</span> (IS_BOOLEAN(boolResult) &amp;&amp; AS_BOOLEAN(boolResult) == <span class="hljs-number">0</span>) {
+						ListAppend(<span class="hljs-number">2</span>,(KrkValue[]){UnseenFunctions,value},<span class="hljs-number">0</span>);
+					}
+					krk_pop();
+				}
+			}
+		}
+
+		krk_pop();
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">doSecondPass</span><span class="hljs-params">(FILE * out)</span> </span>{
+
+	<span class="hljs-comment">/* Write the function count */</span>
+	<span class="hljs-keyword">uint32_t</span> functionCount = AS_LIST(SeenFunctions)-&gt;count;
+	fwrite(&amp;functionCount, <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>), out);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> funcIndex = <span class="hljs-number">0</span>; funcIndex &lt; AS_LIST(SeenFunctions)-&gt;count; ++funcIndex) {
+		KrkCodeObject * func = AS_codeobject(AS_LIST(SeenFunctions)-&gt;values[funcIndex]);
+
+		<span class="hljs-keyword">uint8_t</span> flags = func-&gt;obj.flags;
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">FunctionHeader</span> <span class="hljs-title">header</span> = {</span>
+			func-&gt;name ? internString(func-&gt;name) : UINT32_MAX,
+			func-&gt;docstring ? internString(func-&gt;docstring) : UINT32_MAX,
+			func-&gt;qualname ? internString(func-&gt;qualname) : UINT32_MAX,
+			func-&gt;requiredArgs,
+			func-&gt;keywordArgs,
+			func-&gt;potentialPositionals,
+			func-&gt;upvalueCount,
+			func-&gt;localNameCount,
+			func-&gt;chunk.count,
+			func-&gt;chunk.linesCount,
+			func-&gt;chunk.constants.count,
+			flags
+		};
+
+		fwrite(&amp;header, <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(struct FunctionHeader), out);
+
+		<span class="hljs-comment">/* Argument names first */</span>
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; (<span class="hljs-keyword">size_t</span>)func-&gt;potentialPositionals + !!(func-&gt;obj.flags &amp; KRK_OBJ_FLAGS_CODEOBJECT_COLLECTS_ARGS); ++i) {
+			WRITE_STRING(AS_STRING(func-&gt;positionalArgNames.values[i]));
+		}
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; (<span class="hljs-keyword">size_t</span>)func-&gt;keywordArgs + !!(func-&gt;obj.flags &amp; KRK_OBJ_FLAGS_CODEOBJECT_COLLECTS_KWS); ++i) {
+			WRITE_STRING(AS_STRING(func-&gt;keywordArgNames.values[i]));
+		}
+
+		<span class="hljs-comment">/* Bytecode operations next */</span>
+		fwrite(func-&gt;chunk.code, <span class="hljs-number">1</span>, func-&gt;chunk.count, out);
+
+		<span class="hljs-comment">/* Now let's do line references */</span>
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; func-&gt;chunk.linesCount; ++i) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">LineMapEntry</span> <span class="hljs-title">entry</span> = {</span>
+				func-&gt;chunk.lines[i].startOffset,
+				func-&gt;chunk.lines[i].<span class="hljs-built_in">line</span>
+			};
+			fwrite(&amp;entry, <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(struct LineMapEntry), out);
+		}
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; func-&gt;chunk.constants.count; ++i) {
+			KrkValue * val = &amp;func-&gt;chunk.constants.values[i];
+			<span class="hljs-keyword">switch</span> (KRK_VAL_TYPE(*val)) {
+				<span class="hljs-keyword">case</span> KRK_VAL_OBJECT:
+					<span class="hljs-keyword">switch</span> (AS_OBJECT(*val)-&gt;type) {
+						<span class="hljs-keyword">case</span> KRK_OBJ_STRING:
+							WRITE_STRING(AS_STRING(*val));
+							<span class="hljs-keyword">break</span>;
+						<span class="hljs-keyword">case</span> KRK_OBJ_BYTES:
+							WRITE_BYTES(AS_BYTES(*val));
+							<span class="hljs-keyword">break</span>;
+						<span class="hljs-keyword">case</span> KRK_OBJ_CODEOBJECT:
+							WRITE_FUNCTION(AS_codeobject(*val));
+							<span class="hljs-keyword">break</span>;
+						<span class="hljs-keyword">default</span>:
+							<span class="hljs-keyword">if</span> (krk_valuesSame(*val,Ellipsis)) {
+								fwrite(<span class="hljs-string">"e"</span>,<span class="hljs-number">1</span>,<span class="hljs-number">1</span>,out);
+								<span class="hljs-keyword">break</span>;
+							}
+							<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+								<span class="hljs-string">"Invalid object found in constants table, "</span>
+								<span class="hljs-string">"this marashal format can not store '%s'\n"</span>,
+								krk_typeName(*val));
+							<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> KRK_VAL_KWARGS: <span class="hljs-comment">/* This should always be KWARGS_VAL(0) */</span>
+					WRITE_KWARGS(AS_INTEGER(*val));
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> KRK_VAL_INTEGER:
+					WRITE_INTEGER(AS_INTEGER(*val));
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">default</span>:
+					<span class="hljs-keyword">if</span> (IS_FLOATING(*val)) {
+						WRITE_FLOATING(AS_FLOATING(*val));
+						<span class="hljs-keyword">break</span>;
+					}
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+						<span class="hljs-string">"Invalid value found in constants table, "</span>
+						<span class="hljs-string">"this marashal format can not store '%s'\n"</span>,
+						krk_typeName(*val));
+					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			}
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">compileFile</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * fileName)</span> </span>{
+	<span class="hljs-comment">/* Compile source file */</span>
+	FILE * f = fopen(fileName, <span class="hljs-string">"r"</span>);
+	<span class="hljs-keyword">if</span> (!f) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s\n"</span>, fileName, strerror(errno));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	fseek(f, <span class="hljs-number">0</span>, SEEK_END);
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = ftell(f);
+	fseek(f, <span class="hljs-number">0</span>, SEEK_SET);
+	<span class="hljs-keyword">char</span> * buf = <span class="hljs-built_in">malloc</span>(<span class="hljs-built_in">size</span> + <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (fread(buf, <span class="hljs-number">1</span>, <span class="hljs-built_in">size</span>, f) != <span class="hljs-built_in">size</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s\n"</span>, fileName, strerror(errno));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+	}
+	fclose(f);
+	buf[<span class="hljs-built_in">size</span>] = <span class="hljs-string">'\0'</span>;
+
+	FILE * out = fopen(<span class="hljs-string">"out.kbc"</span>, <span class="hljs-string">"w"</span>);
+
+
+	krk_startModule(<span class="hljs-string">"__main__"</span>);
+	KrkCodeObject * func = krk_compile(buf, fileName);
+
+	<span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: exception during compilation:\n"</span>, fileName);
+		krk_dumpTraceback();
+		<span class="hljs-keyword">return</span> <span class="hljs-number">3</span>;
+	}
+
+	<span class="hljs-comment">/* Start with the primary header */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MarshalHeader</span> <span class="hljs-title">header</span> = {</span>
+		{<span class="hljs-string">'K'</span>,<span class="hljs-string">'R'</span>,<span class="hljs-string">'K'</span>,<span class="hljs-string">'B'</span>},
+		{<span class="hljs-string">'1'</span>,<span class="hljs-string">'0'</span>,<span class="hljs-string">'1'</span>,<span class="hljs-string">'2'</span>},
+	};
+
+	fwrite(&amp;header, <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(header), out);
+
+	SeenFunctions = krk_list_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	krk_push(SeenFunctions);
+
+	UnseenFunctions = krk_list_of(<span class="hljs-number">1</span>,(KrkValue[]){OBJECT_VAL(func)},<span class="hljs-number">0</span>);
+	krk_push(UnseenFunctions);
+
+	<span class="hljs-keyword">if</span> (doFirstPass(out)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (doStringTable(out)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (doSecondPass(out)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+
+	krk_pop(); <span class="hljs-comment">/* UnseenFunctions */</span>
+	krk_pop(); <span class="hljs-comment">/* SeenFunctions */</span>
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> KrkValue <span class="hljs-title">valueFromConstant</span><span class="hljs-params">(<span class="hljs-keyword">int</span> i, FILE * inFile)</span> </span>{
+	<span class="hljs-keyword">uint8_t</span> c = fgetc(inFile);
+	DEBUGOUT(<span class="hljs-string">"  %4lu: "</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)i);
+	<span class="hljs-keyword">switch</span> (c) {
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'i'</span>:
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'I'</span>: {
+			<span class="hljs-keyword">int64_t</span> inVal = (c == <span class="hljs-string">'i'</span>) ? fgetc(inFile) : <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'I'</span>) assert(fread(&amp;inVal, <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int64_t</span>), inFile) == <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int64_t</span>));
+			DEBUGOUT(<span class="hljs-string">"int %lld\n"</span>, (<span class="hljs-keyword">long</span> <span class="hljs-keyword">long</span>)inVal);
+			<span class="hljs-keyword">return</span> INTEGER_VAL(inVal);
+		}
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'s'</span>:
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'S'</span>: {
+			<span class="hljs-keyword">uint32_t</span> ind = (c == <span class="hljs-string">'s'</span>) ? fgetc(inFile) : <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'S'</span>) assert(fread(&amp;ind, <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>), inFile) == <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>));
+			KrkValue valOut = AS_LIST(StringTable)-&gt;values[ind];
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> ISDEBUG</span>
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"str #%lu "</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)ind);
+			krk_printValueSafe(<span class="hljs-built_in">stderr</span>, valOut);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"\n"</span>);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+			<span class="hljs-keyword">return</span> valOut;
+		}
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'d'</span>: {
+			<span class="hljs-keyword">double</span> val;
+			assert(fread(&amp;val, <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">double</span>), inFile) == <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">double</span>));
+			DEBUGOUT(<span class="hljs-string">"float %g\n"</span>, val);
+			<span class="hljs-keyword">return</span> FLOATING_VAL(val);
+		}
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>:
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'F'</span>: {
+			<span class="hljs-keyword">uint32_t</span> ind = (c == <span class="hljs-string">'f'</span>) ? fgetc(inFile) : <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'F'</span>) assert(fread(&amp;ind, <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>), inFile) == <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>));
+			DEBUGOUT(<span class="hljs-string">"function #%lu\n"</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)ind);
+			<span class="hljs-keyword">return</span> AS_LIST(SeenFunctions)-&gt;values[ind];
+		}
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'k'</span>: {
+			<span class="hljs-keyword">return</span> KWARGS_VAL(<span class="hljs-number">0</span>);
+		}
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'e'</span>: {
+			<span class="hljs-keyword">return</span> Ellipsis;
+		}
+		<span class="hljs-keyword">default</span>: {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Unknown type '%c'.\n"</span>, c);
+			<span class="hljs-keyword">return</span> NONE_VAL();
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">readFile</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * fileName)</span> </span>{
+
+	FILE * inFile = fopen(fileName, <span class="hljs-string">"r"</span>);
+	<span class="hljs-keyword">if</span> (!inFile) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s\n"</span>, fileName, strerror(errno));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	krk_startModule(<span class="hljs-string">"__main__"</span>);
+
+	StringTable = krk_list_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	krk_push(StringTable);
+
+	SeenFunctions = krk_list_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	krk_push(SeenFunctions);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MarshalHeader</span> <span class="hljs-title">header</span>;</span>
+	assert(fread(&amp;header, <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(header), inFile) == <span class="hljs-keyword">sizeof</span>(header));
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">memcmp</span>(header.magic,(<span class="hljs-keyword">uint8_t</span>[]){<span class="hljs-string">'K'</span>,<span class="hljs-string">'R'</span>,<span class="hljs-string">'K'</span>,<span class="hljs-string">'B'</span>},<span class="hljs-number">4</span>) != <span class="hljs-number">0</span>)
+		<span class="hljs-keyword">return</span> <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Invalid header.\n"</span>), <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">memcmp</span>(header.version,(<span class="hljs-keyword">uint8_t</span>[]){<span class="hljs-string">'1'</span>,<span class="hljs-string">'0'</span>,<span class="hljs-string">'1'</span>,<span class="hljs-string">'2'</span>},<span class="hljs-number">4</span>) != <span class="hljs-number">0</span>)
+		<span class="hljs-keyword">return</span> <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Bytecode is for a different version.\n"</span>), <span class="hljs-number">2</span>;
+
+	<span class="hljs-comment">/* Read string table */</span>
+	<span class="hljs-keyword">uint32_t</span> stringCount;
+	assert(fread(&amp;stringCount, <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>), inFile) == <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>));
+
+	DEBUGOUT(<span class="hljs-string">"[String Table (count=%lu)]\n"</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)stringCount);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; (<span class="hljs-keyword">size_t</span>)stringCount; ++i) {
+		<span class="hljs-keyword">uint32_t</span> strLen;
+		assert(fread(&amp;strLen, <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>), inFile) == <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>));
+
+		<span class="hljs-keyword">char</span> * strVal = <span class="hljs-built_in">malloc</span>(strLen+<span class="hljs-number">1</span>);
+		assert(fread(strVal, <span class="hljs-number">1</span>, strLen, inFile) == strLen);
+		strVal[strLen] = <span class="hljs-string">'\0'</span>;
+
+		<span class="hljs-comment">/* Create a string */</span>
+		krk_push(OBJECT_VAL(krk_takeString(strVal,strLen)));
+		ListAppend(<span class="hljs-number">2</span>,(KrkValue[]){StringTable, krk_peek(<span class="hljs-number">0</span>)},<span class="hljs-number">0</span>);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> ISDEBUG</span>
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%04lu: "</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)i);
+		krk_printValueSafe(<span class="hljs-built_in">stderr</span>, krk_peek(<span class="hljs-number">0</span>));
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">" (len=%lu)\n"</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)strLen);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+		krk_pop();
+	}
+
+	<span class="hljs-keyword">uint32_t</span> functionCount;
+	assert(fread(&amp;functionCount, <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>), inFile) == <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>));
+
+	DEBUGOUT(<span class="hljs-string">"[Code Objects (count=%lu)]\n"</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)functionCount);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; (<span class="hljs-keyword">size_t</span>)functionCount; ++i) {
+		krk_push(OBJECT_VAL(krk_newCodeObject()));
+		ListAppend(<span class="hljs-number">2</span>,(KrkValue[]){SeenFunctions, krk_peek(<span class="hljs-number">0</span>)}, <span class="hljs-number">0</span>);
+		krk_pop();
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; (<span class="hljs-keyword">size_t</span>)functionCount; ++i) {
+
+		KrkCodeObject * self = AS_codeobject(AS_LIST(SeenFunctions)-&gt;values[i]);
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">FunctionHeader</span> <span class="hljs-title">function</span>;</span>
+		assert(fread(&amp;function, <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(function), inFile) == <span class="hljs-keyword">sizeof</span>(function));
+
+		<span class="hljs-keyword">if</span> (function.nameInd != UINT32_MAX) {
+			self-&gt;name = AS_STRING(AS_LIST(StringTable)-&gt;values[function.nameInd]);
+		} <span class="hljs-keyword">else</span> {
+			self-&gt;name = S(<span class="hljs-string">"__main__"</span>);
+		}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> ISDEBUG</span>
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"&lt;"</span>);
+		krk_printValueSafe(<span class="hljs-built_in">stderr</span>,OBJECT_VAL(self-&gt;name));
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"&gt;\n"</span>);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+		<span class="hljs-keyword">if</span> (function.docInd != UINT32_MAX) {
+			self-&gt;docstring = AS_STRING(AS_LIST(StringTable)-&gt;values[function.docInd]);
+		}
+
+		<span class="hljs-keyword">if</span> (function.qualInd != UINT32_MAX) {
+			self-&gt;qualname = AS_STRING(AS_LIST(StringTable)-&gt;values[function.qualInd]);
+		}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> ISDEBUG</span>
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"   Required arguments: %lu\n"</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)function.reqArgs);
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"   Keyword arguments:  %lu\n"</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)function.kwArgs);
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"   Named locals:       %lu\n"</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)function.locals);
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"   Bytes of bytecode:  %lu\n"</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)function.bcSize);
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"   Line mappings:      %lu\n"</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)function.lmSize);
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"   Constants:          %lu\n"</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)function.ctSize);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+		self-&gt;requiredArgs = function.reqArgs;
+		self-&gt;keywordArgs  = function.kwArgs;
+		self-&gt;obj.flags    = function.flags;
+		self-&gt;upvalueCount = function.upvalues;
+		self-&gt;potentialPositionals = function.posArgs;
+
+		self-&gt;totalArguments = self-&gt;potentialPositionals + !!(self-&gt;obj.flags &amp; KRK_OBJ_FLAGS_CODEOBJECT_COLLECTS_ARGS) + !!(self-&gt;obj.flags &amp; KRK_OBJ_FLAGS_CODEOBJECT_COLLECTS_KWS);
+
+		<span class="hljs-comment">/* Read argument names */</span>
+		DEBUGOUT(<span class="hljs-string">"  [Positional Arguments]\n"</span>);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; (<span class="hljs-keyword">size_t</span>)function.posArgs + !!(self-&gt;obj.flags &amp; KRK_OBJ_FLAGS_CODEOBJECT_COLLECTS_ARGS); i++) {
+			krk_writeValueArray(&amp;self-&gt;positionalArgNames, valueFromConstant(i,inFile));
+		}
+
+		DEBUGOUT(<span class="hljs-string">"  [Keyword Arguments]\n"</span>);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; (<span class="hljs-keyword">size_t</span>)function.kwArgs + !!(self-&gt;obj.flags &amp; KRK_OBJ_FLAGS_CODEOBJECT_COLLECTS_KWS); i++) {
+			krk_writeValueArray(&amp;self-&gt;keywordArgNames, valueFromConstant(i,inFile));
+		}
+
+		<span class="hljs-comment">/* Skip bytecode for now, we'll look at it later */</span>
+		self-&gt;chunk.capacity = function.bcSize;
+		self-&gt;chunk.code = <span class="hljs-built_in">malloc</span>(self-&gt;chunk.capacity);
+		assert(fread(self-&gt;chunk.code, <span class="hljs-number">1</span>, self-&gt;chunk.capacity, inFile) == self-&gt;chunk.capacity);
+		self-&gt;chunk.count = self-&gt;chunk.capacity;
+
+		self-&gt;chunk.linesCapacity = function.lmSize;
+		self-&gt;chunk.lines = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(KrkLineMap) * function.lmSize);
+		<span class="hljs-comment">/* Examine line mappings */</span>
+		DEBUGOUT(<span class="hljs-string">"  [Line Mapping]\n"</span>);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; function.lmSize; ++i) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">LineMapEntry</span> <span class="hljs-title">entry</span>;</span>
+			assert(fread(&amp;entry,<span class="hljs-number">1</span>,<span class="hljs-keyword">sizeof</span>(struct LineMapEntry),inFile) == <span class="hljs-keyword">sizeof</span>(struct LineMapEntry));
+
+
+			DEBUGOUT(<span class="hljs-string">"  %4lu = 0x%04lx\n"</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)entry.<span class="hljs-built_in">line</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)entry.startOffset);
+
+			self-&gt;chunk.lines[i].startOffset = entry.startOffset;
+			self-&gt;chunk.lines[i].<span class="hljs-built_in">line</span> = entry.<span class="hljs-built_in">line</span>;
+		}
+		self-&gt;chunk.linesCount = self-&gt;chunk.linesCapacity;
+
+		<span class="hljs-comment">/* Read constants */</span>
+		DEBUGOUT(<span class="hljs-string">"  [Constants Table]\n"</span>);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; function.ctSize; i++) {
+			krk_writeValueArray(&amp;self-&gt;chunk.constants, valueFromConstant(i, inFile));
+		}
+	}
+
+	<span class="hljs-comment">/* Now we can move the first function up and call it to initialize a module */</span>
+	krk_pop();
+	krk_pop();
+	krk_push(AS_LIST(SeenFunctions)-&gt;values[<span class="hljs-number">0</span>]);
+
+	KrkClosure * closure = krk_newClosure(AS_codeobject(krk_peek(<span class="hljs-number">0</span>)), OBJECT_VAL(krk_currentThread.<span class="hljs-keyword">module</span>));
+	krk_pop();
+	krk_push(OBJECT_VAL(closure));
+
+	krk_callValue(OBJECT_VAL(closure), <span class="hljs-number">0</span>, <span class="hljs-number">1</span>);
+
+	<span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> Load module into module table */</span>
+	KrkValue result = krk_runNext();
+	<span class="hljs-keyword">if</span> (IS_INTEGER(result)) <span class="hljs-keyword">return</span> AS_INTEGER(result);
+	<span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">return</span> runSimpleRepl();
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">2</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"usage: %s path-to-file.krk\n"</span>
+		                <span class="hljs-string">"       %s -r path-to-file.kbc\n"</span>,
+		                argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* Initialize a VM */</span>
+	findInterpreter(argv);
+	krk_initVM(<span class="hljs-number">0</span>);
+	_initListFunctions();
+
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">3</span>) {
+		<span class="hljs-keyword">return</span> compileFile(argv[<span class="hljs-number">1</span>]);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (argc == <span class="hljs-number">3</span> &amp;&amp; !<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">1</span>],<span class="hljs-string">"-r"</span>)) {
+		<span class="hljs-keyword">return</span> readFile(argv[<span class="hljs-number">2</span>]);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

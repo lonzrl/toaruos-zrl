@@ -1,0 +1,1447 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>kuroko.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\src\\kuroko.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>kuroko.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Kuroko interpreter main executable.</p>
+</div>
+<div class="body">
+<p>Reads lines from stdin with the <code>rline</code> library and executes them,
+or executes scripts from the argument list.</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _DEFAULT_SOURCE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __toaru__</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/rline.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> NO_RLINE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"vendor/rline.h"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"vendor/keigo.h"</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/kuroko.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/chunk.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/debug.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/memory.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/scanner.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/compiler.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PROMPT_MAIN  <span class="hljs-meta-string">"&gt;&gt;&gt; "</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PROMPT_BLOCK <span class="hljs-meta-string">"  &gt; "</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> enableRline = <span class="hljs-number">1</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> exitRepl = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> pasteEnabled = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> noColor = <span class="hljs-number">0</span>;
+
+KRK_Function(<span class="hljs-built_in">exit</span>) {
+	FUNCTION_TAKES_NONE();
+	exitRepl = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Function(paste) {
+	<span class="hljs-keyword">int</span> enabled = !pasteEnabled;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"|p"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"enabled"</span>},&amp;enabled)) <span class="hljs-keyword">return</span> NONE_VAL();
+	pasteEnabled = enabled;
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Pasting is %s.\n"</span>, pasteEnabled ? <span class="hljs-string">"enabled"</span> : <span class="hljs-string">"disabled"</span>);
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">doRead</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * buf, <span class="hljs-keyword">size_t</span> bufSize)</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> NO_RLINE</span>
+	<span class="hljs-keyword">if</span> (enableRline)
+		<span class="hljs-keyword">return</span> rline(buf, bufSize);
+	<span class="hljs-keyword">else</span>
+#endif
+		<span class="hljs-keyword">return</span> <span class="hljs-built_in">read</span>(STDIN_FILENO, buf, bufSize);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> KrkValue <span class="hljs-title">readLine</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * prompt, <span class="hljs-keyword">int</span> promptWidth, <span class="hljs-keyword">char</span> * syntaxHighlighter)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> NO_RLINE</span>
+	<span class="hljs-keyword">if</span> (enableRline) {
+		rline_exit_string = <span class="hljs-string">""</span>;
+		rline_exp_set_prompts(prompt, <span class="hljs-string">""</span>, promptWidth, <span class="hljs-number">0</span>);
+		rline_exp_set_syntax(syntaxHighlighter);
+		rline_exp_set_tab_complete_func(<span class="hljs-literal">NULL</span>);
+	} <span class="hljs-keyword">else</span>
+#endif
+	{
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%s"</span>, prompt);
+		fflush(<span class="hljs-built_in">stdout</span>);
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Read a line of input using a method that we can guarantee will be
+interrupted by signal delivery.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">char</span> buf[<span class="hljs-number">4096</span>];
+		<span class="hljs-keyword">ssize_t</span> bytesRead = doRead(buf, <span class="hljs-number">4096</span>);
+		<span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_SIGNALLED) <span class="hljs-keyword">goto</span> _exit;
+		<span class="hljs-keyword">if</span> (bytesRead &lt; <span class="hljs-number">0</span>) {
+			krk_runtimeError(vm.exceptions-&gt;ioError, <span class="hljs-string">"%s"</span>, strerror(errno));
+			<span class="hljs-keyword">goto</span> _exit;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (bytesRead == <span class="hljs-number">0</span> &amp;&amp; !sb.length) {
+			krk_runtimeError(vm.exceptions-&gt;baseException, <span class="hljs-string">"EOF"</span>);
+			<span class="hljs-keyword">goto</span> _exit;
+		} <span class="hljs-keyword">else</span> {
+			pushStringBuilderStr(&amp;sb, buf, bytesRead);
+		}
+		<span class="hljs-comment">/* Was there a linefeed? Then we can exit. */</span>
+		<span class="hljs-keyword">if</span> (sb.length &amp;&amp; sb.bytes[sb.length<span class="hljs-number">-1</span>] == <span class="hljs-string">'\n'</span>) {
+			sb.length--;
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> finishStringBuilder(&amp;sb);
+
+_exit:
+	discardStringBuilder(&amp;sb);
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">KRK_Function(input) {
+	<span class="hljs-keyword">char</span> * prompt = <span class="hljs-string">""</span>;
+	<span class="hljs-keyword">int</span> promptwidth = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> * syntax = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"|siz"</span>, (<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"prompt"</span>,<span class="hljs-string">"promptwidth"</span>,<span class="hljs-string">"syntax"</span>},
+		&amp;prompt, &amp;promptwidth, &amp;syntax)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-keyword">if</span> (promptwidth == <span class="hljs-number">0</span> &amp;&amp; *prompt) {
+		promptwidth = <span class="hljs-built_in">strlen</span>(prompt);
+	}
+
+	<span class="hljs-keyword">return</span> readLine(prompt, promptwidth, syntax);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">printResult</span><span class="hljs-params">(FILE * file, KrkValue result)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+	<span class="hljs-keyword">if</span> (!krk_pushStringBuilderFormat(&amp;sb, noColor ? <span class="hljs-string">" =&gt; %R\n"</span> : <span class="hljs-string">" \033[1;90m=&gt; %R\033[0m\n"</span>, result)) {
+		krk_dumpTraceback();
+	} <span class="hljs-keyword">else</span> {
+		fwrite(sb.bytes,<span class="hljs-number">1</span>,sb.length,file);
+	}
+	krk_discardStringBuilder(&amp;sb);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> NO_RLINE</span>
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Given an object, find a property with the same name as a scanner token.
+This can be either a field of an instance, or a method of the type of
+the of the object. If we can't find anything by that name, return None.</p>
+</div>
+<div class="body">
+<p>We can probably also use valueGetProperty which does correct binding
+for native dynamic fields...</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> KrkValue <span class="hljs-title">findFromProperty</span><span class="hljs-params">(KrkValue current, KrkToken next)</span> </span>{
+	KrkValue member = OBJECT_VAL(krk_copyString(next.start, next.literalWidth));
+	krk_push(member);
+	KrkValue value = krk_valueGetAttribute_default(current, AS_CSTRING(member), NONE_VAL());
+	krk_pop();
+	<span class="hljs-keyword">return</span> value;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * syn_krk_keywords[] = {
+	<span class="hljs-string">"and"</span>,<span class="hljs-string">"class"</span>,<span class="hljs-string">"def"</span>,<span class="hljs-string">"else"</span>,<span class="hljs-string">"for"</span>,<span class="hljs-string">"if"</span>,<span class="hljs-string">"in"</span>,<span class="hljs-string">"import"</span>,<span class="hljs-string">"del"</span>,
+	<span class="hljs-string">"let"</span>,<span class="hljs-string">"not"</span>,<span class="hljs-string">"or"</span>,<span class="hljs-string">"return"</span>,<span class="hljs-string">"while"</span>,<span class="hljs-string">"try"</span>,<span class="hljs-string">"except"</span>,<span class="hljs-string">"raise"</span>,
+	<span class="hljs-string">"continue"</span>,<span class="hljs-string">"break"</span>,<span class="hljs-string">"as"</span>,<span class="hljs-string">"from"</span>,<span class="hljs-string">"elif"</span>,<span class="hljs-string">"lambda"</span>,<span class="hljs-string">"with"</span>,<span class="hljs-string">"is"</span>,
+	<span class="hljs-string">"pass"</span>,<span class="hljs-string">"assert"</span>,<span class="hljs-string">"yield"</span>,<span class="hljs-string">"finally"</span>,<span class="hljs-string">"async"</span>,<span class="hljs-string">"await"</span>,
+	<span class="hljs-string">"True"</span>,<span class="hljs-string">"False"</span>,<span class="hljs-string">"None"</span>,
+	<span class="hljs-literal">NULL</span>
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">tab_complete_func</span><span class="hljs-params">(<span class="hljs-keyword">rline_context_t</span> * c)</span> </span>{
+	<span class="hljs-comment">/* Figure out where the cursor is and if we should be completing anything. */</span>
+	<span class="hljs-keyword">if</span> (c-&gt;offset) {
+		<span class="hljs-keyword">size_t</span> stackIn = krk_currentThread.stackTop - krk_currentThread.<span class="hljs-built_in">stack</span>;
+		<span class="hljs-comment">/* Copy up to the cursor... */</span>
+		<span class="hljs-keyword">char</span> * tmp = <span class="hljs-built_in">malloc</span>(c-&gt;offset + <span class="hljs-number">1</span>);
+		<span class="hljs-built_in">memcpy</span>(tmp, c-&gt;<span class="hljs-built_in">buffer</span>, c-&gt;offset);
+		tmp[c-&gt;offset] = <span class="hljs-string">'\0'</span>;
+		<span class="hljs-comment">/* and pass it to the scanner... */</span>
+		KrkScanner scanner = krk_initScanner(tmp);
+		<span class="hljs-comment">/* Logically, there can be at most (offset) tokens, plus some wiggle room. */</span>
+		KrkToken * space = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(KrkToken) * (c-&gt;offset + <span class="hljs-number">2</span>));
+		<span class="hljs-keyword">int</span> count = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">do</span> {
+			space[count++] = krk_scanToken(&amp;scanner);
+		} <span class="hljs-keyword">while</span> (space[count<span class="hljs-number">-1</span>].type != TOKEN_EOF &amp;&amp; space[count<span class="hljs-number">-1</span>].type != TOKEN_ERROR);
+
+		<span class="hljs-comment">/* If count == 1, it was EOF or an error and we have nothing to complete. */</span>
+		<span class="hljs-keyword">if</span> (count == <span class="hljs-number">1</span>) {
+			<span class="hljs-keyword">goto</span> _cleanup;
+		}
+
+		<span class="hljs-comment">/* Otherwise we want to see if we're on an identifier or a dot. */</span>
+		<span class="hljs-keyword">int</span> base = <span class="hljs-number">2</span>;
+		<span class="hljs-keyword">int</span> n = base;
+		<span class="hljs-keyword">if</span> (space[count-base].type == TOKEN_DOT) {
+			<span class="hljs-comment">/* Dots we need to look back at the previous tokens for */</span>
+			n--;
+			base--;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (space[count-base].type &gt;= TOKEN_IDENTIFIER &amp;&amp; space[count-base].type &lt;= TOKEN_WITH) {
+			<span class="hljs-comment">/* Something alphanumeric; only for the last element */</span>
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-comment">/* Some other symbol */</span>
+			<span class="hljs-keyword">goto</span> _cleanup;
+		}
+
+		<span class="hljs-comment">/* Work backwards to find the start of this chain of identifiers */</span>
+		<span class="hljs-keyword">while</span> (n &lt; count) {
+			<span class="hljs-keyword">if</span> (space[count-n<span class="hljs-number">-1</span>].type != TOKEN_DOT) <span class="hljs-keyword">break</span>;
+			n++;
+			<span class="hljs-keyword">if</span> (n == count) <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">if</span> (space[count-n<span class="hljs-number">-1</span>].type != TOKEN_IDENTIFIER) <span class="hljs-keyword">break</span>;
+			n++;
+		}
+
+		<span class="hljs-keyword">if</span> (n &lt;= count) {
+			<span class="hljs-comment">/* Now work forwards, starting from the current globals. */</span>
+			KrkValue root = OBJECT_VAL(krk_currentThread.<span class="hljs-keyword">module</span>);
+			<span class="hljs-keyword">int</span> isGlobal = <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">while</span> (n &gt; base) {
+				<span class="hljs-comment">/* And look at the potential fields for instances/classes */</span>
+				KrkValue next = findFromProperty(root, space[count-n]);
+				<span class="hljs-keyword">if</span> (IS_NONE(next)) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If we hit None, we found something invalid (or literally hit a None
+object, but really the difference is minimal in this case: Nothing
+useful to tab complete from here.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">					<span class="hljs-keyword">if</span> (!isGlobal) <span class="hljs-keyword">goto</span> _cleanup;
+					<span class="hljs-comment">/* Does this match a builtin? */</span>
+					<span class="hljs-keyword">if</span> (!krk_tableGet_fast(&amp;vm.builtins-&gt;fields,
+						krk_copyString(space[count-n].start,space[count-n].literalWidth), &amp;next) || IS_NONE(next)) {
+						<span class="hljs-keyword">goto</span> _cleanup;
+					}
+				}
+				isGlobal = <span class="hljs-number">0</span>;
+				root = next;
+				n -= <span class="hljs-number">2</span>; <span class="hljs-comment">/* To skip every other dot. */</span>
+			}
+
+			<span class="hljs-keyword">if</span> (isGlobal &amp;&amp; n &lt; count &amp;&amp; (space[count-n<span class="hljs-number">-1</span>].type == TOKEN_IMPORT || space[count-n<span class="hljs-number">-1</span>].type == TOKEN_FROM)) {
+				KrkInstance * modules = krk_newInstance(vm.baseClasses-&gt;objectClass);
+				root = OBJECT_VAL(modules);
+				krk_push(root);
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; vm.modules.capacity; ++i) {
+					KrkTableEntry * entry = &amp;vm.modules.entries[i];
+					<span class="hljs-keyword">if</span> (IS_KWARGS(entry-&gt;key)) <span class="hljs-keyword">continue</span>;
+					krk_attachNamedValue(&amp;modules-&gt;fields, AS_CSTRING(entry-&gt;key), NONE_VAL());
+				}
+			}
+
+			<span class="hljs-comment">/* Now figure out what we're completing - did we already have a partial symbol name? */</span>
+			<span class="hljs-keyword">int</span> length = (space[count-base].type == TOKEN_DOT) ? <span class="hljs-number">0</span> : (space[count-base].length);
+			isGlobal = isGlobal &amp;&amp; (length != <span class="hljs-number">0</span>);
+
+			<span class="hljs-comment">/* Collect up to 256 of those that match */</span>
+			<span class="hljs-keyword">char</span> * matches[<span class="hljs-number">256</span>];
+			<span class="hljs-keyword">int</span> matchCount = <span class="hljs-number">0</span>;
+
+			<span class="hljs-comment">/* Take the last symbol name from the chain and get its member list from dir() */</span>
+
+			<span class="hljs-keyword">for</span> (;;) {
+				KrkValue dirList = krk_dirObject(<span class="hljs-number">1</span>,(KrkValue[]){root},<span class="hljs-number">0</span>);
+				krk_push(dirList);
+				<span class="hljs-keyword">if</span> (!IS_INSTANCE(dirList)) {
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,<span class="hljs-string">"\nInternal error while tab completting.\n"</span>);
+					<span class="hljs-keyword">goto</span> _cleanup;
+				}
+
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; AS_LIST(dirList)-&gt;count; ++i) {
+					KrkString * s = AS_STRING(AS_LIST(dirList)-&gt;values[i]);
+					krk_push(OBJECT_VAL(s));
+					KrkToken asToken = {.start = s-&gt;chars, .literalWidth = s-&gt;length};
+					KrkValue thisValue = findFromProperty(root, asToken);
+					krk_push(thisValue);
+					<span class="hljs-keyword">if</span> (IS_CLOSURE(thisValue) || IS_BOUND_METHOD(thisValue) || IS_NATIVE(thisValue)) {
+						<span class="hljs-keyword">size_t</span> allocSize = s-&gt;length + <span class="hljs-number">2</span>;
+						<span class="hljs-keyword">char</span> * tmp = <span class="hljs-built_in">malloc</span>(allocSize);
+						<span class="hljs-keyword">size_t</span> len = <span class="hljs-built_in">snprintf</span>(tmp, allocSize, <span class="hljs-string">"%s("</span>, s-&gt;chars);
+						s = krk_takeString(tmp, len);
+						krk_pop();
+						krk_push(OBJECT_VAL(s));
+					} <span class="hljs-keyword">else</span> {
+						krk_pop();
+					}
+
+					<span class="hljs-comment">/* If this symbol is shorter than the current submatch, skip it. */</span>
+					<span class="hljs-keyword">if</span> (length &amp;&amp; (<span class="hljs-keyword">int</span>)s-&gt;length &lt; length) <span class="hljs-keyword">continue</span>;
+
+					<span class="hljs-comment">/* See if it's already in the matches */</span>
+					<span class="hljs-keyword">int</span> found = <span class="hljs-number">0</span>;
+					<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; matchCount; ++i) {
+						<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(matches[i], s-&gt;chars)) {
+							found = <span class="hljs-number">1</span>;
+							<span class="hljs-keyword">break</span>;
+						}
+					}
+					<span class="hljs-keyword">if</span> (found) <span class="hljs-keyword">continue</span>;
+
+					<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">memcmp</span>(s-&gt;chars, space[count-base].start, length)) {
+						matches[matchCount] = s-&gt;chars;
+						matchCount++;
+						<span class="hljs-keyword">if</span> (matchCount == <span class="hljs-number">255</span>) <span class="hljs-keyword">goto</span> _toomany;
+					}
+				}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If the object we were scanning was the current module,
+then we should also throw the builtins into the ring.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				<span class="hljs-keyword">if</span> (isGlobal &amp;&amp; AS_OBJECT(root) == (KrkObj*)krk_currentThread.<span class="hljs-keyword">module</span>) {
+					root = OBJECT_VAL(vm.builtins);
+					<span class="hljs-keyword">continue</span>;
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (isGlobal &amp;&amp; AS_OBJECT(root) == (KrkObj*)vm.builtins) {
+					KrkInstance * fakeKeywordsObject = krk_newInstance(vm.baseClasses-&gt;objectClass);
+					root = OBJECT_VAL(fakeKeywordsObject);
+					krk_push(root);
+					<span class="hljs-keyword">for</span> (<span class="hljs-keyword">char</span> ** keyword = syn_krk_keywords; *keyword; keyword++) {
+						krk_attachNamedValue(&amp;fakeKeywordsObject-&gt;fields, *keyword, NONE_VAL());
+					}
+					<span class="hljs-keyword">continue</span>;
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-keyword">break</span>;
+				}
+			}
+_toomany:
+
+			<span class="hljs-comment">/* Now we can do things with the matches. */</span>
+			<span class="hljs-keyword">if</span> (matchCount == <span class="hljs-number">1</span>) {
+				<span class="hljs-comment">/* If there was only one, just fill it. */</span>
+				rline_insert(c, matches[<span class="hljs-number">0</span>] + length);
+				rline_place_cursor();
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (matchCount) {
+				<span class="hljs-comment">/* Otherwise, try to find a common substring among them... */</span>
+				<span class="hljs-keyword">int</span> j = length;
+				<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+					<span class="hljs-keyword">char</span> m = matches[<span class="hljs-number">0</span>][j];
+					<span class="hljs-keyword">if</span> (!m) <span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">int</span> diff = <span class="hljs-number">0</span>;
+					<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; i &lt; matchCount; ++i) {
+						<span class="hljs-keyword">if</span> (matches[i][j] != m) {
+							diff = <span class="hljs-number">1</span>;
+							<span class="hljs-keyword">break</span>;
+						}
+					}
+					<span class="hljs-keyword">if</span> (diff) <span class="hljs-keyword">break</span>;
+					j++;
+				}
+				<span class="hljs-comment">/* If no common sub string could be filled in, we print the list. */</span>
+				<span class="hljs-keyword">if</span> (j == length) {
+					<span class="hljs-comment">/* First find the maximum width of an entry */</span>
+					<span class="hljs-keyword">int</span> maxWidth = <span class="hljs-number">0</span>;
+					<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; matchCount; ++i) {
+						<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">int</span>)<span class="hljs-built_in">strlen</span>(matches[i]) &gt; maxWidth) maxWidth = <span class="hljs-built_in">strlen</span>(matches[i]);
+					}
+					<span class="hljs-comment">/* Now how many can we fit in a screen */</span>
+					<span class="hljs-keyword">int</span> colsPerLine = rline_terminal_width / (maxWidth + <span class="hljs-number">2</span>); <span class="hljs-comment">/* +2 for the spaces */</span>
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"\n"</span>);
+					<span class="hljs-keyword">int</span> column = <span class="hljs-number">0</span>;
+					<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; matchCount; ++i) {
+						<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%-*s  "</span>, maxWidth, matches[i]);
+						column += <span class="hljs-number">1</span>;
+						<span class="hljs-keyword">if</span> (column &gt;= colsPerLine) {
+							<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"\n"</span>);
+							column = <span class="hljs-number">0</span>;
+						}
+					}
+					<span class="hljs-keyword">if</span> (column != <span class="hljs-number">0</span>) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"\n"</span>);
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-comment">/* If we do have a common sub string, fill in those characters. */</span>
+					<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = length; i &lt; j; ++i) {
+						<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">2</span>] = {matches[<span class="hljs-number">0</span>][i], <span class="hljs-string">'\0'</span>};
+						rline_insert(c, tmp);
+					}
+				}
+			}
+		}
+_cleanup:
+		<span class="hljs-built_in">free</span>(tmp);
+		<span class="hljs-built_in">free</span>(space);
+		krk_currentThread.stackTop = &amp;krk_currentThread.<span class="hljs-built_in">stack</span>[stackIn];
+		<span class="hljs-keyword">return</span>;
+	}
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_DISABLE_DEBUG</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * lastDebugCommand = <span class="hljs-literal">NULL</span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">debuggerHook</span><span class="hljs-params">(KrkCallFrame * frame)</span> </span>{
+
+	<span class="hljs-comment">/* File information */</span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"At offset 0x%04lx of function '%s' from '%s' on line %lu:\n"</span>,
+		(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)(frame-&gt;ip - frame-&gt;closure-&gt;function-&gt;chunk.code),
+		frame-&gt;closure-&gt;function-&gt;name-&gt;chars,
+		frame-&gt;closure-&gt;function-&gt;chunk.filename-&gt;chars,
+		(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)krk_lineNumber(&amp;frame-&gt;closure-&gt;function-&gt;chunk,
+			(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)(frame-&gt;ip - frame-&gt;closure-&gt;function-&gt;chunk.code)));
+
+	<span class="hljs-comment">/* Opcode trace */</span>
+	krk_disassembleInstruction(
+		<span class="hljs-built_in">stderr</span>,
+		frame-&gt;closure-&gt;function,
+		(<span class="hljs-keyword">size_t</span>)(frame-&gt;ip - frame-&gt;closure-&gt;function-&gt;chunk.code));
+
+	krk_debug_dumpStack(<span class="hljs-built_in">stderr</span>, frame);
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">char</span> buf[<span class="hljs-number">4096</span>] = {<span class="hljs-number">0</span>};
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> NO_RLINE</span>
+		<span class="hljs-keyword">if</span> (enableRline) {
+			rline_exit_string=<span class="hljs-string">""</span>;
+			rline_exp_set_prompts(<span class="hljs-string">"(dbg) "</span>, <span class="hljs-string">""</span>, <span class="hljs-number">6</span>, <span class="hljs-number">0</span>);
+			rline_exp_set_syntax(<span class="hljs-string">"krk-dbg"</span>);
+			rline_exp_set_tab_complete_func(<span class="hljs-literal">NULL</span>);
+			<span class="hljs-keyword">if</span> (rline(buf, <span class="hljs-number">4096</span>) == <span class="hljs-number">0</span>) <span class="hljs-keyword">goto</span> _dbgQuit;
+		} <span class="hljs-keyword">else</span> {
+#endif
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"(dbg) "</span>);
+			fflush(<span class="hljs-built_in">stderr</span>);
+			<span class="hljs-keyword">char</span> * out = fgets(buf, <span class="hljs-number">4096</span>, <span class="hljs-built_in">stdin</span>);
+			<span class="hljs-keyword">if</span> (!out || !<span class="hljs-built_in">strlen</span>(buf)) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"^D\n"</span>);
+				<span class="hljs-keyword">goto</span> _dbgQuit;
+			}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> NO_RLINE</span>
+		}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+		<span class="hljs-keyword">char</span> * nl = <span class="hljs-built_in">strstr</span>(buf,<span class="hljs-string">"\n"</span>);
+		<span class="hljs-keyword">if</span> (nl) *nl = <span class="hljs-string">'\0'</span>;
+
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strlen</span>(buf)) {
+			<span class="hljs-keyword">if</span> (lastDebugCommand) {
+				<span class="hljs-built_in">strcpy</span>(buf, lastDebugCommand);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">continue</span>;
+			}
+		} <span class="hljs-keyword">else</span> {
+#ifndef NO_RLINE
+			<span class="hljs-keyword">if</span> (enableRline) {
+				rline_history_insert(strdup(buf));
+				rline_scroll = <span class="hljs-number">0</span>;
+			}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+			<span class="hljs-keyword">if</span> (lastDebugCommand) <span class="hljs-built_in">free</span>(lastDebugCommand);
+			lastDebugCommand = strdup(buf);
+		}
+
+		<span class="hljs-comment">/* Try to tokenize the first bit */</span>
+		<span class="hljs-keyword">char</span> * arg = <span class="hljs-literal">NULL</span>;
+		<span class="hljs-keyword">char</span> * sp = <span class="hljs-built_in">strstr</span>(buf,<span class="hljs-string">" "</span>);
+		<span class="hljs-keyword">if</span> (sp) {
+			*sp = <span class="hljs-string">'\0'</span>;
+			arg = sp + <span class="hljs-number">1</span>;
+		}
+		<span class="hljs-comment">/* Now check commands */</span>
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"c"</span>) || !<span class="hljs-built_in">strcmp</span>(buf,<span class="hljs-string">"continue"</span>)) {
+			<span class="hljs-keyword">return</span> KRK_DEBUGGER_CONTINUE;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"s"</span>) || !<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"step"</span>)) {
+			<span class="hljs-keyword">return</span> KRK_DEBUGGER_STEP;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"abort"</span>)) {
+			<span class="hljs-keyword">return</span> KRK_DEBUGGER_ABORT;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"q"</span>) || !<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"quit"</span>)) {
+			<span class="hljs-keyword">return</span> KRK_DEBUGGER_QUIT;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"bt"</span>) || !<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"backtrace"</span>)) {
+			krk_debug_dumpTraceback();
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"p"</span>) || !<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"print"</span>)) {
+			<span class="hljs-keyword">if</span> (!arg) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"print requires an argument\n"</span>);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">size_t</span> frameCount = krk_currentThread.frameCount;
+				<span class="hljs-comment">/* Compile statement */</span>
+				KrkCodeObject * expression = krk_compile(arg,<span class="hljs-string">"&lt;debugger&gt;"</span>);
+				<span class="hljs-keyword">if</span> (expression) {
+					<span class="hljs-comment">/* Make sure stepping is disabled first. */</span>
+					krk_debug_disableSingleStep();
+					<span class="hljs-comment">/* Turn our compiled expression into a callable. */</span>
+					krk_push(OBJECT_VAL(expression));
+					krk_push(OBJECT_VAL(krk_newClosure(expression, OBJECT_VAL(krk_currentThread.<span class="hljs-keyword">module</span>))));
+					krk_swap(<span class="hljs-number">1</span>);
+					krk_pop();
+					<span class="hljs-comment">/* Stack silliness, don't ask. */</span>
+					krk_push(NONE_VAL());
+					krk_pop();
+					<span class="hljs-comment">/* Call the compiled expression with no args. */</span>
+					krk_push(krk_callStack(<span class="hljs-number">0</span>));
+					printResult(<span class="hljs-built_in">stderr</span>, krk_peek(<span class="hljs-number">0</span>));
+					krk_pop();
+				}
+				<span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION) {
+					krk_dumpTraceback();
+					krk_currentThread.flags &amp;= ~(KRK_THREAD_HAS_EXCEPTION);
+				}
+				krk_currentThread.frameCount = frameCount;
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"break"</span>) || !<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"b"</span>)) {
+			<span class="hljs-keyword">char</span> * filename = arg;
+			<span class="hljs-keyword">if</span> (!filename) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"usage: break FILE LINE [type]\n"</span>);
+				<span class="hljs-keyword">continue</span>;
+			}
+
+			<span class="hljs-keyword">char</span> * lineno = <span class="hljs-built_in">strstr</span>(filename, <span class="hljs-string">" "</span>);
+			<span class="hljs-keyword">if</span> (!lineno) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"usage: break FILE LINE [type]\n"</span>);
+				<span class="hljs-keyword">continue</span>;
+			}
+
+			<span class="hljs-comment">/* Advance whitespace */</span>
+			*lineno = <span class="hljs-string">'\0'</span>;
+			lineno++;
+
+			<span class="hljs-comment">/* collect optional type */</span>
+			<span class="hljs-keyword">int</span> flags = KRK_BREAKPOINT_NORMAL;
+			<span class="hljs-keyword">char</span> * type = <span class="hljs-built_in">strstr</span>(lineno, <span class="hljs-string">" "</span>);
+			<span class="hljs-keyword">if</span> (type) {
+				*type = <span class="hljs-string">'\0'</span>; type++;
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(type, <span class="hljs-string">"repeat"</span>) || !<span class="hljs-built_in">strcmp</span>(type,<span class="hljs-string">"r"</span>)) {
+					flags = KRK_BREAKPOINT_REPEAT;
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(type, <span class="hljs-string">"once"</span>) || !<span class="hljs-built_in">strcmp</span>(type,<span class="hljs-string">"o"</span>)) {
+					flags = KRK_BREAKPOINT_ONCE;
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Unrecognized breakpoint type: %s\n"</span>, type);
+					<span class="hljs-keyword">continue</span>;
+				}
+			}
+
+			<span class="hljs-keyword">int</span> lineInt = atoi(lineno);
+			<span class="hljs-keyword">int</span> result = krk_debug_addBreakpointFileLine(krk_copyString(filename, <span class="hljs-built_in">strlen</span>(filename)), lineInt, flags);
+
+			<span class="hljs-keyword">if</span> (result == <span class="hljs-number">-1</span>) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Sorry, couldn't add breakpoint.\n"</span>);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Breakpoint %d enabled.\n"</span>, result);
+			}
+
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"i"</span>) || !<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"info"</span>)) {
+			<span class="hljs-keyword">if</span> (!arg) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">" info breakpoints - Show breakpoints.\n"</span>);
+				<span class="hljs-keyword">continue</span>;
+			}
+
+			<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(arg,<span class="hljs-string">"breakpoints"</span>)) {
+				KrkCodeObject * codeObject = <span class="hljs-literal">NULL</span>;
+				<span class="hljs-keyword">size_t</span> offset = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">int</span> flags = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">int</span> enabled = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">int</span> breakIndex = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+					<span class="hljs-keyword">int</span> result = krk_debug_examineBreakpoint(breakIndex, &amp;codeObject, &amp;offset, &amp;flags, &amp;enabled);
+					<span class="hljs-keyword">if</span> (result == <span class="hljs-number">-1</span>) <span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">if</span> (result == <span class="hljs-number">-2</span>) <span class="hljs-keyword">continue</span>;
+
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%-4d in %s+%d %s %s\n"</span>,
+						breakIndex,
+						codeObject-&gt;name-&gt;chars,
+						(<span class="hljs-keyword">int</span>)offset,
+						flags == KRK_BREAKPOINT_NORMAL ? <span class="hljs-string">"normal"</span>:
+								flags == KRK_BREAKPOINT_REPEAT ? <span class="hljs-string">"repeat"</span> :
+									flags == KRK_BREAKPOINT_ONCE ? <span class="hljs-string">"once"</span> : <span class="hljs-string">"?"</span>,
+						enabled ? <span class="hljs-string">"enabled"</span> : <span class="hljs-string">"disabled"</span>);
+
+					breakIndex++;
+				}
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Unrecognized info object: %s\n"</span>, arg);
+			}
+
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"e"</span>) || !<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"enable"</span>)) {
+			<span class="hljs-keyword">if</span> (!arg) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"enable requires an argument\n"</span>);
+				<span class="hljs-keyword">continue</span>;
+			}
+
+			<span class="hljs-keyword">int</span> breakIndex = atoi(arg);
+
+			<span class="hljs-keyword">if</span> (krk_debug_enableBreakpoint(breakIndex)) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Invalid breakpoint handle.\n"</span>);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Breakpoint %d enabled.\n"</span>, breakIndex);
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"d"</span>) || !<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"disable"</span>)) {
+			<span class="hljs-keyword">if</span> (!arg) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"disable requires an argument\n"</span>);
+				<span class="hljs-keyword">continue</span>;
+			}
+
+			<span class="hljs-keyword">int</span> breakIndex = atoi(arg);
+
+			<span class="hljs-keyword">if</span> (krk_debug_disableBreakpoint(breakIndex)) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Invalid breakpoint handle.\n"</span>);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Breakpoint %d disabled.\n"</span>, breakIndex);
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"r"</span>) || !<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"remove"</span>)) {
+			<span class="hljs-keyword">if</span> (!arg) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"remove requires an argument\n"</span>);
+				<span class="hljs-keyword">continue</span>;
+			}
+
+			<span class="hljs-keyword">int</span> breakIndex = atoi(arg);
+
+			<span class="hljs-keyword">if</span> (krk_debug_removeBreakpoint(breakIndex)) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Invalid breakpoint handle.\n"</span>);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Breakpoint %d removed.\n"</span>, breakIndex);
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"help"</span>)) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+				<span class="hljs-string">"Kuroko Interactive Debugger\n"</span>
+				<span class="hljs-string">"  c   continue  - Continue until the next breakpoint.\n"</span>
+				<span class="hljs-string">"  s   step      - Execute this instruction and return to the debugger.\n"</span>
+				<span class="hljs-string">"  bt  backtrace - Print a backtrace.\n"</span>
+				<span class="hljs-string">"  q   quit      - Exit the interpreter.\n"</span>
+				<span class="hljs-string">"      abort     - Abort the interpreter (may create a core dump).\n"</span>
+				<span class="hljs-string">"  b   break ... - Set a breakpoint.\n"</span>
+				<span class="hljs-string">"  e   enable N  - Enable breakpoint 'N'.\n"</span>
+				<span class="hljs-string">"  d   disable N - Disable breakpoint 'N'.\n"</span>
+				<span class="hljs-string">"  r   remove N  - Remove breakpoint 'N'.\n"</span>
+				<span class="hljs-string">"  i   info ...  - See information about breakpoints.\n"</span>
+				<span class="hljs-string">"\n"</span>
+				<span class="hljs-string">"Empty input lines will repeat the last command.\n"</span>
+			);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Unrecognized command: %s\n"</span>, buf);
+		}
+
+	}
+
+	<span class="hljs-keyword">return</span> KRK_DEBUGGER_CONTINUE;
+_dbgQuit:
+	<span class="hljs-keyword">return</span> KRK_DEBUGGER_QUIT;
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">handleSigint</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sigNum)</span> </span>{
+	<span class="hljs-comment">/* Don't set the signal flag if the VM is not running */</span>
+	krk_currentThread.flags |= KRK_THREAD_SIGNALLED;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> _WIN32</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">handleSigtrap</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sigNum)</span> </span>{
+	krk_currentThread.flags |= KRK_THREAD_SINGLE_STEP;
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">bindSignalHandlers</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> !defined(_WIN32)</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sigaction</span> <span class="hljs-title">sigIntAction</span>;</span>
+	sigIntAction.sa_handler = handleSigint;
+	sigemptyset(&amp;sigIntAction.sa_mask);
+	sigIntAction.sa_flags = <span class="hljs-number">0</span>; <span class="hljs-comment">/* Do not restore the default, do not restart syscalls, do not pass go, do not collect $500 */</span>
+	sigaction(
+		SIGINT, <span class="hljs-comment">/* ^C for keyboard interrupts */</span>
+		&amp;sigIntAction,
+		<span class="hljs-literal">NULL</span>);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sigaction</span> <span class="hljs-title">sigTrapAction</span>;</span>
+	sigTrapAction.sa_handler = handleSigtrap;
+	sigemptyset(&amp;sigTrapAction.sa_mask);
+	sigTrapAction.sa_flags = <span class="hljs-number">0</span>;
+	sigaction(
+		SIGTRAP,
+		&amp;sigTrapAction,
+		<span class="hljs-literal">NULL</span>);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+	signal(SIGINT, handleSigint);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">findInterpreter</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> _WIN32</span>
+	vm.binpath = strdup(_pgmptr);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+	<span class="hljs-comment">/* Try asking /proc */</span>
+	<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">4096</span>];
+	<span class="hljs-keyword">char</span> * binpath = realpath(<span class="hljs-string">"/proc/self/exe"</span>, <span class="hljs-literal">NULL</span>);
+	<span class="hljs-keyword">if</span> (!binpath || (access(binpath, X_OK) != <span class="hljs-number">0</span>)) {
+		<span class="hljs-keyword">if</span> (binpath) {
+			<span class="hljs-built_in">free</span>(binpath);
+			binpath = <span class="hljs-literal">NULL</span>;
+		}
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strchr</span>(argv[<span class="hljs-number">0</span>], <span class="hljs-string">'/'</span>)) {
+			binpath = realpath(argv[<span class="hljs-number">0</span>], <span class="hljs-literal">NULL</span>);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-comment">/* Search PATH for argv[0] */</span>
+			<span class="hljs-keyword">char</span> * p = getenv(<span class="hljs-string">"PATH"</span>);
+			<span class="hljs-keyword">if</span> (!p) <span class="hljs-keyword">return</span>;
+			<span class="hljs-keyword">char</span> * _path = strdup(p);
+			<span class="hljs-keyword">char</span> * path = _path;
+			<span class="hljs-keyword">while</span> (path) {
+				<span class="hljs-keyword">char</span> * next = <span class="hljs-built_in">strchr</span>(path,<span class="hljs-string">':'</span>);
+				<span class="hljs-keyword">if</span> (next) *next++ = <span class="hljs-string">'\0'</span>;
+
+				<span class="hljs-built_in">snprintf</span>(tmp, <span class="hljs-number">4096</span>, <span class="hljs-string">"%s/%s"</span>, path, argv[<span class="hljs-number">0</span>]);
+				<span class="hljs-keyword">if</span> (access(tmp, X_OK) == <span class="hljs-number">0</span>) {
+					binpath = strdup(tmp);
+					<span class="hljs-keyword">break</span>;
+				}
+				path = next;
+			}
+			<span class="hljs-built_in">free</span>(_path);
+		}
+	}
+	<span class="hljs-keyword">if</span> (binpath) {
+		vm.binpath = binpath;
+	} <span class="hljs-comment">/* Else, give up at this point and just don't attach it at all. */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">runString</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[], <span class="hljs-keyword">int</span> flags, <span class="hljs-keyword">char</span> * <span class="hljs-built_in">string</span>)</span> </span>{
+	findInterpreter(argv);
+	krk_initVM(flags);
+	krk_startModule(<span class="hljs-string">"__main__"</span>);
+	krk_attachNamedValue(&amp;krk_currentThread.<span class="hljs-keyword">module</span>-&gt;fields,<span class="hljs-string">"__doc__"</span>, NONE_VAL());
+	krk_interpret(<span class="hljs-built_in">string</span>, <span class="hljs-string">"&lt;stdin&gt;"</span>);
+	krk_freeVM();
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">compileFile</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[], <span class="hljs-keyword">int</span> flags, <span class="hljs-keyword">char</span> * fileName)</span> </span>{
+	findInterpreter(argv);
+	krk_initVM(flags);
+
+	<span class="hljs-comment">/* Open the file. */</span>
+	FILE * f = fopen(fileName,<span class="hljs-string">"r"</span>);
+	<span class="hljs-keyword">if</span> (!f) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: could not read file '%s': %s\n"</span>, argv[<span class="hljs-number">0</span>], fileName, strerror(errno));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* Read it like we normally do... */</span>
+	fseek(f, <span class="hljs-number">0</span>, SEEK_END);
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = ftell(f);
+	fseek(f, <span class="hljs-number">0</span>, SEEK_SET);
+	<span class="hljs-keyword">char</span> * buf = <span class="hljs-built_in">malloc</span>(<span class="hljs-built_in">size</span>+<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (fread(buf, <span class="hljs-number">1</span>, <span class="hljs-built_in">size</span>, f) == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+	fclose(f);
+	buf[<span class="hljs-built_in">size</span>] = <span class="hljs-string">'\0'</span>;
+
+	<span class="hljs-comment">/* Set up a module scope */</span>
+	krk_startModule(<span class="hljs-string">"__main__"</span>);
+
+	<span class="hljs-comment">/* Call the compiler directly. */</span>
+	KrkCodeObject * func = krk_compile(buf, fileName);
+
+	<span class="hljs-comment">/* See if there was an exception. */</span>
+	<span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION) {
+		krk_dumpTraceback();
+	}
+
+	<span class="hljs-comment">/* Free the source string */</span>
+	<span class="hljs-built_in">free</span>(buf);
+
+	<span class="hljs-comment">/* Close out the compiler */</span>
+	krk_freeVM();
+
+	<span class="hljs-keyword">return</span> func == <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> _WIN32</span>
+	SetConsoleOutputCP(<span class="hljs-number">65001</span>);
+	SetConsoleCP(<span class="hljs-number">65001</span>);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	<span class="hljs-keyword">char</span> * runCmd = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">int</span> flags = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> moduleAsMain = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> inspectAfter = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> opt;
+	<span class="hljs-keyword">int</span> maxDepth = <span class="hljs-number">-1</span>;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Keigo</span> <span class="hljs-title">ctx</span> = {</span><span class="hljs-number">0</span>};
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> optind (ctx.i)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> optarg (ctx.arg)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> optopt (ctx.opt)</span>
+	<span class="hljs-keyword">while</span> ((opt = keigo(&amp;ctx,argc,argv,<span class="hljs-string">"c:C:dgGim:rR:tTMSV-:"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'c'</span>:
+				runCmd = optarg;
+				<span class="hljs-keyword">goto</span> _finishArgs;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'d'</span>:
+				<span class="hljs-comment">/* Disassemble code blocks after compilation. */</span>
+				flags |= KRK_THREAD_ENABLE_DISASSEMBLY;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'g'</span>:
+				<span class="hljs-comment">/* Always garbage collect during an allocation. */</span>
+				flags |= KRK_GLOBAL_ENABLE_STRESS_GC;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'G'</span>:
+				flags |= KRK_GLOBAL_REPORT_GC_COLLECTS;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'S'</span>:
+				flags |= KRK_THREAD_SINGLE_STEP;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'t'</span>:
+				<span class="hljs-comment">/* Disassemble instructions as they are executed. */</span>
+				flags |= KRK_THREAD_ENABLE_TRACING;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'i'</span>:
+				inspectAfter = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'m'</span>:
+				moduleAsMain = <span class="hljs-number">1</span>;
+				optind--; <span class="hljs-comment">/* to get us back to optarg */</span>
+				<span class="hljs-keyword">goto</span> _finishArgs;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'r'</span>:
+				enableRline = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'R'</span>:
+				maxDepth = atoi(optarg);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'M'</span>:
+				<span class="hljs-keyword">return</span> runString(argv,<span class="hljs-number">0</span>,<span class="hljs-string">"import kuroko; print(kuroko.module_paths)\n"</span>);
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'V'</span>:
+				<span class="hljs-keyword">return</span> runString(argv,<span class="hljs-number">0</span>,<span class="hljs-string">"import kuroko; print('Kuroko',kuroko.version)\n"</span>);
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'C'</span>:
+				<span class="hljs-keyword">return</span> compileFile(argv,flags,optarg);
+			<span class="hljs-keyword">case</span> <span class="hljs-string">':'</span>:
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: option '%c' requires an argument\n"</span>, argv[<span class="hljs-number">0</span>], optopt);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: unrecognized option '%c'\n"</span>, argv[<span class="hljs-number">0</span>], optopt);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'-'</span>:
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(optarg,<span class="hljs-string">"version"</span>)) {
+					<span class="hljs-keyword">return</span> runString(argv,<span class="hljs-number">0</span>,<span class="hljs-string">"import kuroko; print('Kuroko',kuroko.version)\n"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(optarg,<span class="hljs-string">"help"</span>)) {
+#ifndef KRK_NO_DOCUMENTATION
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,<span class="hljs-string">"usage: %s [flags] [FILE...]\n"</span>
+						<span class="hljs-string">"\n"</span>
+						<span class="hljs-string">"Interpreter options:\n"</span>
+						<span class="hljs-string">" -c cmd      Compile and run the string 'cmd'.\n"</span>
+						<span class="hljs-string">" -d          Debug output from the bytecode compiler.\n"</span>
+						<span class="hljs-string">" -g          Collect garbage on every allocation.\n"</span>
+						<span class="hljs-string">" -G          Report GC collections.\n"</span>
+						<span class="hljs-string">" -i          Enter repl after a running -c, -m, or FILE.\n"</span>
+						<span class="hljs-string">" -m mod      Run a module as a script.\n"</span>
+						<span class="hljs-string">" -r          Disable complex line editing in the REPL.\n"</span>
+						<span class="hljs-string">" -R depth    Set maximum recursion depth.\n"</span>
+						<span class="hljs-string">" -t          Disassemble instructions as they are exceuted.\n"</span>
+						<span class="hljs-string">" -C file     Compile 'file', but do not execute it.\n"</span>
+						<span class="hljs-string">" -M          Print the default module import paths.\n"</span>
+						<span class="hljs-string">" -S          Enable single-step debugging.\n"</span>
+						<span class="hljs-string">" -V          Print version information.\n"</span>
+						<span class="hljs-string">"\n"</span>
+						<span class="hljs-string">" --version   Print version information.\n"</span>
+						<span class="hljs-string">" --help      Show this help text.\n"</span>
+						<span class="hljs-string">"\n"</span>
+						<span class="hljs-string">"If no files are provided, the interactive REPL will run.\n"</span>,
+						argv[<span class="hljs-number">0</span>]);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				} 
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,<span class="hljs-string">"%s: unrecognized option '--%s'\n"</span>, argv[<span class="hljs-number">0</span>], optarg);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+
+_finishArgs:
+	findInterpreter(argv);
+	krk_initVM(flags);
+
+	<span class="hljs-keyword">if</span> (maxDepth != <span class="hljs-number">-1</span>) {
+		krk_setMaximumRecursionDepth(maxDepth);
+	}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_DISABLE_DEBUG</span>
+	krk_debug_registerCallback(debuggerHook);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	<span class="hljs-comment">/* Attach kuroko.argv - argv[0] will be set to an empty string for the repl */</span>
+	<span class="hljs-keyword">if</span> (argc == optind) krk_push(OBJECT_VAL(krk_copyString(<span class="hljs-string">""</span>,<span class="hljs-number">0</span>)));
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> arg = optind; arg &lt; argc; ++arg) {
+		krk_push(OBJECT_VAL(krk_copyString(argv[arg],<span class="hljs-built_in">strlen</span>(argv[arg]))));
+	}
+	KrkValue argList = krk_callNativeOnStack(argc - optind + (optind == argc), &amp;krk_currentThread.stackTop[-(argc - optind + (optind == argc))], <span class="hljs-number">0</span>, krk_list_of);
+	krk_push(argList);
+	krk_attachNamedValue(&amp;vm.system-&gt;fields, <span class="hljs-string">"argv"</span>, argList);
+	krk_pop();
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> arg = optind; arg &lt; argc + (optind == argc); ++arg) krk_pop();
+
+	<span class="hljs-comment">/* Bind interrupt signal */</span>
+	bindSignalHandlers();
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> KRK_BUNDLE_LIBS</span>
+	<span class="hljs-comment">/* Define KRK_BUNDLE_LIBS like "BUNDLE(os);BUNDLE(math);", etc. */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BUNDLED(name) do { \
+	extern KrkValue krk_module_onload_ ## name (KrkString*); \
+	KrkValue moduleOut = krk_module_onload_ ## name (NULL); \
+	krk_attachNamedValue(&amp;vm.modules, # name, moduleOut); \
+	krk_attachNamedObject(&amp;AS_INSTANCE(moduleOut)-&gt;fields, <span class="hljs-meta-string">"__name__"</span>, (KrkObj*)krk_copyString(#name, sizeof(#name)-1)); \
+	krk_attachNamedValue(&amp;AS_INSTANCE(moduleOut)-&gt;fields, <span class="hljs-meta-string">"__file__"</span>, NONE_VAL()); \
+} while (0)</span>
+	KRK_BUNDLE_LIBS
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> BUNDLED</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	KrkValue result = INTEGER_VAL(<span class="hljs-number">0</span>);
+
+	<span class="hljs-keyword">char</span> * env_KUROKOPATH = getenv(<span class="hljs-string">"KUROKOPATH"</span>);
+
+	<span class="hljs-keyword">if</span> (env_KUROKOPATH) {
+		<span class="hljs-comment">/* Build a path by splitting */</span>
+		krk_push(OBJECT_VAL(krk_copyString(env_KUROKOPATH,<span class="hljs-built_in">strlen</span>(env_KUROKOPATH))));
+		krk_push(krk_valueGetAttribute(krk_peek(<span class="hljs-number">0</span>), <span class="hljs-string">"split"</span>));
+		krk_push(OBJECT_VAL(S(<span class="hljs-string">":"</span>)));
+		KrkValue <span class="hljs-built_in">list</span> = krk_callStack(<span class="hljs-number">1</span>);
+		krk_push(<span class="hljs-built_in">list</span>);
+		krk_swap(<span class="hljs-number">1</span>);
+		krk_pop(); <span class="hljs-comment">/* path */</span>
+		krk_debug_dumpStack(<span class="hljs-built_in">stderr</span>, <span class="hljs-literal">NULL</span>);
+
+		krk_push(krk_valueGetAttribute(krk_peek(<span class="hljs-number">0</span>), <span class="hljs-string">"extend"</span>));
+
+		<span class="hljs-comment">/* Extend with current module_paths */</span>
+		krk_push(krk_valueGetAttribute(OBJECT_VAL(vm.system), <span class="hljs-string">"module_paths"</span>));
+		krk_callStack(<span class="hljs-number">1</span>);
+		krk_debug_dumpStack(<span class="hljs-built_in">stderr</span>, <span class="hljs-literal">NULL</span>);
+
+		<span class="hljs-comment">/* Store */</span>
+		krk_attachNamedValue(&amp;vm.system-&gt;fields, <span class="hljs-string">"module_paths"</span>, <span class="hljs-built_in">list</span>);
+
+		<span class="hljs-comment">/* Clean up our mess */</span>
+		krk_pop(); <span class="hljs-comment">/* list */</span>
+	}
+
+	<span class="hljs-keyword">char</span> * env_NO_COLOR = getenv(<span class="hljs-string">"NO_COLOR"</span>);
+
+	<span class="hljs-keyword">if</span> (env_NO_COLOR &amp;&amp; *env_NO_COLOR) noColor = <span class="hljs-number">1</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Add general builtins that aren't part of the core VM.
+This is where we provide @c input in particular.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	KRK_DOC(BIND_FUNC(vm.builtins,input), <span class="hljs-string">"@brief Read a line of input.\n"</span>
+		<span class="hljs-string">"@arguments prompt='',promptwidth=0,syntax=None\n\n"</span>
+		<span class="hljs-string">"Read a line of input from @c stdin. If the @c rline library is available, "</span>
+		<span class="hljs-string">"it will be used to gather input. Input reading stops on end-of file or when "</span>
+		<span class="hljs-string">"a read ends with a line feed, which will be removed from the returned string. "</span>
+		<span class="hljs-string">"If a prompt is provided, it will be printed without a line feed before requesting "</span>
+		<span class="hljs-string">"input. If @c rline is available, the prompt will be passed to the library as the "</span>
+		<span class="hljs-string">"left-hand prompt string. If not provided, @p promptwidth will default to the width "</span>
+		<span class="hljs-string">"of @p prompt in codepoints; if you are providing a prompt with escape characters or "</span>
+		<span class="hljs-string">"characters with multi-column East-Asian Character Width be sure to pass a value "</span>
+		<span class="hljs-string">"for @p promptwidth that reflects the display width of your prompt. "</span>
+		<span class="hljs-string">"If provided, @p syntax specifies the name of an @c rline syntax module to "</span>
+		<span class="hljs-string">"provide color highlighting of the input line."</span>);
+
+	<span class="hljs-keyword">if</span> (moduleAsMain) {
+		<span class="hljs-keyword">int</span> out = !krk_importModule(AS_STRING(AS_LIST(argList)-&gt;values[<span class="hljs-number">0</span>]), S(<span class="hljs-string">"__main__"</span>));
+		<span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION) {
+			krk_dumpTraceback();
+			krk_resetStack();
+		}
+		<span class="hljs-keyword">if</span> (!inspectAfter) <span class="hljs-keyword">return</span> out;
+		<span class="hljs-keyword">if</span> (IS_INSTANCE(krk_peek(<span class="hljs-number">0</span>))) {
+			krk_currentThread.<span class="hljs-keyword">module</span> = AS_INSTANCE(krk_peek(<span class="hljs-number">0</span>));
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (optind != argc) {
+		krk_startModule(<span class="hljs-string">"__main__"</span>);
+		result = krk_runfile(argv[optind],argv[optind]);
+		<span class="hljs-keyword">if</span> (IS_NONE(result) &amp;&amp; krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION) result = INTEGER_VAL(<span class="hljs-number">1</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (!krk_currentThread.<span class="hljs-keyword">module</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>The repl runs in the context of a top-level module so each input
+line can share a globals state with the others.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		krk_startModule(<span class="hljs-string">"__main__"</span>);
+		krk_attachNamedValue(&amp;krk_currentThread.<span class="hljs-keyword">module</span>-&gt;fields,<span class="hljs-string">"__doc__"</span>, NONE_VAL());
+	}
+
+	<span class="hljs-keyword">if</span> (runCmd) {
+		result = krk_interpret(runCmd, <span class="hljs-string">"&lt;stdin&gt;"</span>);
+	}
+
+	<span class="hljs-keyword">if</span> ((!moduleAsMain &amp;&amp; !runCmd &amp;&amp; optind == argc) || inspectAfter) {
+		<span class="hljs-comment">/* Add builtins for the repl, but hide them from the globals() list. */</span>
+		KRK_DOC(BIND_FUNC(vm.builtins,<span class="hljs-built_in">exit</span>), <span class="hljs-string">"@brief Exit the interactive repl.\n\n"</span>
+			<span class="hljs-string">"Only available from the interactive interpreter; exits the repl."</span>);
+		KRK_DOC(BIND_FUNC(vm.builtins,paste), <span class="hljs-string">"@brief Toggle paste mode.\n"</span>
+			<span class="hljs-string">"@arguments enabled=None\n\n"</span>
+			<span class="hljs-string">"Toggles paste-safe mode, disabling automatic indentation in the repl. "</span>
+			<span class="hljs-string">"If @p enabled is specified, the mode can be directly specified, otherwise "</span>
+			<span class="hljs-string">"it will be set to the opposite of the current mode. The new mode will be "</span>
+			<span class="hljs-string">"printed to stderr."</span>);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Python stores version info in a built-in module called <code>sys</code>.
+We are not Python, we'll use <code>sys</code> to pretend to be Python
+in emulation mode, so we use a different module to store
+this sort of thing: kuroko</p>
+</div>
+<div class="body">
+<p>This module won't be imported by default, but it's still in
+the modules list, so we can look for it there.</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		<span class="hljs-keyword">if</span> (vm.system) {
+			KrkValue version, buildenv, builddate;
+			krk_tableGet_fast(&amp;vm.system-&gt;fields, S(<span class="hljs-string">"version"</span>), &amp;version);
+			krk_tableGet_fast(&amp;vm.system-&gt;fields, S(<span class="hljs-string">"buildenv"</span>), &amp;buildenv);
+			krk_tableGet_fast(&amp;vm.system-&gt;fields, S(<span class="hljs-string">"builddate"</span>), &amp;builddate);
+
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"Kuroko %s (%s) with %s\n"</span>,
+				AS_CSTRING(version), AS_CSTRING(builddate), AS_CSTRING(buildenv));
+		}
+
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"Type `help` for guidance, `paste()` to toggle automatic indentation, `license` for copyright information.\n"</span>);
+
+		<span class="hljs-keyword">while</span> (!exitRepl) {
+			<span class="hljs-keyword">size_t</span> lineCapacity = <span class="hljs-number">8</span>;
+			<span class="hljs-keyword">size_t</span> lineCount = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">char</span> ** lines = KRK_ALLOCATE(<span class="hljs-keyword">char</span> *, lineCapacity);
+			<span class="hljs-keyword">size_t</span> totalData = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">int</span> valid = <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">char</span> * allData = <span class="hljs-literal">NULL</span>;
+			<span class="hljs-keyword">int</span> inBlock = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">int</span> blockWidth = <span class="hljs-number">0</span>;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> NO_RLINE</span>
+			<span class="hljs-comment">/* Main prompt is &gt;&gt;&gt; like in Python */</span>
+			rline_exp_set_prompts(PROMPT_MAIN, <span class="hljs-string">""</span>, <span class="hljs-number">4</span>, <span class="hljs-number">0</span>);
+			<span class="hljs-comment">/* Set ^D to send EOF */</span>
+			rline_exit_string=<span class="hljs-string">""</span>;
+			<span class="hljs-comment">/* Enable syntax highlight for Kuroko */</span>
+			rline_exp_set_syntax(<span class="hljs-string">"krk"</span>);
+			<span class="hljs-comment">/* Bind a callback for \t */</span>
+			rline_exp_set_tab_complete_func(tab_complete_func);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+			<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+				<span class="hljs-comment">/* This would be a nice place for line editing */</span>
+				<span class="hljs-keyword">char</span> buf[<span class="hljs-number">4096</span>] = {<span class="hljs-number">0</span>};
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> NO_RLINE</span>
+				<span class="hljs-keyword">if</span> (inBlock) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>When entering multiple lines, the additional lines
+will show a single &gt; (and keep the left side aligned)</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">					rline_exp_set_prompts(PROMPT_BLOCK, <span class="hljs-string">""</span>, <span class="hljs-number">4</span>, <span class="hljs-number">0</span>);
+					<span class="hljs-comment">/* Also add indentation as necessary */</span>
+					<span class="hljs-keyword">if</span> (!pasteEnabled) {
+						rline_preload = <span class="hljs-built_in">malloc</span>(blockWidth + <span class="hljs-number">1</span>);
+						<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; blockWidth; ++i) {
+							rline_preload[i] = <span class="hljs-string">' '</span>;
+						}
+						rline_preload[blockWidth] = <span class="hljs-string">'\0'</span>;
+					}
+				}
+
+				<span class="hljs-keyword">if</span> (!enableRline) {
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+				<span class="hljs-keyword">if</span> (<span class="hljs-number">1</span>) {
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%s"</span>, inBlock ? PROMPT_BLOCK : PROMPT_MAIN);
+					fflush(<span class="hljs-built_in">stdout</span>);
+				}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> NO_RLINE</span>
+				rline_scroll = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">if</span> (enableRline) {
+					<span class="hljs-keyword">if</span> (rline(buf, <span class="hljs-number">4096</span>) == <span class="hljs-number">0</span>) {
+						valid = <span class="hljs-number">0</span>;
+						exitRepl = <span class="hljs-number">1</span>;
+						<span class="hljs-keyword">break</span>;
+					}
+				} <span class="hljs-keyword">else</span> {
+#endif
+					<span class="hljs-keyword">char</span> * out = fgets(buf, <span class="hljs-number">4096</span>, <span class="hljs-built_in">stdin</span>);
+					<span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_SIGNALLED) {
+						<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"\n"</span>);
+					} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> ((!out || !<span class="hljs-built_in">strlen</span>(buf))) {
+						<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"^D\n"</span>);
+						valid = <span class="hljs-number">0</span>;
+						exitRepl = <span class="hljs-number">1</span>;
+						<span class="hljs-keyword">break</span>;
+					}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> NO_RLINE</span>
+				}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+				<span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_SIGNALLED) {
+					<span class="hljs-comment">/* We should actually be properly raising the interrupt and printing it with an empty traceback, but whatever. */</span>
+					krk_currentThread.flags &amp;= ~(KRK_THREAD_SIGNALLED); <span class="hljs-comment">/* Clear signal flag */</span>
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"KeyboardInterrupt\n"</span>);
+					valid = <span class="hljs-number">0</span>;
+					<span class="hljs-keyword">break</span>;
+				}
+
+				<span class="hljs-keyword">if</span> (buf[<span class="hljs-built_in">strlen</span>(buf)<span class="hljs-number">-1</span>] != <span class="hljs-string">'\n'</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-11" id="section-11"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>rline shouldn't allow this as it doesn't accept ^D to submit input
+unless the line is empty, but just in case...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Expected end of line in repl input. Did you ^D early?\n"</span>);
+					valid = <span class="hljs-number">0</span>;
+					<span class="hljs-keyword">break</span>;
+				}
+
+				<span class="hljs-keyword">if</span> (lineCapacity &lt; lineCount + <span class="hljs-number">1</span>) {
+					<span class="hljs-comment">/* If we need more space, grow as needed... */</span>
+					<span class="hljs-keyword">size_t</span> old = lineCapacity;
+					lineCapacity = KRK_GROW_CAPACITY(old);
+					lines = KRK_GROW_ARRAY(<span class="hljs-keyword">char</span> *,lines,old,lineCapacity);
+				}
+
+				<span class="hljs-keyword">int</span> i = lineCount++;
+				lines[i] = strdup(buf);
+
+				<span class="hljs-keyword">size_t</span> lineLength = <span class="hljs-built_in">strlen</span>(lines[i]);
+				totalData += lineLength;
+
+				<span class="hljs-comment">/* Figure out indentation */</span>
+				<span class="hljs-keyword">int</span> isSpaces = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">int</span> countSpaces = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> j = <span class="hljs-number">0</span>; j &lt; lineLength; ++j) {
+					<span class="hljs-keyword">if</span> (lines[i][j] != <span class="hljs-string">' '</span> &amp;&amp; lines[i][j] != <span class="hljs-string">'\n'</span>) {
+						isSpaces = <span class="hljs-number">0</span>;
+						<span class="hljs-keyword">break</span>;
+					}
+					countSpaces += <span class="hljs-number">1</span>;
+				}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-12" id="section-12"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Naively detect the start of a new block so we can
+continue to accept input. Our compiler isn't really
+set up to let us compile &quot;on the fly&quot; so we can't just
+run lines through it and see if it wants more...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				<span class="hljs-keyword">if</span> (lineLength &gt; <span class="hljs-number">1</span> &amp;&amp; lines[i][lineLength<span class="hljs-number">-2</span>] == <span class="hljs-string">':'</span>) {
+					inBlock = <span class="hljs-number">1</span>;
+					blockWidth = countSpaces + <span class="hljs-number">4</span>;
+					<span class="hljs-keyword">continue</span>;
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (lineLength &gt; <span class="hljs-number">1</span> &amp;&amp; lines[i][lineLength<span class="hljs-number">-2</span>] == <span class="hljs-string">'\\'</span>) {
+					inBlock = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">continue</span>;
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (inBlock &amp;&amp; lineLength != <span class="hljs-number">1</span>) {
+					<span class="hljs-keyword">if</span> (isSpaces) {
+						<span class="hljs-built_in">free</span>(lines[i]);
+						totalData -= lineLength;
+						lineCount--;
+						<span class="hljs-keyword">break</span>;
+					}
+					blockWidth = countSpaces;
+					<span class="hljs-keyword">continue</span>;
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (lineLength &gt; <span class="hljs-number">1</span> &amp;&amp; lines[i][countSpaces] == <span class="hljs-string">'@'</span>) {
+					inBlock = <span class="hljs-number">1</span>;
+					blockWidth = countSpaces;
+					<span class="hljs-keyword">continue</span>;
+				}
+
+				<span class="hljs-comment">/* Ignore blank lines. */</span>
+				<span class="hljs-keyword">if</span> (isSpaces &amp;&amp; !i) valid = <span class="hljs-number">0</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-13" id="section-13"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If we're not in a block, or have entered a blank line,
+we can stop reading new lines and jump to execution.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				<span class="hljs-keyword">break</span>;
+			}
+
+			<span class="hljs-keyword">if</span> (valid) {
+				allData = <span class="hljs-built_in">malloc</span>(totalData + <span class="hljs-number">1</span>);
+				allData[<span class="hljs-number">0</span>] = <span class="hljs-string">'\0'</span>;
+			}
+
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; lineCount; ++i) {
+				<span class="hljs-keyword">if</span> (valid) <span class="hljs-built_in">strcat</span>(allData, lines[i]);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> NO_RLINE</span>
+				<span class="hljs-keyword">if</span> (enableRline) {
+					rline_history_insert(strdup(lines[i]));
+					rline_scroll = <span class="hljs-number">0</span>;
+				}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+				<span class="hljs-built_in">free</span>(lines[i]);
+			}
+			KRK_FREE_ARRAY(<span class="hljs-keyword">char</span> *, lines, lineCapacity);
+
+			<span class="hljs-keyword">if</span> (valid) {
+				KrkValue result = krk_interpret(allData, <span class="hljs-string">"&lt;stdin&gt;"</span>);
+				<span class="hljs-keyword">if</span> (!IS_NONE(result)) {
+					krk_attachNamedValue(&amp;vm.builtins-&gt;fields, <span class="hljs-string">"_"</span>, result);
+					printResult(<span class="hljs-built_in">stdout</span>, result);
+				}
+				krk_resetStack();
+				<span class="hljs-built_in">free</span>(allData);
+			}
+
+			(<span class="hljs-keyword">void</span>)blockWidth;
+		}
+	}
+
+	krk_freeVM();
+
+	<span class="hljs-keyword">if</span> (IS_INTEGER(result)) <span class="hljs-keyword">return</span> AS_INTEGER(result);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

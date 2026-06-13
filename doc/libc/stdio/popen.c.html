@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>popen.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "libc\\stdio\\popen.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>popen.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/wait.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;libc/stdio/stdio_internal.h&gt;</span></span>
+
+<span class="hljs-function">FILE * <span class="hljs-title">popen</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * command, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * type)</span> </span>{
+	<span class="hljs-keyword">if</span> (!type || (*type != <span class="hljs-string">'r'</span> &amp;&amp; *type != <span class="hljs-string">'w'</span>) || type[<span class="hljs-number">1</span>]) {
+		errno = EINVAL;
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">int</span> pipe_fd[<span class="hljs-number">2</span>];
+	<span class="hljs-keyword">if</span> (pipe2(pipe_fd, O_CLOEXEC) &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+
+	FILE * out = fdopen(pipe_fd[*type==<span class="hljs-string">'w'</span>], type);
+	<span class="hljs-keyword">if</span> (!out) {
+		<span class="hljs-built_in">close</span>(pipe_fd[<span class="hljs-number">0</span>]);
+		<span class="hljs-built_in">close</span>(pipe_fd[<span class="hljs-number">1</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">pid_t</span> child = fork();
+	<span class="hljs-keyword">if</span> (child &lt; <span class="hljs-number">0</span>) {
+		fclose(out);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (!child) {
+		dup2(pipe_fd[*type==<span class="hljs-string">'r'</span>], *type==<span class="hljs-string">'r'</span>);
+		<span class="hljs-built_in">close</span>(pipe_fd[*type==<span class="hljs-string">'w'</span>]);
+
+		<span class="hljs-keyword">char</span> * args[] = {
+			<span class="hljs-string">"/bin/sh"</span>,
+			<span class="hljs-string">"-c"</span>,
+			(<span class="hljs-keyword">char</span> *)command,
+			<span class="hljs-literal">NULL</span>,
+		};
+
+		execvp(args[<span class="hljs-number">0</span>], args);
+		<span class="hljs-built_in">abort</span>();
+		__builtin_unreachable();
+	}
+
+	<span class="hljs-built_in">close</span>(pipe_fd[*type==<span class="hljs-string">'r'</span>]);
+	out-&gt;popen_pid = child;
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">pclose</span><span class="hljs-params">(FILE * stream)</span> </span>{
+	<span class="hljs-keyword">pid_t</span> me = stream-&gt;popen_pid;
+
+	<span class="hljs-comment">/* Close the stream. */</span>
+	fclose(stream);
+
+	<span class="hljs-comment">/* Wait for the process */</span>
+	<span class="hljs-keyword">int</span> ret = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> status;
+	<span class="hljs-keyword">while</span> ((ret = waitpid(me, &amp;status, <span class="hljs-number">0</span>)) == EINTR);
+	<span class="hljs-keyword">if</span> (ret &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">return</span> status;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

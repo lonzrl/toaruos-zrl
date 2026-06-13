@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>man.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\man.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>man.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;termios.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;dirent.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;getopt.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;libgen.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/wait.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> !defined(TOARU_MAN_TOOL_PREFIX)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TOARU_MAN_TOOL_PREFIX <span class="hljs-meta-string">""</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> !defined(TOARU_MAN_PATH_PREFIX)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TOARU_MAN_PATH_PREFIX <span class="hljs-meta-string">""</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MAN_DIR  TOARU_MAN_PATH_PREFIX <span class="hljs-meta-string">"/usr/share/man/man%s"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MAN_FMT  MAN_DIR <span class="hljs-meta-string">"/%s.%s"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ROFF_CMD TOARU_MAN_TOOL_PREFIX <span class="hljs-meta-string">"roff"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MORE_CMD TOARU_MAN_TOOL_PREFIX <span class="hljs-meta-string">"more -rP'%s(%s)' --stay --alt"</span></span>
+
+<span class="hljs-comment">/* Don't bother prefixing this; I don't want to build our grep elsewhere. */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> GREP_CMD <span class="hljs-meta-string">"grep --color -i -- '%s' -"</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> where_is = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> what_is = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">show_help</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_S <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_E <span class="hljs-meta-string">"\033[0m"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+		<span class="hljs-string">"usage: %s [-a] [-S "</span> X_S <span class="hljs-string">"sectionlist"</span> X_E <span class="hljs-string">"] ["</span> X_S <span class="hljs-string">"section"</span> X_E <span class="hljs-string">"] "</span> X_S <span class="hljs-string">"page..."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"       %s -k [-S "</span> X_S <span class="hljs-string">"sectionlist"</span> X_E <span class="hljs-string">"] "</span> X_S <span class="hljs-string">"keyword..."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"Display a manual page.\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"Options:\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" -a       "</span> X_S <span class="hljs-string">"Display all matching manuals."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" -w       "</span> X_S <span class="hljs-string">"Print the locations of manual pages."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" -S "</span> X_S <span class="hljs-string">"list  Limit search to colon-separated list of sections."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" -k       "</span> X_S <span class="hljs-string">"Search manual page NAME sections for keywords."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" -f       "</span> X_S <span class="hljs-string">"Display a short description from each matching manual."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"          "</span> X_S <span class="hljs-string">"This options implies "</span> X_E <span class="hljs-string">"-a.\n"</span>
+		<span class="hljs-string">" --help   "</span> X_S <span class="hljs-string">"Show this help text."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"\n"</span>, argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Try '%s --help' or '%s man' for more information.\n"</span>, argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">print_page_name</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * page, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * i)</span> </span>{
+	<span class="hljs-keyword">int</span> written = <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%s (%s)"</span>, page, i);
+	<span class="hljs-keyword">while</span> (written &lt; <span class="hljs-number">20</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">" "</span>);
+		written++;
+	}
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">" - "</span>);
+	fflush(<span class="hljs-built_in">stdout</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">filename</span>
+<span>Full path to the file to check.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">page</span>
+<span>Page name to display in the @b more prompt.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">i</span>
+<span>Section number to display in the @b more prompt.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">try_filename</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * filename, <span class="hljs-keyword">char</span> * page, <span class="hljs-keyword">char</span> * i)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">st</span>;</span>
+	<span class="hljs-keyword">if</span> (!stat(filename, &amp;st)) {
+		<span class="hljs-keyword">if</span> (where_is) {
+			<span class="hljs-built_in">puts</span>(filename);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		<span class="hljs-keyword">int</span> is_gz = <span class="hljs-built_in">strlen</span>(filename) &gt; <span class="hljs-number">3</span> &amp;&amp; !<span class="hljs-built_in">strcmp</span>(filename + <span class="hljs-built_in">strlen</span>(filename)<span class="hljs-number">-3</span>,<span class="hljs-string">".gz"</span>);
+		<span class="hljs-keyword">char</span> * systemcmd;
+		<span class="hljs-keyword">if</span> (what_is) {
+			print_page_name(page, i);
+			asprintf(&amp;systemcmd,
+				!is_gz ?
+				(ROFF_CMD <span class="hljs-string">" -S NAME -P -I1 '%s' | head -n1"</span>) :
+				(<span class="hljs-string">"gunzip -c '%s' | "</span> ROFF_CMD <span class="hljs-string">" -S NAME -P -I1 -- - | head -n1"</span>),
+				filename);
+		} <span class="hljs-keyword">else</span> {
+			asprintf(&amp;systemcmd,
+				!is_gz ?
+				(ROFF_CMD <span class="hljs-string">" '%s' | "</span> MORE_CMD) :
+				(<span class="hljs-string">"gunzip -c '%s' | "</span> ROFF_CMD <span class="hljs-string">" -- - | "</span> MORE_CMD),
+				filename, page, i);
+		}
+		<span class="hljs-keyword">int</span> result = system(systemcmd);
+		<span class="hljs-keyword">if</span> (result) <span class="hljs-built_in">exit</span>(WEXITSTATUS(result));
+		<span class="hljs-built_in">free</span>(systemcmd);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">i</span>
+<span>Section to look in.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">page</span>
+<span>Page name to look for.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">try_section</span><span class="hljs-params">(<span class="hljs-keyword">char</span> *i, <span class="hljs-keyword">char</span> * page)</span> </span>{
+	<span class="hljs-keyword">char</span> * filename;
+	asprintf(&amp;filename, MAN_FMT, i, page, i);
+	<span class="hljs-keyword">if</span> (try_filename(filename, page, i)) {
+		<span class="hljs-built_in">free</span>(filename);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-built_in">free</span>(filename);
+	asprintf(&amp;filename, MAN_FMT <span class="hljs-string">".gz"</span>, i, page, i);
+	<span class="hljs-keyword">if</span> (try_filename(filename, page, i)) {
+		<span class="hljs-built_in">free</span>(filename);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-built_in">free</span>(filename);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">i</span>
+<span>Section to search in
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">keyword</span>
+<span>Pattern to pass to grep
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">search_section</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * i, <span class="hljs-keyword">char</span> * keyword)</span> </span>{
+	<span class="hljs-keyword">size_t</span> len_i = <span class="hljs-built_in">strlen</span>(i);
+	<span class="hljs-keyword">char</span> * dirpath;
+	asprintf(&amp;dirpath, MAN_DIR, i);
+	DIR * dir = opendir(dirpath);
+	<span class="hljs-keyword">if</span> (!dir) <span class="hljs-keyword">return</span> <span class="hljs-built_in">free</span>(dirpath), <span class="hljs-number">0</span>; <span class="hljs-comment">/* Not a valid section? */</span>
+
+	<span class="hljs-keyword">int</span> found = <span class="hljs-number">0</span>;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent</span> * <span class="hljs-title">ent</span>;</span>
+	<span class="hljs-keyword">while</span> ((ent = readdir(dir))) {
+		<span class="hljs-keyword">if</span> (ent-&gt;d_name[<span class="hljs-number">0</span>] == <span class="hljs-string">'.'</span>) <span class="hljs-keyword">continue</span>;
+
+		<span class="hljs-keyword">char</span> * filename;
+		asprintf(&amp;filename,<span class="hljs-string">"%s/%s"</span>, dirpath, ent-&gt;d_name);
+		<span class="hljs-keyword">int</span> is_gz = <span class="hljs-built_in">strlen</span>(filename) &gt; <span class="hljs-number">3</span> &amp;&amp; !<span class="hljs-built_in">strcmp</span>(filename + <span class="hljs-built_in">strlen</span>(filename)<span class="hljs-number">-3</span>,<span class="hljs-string">".gz"</span>);
+
+		<span class="hljs-keyword">char</span> * page = strdup(ent-&gt;d_name);
+		<span class="hljs-keyword">size_t</span> len_page = <span class="hljs-built_in">strlen</span>(page);
+
+		<span class="hljs-keyword">if</span> (is_gz) {
+			<span class="hljs-comment">/* Exclude .gz suffix from printed name */</span>
+			page[len_page - <span class="hljs-number">3</span>] = <span class="hljs-string">'\0'</span>;
+			len_page -= <span class="hljs-number">3</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (len_page &gt; len_i + <span class="hljs-number">1</span> &amp;&amp; page[len_page - len_i - <span class="hljs-number">1</span>] == <span class="hljs-string">'.'</span> &amp;&amp;
+			!<span class="hljs-built_in">strcmp</span>(page + len_page - len_i, i)) {
+			<span class="hljs-comment">/* Exclude section suffix from printed name */</span>
+			page[len_page - len_i - <span class="hljs-number">1</span>] = <span class="hljs-string">'\0'</span>;
+			len_page -= len_i + <span class="hljs-number">1</span>;
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-comment">/* And reject files that don't look like man pages for this section. */</span>
+			<span class="hljs-built_in">free</span>(page);
+			<span class="hljs-built_in">free</span>(filename);
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-keyword">int</span> dry_run = <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">while</span> (dry_run &gt;= <span class="hljs-number">0</span>) {
+
+			<span class="hljs-keyword">if</span> (!dry_run) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If not in dry run, prefix the output without the page and section
+so the user can actually find it. Try to format this nicely.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				print_page_name(page, i);
+			}
+
+			<span class="hljs-keyword">char</span> * systemcmd;
+			asprintf(&amp;systemcmd,
+				!is_gz ?
+				(ROFF_CMD <span class="hljs-string">" -S NAME -P -I1 '%s' | "</span> GREP_CMD <span class="hljs-string">"%s"</span>) :
+				(<span class="hljs-string">"gunzip -c '%s' | "</span> ROFF_CMD <span class="hljs-string">" -S NAME -P -I1 -- - | "</span> GREP_CMD <span class="hljs-string">"%s"</span>),
+				filename, keyword, dry_run ? <span class="hljs-string">" &gt;/dev/null"</span> : <span class="hljs-string">""</span>);
+			<span class="hljs-keyword">int</span> result = system(systemcmd);
+			<span class="hljs-built_in">free</span>(systemcmd);
+			<span class="hljs-keyword">if</span> (result != <span class="hljs-number">0</span>) <span class="hljs-keyword">break</span>;
+
+			found |= <span class="hljs-number">1</span>;
+			dry_run--;
+		}
+
+		<span class="hljs-built_in">free</span>(page);
+		<span class="hljs-built_in">free</span>(filename);
+	}
+	<span class="hljs-built_in">free</span>(dirpath);
+	closedir(dir);
+	<span class="hljs-keyword">return</span> found;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">str</span>
+<span>String to convert.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> ** <span class="hljs-title">sections_from_string</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * str)</span> </span>{
+	<span class="hljs-keyword">size_t</span> count = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">char</span> * c = str;
+	<span class="hljs-keyword">for</span> (; *c; ++c) {
+		<span class="hljs-keyword">if</span> (*c == <span class="hljs-string">':'</span>) count++;
+	}
+	<span class="hljs-keyword">char</span> ** sects = <span class="hljs-built_in">calloc</span>(count + <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span>*));
+	<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>;
+	c = str;
+	<span class="hljs-keyword">while</span> (*c) {
+		sects[i] = c;
+		<span class="hljs-keyword">while</span> (*c &amp;&amp; *c != <span class="hljs-string">':'</span>) c++;
+		<span class="hljs-keyword">if</span> (*c == <span class="hljs-string">':'</span>) {
+			*c = <span class="hljs-string">'\0'</span>;
+			i++;
+			c++;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> sects;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">arg</span>
+<span>Possible filename.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">is_file_name</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * arg)</span> </span>{
+	<span class="hljs-keyword">while</span> (*arg) {
+		<span class="hljs-keyword">if</span> (*arg == <span class="hljs-string">'/'</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		arg++;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">arg</span>
+<span>Possible section number.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">is_section</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * arg)</span> </span>{
+	<span class="hljs-keyword">if</span> (*arg &gt;= <span class="hljs-string">'a'</span> &amp;&amp; *arg &lt;= <span class="hljs-string">'z'</span> &amp;&amp; !arg[<span class="hljs-number">1</span>]) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (*arg &gt;= <span class="hljs-string">'0'</span> &amp;&amp; *arg &lt;= <span class="hljs-string">'9'</span>) {
+		arg++;
+		<span class="hljs-keyword">while</span> (*arg) {
+			<span class="hljs-keyword">if</span> (*arg &lt; <span class="hljs-string">'a'</span> || *arg &gt; <span class="hljs-string">'z'</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			arg++;
+		}
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>The default section list either comes from @b $MANSECT - but only
+if we're building for ToaruOS and it is set - or the default
+list that we stole from an Ubuntu configuration.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">char</span> * section_list =
+#<span class="hljs-keyword">if</span> defined(__toaru__)
+		getenv(<span class="hljs-string">"MANSECT"</span>);
+	<span class="hljs-keyword">if</span> (!section_list) section_list =
+#endif
+			<span class="hljs-string">"1:n:l:8:3:0:2:3krk:5:4:9:6:7"</span>;
+
+	section_list = strdup(section_list);
+
+	<span class="hljs-keyword">int</span> show_all = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> search_names = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> opt;
+
+	<span class="hljs-keyword">if</span> (argc &amp;&amp; !<span class="hljs-built_in">strcmp</span>(basename(argv[<span class="hljs-number">0</span>]), TOARU_MAN_TOOL_PREFIX <span class="hljs-string">"whatis"</span>)) what_is = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (argc &amp;&amp; !<span class="hljs-built_in">strcmp</span>(basename(argv[<span class="hljs-number">0</span>]), TOARU_MAN_TOOL_PREFIX <span class="hljs-string">"apropos"</span>)) search_names = <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">option</span> <span class="hljs-title">long_opts</span>[] = {</span>
+		{<span class="hljs-string">"apropos"</span>,  no_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'k'</span>},
+		{<span class="hljs-string">"all"</span>,      no_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'a'</span>},
+		{<span class="hljs-string">"where"</span>,    no_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'w'</span>},
+		{<span class="hljs-string">"path"</span>,     no_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'w'</span>},
+		{<span class="hljs-string">"location"</span>, no_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'w'</span>},
+		{<span class="hljs-string">"whatis"</span>,   no_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'f'</span>},
+		{<span class="hljs-string">"sections"</span>, required_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'S'</span>},
+		{<span class="hljs-string">"help"</span>,     no_argument, <span class="hljs-number">0</span>, <span class="hljs-number">1000</span>},
+		{<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>}
+	};
+
+	<span class="hljs-keyword">while</span> ((opt = getopt_long(argc, argv, <span class="hljs-string">"awS:s:kf"</span>, long_opts, <span class="hljs-literal">NULL</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'a'</span>:
+				show_all = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'w'</span>:
+				where_is = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'s'</span>:
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'S'</span>:
+				section_list = optarg;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'k'</span>:
+				search_names = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>:
+				what_is = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">1000</span>:
+				<span class="hljs-keyword">return</span> show_help(argv);
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> usage(argv);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (what_is) show_all = <span class="hljs-number">1</span>;
+
+	<span class="hljs-comment">/* At least one argument is required. */</span>
+	<span class="hljs-keyword">if</span> (optind == argc) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Convert the default sections list (from the envvar, compiled default, or argument)
+to an array we can iterate over more easily.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">char</span> ** sections = sections_from_string(section_list);
+	<span class="hljs-keyword">char</span> * section = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">int</span> ret = <span class="hljs-number">0</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-11" id="section-11"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If there is more than one argument and it looks like it might be a section
+then treat it is as such and use it for all of the rest of the arguments.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> ((!search_names &amp;&amp; !what_is) &amp;&amp; optind + <span class="hljs-number">1</span> != argc &amp;&amp; is_section(argv[optind])) {
+		section = argv[optind];
+		optind++;
+	}
+
+	<span class="hljs-keyword">for</span> (; optind != argc; ++optind) {
+		<span class="hljs-keyword">int</span> found = <span class="hljs-number">0</span>;
+
+		<span class="hljs-keyword">if</span> (search_names) {
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">char</span> ** s = section ? (<span class="hljs-keyword">char</span>*[]){section, <span class="hljs-literal">NULL</span>} : sections; *s; ++s) {
+				found |= search_section(*s, argv[optind]);
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (is_file_name(argv[optind])) {
+			<span class="hljs-comment">/* Accept things that look like raw paths to roff sources */</span>
+			<span class="hljs-keyword">if</span> (try_filename(argv[optind], argv[optind], <span class="hljs-string">""</span>)) found = <span class="hljs-number">1</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (section) {
+			<span class="hljs-comment">/* If a single section argument was given, look in that. */</span>
+			<span class="hljs-keyword">if</span> (try_section(section, argv[optind])) found = <span class="hljs-number">1</span>;
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-comment">/* Otherwise, search through the MANSECT list in order. */</span>
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">char</span> ** s = sections; *s; ++s) {
+				<span class="hljs-keyword">if</span> (try_section(*s, argv[optind])) {
+					found = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">if</span> (!show_all) <span class="hljs-keyword">break</span>;
+				}
+			}
+		}
+
+		<span class="hljs-keyword">if</span> (!found) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+				(search_names || what_is)
+					? <span class="hljs-string">"%s: nothing appropriate\n"</span>
+					: <span class="hljs-string">"No manual entry for %s\n"</span>,
+				argv[optind]);
+			ret |= <span class="hljs-number">1</span>;
+		}
+	}
+
+	<span class="hljs-built_in">free</span>(section_list);
+	<span class="hljs-built_in">free</span>(sections);
+	<span class="hljs-keyword">return</span> ret;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

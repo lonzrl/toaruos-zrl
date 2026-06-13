@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>serial-console.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\serial-console.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>serial-console.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;termios.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/wait.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/fswait.h&gt;</span></span>
+
+<span class="hljs-keyword">int</span> fd = <span class="hljs-number">0</span>;
+
+<span class="hljs-keyword">int</span> keep_echo = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">int</span> dos_lines = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">int</span> keep_canon = <span class="hljs-number">0</span>;
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">termios</span> <span class="hljs-title">old</span>;</span>
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">set_unbuffered</span><span class="hljs-params">()</span> </span>{
+	tcgetattr(fileno(<span class="hljs-built_in">stdin</span>), &amp;old);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">termios</span> <span class="hljs-title">new</span> = <span class="hljs-title">old</span>;</span>
+	<span class="hljs-keyword">if</span> (!keep_canon) {
+		<span class="hljs-keyword">new</span>.c_lflag &amp;= (~ICANON);
+	}
+	<span class="hljs-keyword">if</span> (!keep_echo) {
+		<span class="hljs-keyword">new</span>.c_lflag &amp;= (~ECHO);
+	}
+	tcsetattr(fileno(<span class="hljs-built_in">stdin</span>), TCSAFLUSH, &amp;<span class="hljs-keyword">new</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">set_buffered</span><span class="hljs-params">()</span> </span>{
+	tcsetattr(fileno(<span class="hljs-built_in">stdin</span>), TCSAFLUSH, &amp;old);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">show_usage</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_S <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_E <span class="hljs-meta-string">"\033[0m"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+			<span class="hljs-string">"Serial client.\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"usage: %s [-e] [-r] [-c] ["</span> X_S <span class="hljs-string">"DEVICE"</span> X_E <span class="hljs-string">"]\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" Type ^] to enter command prompt.\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -e     "</span> X_S <span class="hljs-string">"keep echo enabled"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -c     "</span> X_S <span class="hljs-string">"keep canon enabled"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -r     "</span> X_S <span class="hljs-string">"transform line feeds to \\r\\n"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -?     "</span> X_S <span class="hljs-string">"show this help text"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"\n"</span>, argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> ** argv)</span> </span>{
+
+	<span class="hljs-keyword">char</span> * device = <span class="hljs-string">"/dev/ttyS0"</span>;
+	<span class="hljs-keyword">int</span> opt;
+
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"erc?"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'e'</span>:
+				keep_echo = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'r'</span>:
+				dos_lines = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'c'</span>:
+				keep_canon = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> show_usage(argc, argv);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (optind &lt; argc) {
+		device = argv[optind];
+	}
+
+	<span class="hljs-keyword">if</span> (optind + <span class="hljs-number">1</span> &lt; argc) {
+		<span class="hljs-comment">/* Too many arguments */</span>
+		<span class="hljs-keyword">return</span> show_usage(argc, argv);
+	}
+
+	set_unbuffered();
+
+	fd = <span class="hljs-built_in">open</span>(device, O_RDWR);
+
+	<span class="hljs-keyword">if</span> (fd &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], device, strerror(errno));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (!isatty(fd)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: not a tty\n"</span>, argv[<span class="hljs-number">0</span>], device);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">int</span> fds[<span class="hljs-number">2</span>] = {STDIN_FILENO, fd};
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">int</span> index = fswait(<span class="hljs-number">2</span>, fds);
+
+		<span class="hljs-keyword">if</span> (index == <span class="hljs-number">-1</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: fswait: erroneous file descriptor\n"</span>, argv[<span class="hljs-number">0</span>]);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: (did you try to open a file that isn't a serial console?\n"</span>, argv[<span class="hljs-number">0</span>]);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (index == <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">char</span> c = fgetc(<span class="hljs-built_in">stdin</span>);
+			<span class="hljs-keyword">if</span> (c == <span class="hljs-number">0x1D</span>) { <span class="hljs-comment">/* ^] */</span>
+				<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+					<span class="hljs-built_in">printf</span>(<span class="hljs-string">"serial-console&gt; "</span>);
+					set_buffered();
+					fflush(<span class="hljs-built_in">stdout</span>);
+
+					<span class="hljs-keyword">char</span> <span class="hljs-built_in">line</span>[<span class="hljs-number">1024</span>];
+					fgets(<span class="hljs-built_in">line</span>, <span class="hljs-number">1024</span>, <span class="hljs-built_in">stdin</span>);
+
+					<span class="hljs-keyword">if</span> (feof(<span class="hljs-built_in">stdin</span>)) {
+						<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+					}
+
+					<span class="hljs-keyword">int</span> i = <span class="hljs-built_in">strlen</span>(<span class="hljs-built_in">line</span>);
+					<span class="hljs-built_in">line</span>[i<span class="hljs-number">-1</span>] = <span class="hljs-string">'\0'</span>;
+
+					<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">"quit"</span>)) {
+						<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+					} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">"continue"</span>)) {
+						set_unbuffered();
+						fflush(<span class="hljs-built_in">stdout</span>);
+						<span class="hljs-keyword">break</span>;
+					} <span class="hljs-keyword">else</span> {
+						<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: unknown command\n"</span>, <span class="hljs-built_in">line</span>);
+						<span class="hljs-keyword">continue</span>;
+					}
+				}
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">if</span> (dos_lines &amp;&amp; c == <span class="hljs-string">'\n'</span>) {
+					<span class="hljs-keyword">char</span> buf[<span class="hljs-number">1</span>] = {<span class="hljs-string">'\r'</span>};
+					<span class="hljs-built_in">write</span>(fd, buf, <span class="hljs-number">1</span>);
+				}
+				<span class="hljs-keyword">char</span> buf[<span class="hljs-number">1</span>] = {c};
+				<span class="hljs-built_in">write</span>(fd, buf, <span class="hljs-number">1</span>);
+			}
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">char</span> buf[<span class="hljs-number">1024</span>];
+			<span class="hljs-keyword">size_t</span> r = <span class="hljs-built_in">read</span>(fd, buf, <span class="hljs-number">1024</span>);
+			fwrite(buf, <span class="hljs-number">1</span>, r, <span class="hljs-built_in">stdout</span>);
+			fflush(<span class="hljs-built_in">stdout</span>);
+		}
+	}
+
+	<span class="hljs-built_in">close</span>(fd);
+	set_buffered();
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>wallpaper-picker.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\wallpaper-picker.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>wallpaper-picker.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;dirent.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/yutani.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/decorations.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/text.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/menu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/button.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/list.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/utsname.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BUTTON_HEIGHT 28</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BUTTON_WIDTH 86</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BUTTON_PADDING 14</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_t</span> * yctx;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_window_t</span> * window = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">gfx_context_t</span> * ctx = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">sprite_t</span> wallpaper = { <span class="hljs-number">0</span> };
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Font</span> * <span class="hljs-title">tt_font</span> = <span class="hljs-title">NULL</span>;</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int32_t</span> <span class="hljs-built_in">width</span> = <span class="hljs-number">640</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int32_t</span> <span class="hljs-built_in">height</span> = <span class="hljs-number">300</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * title_str = <span class="hljs-string">"Wallpaper Picker"</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DEFAULT_PATH <span class="hljs-meta-string">"/usr/share/wallpaper.jpg"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> WALLPAPERS_PATH <span class="hljs-meta-string">"/usr/share/wallpapers"</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * wallpaper_path;
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TTKButton</span> _<span class="hljs-title">set</span> = {</span><span class="hljs-number">0</span>};
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TTKButton</span> _<span class="hljs-title">close</span> = {</span><span class="hljs-number">0</span>};
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TTKButton</span> _<span class="hljs-title">left</span> = {</span><span class="hljs-number">0</span>};
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TTKButton</span> _<span class="hljs-title">right</span> = {</span><span class="hljs-number">0</span>};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">list_t</span> * wallpapers = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">node_t</span> * current_wallpaper = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">redraw</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(window, &amp;bounds);
+
+	<span class="hljs-comment">/* Clear to black */</span>
+	draw_fill(ctx, rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+
+	<span class="hljs-comment">/* Calculate fit */</span>
+	<span class="hljs-keyword">int</span> max_width = window-&gt;<span class="hljs-built_in">width</span> - bounds.<span class="hljs-built_in">width</span>;
+	<span class="hljs-keyword">int</span> max_height = window-&gt;<span class="hljs-built_in">height</span> - bounds.<span class="hljs-built_in">height</span>;
+	<span class="hljs-comment">/* Calculate the appropriate scaled size to fit the screen. */</span>
+	<span class="hljs-keyword">float</span> x = (<span class="hljs-keyword">float</span>)max_width / (<span class="hljs-keyword">float</span>)wallpaper.<span class="hljs-built_in">width</span>;
+	<span class="hljs-keyword">float</span> y = (<span class="hljs-keyword">float</span>)max_height / (<span class="hljs-keyword">float</span>)wallpaper.<span class="hljs-built_in">height</span>;
+
+	<span class="hljs-keyword">int</span> nh = (<span class="hljs-keyword">int</span>)(x * (<span class="hljs-keyword">float</span>)wallpaper.<span class="hljs-built_in">height</span>);
+	<span class="hljs-keyword">int</span> nw = (<span class="hljs-keyword">int</span>)(y * (<span class="hljs-keyword">float</span>)wallpaper.<span class="hljs-built_in">width</span>);
+
+	<span class="hljs-comment">/* Scale the wallpaper into the buffer. */</span>
+	<span class="hljs-keyword">if</span> (nw &lt;= <span class="hljs-built_in">width</span>) {
+		<span class="hljs-comment">/* Scaled wallpaper is wider, height should match. */</span>
+		draw_sprite_scaled(ctx, &amp;wallpaper, bounds.left_width + ((<span class="hljs-keyword">int</span>)max_width - nw) / <span class="hljs-number">2</span>, bounds.top_height, nw+<span class="hljs-number">2</span>, max_height);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-comment">/* Scaled wallpaper is taller, width should match. */</span>
+		draw_sprite_scaled(ctx, &amp;wallpaper, bounds.left_width, bounds.top_height + ((<span class="hljs-keyword">int</span>)max_height - nh) / <span class="hljs-number">2</span>, max_width+<span class="hljs-number">2</span>, nh);
+	}
+
+	<span class="hljs-comment">/* Draws the path for the selected wallpaper in white, centered, with a drop shadow */</span>
+	tt_set_size(tt_font, <span class="hljs-number">13</span>);
+	<span class="hljs-keyword">int</span> str_width = tt_string_width(tt_font, wallpaper_path);
+	<span class="hljs-keyword">int</span> center_x_text = (window-&gt;<span class="hljs-built_in">width</span> - bounds.<span class="hljs-built_in">width</span> - str_width) / <span class="hljs-number">2</span>;
+	tt_draw_string_shadow(ctx, tt_font, wallpaper_path, <span class="hljs-number">13</span>, center_x_text + <span class="hljs-number">1</span>, bounds.top_height + <span class="hljs-number">10</span> + <span class="hljs-number">1</span>, rgba(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>), rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>), <span class="hljs-number">4</span>);
+	tt_draw_string_shadow(ctx, tt_font, wallpaper_path, <span class="hljs-number">13</span>, center_x_text + <span class="hljs-number">1</span>, bounds.top_height + <span class="hljs-number">10</span> + <span class="hljs-number">1</span>, rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>), rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>), <span class="hljs-number">4</span>);
+
+	<span class="hljs-comment">/* Draw the buttons */</span>
+	ttk_button_draw(ctx, &amp;_set);
+	ttk_button_draw(ctx, &amp;_close);
+	ttk_button_draw(ctx, &amp;_left);
+	ttk_button_draw(ctx, &amp;_right);
+
+	<span class="hljs-comment">/* Draw window decorations */</span>
+	render_decorations(window, ctx, title_str);
+
+	flip(ctx);
+	yutani_flip(yctx, window);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">in_button</span><span class="hljs-params">(struct TTKButton * button, struct yutani_msg_window_mouse_event * me)</span> </span>{
+	<span class="hljs-keyword">if</span> (me-&gt;new_y &gt;= button-&gt;y &amp;&amp; me-&gt;new_y &lt; button-&gt;y  + button-&gt;<span class="hljs-built_in">height</span>) {
+		<span class="hljs-keyword">if</span> (me-&gt;new_x &gt;= button-&gt;x &amp;&amp; me-&gt;new_x &lt; button-&gt;x + button-&gt;<span class="hljs-built_in">width</span>) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">setup_buttons</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(window, &amp;bounds);
+
+	_set.title = <span class="hljs-string">"Set"</span>;
+	_set.<span class="hljs-built_in">width</span> = BUTTON_WIDTH;
+	_set.<span class="hljs-built_in">height</span> = BUTTON_HEIGHT;
+	_set.x = ctx-&gt;<span class="hljs-built_in">width</span> - bounds.right_width - BUTTON_WIDTH - BUTTON_PADDING * <span class="hljs-number">2</span> - BUTTON_HEIGHT;
+	_set.y = ctx-&gt;<span class="hljs-built_in">height</span> - bounds.bottom_height - BUTTON_HEIGHT - BUTTON_PADDING;
+
+	_close.title = <span class="hljs-string">"Close"</span>;
+	_close.<span class="hljs-built_in">width</span> = BUTTON_WIDTH;
+	_close.<span class="hljs-built_in">height</span> = BUTTON_HEIGHT;
+	_close.x = ctx-&gt;<span class="hljs-built_in">width</span> - bounds.right_width - BUTTON_WIDTH * <span class="hljs-number">2</span> - BUTTON_PADDING * <span class="hljs-number">3</span> - BUTTON_HEIGHT;
+	_close.y = ctx-&gt;<span class="hljs-built_in">height</span> - bounds.bottom_height - BUTTON_HEIGHT - BUTTON_PADDING;
+
+	_left.title = <span class="hljs-string">"&lt;"</span>;
+	_left.<span class="hljs-built_in">width</span> = BUTTON_HEIGHT;
+	_left.<span class="hljs-built_in">height</span> = BUTTON_WIDTH;
+	_left.x = bounds.left_width + BUTTON_PADDING;
+	_left.y = bounds.top_height + (ctx-&gt;<span class="hljs-built_in">height</span> - BUTTON_WIDTH) / <span class="hljs-number">2</span>;
+
+	_right.title = <span class="hljs-string">"&gt;"</span>;
+	_right.<span class="hljs-built_in">width</span> = BUTTON_HEIGHT;
+	_right.<span class="hljs-built_in">height</span> = BUTTON_WIDTH;
+	_right.x = ctx-&gt;<span class="hljs-built_in">width</span> - bounds.right_width - BUTTON_HEIGHT - BUTTON_PADDING;
+	_right.y = bounds.top_height + (ctx-&gt;<span class="hljs-built_in">height</span> - BUTTON_WIDTH) / <span class="hljs-number">2</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">resize_finish</span><span class="hljs-params">(<span class="hljs-keyword">int</span> w, <span class="hljs-keyword">int</span> h)</span> </span>{
+	yutani_window_resize_accept(yctx, window, w, h);
+	reinit_graphics_yutani(ctx, window);
+	<span class="hljs-built_in">width</span>  = w;
+	<span class="hljs-built_in">height</span> = h;
+	setup_buttons();
+	redraw();
+	yutani_window_resize_done(yctx, window);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">set_hilight</span><span class="hljs-params">(struct TTKButton * button, <span class="hljs-keyword">int</span> hilight)</span> </span>{
+	<span class="hljs-keyword">if</span> (!button &amp;&amp; (_set.hilight || _close.hilight || _left.hilight || _right.hilight)) {
+		_set.hilight = <span class="hljs-number">0</span>;
+		_close.hilight = <span class="hljs-number">0</span>;
+		_left.hilight = <span class="hljs-number">0</span>;
+		_right.hilight = <span class="hljs-number">0</span>;
+		redraw();
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (button &amp;&amp; (button-&gt;hilight != hilight)) {
+		_set.hilight = <span class="hljs-number">0</span>;
+		_close.hilight = <span class="hljs-number">0</span>;
+		_left.hilight = <span class="hljs-number">0</span>;
+		_right.hilight = <span class="hljs-number">0</span>;
+		button-&gt;hilight = hilight;
+		redraw();
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">load_wallpaper</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (wallpaper.bitmap) <span class="hljs-built_in">free</span>(wallpaper.bitmap);
+	wallpaper.bitmap = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-comment">/* load wallpaper */</span>
+	load_sprite(&amp;wallpaper, wallpaper_path);
+	<span class="hljs-comment">/* Ensures we render correctly when scaling */</span>
+	wallpaper.alpha = ALPHA_EMBEDDED;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">get_default_wallpaper</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">home</span> = getenv(<span class="hljs-string">"HOME"</span>);
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">home</span>) {
+		<span class="hljs-comment">/* That should not happen... */</span>
+		wallpaper_path = strdup(DEFAULT_PATH);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-keyword">char</span> path[<span class="hljs-number">512</span>];
+	<span class="hljs-built_in">sprintf</span>(path, <span class="hljs-string">"%s/.wallpaper.conf"</span>, <span class="hljs-built_in">home</span>);
+	FILE * conf = fopen(path,<span class="hljs-string">"r"</span>);
+	<span class="hljs-keyword">if</span> (!conf) {
+		wallpaper_path = strdup(DEFAULT_PATH);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (conf) {
+		<span class="hljs-keyword">char</span> <span class="hljs-built_in">line</span>[<span class="hljs-number">1024</span>];
+		<span class="hljs-keyword">while</span> (!feof(conf)) {
+			fgets(<span class="hljs-built_in">line</span>, <span class="hljs-number">1024</span>, conf);
+			<span class="hljs-keyword">char</span> * nl = <span class="hljs-built_in">strchr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">'\n'</span>);
+			<span class="hljs-keyword">if</span> (nl) *nl = <span class="hljs-string">'\0'</span>;
+			<span class="hljs-keyword">if</span> (<span class="hljs-built_in">line</span>[<span class="hljs-number">0</span>] == <span class="hljs-string">';'</span>) {
+				<span class="hljs-keyword">continue</span>;
+			}
+			<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">"wallpaper="</span>) == <span class="hljs-built_in">line</span>) {
+				wallpaper_path = strdup(<span class="hljs-built_in">line</span>+<span class="hljs-built_in">strlen</span>(<span class="hljs-string">"wallpaper="</span>));
+				<span class="hljs-keyword">break</span>;
+			}
+		}
+		fclose(conf);
+	}
+
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">set_wallpaper</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">home</span> = getenv(<span class="hljs-string">"HOME"</span>);
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">home</span>) {
+		<span class="hljs-comment">/* That should not happen... */</span>
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Failed to read HOME envvar\n"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+	<span class="hljs-comment">/* get the PID of the destkop file-browser */</span>
+	<span class="hljs-keyword">char</span> * pid_path;
+	asprintf(&amp;pid_path, <span class="hljs-string">"%s/.wallpaper.pid"</span>, <span class="hljs-built_in">home</span>);
+	FILE * f = fopen(pid_path,<span class="hljs-string">"r"</span>);
+	<span class="hljs-built_in">free</span>(pid_path);
+	<span class="hljs-keyword">if</span> (!f) {
+		<span class="hljs-comment">/* TODO show an error dialog */</span>
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Failed to read wallpaper PID\n"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+	<span class="hljs-keyword">char</span> data[<span class="hljs-number">30</span>];
+	fgets(data, <span class="hljs-number">30</span>, f);
+	fclose(f);
+	<span class="hljs-keyword">int</span> pid = atoi(data);
+
+	<span class="hljs-comment">/* write the config file */</span>
+	<span class="hljs-keyword">char</span> * path;
+	asprintf(&amp;path, <span class="hljs-string">"%s/.wallpaper.conf"</span>, <span class="hljs-built_in">home</span>);
+	FILE * conf = fopen(path,<span class="hljs-string">"w"</span>);
+	<span class="hljs-built_in">free</span>(path);
+	<span class="hljs-built_in">fprintf</span>(conf,<span class="hljs-string">"wallpaper=%s\n"</span>, wallpaper_path);
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Setting wallpaper to %s\n"</span>, wallpaper_path);
+	fclose(conf);
+
+	<span class="hljs-comment">/* signal the desktop */</span>
+	kill(pid, SIGUSR1);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">read_wallpapers</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	wallpapers = list_create();
+
+	<span class="hljs-comment">/* Open wallpapers directory */</span>
+	DIR * dirp = opendir(WALLPAPERS_PATH);
+
+	<span class="hljs-keyword">if</span> (!dirp) {
+		<span class="hljs-keyword">return</span>; <span class="hljs-comment">/* No wallpapers? */</span>
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent</span> * <span class="hljs-title">ent</span> = <span class="hljs-title">readdir</span>(<span class="hljs-title">dirp</span>);</span>
+	<span class="hljs-keyword">while</span> (ent != <span class="hljs-literal">NULL</span>) {
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(ent-&gt;d_name,<span class="hljs-string">"."</span>) || !<span class="hljs-built_in">strcmp</span>(ent-&gt;d_name,<span class="hljs-string">".."</span>)) {
+			ent = readdir(dirp);
+			<span class="hljs-keyword">continue</span>;
+		}
+		<span class="hljs-keyword">char</span> tmp[<span class="hljs-built_in">strlen</span>(WALLPAPERS_PATH)+<span class="hljs-built_in">strlen</span>(ent-&gt;d_name)+<span class="hljs-number">2</span>];
+		<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"%s/%s"</span>, WALLPAPERS_PATH, ent-&gt;d_name);
+
+		list_insert(wallpapers, strdup(tmp));
+
+		ent = readdir(dirp);
+	}
+	closedir(dirp);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">pick_wallpaper</span><span class="hljs-params">(<span class="hljs-keyword">int</span> dir)</span> </span>{
+	<span class="hljs-keyword">if</span> (current_wallpaper) {
+		<span class="hljs-keyword">if</span> (dir == <span class="hljs-number">1</span>) {
+			current_wallpaper = current_wallpaper-&gt;next;
+		} <span class="hljs-keyword">else</span> {
+			current_wallpaper = current_wallpaper-&gt;prev;
+		}
+	}
+	<span class="hljs-keyword">if</span> (!current_wallpaper) {
+		<span class="hljs-keyword">if</span> (dir == <span class="hljs-number">1</span>) {
+			current_wallpaper = wallpapers-&gt;head;
+		} <span class="hljs-keyword">else</span> {
+			current_wallpaper = wallpapers-&gt;tail;
+		}
+		<span class="hljs-keyword">if</span> (!current_wallpaper) <span class="hljs-keyword">return</span>; <span class="hljs-comment">/* No wallpapers */</span>
+	}
+
+	<span class="hljs-built_in">free</span>(wallpaper_path);
+	wallpaper_path = strdup(current_wallpaper-&gt;value);
+	load_wallpaper();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">int</span> req_center_x, req_center_y;
+	yctx = yutani_init();
+	<span class="hljs-keyword">if</span> (!yctx) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: failed to connect to compositor\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	init_decorations();
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(<span class="hljs-literal">NULL</span>, &amp;bounds);
+
+	window = yutani_window_create(yctx, <span class="hljs-built_in">width</span> + bounds.<span class="hljs-built_in">width</span>, <span class="hljs-built_in">height</span> + bounds.<span class="hljs-built_in">height</span>);
+	req_center_x = yctx-&gt;display_width / <span class="hljs-number">2</span>;
+	req_center_y = yctx-&gt;display_height / <span class="hljs-number">2</span>;
+
+	tt_font = tt_font_from_shm(<span class="hljs-string">"sans-serif"</span>);
+
+	get_default_wallpaper();
+	read_wallpapers();
+
+	yutani_window_move(yctx, window, req_center_x - window-&gt;<span class="hljs-built_in">width</span> / <span class="hljs-number">2</span>, req_center_y - window-&gt;<span class="hljs-built_in">height</span> / <span class="hljs-number">2</span>);
+
+	yutani_window_advertise_icon(yctx, window, title_str, <span class="hljs-string">"wallpaper-picker"</span>);
+
+	ctx = init_graphics_yutani_double_buffer(window);
+	setup_buttons();
+	load_wallpaper();
+	redraw();
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TTKButton</span> * _<span class="hljs-title">down_button</span> = <span class="hljs-title">NULL</span>;</span>
+
+	<span class="hljs-keyword">int</span> playing = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">while</span> (playing) {
+		<span class="hljs-keyword">yutani_msg_t</span> * m = yutani_poll(yctx);
+		<span class="hljs-keyword">while</span> (m) {
+			<span class="hljs-keyword">if</span> (menu_process_event(yctx, m)) {
+				redraw();
+			}
+			<span class="hljs-keyword">switch</span> (m-&gt;type) {
+				<span class="hljs-keyword">case</span> YUTANI_MSG_KEY_EVENT:
+					{
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_key_event</span> * <span class="hljs-title">ke</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+						<span class="hljs-keyword">if</span> (ke-&gt;event.action == KEY_ACTION_DOWN &amp;&amp; ke-&gt;event.keycode == <span class="hljs-string">'\n'</span>) {
+							playing = <span class="hljs-number">0</span>;
+						} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ke-&gt;event.action == KEY_ACTION_DOWN &amp;&amp; ke-&gt;event.keycode == KEY_ESCAPE) {
+							playing = <span class="hljs-number">0</span>;
+						}
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_FOCUS_CHANGE:
+					{
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_focus_change</span> * <span class="hljs-title">wf</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+						<span class="hljs-keyword">yutani_window_t</span> * win = hashmap_get(yctx-&gt;windows, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)wf-&gt;wid);
+						<span class="hljs-keyword">if</span> (win) {
+							win-&gt;focused = wf-&gt;focused;
+							redraw();
+						}
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> YUTANI_MSG_RESIZE_OFFER:
+					{
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_resize</span> * <span class="hljs-title">wr</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+						resize_finish(wr-&gt;<span class="hljs-built_in">width</span>, wr-&gt;<span class="hljs-built_in">height</span>);
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_MOUSE_EVENT:
+					{
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_mouse_event</span> * <span class="hljs-title">me</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+						<span class="hljs-keyword">if</span> (me-&gt;wid == window-&gt;wid) {
+							<span class="hljs-keyword">int</span> result = decor_handle_event(yctx, m);
+							<span class="hljs-keyword">switch</span> (result) {
+								<span class="hljs-keyword">case</span> DECOR_CLOSE:
+									playing = <span class="hljs-number">0</span>;
+									<span class="hljs-keyword">break</span>;
+								<span class="hljs-keyword">case</span> DECOR_RIGHT:
+									<span class="hljs-comment">/* right click in decoration, show appropriate menu */</span>
+									decor_show_default_menu(window, window-&gt;x + me-&gt;new_x, window-&gt;y + me-&gt;new_y);
+									<span class="hljs-keyword">break</span>;
+								<span class="hljs-keyword">default</span>:
+									<span class="hljs-comment">/* Other actions */</span>
+									<span class="hljs-keyword">break</span>;
+							}
+
+							<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+							decor_get_bounds(window, &amp;bounds);
+							<span class="hljs-keyword">if</span> (me-&gt;new_y &gt; bounds.top_height) {
+
+								<span class="hljs-keyword">if</span> (me-&gt;command == YUTANI_MOUSE_EVENT_DOWN) {
+									<span class="hljs-keyword">if</span> (in_button(&amp;_set, me)) {
+										set_hilight(&amp;_set, <span class="hljs-number">2</span>);
+										_down_button = &amp;_set;
+									} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (in_button(&amp;_close, me)) {
+										set_hilight(&amp;_close, <span class="hljs-number">2</span>);
+										_down_button = &amp;_close;
+									} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (in_button(&amp;_left, me)) {
+										set_hilight(&amp;_left, <span class="hljs-number">2</span>);
+										_down_button = &amp;_left;
+									} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (in_button(&amp;_right, me)) {
+										set_hilight(&amp;_right, <span class="hljs-number">2</span>);
+										_down_button = &amp;_right;
+									}
+								} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (me-&gt;command == YUTANI_MOUSE_EVENT_RAISE || me-&gt;command == YUTANI_MOUSE_EVENT_CLICK) {
+									<span class="hljs-keyword">if</span> (_down_button) {
+										<span class="hljs-keyword">if</span> (in_button(_down_button, me)) {
+											<span class="hljs-keyword">if</span> (_down_button == &amp;_close) {
+												playing = <span class="hljs-number">0</span>;
+												<span class="hljs-keyword">break</span>;
+											} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (_down_button == &amp;_set) {
+												<span class="hljs-comment">/* Set wallpaper */</span>
+												set_wallpaper();
+											} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (_down_button == &amp;_left) {
+												<span class="hljs-comment">/* Previous wallpaper */</span>
+												pick_wallpaper(<span class="hljs-number">-1</span>);
+												redraw();
+											} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (_down_button == &amp;_right) {
+												<span class="hljs-comment">/* Next wallpaper */</span>
+												pick_wallpaper(<span class="hljs-number">1</span>);
+												redraw();
+											}
+											_down_button-&gt;hilight = <span class="hljs-number">0</span>;
+										}
+									}
+									_down_button = <span class="hljs-literal">NULL</span>;
+								}
+
+								<span class="hljs-keyword">if</span> (!me-&gt;buttons &amp; YUTANI_MOUSE_BUTTON_LEFT) {
+									<span class="hljs-keyword">if</span> (in_button(&amp;_set, me)) {
+										set_hilight(&amp;_set, <span class="hljs-number">1</span>);
+									} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (in_button(&amp;_close, me)) {
+										set_hilight(&amp;_close, <span class="hljs-number">1</span>);
+									} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (in_button(&amp;_left, me)) {
+										set_hilight(&amp;_left, <span class="hljs-number">1</span>);
+									} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (in_button(&amp;_right, me)) {
+										set_hilight(&amp;_right, <span class="hljs-number">1</span>);
+									} <span class="hljs-keyword">else</span> {
+										set_hilight(<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+									}
+								} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (_down_button) {
+									<span class="hljs-keyword">if</span> (in_button(_down_button, me)) {
+										set_hilight(_down_button, <span class="hljs-number">2</span>);
+									} <span class="hljs-keyword">else</span> {
+										set_hilight(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>);
+									}
+								}
+							}
+						}
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_CLOSE:
+				<span class="hljs-keyword">case</span> YUTANI_MSG_SESSION_END:
+					playing = <span class="hljs-number">0</span>;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">default</span>:
+					<span class="hljs-keyword">break</span>;
+			}
+			<span class="hljs-built_in">free</span>(m);
+			m = yutani_poll_async(yctx);
+		}
+	}
+
+	yutani_close(yctx, window);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

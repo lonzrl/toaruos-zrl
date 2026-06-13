@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>dir.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "libc\\dirent\\dir.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>dir.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;libc/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;dirent.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/dirent.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;_cheader.h&gt;</span></span>
+
+DEFN_SYSCALL3(readdir, SYS_READDIR, <span class="hljs-keyword">int</span>, <span class="hljs-keyword">int</span>, <span class="hljs-keyword">void</span> *);
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent32</span> {</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> d_ino;
+	<span class="hljs-keyword">char</span> d_name[<span class="hljs-number">256</span>];
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">DIR</span> {</span>
+	<span class="hljs-keyword">int</span> fd;
+	<span class="hljs-keyword">int</span> cur_entry;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent</span> _<span class="hljs-title">last</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent32</span> _<span class="hljs-title">last32</span>;</span>
+};
+
+<span class="hljs-function">DIR * <span class="hljs-title">fdopendir</span><span class="hljs-params">(<span class="hljs-keyword">int</span> fd)</span> </span>{
+	DIR * dir = (DIR *)<span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(DIR));
+	dir-&gt;fd = fd;
+	dir-&gt;cur_entry = <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">return</span> dir;
+}
+
+<span class="hljs-function">DIR * <span class="hljs-title">opendir</span> <span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * dirname)</span> </span>{
+	<span class="hljs-keyword">int</span> fd = <span class="hljs-built_in">open</span>(dirname, O_RDONLY|O_DIRECTORY|O_CLOEXEC);
+	<span class="hljs-keyword">if</span> (fd &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">return</span> fdopendir(fd);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">closedir</span> <span class="hljs-params">(DIR * dir)</span> </span>{
+	<span class="hljs-keyword">if</span> (dir &amp;&amp; (dir-&gt;fd != <span class="hljs-number">-1</span>)) {
+		<span class="hljs-keyword">return</span> <span class="hljs-built_in">close</span>(dir-&gt;fd);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">return</span> -EBADF;
+	}
+}
+
+<span class="hljs-function">struct dirent * <span class="hljs-title">readdir</span> <span class="hljs-params">(DIR * dirp)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent</span> * <span class="hljs-title">ent</span> = &amp;<span class="hljs-title">dirp</span>-&gt;_<span class="hljs-title">last</span>;</span>
+	<span class="hljs-keyword">int</span> ret = syscall_readdir(dirp-&gt;fd, ++dirp-&gt;cur_entry, ent);
+	<span class="hljs-keyword">if</span> (ret &lt; <span class="hljs-number">0</span>) {
+		errno = -ret;
+		<span class="hljs-built_in">memset</span>(ent, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (ret == <span class="hljs-number">0</span>) {
+		<span class="hljs-comment">/* end of directory */</span>
+		<span class="hljs-built_in">memset</span>(ent, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">return</span> ent;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">telldir</span><span class="hljs-params">(DIR * dirp)</span> </span>{
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">long</span>)dirp-&gt;cur_entry;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">rewinddir</span><span class="hljs-params">(DIR * dirp)</span> </span>{
+	dirp-&gt;cur_entry = <span class="hljs-number">-1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">seekdir</span><span class="hljs-params">(DIR * dirp, <span class="hljs-keyword">long</span> loc)</span> </span>{
+	dirp-&gt;cur_entry = loc;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>This provides the 32-bit binary compatibility for old
+binaries that want 'readdir' to use 32-bit ino values.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+<span class="hljs-function">struct dirent32 * <span class="hljs-title">readdir32</span> <span class="hljs-params">(DIR *)</span></span>;
+__redirect(readdir32,readdir);
+
+<span class="hljs-function">struct dirent32 * <span class="hljs-title">readdir32</span> <span class="hljs-params">(DIR * dirp)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent32</span> * <span class="hljs-title">ent</span> = &amp;<span class="hljs-title">dirp</span>-&gt;_<span class="hljs-title">last32</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent</span>* <span class="hljs-title">big</span> = <span class="hljs-title">readdir</span>(<span class="hljs-title">dirp</span>);</span>
+	<span class="hljs-keyword">if</span> (!big) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-built_in">memset</span>(ent, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(struct dirent32));
+	ent-&gt;d_ino = big-&gt;d_ino;
+	<span class="hljs-built_in">memcpy</span>(ent-&gt;d_name,big-&gt;d_name,<span class="hljs-keyword">sizeof</span>(ent-&gt;d_name));
+	<span class="hljs-keyword">return</span> ent;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">scandir</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *dirname, struct dirent ***namelist, <span class="hljs-keyword">int</span> (*select)(<span class="hljs-keyword">const</span> struct dirent *), <span class="hljs-keyword">int</span> (*compar)(<span class="hljs-keyword">const</span> struct dirent **, <span class="hljs-keyword">const</span> struct dirent **))</span> </span>{
+
+	DIR * dirfd = opendir(dirname);
+	<span class="hljs-keyword">if</span> (!dirfd) <span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+
+	<span class="hljs-keyword">int</span> avail = <span class="hljs-number">4</span>;
+	<span class="hljs-keyword">int</span> count = <span class="hljs-number">0</span>;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent</span> ** <span class="hljs-title">names</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">dirent</span> *) * <span class="hljs-title">avail</span>);</span>
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent</span> * <span class="hljs-title">ent</span> = <span class="hljs-title">readdir</span>(<span class="hljs-title">dirfd</span>);</span>
+		<span class="hljs-keyword">if</span> (!ent) <span class="hljs-keyword">break</span>;
+
+		<span class="hljs-keyword">if</span> (!select || select(ent)) {
+			<span class="hljs-keyword">if</span> (count + <span class="hljs-number">1</span> == avail) {
+				avail *= <span class="hljs-number">2</span>;
+				names = <span class="hljs-built_in">realloc</span>(names, <span class="hljs-keyword">sizeof</span>(struct dirent *) * avail);
+			}
+
+			names[count] = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(struct dirent));
+			<span class="hljs-built_in">memcpy</span>(names[count], ent, <span class="hljs-keyword">sizeof</span>(struct dirent));
+			count++;
+		}
+	}
+
+	closedir(dirfd);
+
+	<span class="hljs-keyword">if</span> (compar) {
+		qsort(names, count, <span class="hljs-keyword">sizeof</span>(struct dirent *), (<span class="hljs-keyword">int</span> (*)(<span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span>*,<span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span>*))compar);
+	}
+
+	*namelist = names;
+
+	<span class="hljs-keyword">return</span> count;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">alphasort</span><span class="hljs-params">(<span class="hljs-keyword">const</span> struct dirent ** c1, <span class="hljs-keyword">const</span> struct dirent ** c2)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">strcmp</span>((*c1)-&gt;d_name, (*c2)-&gt;d_name);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

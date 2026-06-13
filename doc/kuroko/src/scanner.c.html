@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>scanner.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\src\\scanner.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>scanner.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;assert.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/types.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/kuroko.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/scanner.h&gt;</span></span>
+
+<span class="hljs-function">KrkScanner <span class="hljs-title">krk_initScanner</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * src)</span> </span>{
+	KrkScanner scanner;
+	scanner.start = src;
+	scanner.cur   = src;
+	scanner.<span class="hljs-built_in">line</span>  = <span class="hljs-number">1</span>;
+	scanner.linePtr   = src;
+	scanner.startOfLine = <span class="hljs-number">1</span>;
+	scanner.hasUnget = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> scanner;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">isAtEnd</span><span class="hljs-params">(<span class="hljs-keyword">const</span> KrkScanner * scanner)</span> </span>{
+	<span class="hljs-keyword">return</span> *scanner-&gt;cur == <span class="hljs-string">'\0'</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">nextLine</span><span class="hljs-params">(KrkScanner * scanner)</span> </span>{
+	scanner-&gt;<span class="hljs-built_in">line</span>++;
+	scanner-&gt;linePtr = scanner-&gt;cur;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> KrkToken <span class="hljs-title">makeToken</span><span class="hljs-params">(<span class="hljs-keyword">const</span> KrkScanner * scanner, KrkTokenType type)</span> </span>{
+	<span class="hljs-keyword">return</span> (KrkToken){
+		.type = type,
+		.start = scanner-&gt;start,
+		.length = (type == TOKEN_EOL) ? <span class="hljs-number">0</span> : (<span class="hljs-keyword">size_t</span>)(scanner-&gt;cur - scanner-&gt;start),
+		.<span class="hljs-built_in">line</span> = scanner-&gt;<span class="hljs-built_in">line</span>,
+		.linePtr = scanner-&gt;linePtr,
+		.literalWidth = (type == TOKEN_EOL) ? <span class="hljs-number">0</span> : (<span class="hljs-keyword">size_t</span>)(scanner-&gt;cur - scanner-&gt;start),
+		.col = (scanner-&gt;start - scanner-&gt;linePtr) + <span class="hljs-number">1</span>,
+	};
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> KrkToken <span class="hljs-title">errorToken</span><span class="hljs-params">(<span class="hljs-keyword">const</span> KrkScanner * scanner, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * errorStr)</span> </span>{
+	<span class="hljs-keyword">ssize_t</span> column = (scanner-&gt;linePtr &lt; scanner-&gt;start) ? scanner-&gt;start - scanner-&gt;linePtr : <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">ssize_t</span> <span class="hljs-built_in">width</span>  = (scanner-&gt;start   &lt; scanner-&gt;cur)   ? scanner-&gt;cur - scanner-&gt;start : <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> (KrkToken){
+		.type = TOKEN_ERROR,
+		.start = errorStr,
+		.length = <span class="hljs-built_in">strlen</span>(errorStr),
+		.<span class="hljs-built_in">line</span> = scanner-&gt;<span class="hljs-built_in">line</span>,
+		.linePtr = scanner-&gt;linePtr,
+		.literalWidth = (<span class="hljs-keyword">size_t</span>)(<span class="hljs-built_in">width</span>),
+		.col = column + <span class="hljs-number">1</span>,
+	};
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> <span class="hljs-title">advance</span><span class="hljs-params">(KrkScanner * scanner)</span> </span>{
+	<span class="hljs-keyword">return</span> (*scanner-&gt;cur == <span class="hljs-string">'\0'</span>) ? <span class="hljs-string">'\0'</span> : *(scanner-&gt;cur++);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">match</span><span class="hljs-params">(KrkScanner * scanner, <span class="hljs-keyword">char</span> expected)</span> </span>{
+	<span class="hljs-keyword">if</span> (isAtEnd(scanner)) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (*scanner-&gt;cur != expected) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	scanner-&gt;cur++;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> <span class="hljs-title">peek</span><span class="hljs-params">(<span class="hljs-keyword">const</span> KrkScanner * scanner)</span> </span>{
+	<span class="hljs-keyword">return</span> *scanner-&gt;cur;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> <span class="hljs-title">peekNext</span><span class="hljs-params">(<span class="hljs-keyword">const</span> KrkScanner * scanner, <span class="hljs-keyword">int</span> n)</span> </span>{
+	<span class="hljs-keyword">if</span> (isAtEnd(scanner)) <span class="hljs-keyword">return</span> <span class="hljs-string">'\0'</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; n; ++i) <span class="hljs-keyword">if</span> (scanner-&gt;cur[i] == <span class="hljs-string">'\0'</span>) <span class="hljs-keyword">return</span> <span class="hljs-string">'\0'</span>;
+	<span class="hljs-keyword">return</span> scanner-&gt;cur[n];
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">skipWhitespace</span><span class="hljs-params">(KrkScanner * scanner)</span> </span>{
+	<span class="hljs-keyword">for</span> (;;) {
+		<span class="hljs-keyword">char</span> c = <span class="hljs-built_in">peek</span>(scanner);
+		<span class="hljs-keyword">switch</span> (c) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">' '</span>:
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\t'</span>:
+				advance(scanner);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">default</span>:
+				<span class="hljs-keyword">return</span>;
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> KrkToken <span class="hljs-title">makeIndentation</span><span class="hljs-params">(KrkScanner * scanner)</span> </span>{
+	<span class="hljs-keyword">char</span> reject = (<span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">' '</span>) ? <span class="hljs-string">'\t'</span> : <span class="hljs-string">' '</span>;
+	<span class="hljs-keyword">while</span> (!isAtEnd(scanner) &amp;&amp; (<span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">' '</span> || <span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'\t'</span>)) advance(scanner);
+	<span class="hljs-keyword">if</span> (isAtEnd(scanner)) <span class="hljs-keyword">return</span> makeToken(scanner, TOKEN_EOF);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * start = scanner-&gt;start; start &lt; scanner-&gt;cur; start++) {
+		<span class="hljs-keyword">if</span> (*start == reject) <span class="hljs-keyword">return</span> errorToken(scanner, <span class="hljs-string">"Invalid mix of indentation."</span>);
+	}
+	KrkToken out = makeToken(scanner, TOKEN_INDENTATION);
+	<span class="hljs-keyword">if</span> (reject == <span class="hljs-string">' '</span>) out.length *= <span class="hljs-number">8</span>;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'#'</span> || <span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'\n'</span>) {
+		<span class="hljs-keyword">while</span> (!isAtEnd(scanner) &amp;&amp; <span class="hljs-built_in">peek</span>(scanner) != <span class="hljs-string">'\n'</span>) advance(scanner);
+		scanner-&gt;startOfLine = <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">return</span> makeToken(scanner, TOKEN_RETRY);
+	}
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> KrkToken <span class="hljs-title">string</span><span class="hljs-params">(KrkScanner * scanner, <span class="hljs-keyword">char</span> quoteMark)</span> </span>{
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(scanner) == quoteMark &amp;&amp; peekNext(scanner, <span class="hljs-number">1</span>) == quoteMark) {
+		advance(scanner); advance(scanner);
+		<span class="hljs-comment">/* Big string */</span>
+		<span class="hljs-keyword">while</span> (!isAtEnd(scanner)) {
+			<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(scanner) == quoteMark &amp;&amp; peekNext(scanner, <span class="hljs-number">1</span>) == quoteMark &amp;&amp; peekNext(scanner, <span class="hljs-number">2</span>) == quoteMark) {
+				advance(scanner);
+				advance(scanner);
+				advance(scanner);
+				<span class="hljs-keyword">return</span> makeToken(scanner, TOKEN_BIG_STRING);
+			}
+
+			<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'\\'</span>) advance(scanner);
+			<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'\n'</span>) {
+				advance(scanner);
+				nextLine(scanner);
+			}
+			<span class="hljs-keyword">else</span> advance(scanner);
+		}
+		<span class="hljs-keyword">if</span> (isAtEnd(scanner)) <span class="hljs-keyword">return</span> errorToken(scanner, <span class="hljs-string">"Unterminated string."</span>);
+	}
+	<span class="hljs-keyword">while</span> (<span class="hljs-built_in">peek</span>(scanner) != quoteMark &amp;&amp; !isAtEnd(scanner)) {
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'\n'</span>) <span class="hljs-keyword">return</span> errorToken(scanner, <span class="hljs-string">"Unterminated string."</span>);
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'\\'</span>) advance(scanner);
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'\n'</span>) {
+			advance(scanner);
+			nextLine(scanner);
+		}
+		<span class="hljs-keyword">else</span> advance(scanner);
+	}
+
+	<span class="hljs-keyword">if</span> (isAtEnd(scanner)) <span class="hljs-keyword">return</span> errorToken(scanner, <span class="hljs-string">"Unterminated string."</span>);
+
+	assert(<span class="hljs-built_in">peek</span>(scanner) == quoteMark);
+	advance(scanner);
+
+	<span class="hljs-keyword">return</span> makeToken(scanner, TOKEN_STRING);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">isDigit</span><span class="hljs-params">(<span class="hljs-keyword">char</span> c)</span> </span>{
+	<span class="hljs-keyword">return</span> c &gt;= <span class="hljs-string">'0'</span> &amp;&amp; c &lt;= <span class="hljs-string">'9'</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> KrkToken <span class="hljs-title">number</span><span class="hljs-params">(KrkScanner * scanner, <span class="hljs-keyword">char</span> c)</span> </span>{
+	<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'0'</span>) {
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'x'</span> || <span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'X'</span>) {
+			<span class="hljs-comment">/* Hexadecimal */</span>
+			advance(scanner);
+			<span class="hljs-keyword">while</span> (isDigit(<span class="hljs-built_in">peek</span>(scanner)) || (<span class="hljs-built_in">peek</span>(scanner) &gt;= <span class="hljs-string">'a'</span> &amp;&amp; <span class="hljs-built_in">peek</span>(scanner) &lt;= <span class="hljs-string">'f'</span>) ||
+			       (<span class="hljs-built_in">peek</span>(scanner) &gt;= <span class="hljs-string">'A'</span> &amp;&amp; <span class="hljs-built_in">peek</span>(scanner) &lt;= <span class="hljs-string">'F'</span>) || (<span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'_'</span>)) advance(scanner);
+			<span class="hljs-keyword">return</span> makeToken(scanner, TOKEN_NUMBER);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'b'</span> || <span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'B'</span>) {
+			<span class="hljs-comment">/* Binary */</span>
+			advance(scanner);
+			<span class="hljs-keyword">while</span> (<span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'0'</span> || <span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'1'</span> || (<span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'_'</span>)) advance(scanner);
+			<span class="hljs-keyword">return</span> makeToken(scanner, TOKEN_NUMBER);
+		} <span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'o'</span> || <span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'O'</span>) {
+			<span class="hljs-comment">/* Octal - must be 0o, none of those silly 0123 things */</span>
+			advance(scanner);
+			<span class="hljs-keyword">while</span> ((<span class="hljs-built_in">peek</span>(scanner) &gt;= <span class="hljs-string">'0'</span> &amp;&amp; <span class="hljs-built_in">peek</span>(scanner) &lt;= <span class="hljs-string">'7'</span>) || (<span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'_'</span>)) advance(scanner);
+			<span class="hljs-keyword">return</span> makeToken(scanner, TOKEN_NUMBER);
+		}
+		<span class="hljs-comment">/* Otherwise, decimal and maybe 0.123 floating */</span>
+	}
+
+	<span class="hljs-comment">/* Decimal */</span>
+	<span class="hljs-keyword">while</span> (isDigit(<span class="hljs-built_in">peek</span>(scanner)) || <span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'_'</span>) advance(scanner);
+
+	<span class="hljs-comment">/* Floating point */</span>
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'.'</span> &amp;&amp; isDigit(peekNext(scanner, <span class="hljs-number">1</span>))) {
+		advance(scanner);
+		<span class="hljs-keyword">while</span> (isDigit(<span class="hljs-built_in">peek</span>(scanner))) advance(scanner);
+	}
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'e'</span> || <span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'E'</span>) {
+		advance(scanner);
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'+'</span> || <span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'-'</span>) advance(scanner);
+		<span class="hljs-keyword">while</span> (isDigit(<span class="hljs-built_in">peek</span>(scanner))) advance(scanner);
+	}
+
+	<span class="hljs-keyword">return</span> makeToken(scanner, TOKEN_NUMBER);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">isAlpha</span><span class="hljs-params">(<span class="hljs-keyword">char</span> c)</span> </span>{
+	<span class="hljs-keyword">return</span> (c &gt;= <span class="hljs-string">'a'</span> &amp;&amp; c &lt;= <span class="hljs-string">'z'</span>) || (c &gt;= <span class="hljs-string">'A'</span> &amp;&amp; c &lt;= <span class="hljs-string">'Z'</span>) || (c == <span class="hljs-string">'_'</span>);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> _checkKeyword(KrkScanner * scanner, <span class="hljs-keyword">size_t</span> start, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * rest, KrkTokenType type) {
+	<span class="hljs-keyword">size_t</span> length = <span class="hljs-built_in">strlen</span>(rest);
+	<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">size_t</span>)(scanner-&gt;cur - scanner-&gt;start) == start + length &amp;&amp;
+		<span class="hljs-built_in">memcmp</span>(scanner-&gt;start + start, rest, length) == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> type;
+	<span class="hljs-keyword">return</span> TOKEN_IDENTIFIER;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> checkKeyword(a,b,c) _checkKeyword(scanner,a,b,c)</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> KrkTokenType <span class="hljs-title">identifierType</span><span class="hljs-params">(KrkScanner * scanner)</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MORE(i) (scanner-&gt;cur - scanner-&gt;start &gt; i)</span>
+	<span class="hljs-keyword">switch</span> (*scanner-&gt;start) {
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'a'</span>: <span class="hljs-keyword">if</span> (MORE(<span class="hljs-number">1</span>)) <span class="hljs-keyword">switch</span>(scanner-&gt;start[<span class="hljs-number">1</span>]) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'n'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">2</span>, <span class="hljs-string">"d"</span>, TOKEN_AND);
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'w'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">2</span>, <span class="hljs-string">"ait"</span>, TOKEN_AWAIT);
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'s'</span>: <span class="hljs-keyword">if</span> (MORE(<span class="hljs-number">2</span>)) {
+					<span class="hljs-keyword">switch</span> (scanner-&gt;start[<span class="hljs-number">2</span>]) {
+						<span class="hljs-keyword">case</span> <span class="hljs-string">'s'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">3</span>, <span class="hljs-string">"ert"</span>, TOKEN_ASSERT);
+						<span class="hljs-keyword">case</span> <span class="hljs-string">'y'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">3</span>, <span class="hljs-string">"nc"</span>, TOKEN_ASYNC);
+					}
+					<span class="hljs-keyword">break</span>;
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">2</span>, <span class="hljs-string">""</span>, TOKEN_AS);
+				}
+		} <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'b'</span>: <span class="hljs-keyword">if</span> (MORE(<span class="hljs-number">1</span>)) <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">1</span>, <span class="hljs-string">"reak"</span>, TOKEN_BREAK);
+			<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (scanner-&gt;start[<span class="hljs-number">1</span>] == <span class="hljs-string">'\''</span> || scanner-&gt;start[<span class="hljs-number">1</span>] == <span class="hljs-string">'"'</span>) <span class="hljs-keyword">return</span> TOKEN_PREFIX_B;
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'c'</span>: <span class="hljs-keyword">if</span> (MORE(<span class="hljs-number">1</span>)) <span class="hljs-keyword">switch</span>(scanner-&gt;start[<span class="hljs-number">1</span>]) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'l'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">2</span>, <span class="hljs-string">"ass"</span>, TOKEN_CLASS);
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'o'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">2</span>, <span class="hljs-string">"ntinue"</span>, TOKEN_CONTINUE);
+		} <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'d'</span>: <span class="hljs-keyword">if</span> (MORE(<span class="hljs-number">1</span>)) <span class="hljs-keyword">switch</span>(scanner-&gt;start[<span class="hljs-number">1</span>]) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'e'</span>: <span class="hljs-keyword">if</span> (MORE(<span class="hljs-number">2</span>)) <span class="hljs-keyword">switch</span> (scanner-&gt;start[<span class="hljs-number">2</span>]) {
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">3</span>, <span class="hljs-string">""</span>, TOKEN_DEF);
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'l'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">3</span>, <span class="hljs-string">""</span>, TOKEN_DEL);
+			} <span class="hljs-keyword">break</span>;
+		} <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'e'</span>: <span class="hljs-keyword">if</span> (MORE(<span class="hljs-number">1</span>)) <span class="hljs-keyword">switch</span>(scanner-&gt;start[<span class="hljs-number">1</span>]) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'l'</span>: <span class="hljs-keyword">if</span> (MORE(<span class="hljs-number">2</span>)) <span class="hljs-keyword">switch</span>(scanner-&gt;start[<span class="hljs-number">2</span>]) {
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'s'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">3</span>,<span class="hljs-string">"e"</span>, TOKEN_ELSE);
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'i'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">3</span>,<span class="hljs-string">"f"</span>, TOKEN_ELIF);
+			} <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'x'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">2</span>, <span class="hljs-string">"cept"</span>, TOKEN_EXCEPT);
+		} <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>: <span class="hljs-keyword">if</span> (MORE(<span class="hljs-number">1</span>)) <span class="hljs-keyword">switch</span>(scanner-&gt;start[<span class="hljs-number">1</span>]) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'i'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">2</span>, <span class="hljs-string">"nally"</span>, TOKEN_FINALLY);
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'o'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">2</span>, <span class="hljs-string">"r"</span>, TOKEN_FOR);
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'r'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">2</span>, <span class="hljs-string">"om"</span>, TOKEN_FROM);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (scanner-&gt;start[<span class="hljs-number">1</span>] == <span class="hljs-string">'\''</span> || scanner-&gt;start[<span class="hljs-number">1</span>] == <span class="hljs-string">'"'</span>) <span class="hljs-keyword">return</span> TOKEN_PREFIX_F;
+		<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'F'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">1</span>, <span class="hljs-string">"alse"</span>, TOKEN_FALSE);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'i'</span>: <span class="hljs-keyword">if</span> (MORE(<span class="hljs-number">1</span>)) <span class="hljs-keyword">switch</span> (scanner-&gt;start[<span class="hljs-number">1</span>]) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">2</span>, <span class="hljs-string">""</span>, TOKEN_IF);
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'n'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">2</span>, <span class="hljs-string">""</span>, TOKEN_IN);
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'m'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">2</span>, <span class="hljs-string">"port"</span>, TOKEN_IMPORT);
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'s'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">2</span>, <span class="hljs-string">""</span>, TOKEN_IS);
+		} <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'l'</span>: <span class="hljs-keyword">if</span> (MORE(<span class="hljs-number">1</span>)) <span class="hljs-keyword">switch</span> (scanner-&gt;start[<span class="hljs-number">1</span>]) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'a'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">2</span>, <span class="hljs-string">"mbda"</span>, TOKEN_LAMBDA);
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'e'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">2</span>, <span class="hljs-string">"t"</span>, TOKEN_LET);
+		} <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'n'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">1</span>, <span class="hljs-string">"ot"</span>, TOKEN_NOT);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'N'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">1</span>, <span class="hljs-string">"one"</span>, TOKEN_NONE);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'o'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">1</span>, <span class="hljs-string">"r"</span>, TOKEN_OR);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'p'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">1</span>, <span class="hljs-string">"ass"</span>, TOKEN_PASS);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'r'</span>: <span class="hljs-keyword">if</span> (MORE(<span class="hljs-number">1</span>)) <span class="hljs-keyword">switch</span> (scanner-&gt;start[<span class="hljs-number">1</span>]) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'e'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">2</span>, <span class="hljs-string">"turn"</span>, TOKEN_RETURN);
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'a'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">2</span>, <span class="hljs-string">"ise"</span>, TOKEN_RAISE);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (scanner-&gt;start[<span class="hljs-number">1</span>] == <span class="hljs-string">'\''</span> || scanner-&gt;start[<span class="hljs-number">1</span>] == <span class="hljs-string">'"'</span>) <span class="hljs-keyword">return</span> TOKEN_PREFIX_R;
+		<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'s'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">1</span>, <span class="hljs-string">"uper"</span>, TOKEN_SUPER);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'t'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">1</span>, <span class="hljs-string">"ry"</span>, TOKEN_TRY);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'T'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">1</span>, <span class="hljs-string">"rue"</span>, TOKEN_TRUE);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'w'</span>: <span class="hljs-keyword">if</span> (MORE(<span class="hljs-number">1</span>)) <span class="hljs-keyword">switch</span>(scanner-&gt;start[<span class="hljs-number">1</span>]) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'h'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">2</span>, <span class="hljs-string">"ile"</span>, TOKEN_WHILE);
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'i'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">2</span>, <span class="hljs-string">"th"</span>, TOKEN_WITH);
+		} <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'y'</span>: <span class="hljs-keyword">return</span> checkKeyword(<span class="hljs-number">1</span>, <span class="hljs-string">"ield"</span>, TOKEN_YIELD);
+	}
+	<span class="hljs-keyword">return</span> TOKEN_IDENTIFIER;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> KrkToken <span class="hljs-title">identifier</span><span class="hljs-params">(KrkScanner * scanner)</span> </span>{
+	<span class="hljs-keyword">while</span> (isAlpha(<span class="hljs-built_in">peek</span>(scanner)) || isDigit(<span class="hljs-built_in">peek</span>(scanner)) || (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span>)<span class="hljs-built_in">peek</span>(scanner) &gt; <span class="hljs-number">0x7F</span>) advance(scanner);
+
+	<span class="hljs-keyword">return</span> makeToken(scanner, identifierType(scanner));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_ungetToken</span><span class="hljs-params">(KrkScanner * scanner, KrkToken token)</span> </span>{
+	<span class="hljs-keyword">if</span> (scanner-&gt;hasUnget) {
+		<span class="hljs-built_in">abort</span>();
+	}
+	scanner-&gt;hasUnget = <span class="hljs-number">1</span>;
+	scanner-&gt;unget = token;
+}
+
+<span class="hljs-function">KrkScanner <span class="hljs-title">krk_tellScanner</span><span class="hljs-params">(KrkScanner * scanner)</span> </span>{
+	<span class="hljs-keyword">return</span> *scanner;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_rewindScanner</span><span class="hljs-params">(KrkScanner * scanner, KrkScanner other)</span> </span>{
+	*scanner = other;
+}
+
+<span class="hljs-function">KrkToken <span class="hljs-title">krk_scanToken</span><span class="hljs-params">(KrkScanner * scanner)</span> </span>{
+
+	<span class="hljs-keyword">if</span> (scanner-&gt;hasUnget) {
+		scanner-&gt;hasUnget = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">return</span> scanner-&gt;unget;
+	}
+
+	<span class="hljs-comment">/* If at start of line, do thing */</span>
+	<span class="hljs-keyword">if</span> (scanner-&gt;startOfLine &amp;&amp; (<span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">' '</span> || <span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'\t'</span>)) {
+		scanner-&gt;start = scanner-&gt;cur;
+		scanner-&gt;startOfLine = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">return</span> makeIndentation(scanner);
+	}
+
+	<span class="hljs-comment">/* Eat whitespace */</span>
+	skipWhitespace(scanner);
+
+	<span class="hljs-comment">/* Skip comments */</span>
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'#'</span>) <span class="hljs-keyword">while</span> (<span class="hljs-built_in">peek</span>(scanner) != <span class="hljs-string">'\n'</span> &amp;&amp; !isAtEnd(scanner)) advance(scanner);
+
+	scanner-&gt;start = scanner-&gt;cur;
+	<span class="hljs-keyword">if</span> (isAtEnd(scanner)) <span class="hljs-keyword">return</span> makeToken(scanner, TOKEN_EOF);
+
+	<span class="hljs-keyword">char</span> c = advance(scanner);
+
+	<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'\n'</span>) {
+		KrkToken out;
+		<span class="hljs-keyword">if</span> (scanner-&gt;startOfLine) {
+			<span class="hljs-comment">/* Ignore completely blank lines */</span>
+			out = makeToken(scanner, TOKEN_RETRY);
+		} <span class="hljs-keyword">else</span> {
+			scanner-&gt;startOfLine = <span class="hljs-number">1</span>;
+			out = makeToken(scanner, TOKEN_EOL);
+		}
+		nextLine(scanner);
+		<span class="hljs-keyword">return</span> out;
+	}
+
+	<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'\\'</span> &amp;&amp; <span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'\n'</span>) {
+		advance(scanner);
+		nextLine(scanner);
+		<span class="hljs-keyword">return</span> makeToken(scanner, TOKEN_RETRY);
+	}
+
+	<span class="hljs-comment">/* Not indentation, not a linefeed on an empty line, must be not be start of line any more */</span>
+	scanner-&gt;startOfLine = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (isAlpha(c) || (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span>)c &gt; <span class="hljs-number">0x7F</span>) <span class="hljs-keyword">return</span> identifier(scanner);
+	<span class="hljs-keyword">if</span> (isDigit(c)) <span class="hljs-keyword">return</span> number(scanner, c);
+
+	<span class="hljs-keyword">switch</span> (c) {
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'('</span>: <span class="hljs-keyword">return</span> makeToken(scanner, TOKEN_LEFT_PAREN);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">')'</span>: <span class="hljs-keyword">return</span> makeToken(scanner, TOKEN_RIGHT_PAREN);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'{'</span>: <span class="hljs-keyword">return</span> makeToken(scanner, TOKEN_LEFT_BRACE);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'}'</span>: <span class="hljs-keyword">return</span> makeToken(scanner, TOKEN_RIGHT_BRACE);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'['</span>: <span class="hljs-keyword">return</span> makeToken(scanner, TOKEN_LEFT_SQUARE);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">']'</span>: <span class="hljs-keyword">return</span> makeToken(scanner, TOKEN_RIGHT_SQUARE);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">','</span>: <span class="hljs-keyword">return</span> makeToken(scanner, TOKEN_COMMA);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">';'</span>: <span class="hljs-keyword">return</span> makeToken(scanner, TOKEN_SEMICOLON);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'~'</span>: <span class="hljs-keyword">return</span> makeToken(scanner, TOKEN_TILDE);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'.'</span>: <span class="hljs-keyword">return</span> makeToken(scanner, <span class="hljs-built_in">peek</span>(scanner) == <span class="hljs-string">'.'</span> ? (peekNext(scanner,<span class="hljs-number">1</span>) == <span class="hljs-string">'.'</span> ? (advance(scanner), advance(scanner), TOKEN_ELLIPSIS) : TOKEN_DOT) : TOKEN_DOT);
+
+		<span class="hljs-keyword">case</span> <span class="hljs-string">':'</span>: <span class="hljs-keyword">return</span> makeToken(scanner, match(scanner, <span class="hljs-string">'='</span>) ? TOKEN_WALRUS        : TOKEN_COLON);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'!'</span>: <span class="hljs-keyword">return</span> makeToken(scanner, match(scanner, <span class="hljs-string">'='</span>) ? TOKEN_BANG_EQUAL    : TOKEN_BANG);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'='</span>: <span class="hljs-keyword">return</span> makeToken(scanner, match(scanner, <span class="hljs-string">'='</span>) ? TOKEN_EQUAL_EQUAL   : TOKEN_EQUAL);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'&lt;'</span>: <span class="hljs-keyword">return</span> makeToken(scanner, match(scanner, <span class="hljs-string">'='</span>) ? TOKEN_LESS_EQUAL    : (match(scanner, <span class="hljs-string">'&lt;'</span>) ? (match(scanner, <span class="hljs-string">'='</span>) ? TOKEN_LSHIFT_EQUAL : TOKEN_LEFT_SHIFT) :  TOKEN_LESS));
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'&gt;'</span>: <span class="hljs-keyword">return</span> makeToken(scanner, match(scanner, <span class="hljs-string">'='</span>) ? TOKEN_GREATER_EQUAL : (match(scanner, <span class="hljs-string">'&gt;'</span>) ? (match(scanner, <span class="hljs-string">'='</span>) ? TOKEN_RSHIFT_EQUAL : TOKEN_RIGHT_SHIFT) : TOKEN_GREATER));
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'-'</span>: <span class="hljs-keyword">return</span> makeToken(scanner, match(scanner, <span class="hljs-string">'='</span>) ? TOKEN_MINUS_EQUAL   : (match(scanner, <span class="hljs-string">'-'</span>) ? TOKEN_MINUS_MINUS : (match(scanner, <span class="hljs-string">'&gt;'</span>) ? TOKEN_ARROW : TOKEN_MINUS)));
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'+'</span>: <span class="hljs-keyword">return</span> makeToken(scanner, match(scanner, <span class="hljs-string">'='</span>) ? TOKEN_PLUS_EQUAL    : (match(scanner, <span class="hljs-string">'+'</span>) ? TOKEN_PLUS_PLUS   : TOKEN_PLUS));
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'^'</span>: <span class="hljs-keyword">return</span> makeToken(scanner, match(scanner, <span class="hljs-string">'='</span>) ? TOKEN_CARET_EQUAL   : TOKEN_CARET);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'|'</span>: <span class="hljs-keyword">return</span> makeToken(scanner, match(scanner, <span class="hljs-string">'='</span>) ? TOKEN_PIPE_EQUAL    : TOKEN_PIPE);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'&amp;'</span>: <span class="hljs-keyword">return</span> makeToken(scanner, match(scanner, <span class="hljs-string">'='</span>) ? TOKEN_AMP_EQUAL     : TOKEN_AMPERSAND);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'/'</span>: <span class="hljs-keyword">return</span> makeToken(scanner, match(scanner, <span class="hljs-string">'='</span>) ? TOKEN_SOLIDUS_EQUAL : (match(scanner, <span class="hljs-string">'/'</span>) ? (match(scanner, <span class="hljs-string">'='</span>) ? TOKEN_DSOLIDUS_EQUAL : TOKEN_DOUBLE_SOLIDUS) : TOKEN_SOLIDUS));
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'*'</span>: <span class="hljs-keyword">return</span> makeToken(scanner, match(scanner, <span class="hljs-string">'='</span>) ? TOKEN_ASTERISK_EQUAL: (match(scanner, <span class="hljs-string">'*'</span>) ? (match(scanner, <span class="hljs-string">'='</span>) ? TOKEN_POW_EQUAL : TOKEN_POW) : TOKEN_ASTERISK));
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'%'</span>: <span class="hljs-keyword">return</span> makeToken(scanner, match(scanner, <span class="hljs-string">'='</span>) ? TOKEN_MODULO_EQUAL  : TOKEN_MODULO);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'@'</span>: <span class="hljs-keyword">return</span> makeToken(scanner, match(scanner, <span class="hljs-string">'='</span>) ? TOKEN_AT_EQUAL      : TOKEN_AT);
+
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'"'</span>: <span class="hljs-keyword">return</span> <span class="hljs-built_in">string</span>(scanner, <span class="hljs-string">'"'</span>);
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'\''</span>: <span class="hljs-keyword">return</span> <span class="hljs-built_in">string</span>(scanner, <span class="hljs-string">'\''</span>);
+	}
+
+	<span class="hljs-keyword">return</span> errorToken(scanner, <span class="hljs-string">"Unexpected character."</span>);
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

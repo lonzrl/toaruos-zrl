@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>mman.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\sys\\mman.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>mman.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/mman.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mman.h&gt;</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">generic_page_fault</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> addr, <span class="hljs-keyword">int</span> flags)</span> </span>{
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">mmap_sbrk</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> mmap_anon(<span class="hljs-number">0</span>, <span class="hljs-built_in">size</span>, PROT_READ|PROT_WRITE, MAP_PRIVATE);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">mmu_unmap_user</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> addr, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">mmap_unmap</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> addr, <span class="hljs-keyword">size_t</span> length)</span> </span>{
+	<span class="hljs-keyword">process_t</span> * proc = this_core-&gt;current_process-&gt;<span class="hljs-built_in">process</span>;
+	spin_lock(proc-&gt;<span class="hljs-built_in">image</span>.lock);
+	mmu_unmap_user(addr, length);
+	spin_unlock(proc-&gt;<span class="hljs-built_in">image</span>.lock);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> <span class="hljs-title">mmap_common_checks</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> addr, <span class="hljs-keyword">size_t</span> length, <span class="hljs-keyword">int</span> prot, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">if</span> (!(flags &amp; MAP_PRIVATE)) <span class="hljs-keyword">return</span> dprintf(<span class="hljs-string">"must be private\n"</span>), -ENOTSUP;
+	<span class="hljs-keyword">if</span> (addr &amp; <span class="hljs-number">0xFFF</span>)   <span class="hljs-keyword">return</span> dprintf(<span class="hljs-string">"addr not aligned\n"</span>), -EINVAL;
+	<span class="hljs-keyword">if</span> (length &amp; <span class="hljs-number">0xFFF</span>) <span class="hljs-keyword">return</span> dprintf(<span class="hljs-string">"length not aligned\n"</span>), -EINVAL;
+	<span class="hljs-keyword">if</span> (length == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -EINVAL;
+
+	<span class="hljs-keyword">if</span> (length &gt; <span class="hljs-number">0x800000000</span>) <span class="hljs-keyword">return</span> -ENOMEM;
+
+	<span class="hljs-keyword">if</span> (flags &amp; MAP_FIXED) {
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __x86_64__</span>
+		<span class="hljs-comment">/* Deal with our dumb low mapping of the x86-64 kernel. */</span>
+		<span class="hljs-keyword">extern</span> <span class="hljs-keyword">char</span> <span class="hljs-built_in">end</span>[];
+		<span class="hljs-keyword">uintptr_t</span> endPtr = ((<span class="hljs-keyword">uintptr_t</span>)&amp;<span class="hljs-built_in">end</span> + <span class="hljs-number">0xFFF</span>) &amp; <span class="hljs-number">0xFFF</span>;
+		<span class="hljs-keyword">if</span> (addr &lt; endPtr) <span class="hljs-keyword">return</span> -EINVAL;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+		<span class="hljs-comment">/* Dumb stuff */</span>
+		<span class="hljs-keyword">if</span> (addr &gt; <span class="hljs-number">0x800000000000</span>UL) <span class="hljs-keyword">return</span> -EINVAL;
+		<span class="hljs-keyword">if</span> (addr + length &gt; <span class="hljs-number">0x800000000000</span>UL) <span class="hljs-keyword">return</span> -EINVAL;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sanity_check</span><span class="hljs-params">(<span class="hljs-keyword">union</span> PML * page)</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__x86_64__)</span>
+	<span class="hljs-keyword">if</span> (page-&gt;bits.cow_pending) {
+		arch_fatal_prepare();
+		dprintf(<span class="hljs-string">"mmap: trying to overwrite existing cow page?\n"</span>);
+		arch_dump_traceback();
+		arch_fatal();
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">mmap_anon</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> addr, <span class="hljs-keyword">size_t</span> length, <span class="hljs-keyword">int</span> prot, <span class="hljs-keyword">int</span> flags)</span> </span>{
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<p>dprintf(&quot;mmap(%#zx, %zu, %d, %d | MAP_ANONYMOUS, -1, 0);\n&quot;, addr, length, prot, flags);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">process_t</span> * proc = this_core-&gt;current_process-&gt;<span class="hljs-built_in">process</span>;
+
+	<span class="hljs-keyword">long</span> ret;
+	<span class="hljs-keyword">if</span> ((ret = mmap_common_checks(addr, length, prot, flags))) <span class="hljs-keyword">return</span> ret;
+
+	<span class="hljs-keyword">if</span> (!(flags &amp; MAP_FIXED)) {
+		spin_lock(proc-&gt;<span class="hljs-built_in">image</span>.lock);
+		addr = proc-&gt;<span class="hljs-built_in">image</span>.heap;
+		proc-&gt;<span class="hljs-built_in">image</span>.heap += length;
+		spin_unlock(proc-&gt;<span class="hljs-built_in">image</span>.lock);
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>A mapping with PROT_NONE does... nothing?
+We need to at least mark the mapping as non-present or something.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (prot &amp; PROT_NONE) <span class="hljs-keyword">return</span> addr;
+
+	<span class="hljs-keyword">int</span> mmu_flags = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (prot &amp; PROT_WRITE) mmu_flags |= MMU_FLAG_WRITABLE;
+	<span class="hljs-keyword">if</span> (!(prot &amp; PROT_EXEC)) mmu_flags |= MMU_FLAG_NOEXECUTE;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uintptr_t</span> i = <span class="hljs-number">0</span>; i &lt; length; i += <span class="hljs-number">0x1000</span>) {
+		<span class="hljs-keyword">union</span> PML * page = mmu_get_page(addr + i, MMU_GET_MAKE);
+		sanity_check(page);
+		mmu_frame_allocate(page, mmu_flags);
+		<span class="hljs-keyword">char</span> * page_back = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)page-&gt;bits.page &lt;&lt; <span class="hljs-number">12</span>);
+		<span class="hljs-built_in">memset</span>((<span class="hljs-keyword">void</span>*)(page_back), <span class="hljs-number">0</span>, <span class="hljs-number">0x1000</span>);
+		mmu_flush(page_back);
+	}
+
+	<span class="hljs-keyword">if</span> (prot &amp; PROT_EXEC) {
+		arch_clear_icache(addr, addr + length);
+	}
+
+	<span class="hljs-keyword">return</span> addr;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">mmap_file</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> addr, <span class="hljs-keyword">size_t</span> length, <span class="hljs-keyword">int</span> prot, <span class="hljs-keyword">int</span> flags, <span class="hljs-keyword">fs_node_t</span> * file, <span class="hljs-keyword">off_t</span> offset)</span> </span>{
+	<span class="hljs-keyword">process_t</span> * proc = this_core-&gt;current_process-&gt;<span class="hljs-built_in">process</span>;
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<p>dprintf(&quot;mmap(%#zx, %zu, %d, %d, <em>%p, %#zx); pid=%d\n&quot;, addr, length, prot, flags, (void</em>)file, offset, proc-&gt;id);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+	<span class="hljs-keyword">long</span> ret;
+	<span class="hljs-keyword">if</span> ((ret = mmap_common_checks(addr, length, prot, flags))) <span class="hljs-keyword">return</span> ret;
+
+	<span class="hljs-keyword">if</span> (offset &amp; <span class="hljs-number">0xFFF</span>) <span class="hljs-keyword">return</span> dprintf(<span class="hljs-string">"offset not aligned\n"</span>), -EINVAL;
+
+	<span class="hljs-keyword">if</span> (!(flags &amp; MAP_FIXED)) {
+		spin_lock(proc-&gt;<span class="hljs-built_in">image</span>.lock);
+		addr = proc-&gt;<span class="hljs-built_in">image</span>.heap;
+		proc-&gt;<span class="hljs-built_in">image</span>.heap += length;
+		spin_unlock(proc-&gt;<span class="hljs-built_in">image</span>.lock);
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>A mapping with PROT_NONE does... nothing?
+We need to at least mark the mapping as non-present or something.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (prot &amp; PROT_NONE) <span class="hljs-keyword">return</span> addr;
+
+	<span class="hljs-keyword">int</span> mmu_flags = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (prot &amp; PROT_WRITE) mmu_flags |= MMU_FLAG_WRITABLE;
+	<span class="hljs-keyword">if</span> (!(prot &amp; PROT_EXEC)) mmu_flags |= MMU_FLAG_NOEXECUTE;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uintptr_t</span> i = <span class="hljs-number">0</span>; i &lt; length; i += <span class="hljs-number">0x1000</span>) {
+		<span class="hljs-keyword">union</span> PML * page = mmu_get_page(addr + i, MMU_GET_MAKE);
+		sanity_check(page);
+		mmu_frame_allocate(page, mmu_flags);
+
+		<span class="hljs-keyword">char</span> * page_back = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)page-&gt;bits.page &lt;&lt; <span class="hljs-number">12</span>);
+		<span class="hljs-keyword">ssize_t</span> r = read_fs(file, offset + i, <span class="hljs-number">0x1000</span>, (<span class="hljs-keyword">void</span>*)page_back);
+		<span class="hljs-keyword">if</span> (r &gt;= <span class="hljs-number">0</span> &amp;&amp; r &lt; <span class="hljs-number">0x1000</span>) {
+			<span class="hljs-built_in">memset</span>((<span class="hljs-keyword">void</span>*)(page_back + r), <span class="hljs-number">0</span>, <span class="hljs-number">0x1000</span> - r);
+		}
+
+		mmu_flush(page_back);
+	}
+
+	<span class="hljs-keyword">if</span> (prot &amp; PROT_EXEC) {
+		arch_clear_icache(addr, addr + length);
+	}
+
+	<span class="hljs-keyword">return</span> addr;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

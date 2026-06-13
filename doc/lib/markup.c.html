@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>markup.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "lib\\markup.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>markup.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/markup.h&gt;</span></span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">markup_state</span> {</span>
+	<span class="hljs-keyword">int</span> state;
+	<span class="hljs-keyword">void</span> * user;
+	markup_callback_tag_open  callback_tag_open;
+	markup_callback_tag_close callback_tag_close;
+	markup_callback_data  callback_data;
+
+	<span class="hljs-comment">/* Private stuff */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">markup_tag</span> <span class="hljs-title">tag</span>;</span>
+	<span class="hljs-keyword">size_t</span> len;
+	<span class="hljs-keyword">char</span> data[<span class="hljs-number">64</span>];
+	<span class="hljs-keyword">char</span> * attr;
+};
+
+<span class="hljs-function">struct markup_state * <span class="hljs-title">markup_init</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * user, markup_callback_tag_open <span class="hljs-built_in">open</span>, markup_callback_tag_close <span class="hljs-built_in">close</span>, markup_callback_data data)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">markup_state</span> * <span class="hljs-title">out</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">markup_state</span>));</span>
+
+	out-&gt;state = <span class="hljs-number">0</span>;
+	out-&gt;user = user;
+	out-&gt;len = <span class="hljs-number">0</span>;
+
+	out-&gt;callback_tag_open  = <span class="hljs-built_in">open</span>;
+	out-&gt;callback_tag_close = <span class="hljs-built_in">close</span>;
+	out-&gt;callback_data  = data;
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _dump_buffer(struct markup_state * state) {
+	<span class="hljs-keyword">if</span> (state-&gt;len) {
+		state-&gt;data[state-&gt;len] = <span class="hljs-string">'\0'</span>;
+		state-&gt;callback_data(state, state-&gt;user, state-&gt;data);
+		state-&gt;data[<span class="hljs-number">0</span>] = <span class="hljs-string">'\0'</span>;
+		state-&gt;len = <span class="hljs-number">0</span>;
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _finish_name(struct markup_state * state) {
+	state-&gt;data[state-&gt;len] = <span class="hljs-string">'\0'</span>;
+	state-&gt;tag.name = strdup(state-&gt;data);
+	state-&gt;tag.options = hashmap_create(<span class="hljs-number">5</span>);
+	state-&gt;data[<span class="hljs-number">0</span>] = <span class="hljs-string">'\0'</span>;
+	state-&gt;len = <span class="hljs-number">0</span>;
+	state-&gt;state = <span class="hljs-number">2</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _finish_close(struct markup_state * state) {
+	state-&gt;data[state-&gt;len] = <span class="hljs-string">'\0'</span>;
+	state-&gt;callback_tag_close(state, state-&gt;user, state-&gt;data);
+	state-&gt;data[<span class="hljs-number">0</span>] = <span class="hljs-string">'\0'</span>;
+	state-&gt;len = <span class="hljs-number">0</span>;
+	state-&gt;state = <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _finish_tag(struct markup_state * state) {
+	state-&gt;callback_tag_open(state, state-&gt;user, &amp;state-&gt;tag);
+	state-&gt;state = <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _finish_bare_attr(struct markup_state * state) {
+	state-&gt;data[state-&gt;len] = <span class="hljs-string">'\0'</span>;
+	hashmap_set(state-&gt;tag.options, state-&gt;data, strdup(state-&gt;data));
+	state-&gt;data[<span class="hljs-number">0</span>] = <span class="hljs-string">'\0'</span>;
+	state-&gt;len = <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _finish_attr(struct markup_state * state) {
+	state-&gt;data[state-&gt;len] = <span class="hljs-string">'\0'</span>;
+	state-&gt;attr = strdup(state-&gt;data);
+	state-&gt;data[<span class="hljs-number">0</span>] = <span class="hljs-string">'\0'</span>;
+	state-&gt;len = <span class="hljs-number">0</span>;
+	state-&gt;state = <span class="hljs-number">4</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _finish_attr_value(struct markup_state * state) {
+	state-&gt;data[state-&gt;len] = <span class="hljs-string">'\0'</span>;
+	hashmap_set(state-&gt;tag.options, state-&gt;attr, strdup(state-&gt;data));
+	<span class="hljs-built_in">free</span>(state-&gt;attr);
+	state-&gt;data[<span class="hljs-number">0</span>] = <span class="hljs-string">'\0'</span>;
+	state-&gt;len = <span class="hljs-number">0</span>;
+	state-&gt;state = <span class="hljs-number">2</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">markup_free_tag</span><span class="hljs-params">(struct markup_tag * tag)</span> </span>{
+	<span class="hljs-built_in">free</span>(tag-&gt;name);
+	<span class="hljs-keyword">list_t</span> * keys = hashmap_keys(tag-&gt;options);
+	<span class="hljs-keyword">if</span> (keys-&gt;length) {
+		foreach(node, keys) {
+			<span class="hljs-built_in">free</span>(hashmap_get(tag-&gt;options, node-&gt;value));
+		}
+	}
+	list_free(keys);
+	<span class="hljs-built_in">free</span>(keys);
+	hashmap_free(tag-&gt;options);
+	<span class="hljs-built_in">free</span>(tag-&gt;options);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">markup_emit_raw</span><span class="hljs-params">(struct markup_state * state, <span class="hljs-keyword">char</span> * s)</span> </span>{
+	<span class="hljs-keyword">return</span> state-&gt;callback_data(state, state-&gt;user, s);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">markup_parse</span><span class="hljs-params">(struct markup_state * state, <span class="hljs-keyword">char</span> c)</span> </span>{
+	<span class="hljs-keyword">switch</span> (state-&gt;state) {
+		<span class="hljs-keyword">case</span> <span class="hljs-number">0</span>: <span class="hljs-comment">/* STATE_NORMAL */</span>
+			<span class="hljs-keyword">if</span> (state-&gt;len == <span class="hljs-number">63</span>) {
+				_dump_buffer(state);
+			}
+			<span class="hljs-keyword">switch</span> (c) {
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'&lt;'</span>:
+					_dump_buffer(state);
+					state-&gt;state = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">default</span>:
+					state-&gt;data[state-&gt;len] = c;
+					state-&gt;len++;
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			}
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">1</span>: <span class="hljs-comment">/* STATE_TAG_OPEN */</span>
+			<span class="hljs-keyword">switch</span> (c) {
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'/'</span>:
+					<span class="hljs-keyword">if</span> (state-&gt;len) {
+						<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"syntax error\n"</span>);
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					}
+					state-&gt;state = <span class="hljs-number">3</span>; <span class="hljs-comment">/* STATE_TAG_CLOSE */</span>
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'&gt;'</span>:
+					_finish_name(state);
+					_finish_tag(state);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">' '</span>:
+					_finish_name(state);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">default</span>:
+					state-&gt;data[state-&gt;len] = c;
+					state-&gt;len++;
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			}
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">2</span>: <span class="hljs-comment">/* STATE_TAG_ATTRIB */</span>
+			<span class="hljs-keyword">switch</span> (c) {
+				<span class="hljs-keyword">case</span> <span class="hljs-string">' '</span>: <span class="hljs-comment">/* attribute has no value, end it and append it with = self */</span>
+					_finish_bare_attr(state);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'&gt;'</span>:
+					_finish_bare_attr(state);
+					_finish_tag(state);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'='</span>: <span class="hljs-comment">/* attribute has a value, go to next mode */</span>
+					_finish_attr(state);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">default</span>:
+					state-&gt;data[state-&gt;len] = c;
+					state-&gt;len++;
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			}
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">3</span>: <span class="hljs-comment">/* STATE_TAG_CLOSE */</span>
+			<span class="hljs-keyword">switch</span> (c) {
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'&gt;'</span>:
+					_finish_close(state);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">default</span>:
+					state-&gt;data[state-&gt;len] = c;
+					state-&gt;len++;
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			}
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">4</span>: <span class="hljs-comment">/* STATE_ATTR_VALUE */</span>
+			<span class="hljs-keyword">switch</span> (c) {
+				<span class="hljs-keyword">case</span> <span class="hljs-string">' '</span>:
+					_finish_attr_value(state);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'&gt;'</span>:
+					_finish_attr_value(state);
+					_finish_tag(state);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">default</span>:
+					state-&gt;data[state-&gt;len] = c;
+					state-&gt;len++;
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			}
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"parser in unknown state\n"</span>);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">markup_finish</span><span class="hljs-params">(struct markup_state * state)</span> </span>{
+	<span class="hljs-keyword">if</span> (state-&gt;state != <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"unexpected end of data\n"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> {
+		_dump_buffer(state);
+		<span class="hljs-built_in">free</span>(state);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

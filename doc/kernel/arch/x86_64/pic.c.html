@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>pic.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kernel\\arch\\x86_64\\pic.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>pic.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/ports.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/irq.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/regs.h&gt;</span></span>
+
+<span class="hljs-comment">/* Programmable interrupt controller */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PIC1           0x20</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PIC1_COMMAND   PIC1</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PIC1_OFFSET    0x20</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PIC1_DATA      (PIC1+1)</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PIC2           0xA0</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PIC2_COMMAND   PIC2</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PIC2_OFFSET    0x28</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PIC2_DATA      (PIC2+1)</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PIC_EOI        0x20</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ICW1_ICW4      0x01</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ICW1_INIT      0x10</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PIC_WAIT() \
+	do { \
+		<span class="hljs-comment">/* May be fragile */</span> \
+		asm volatile(<span class="hljs-meta-string">"jmp 1f\n\t"</span> \
+		             <span class="hljs-meta-string">"1:\n\t"</span> \
+		             <span class="hljs-meta-string">"    jmp 2f\n\t"</span> \
+		             <span class="hljs-meta-string">"2:"</span>); \
+	} while (0)</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">irq_remap</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-comment">/* Cascade initialization */</span>
+	outportb(PIC1_COMMAND, ICW1_INIT|ICW1_ICW4); PIC_WAIT();
+	outportb(PIC2_COMMAND, ICW1_INIT|ICW1_ICW4); PIC_WAIT();
+
+	<span class="hljs-comment">/* Remap */</span>
+	outportb(PIC1_DATA, PIC1_OFFSET); PIC_WAIT();
+	outportb(PIC2_DATA, PIC2_OFFSET); PIC_WAIT();
+
+	<span class="hljs-comment">/* Cascade identity with slave PIC at IRQ2 */</span>
+	outportb(PIC1_DATA, <span class="hljs-number">0x04</span>); PIC_WAIT();
+	outportb(PIC2_DATA, <span class="hljs-number">0x02</span>); PIC_WAIT();
+
+	<span class="hljs-comment">/* Request 8086 mode on each PIC */</span>
+	outportb(PIC1_DATA, <span class="hljs-number">0x01</span>); PIC_WAIT();
+	outportb(PIC2_DATA, <span class="hljs-number">0x01</span>); PIC_WAIT();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">irq_ack</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> irq_no)</span> </span>{
+	<span class="hljs-keyword">if</span> (irq_no &gt;= <span class="hljs-number">8</span>) {
+		outportb(PIC2_COMMAND, PIC_EOI);
+	}
+	outportb(PIC1_COMMAND, PIC_EOI);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">pic_initialize</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	irq_remap();
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

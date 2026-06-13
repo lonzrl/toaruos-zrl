@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>plasma.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\plasma.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>plasma.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;assert.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;math.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;wait.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;pthread.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sched.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;signal.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/yutani.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/decorations.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/spinlock.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> dist(a,b,c,d) sqrt((double)(((a) - (c)) * ((a) - (c)) + ((b) - (d)) * ((b) - (d))))</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_t</span> * yctx;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_window_t</span> * wina;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> should_exit = <span class="hljs-number">0</span>;
+
+<span class="hljs-keyword">uint16_t</span> win_width;
+<span class="hljs-keyword">uint16_t</span> win_height;
+
+<span class="hljs-keyword">uint16_t</span> off_x;
+<span class="hljs-keyword">uint16_t</span> off_y;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-keyword">volatile</span> draw_lock = <span class="hljs-number">0</span>;
+
+<span class="hljs-keyword">gfx_context_t</span> * ctx;
+<span class="hljs-keyword">pthread_t</span> thread;
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">sigint_handler</span><span class="hljs-params">()</span> </span>{
+	should_exit = <span class="hljs-number">1</span>;
+	pthread_join(thread, <span class="hljs-literal">NULL</span>);
+	<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">redraw_borders</span><span class="hljs-params">()</span> </span>{
+	render_decorations(wina, ctx, <span class="hljs-string">"Plasma"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">hsv_to_rgb</span><span class="hljs-params">(<span class="hljs-keyword">int</span> h, <span class="hljs-keyword">float</span> s, <span class="hljs-keyword">float</span> v)</span> </span>{
+	<span class="hljs-keyword">float</span> c  = v * s;
+	<span class="hljs-keyword">float</span> hp = (<span class="hljs-keyword">float</span>)h / <span class="hljs-number">42.6666666f</span>;
+	<span class="hljs-keyword">float</span> x = c * (<span class="hljs-number">1.0</span> - <span class="hljs-built_in">fabs</span>(<span class="hljs-built_in">fmod</span>(hp, <span class="hljs-number">2</span>) - <span class="hljs-number">1.0</span>));
+	<span class="hljs-keyword">float</span> m = v - c;
+	<span class="hljs-keyword">float</span> rp, gp, bp;
+	<span class="hljs-keyword">if</span> (hp &lt; <span class="hljs-number">1.0</span>)      { rp = c; gp = x; bp = <span class="hljs-number">0</span>; }
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (hp &lt; <span class="hljs-number">2.0</span>) { rp = x; gp = c; bp = <span class="hljs-number">0</span>; }
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (hp &lt; <span class="hljs-number">3.0</span>) { rp = <span class="hljs-number">0</span>; gp = c; bp = x; }
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (hp &lt; <span class="hljs-number">4.0</span>) { rp = <span class="hljs-number">0</span>; gp = x; bp = c; }
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (hp &lt; <span class="hljs-number">5.0</span>) { rp = x; gp = <span class="hljs-number">0</span>; bp = c; }
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (hp &lt; <span class="hljs-number">6.0</span>) { rp = c; gp = <span class="hljs-number">0</span>; bp = x; }
+	<span class="hljs-keyword">else</span>               { rp = <span class="hljs-number">0</span>; gp = <span class="hljs-number">0</span>; bp = <span class="hljs-number">0</span>; }
+	<span class="hljs-keyword">return</span> rgb((rp + m) * <span class="hljs-number">255</span>, (gp + m) * <span class="hljs-number">255</span>, (bp + m) * <span class="hljs-number">255</span>);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> palette[<span class="hljs-number">256</span>];
+<span class="hljs-keyword">double</span> time = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">draw_once</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	time += <span class="hljs-number">1.0</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; win_width; ++x) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> y = <span class="hljs-number">0</span>; y &lt; win_height; ++y) {
+			<span class="hljs-keyword">double</span> value = <span class="hljs-built_in">sin</span>(dist(x + time, y, <span class="hljs-number">128.0</span>, <span class="hljs-number">128.0</span>) / <span class="hljs-number">8.0</span>)
+				+ <span class="hljs-built_in">sin</span>(dist(x, y, <span class="hljs-number">64.0</span>, <span class="hljs-number">64.0</span>) / <span class="hljs-number">8.0</span>)
+				+ <span class="hljs-built_in">sin</span>(dist(x, y + time / <span class="hljs-number">7</span>, <span class="hljs-number">192.0</span>, <span class="hljs-number">64</span>) / <span class="hljs-number">7.0</span>)
+				+ <span class="hljs-built_in">sin</span>(dist(x, y, <span class="hljs-number">192.0</span>, <span class="hljs-number">100.0</span>) / <span class="hljs-number">8.0</span>);
+			GFX(ctx, x + off_x, y + off_y) = palette[(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)((value + <span class="hljs-number">4</span>) * <span class="hljs-number">32</span>) &amp; <span class="hljs-number">0xFF</span>];
+		}
+	}
+	redraw_borders();
+	flip(ctx);
+	yutani_flip(yctx, wina);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> * <span class="hljs-title">draw_thread</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * garbage)</span> </span>{
+	(<span class="hljs-keyword">void</span>)garbage;
+
+
+	<span class="hljs-comment">/* Generate a palette */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; <span class="hljs-number">256</span>; ++x) {
+		palette[x] = hsv_to_rgb(x,<span class="hljs-number">1.0</span>,<span class="hljs-number">1.0</span>);
+	}
+
+	<span class="hljs-keyword">while</span> (!should_exit) {
+
+		spin_lock(&amp;draw_lock);
+		draw_once();
+		spin_unlock(&amp;draw_lock);
+		sched_yield();
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">resize_finish</span><span class="hljs-params">(<span class="hljs-keyword">int</span> w, <span class="hljs-keyword">int</span> h)</span> </span>{
+	spin_lock(&amp;draw_lock);
+	yutani_window_resize_accept(yctx, wina, w, h);
+	reinit_graphics_yutani(ctx, wina);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(wina, &amp;bounds);
+
+	win_width  = w - bounds.<span class="hljs-built_in">width</span>;
+	win_height = h - bounds.<span class="hljs-built_in">height</span>;
+	off_x = bounds.left_width;
+	off_y = bounds.top_height;
+
+	draw_once();
+
+	yutani_window_resize_done(yctx, wina);
+	spin_unlock(&amp;draw_lock);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span> <span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> ** argv)</span> </span>{
+	yctx = yutani_init();
+	<span class="hljs-keyword">if</span> (!yctx) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: failed to connect to compositor\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	win_width  = <span class="hljs-number">300</span>;
+	win_height = <span class="hljs-number">300</span>;
+
+	init_decorations();
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(<span class="hljs-literal">NULL</span>, &amp;bounds);
+
+	<span class="hljs-comment">/* Do something with a window */</span>
+	wina = yutani_window_create(yctx, win_width + bounds.<span class="hljs-built_in">width</span>, win_height + bounds.<span class="hljs-built_in">height</span>);
+	yutani_window_move(yctx, wina, <span class="hljs-number">300</span>, <span class="hljs-number">300</span>);
+
+	decor_get_bounds(wina, &amp;bounds);
+	off_x = bounds.left_width;
+	off_y = bounds.top_height;
+	win_width  = wina-&gt;<span class="hljs-built_in">width</span> - bounds.<span class="hljs-built_in">width</span>;
+	win_height = wina-&gt;<span class="hljs-built_in">height</span> - bounds.<span class="hljs-built_in">height</span>;
+
+	ctx = init_graphics_yutani_double_buffer(wina);
+
+	draw_fill(ctx, rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+	redraw_borders();
+	flip(ctx);
+	yutani_flip(yctx, wina);
+
+	yutani_window_advertise_icon(yctx, wina, <span class="hljs-string">"Plasma"</span>, <span class="hljs-string">"plasma"</span>);
+
+	pthread_create(&amp;thread, <span class="hljs-literal">NULL</span>, draw_thread, <span class="hljs-literal">NULL</span>);
+
+	signal(SIGINT, sigint_handler);
+	<span class="hljs-keyword">while</span> (!should_exit) {
+		<span class="hljs-keyword">yutani_msg_t</span> * m = yutani_poll(yctx);
+		<span class="hljs-keyword">while</span> (m) {
+			<span class="hljs-keyword">switch</span> (decor_handle_event_flags(yctx, m, DECOR_HANDLE_SIMPLE)) {
+				<span class="hljs-keyword">case</span> DECOR_CLOSE:
+					should_exit = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">break</span>;
+			}
+			<span class="hljs-keyword">switch</span> (m-&gt;type) {
+				<span class="hljs-keyword">case</span> YUTANI_MSG_KEY_EVENT:
+					{
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_key_event</span> * <span class="hljs-title">ke</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+						<span class="hljs-keyword">if</span> (ke-&gt;event.action == KEY_ACTION_DOWN &amp;&amp; ke-&gt;event.keycode == <span class="hljs-string">'q'</span>) {
+							should_exit = <span class="hljs-number">1</span>;
+						}
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_CLOSE:
+				<span class="hljs-keyword">case</span> YUTANI_MSG_SESSION_END:
+					should_exit = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> YUTANI_MSG_RESIZE_OFFER:
+					{
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_resize</span> * <span class="hljs-title">wr</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+						<span class="hljs-keyword">if</span> (wr-&gt;wid == wina-&gt;wid) {
+							resize_finish(wr-&gt;<span class="hljs-built_in">width</span>, wr-&gt;<span class="hljs-built_in">height</span>);
+						}
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">default</span>:
+					<span class="hljs-keyword">break</span>;
+			}
+			<span class="hljs-built_in">free</span>(m);
+			m = yutani_poll_async(yctx);
+		}
+	}
+
+	wait(<span class="hljs-literal">NULL</span>);
+
+	yutani_close(yctx, wina);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

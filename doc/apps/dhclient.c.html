@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>dhclient.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\dhclient.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>dhclient.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;poll.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;dirent.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/socket.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;net/if.h&gt;</span></span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ethernet_packet</span> {</span>
+	<span class="hljs-keyword">uint8_t</span> destination[<span class="hljs-number">6</span>];
+	<span class="hljs-keyword">uint8_t</span> source[<span class="hljs-number">6</span>];
+	<span class="hljs-keyword">uint16_t</span> type;
+	<span class="hljs-keyword">uint8_t</span> payload[];
+} __attribute__((packed)) __attribute__((aligned(<span class="hljs-number">2</span>)));
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ipv4_packet</span> {</span>
+	<span class="hljs-keyword">uint8_t</span>  version_ihl;
+	<span class="hljs-keyword">uint8_t</span>  dscp_ecn;
+	<span class="hljs-keyword">uint16_t</span> length;
+	<span class="hljs-keyword">uint16_t</span> ident;
+	<span class="hljs-keyword">uint16_t</span> flags_fragment;
+	<span class="hljs-keyword">uint8_t</span>  ttl;
+	<span class="hljs-keyword">uint8_t</span>  protocol;
+	<span class="hljs-keyword">uint16_t</span> checksum;
+	<span class="hljs-keyword">uint32_t</span> source;
+	<span class="hljs-keyword">uint32_t</span> destination;
+	<span class="hljs-keyword">uint8_t</span>  payload[];
+} __attribute__ ((packed)) __attribute__((aligned(<span class="hljs-number">2</span>)));
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">udp_packet</span> {</span>
+	<span class="hljs-keyword">uint16_t</span> source_port;
+	<span class="hljs-keyword">uint16_t</span> destination_port;
+	<span class="hljs-keyword">uint16_t</span> length;
+	<span class="hljs-keyword">uint16_t</span> checksum;
+	<span class="hljs-keyword">uint8_t</span>  payload[];
+} __attribute__ ((packed)) __attribute__((aligned(<span class="hljs-number">2</span>)));
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dhcp_packet</span> {</span>
+	<span class="hljs-keyword">uint8_t</span> op;
+	<span class="hljs-keyword">uint8_t</span> htype;
+	<span class="hljs-keyword">uint8_t</span> hlen;
+	<span class="hljs-keyword">uint8_t</span> hops;
+
+	<span class="hljs-keyword">uint32_t</span> xid;
+
+	<span class="hljs-keyword">uint16_t</span> secs;
+	<span class="hljs-keyword">uint16_t</span> flags;
+
+	<span class="hljs-keyword">uint32_t</span> ciaddr;
+	<span class="hljs-keyword">uint32_t</span> yiaddr;
+	<span class="hljs-keyword">uint32_t</span> siaddr;
+	<span class="hljs-keyword">uint32_t</span> giaddr;
+
+	<span class="hljs-keyword">uint8_t</span>  chaddr[<span class="hljs-number">16</span>];
+
+	<span class="hljs-keyword">uint8_t</span> sname[<span class="hljs-number">64</span>];
+	<span class="hljs-keyword">uint8_t</span> file[<span class="hljs-number">128</span>];
+
+	<span class="hljs-keyword">uint32_t</span> magic;
+
+	<span class="hljs-keyword">uint8_t</span>  options[];
+} __attribute__ ((packed)) __attribute__((aligned(<span class="hljs-number">2</span>)));
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dns_packet</span> {</span>
+	<span class="hljs-keyword">uint16_t</span> qid;
+	<span class="hljs-keyword">uint16_t</span> flags;
+	<span class="hljs-keyword">uint16_t</span> questions;
+	<span class="hljs-keyword">uint16_t</span> answers;
+	<span class="hljs-keyword">uint16_t</span> authorities;
+	<span class="hljs-keyword">uint16_t</span> additional;
+	<span class="hljs-keyword">uint8_t</span> data[];
+} __attribute__ ((packed)) __attribute__((aligned(<span class="hljs-number">2</span>)));
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tcp_header</span> {</span>
+	<span class="hljs-keyword">uint16_t</span> source_port;
+	<span class="hljs-keyword">uint16_t</span> destination_port;
+
+	<span class="hljs-keyword">uint32_t</span> seq_number;
+	<span class="hljs-keyword">uint32_t</span> ack_number;
+
+	<span class="hljs-keyword">uint16_t</span> flags;
+	<span class="hljs-keyword">uint16_t</span> window_size;
+	<span class="hljs-keyword">uint16_t</span> checksum;
+	<span class="hljs-keyword">uint16_t</span> urgent;
+
+	<span class="hljs-keyword">uint8_t</span>  payload[];
+} __attribute__((packed)) __attribute__((aligned(<span class="hljs-number">2</span>)));
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tcp_check_header</span> {</span>
+	<span class="hljs-keyword">uint32_t</span> source;
+	<span class="hljs-keyword">uint32_t</span> destination;
+	<span class="hljs-keyword">uint8_t</span>  zeros;
+	<span class="hljs-keyword">uint8_t</span>  protocol;
+	<span class="hljs-keyword">uint16_t</span> tcp_len;
+	<span class="hljs-keyword">uint8_t</span>  tcp_header[];
+};
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SOCK_STREAM 1</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SOCK_DGRAM 2</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<p>Note: Data offset is in upper 4 bits of flags field. Shift and subtract 5 since that is the min TCP size.
+If the value is more than 5, multiply by 4 because this field is specified in number of words</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_OPTIONS_LENGTH(tcp) (((((tcp)-&gt;flags) &gt;&gt; 12) - 5) * 4)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_HEADER_LENGTH(tcp) ((((tcp)-&gt;flags) &gt;&gt; 12) * 4)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_HEADER_LENGTH_FLIPPED(tcp) (((htons((tcp)-&gt;flags)) &gt;&gt; 12) * 4)</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> htonl(l)  ( (((l) &amp; 0xFF) <span class="hljs-meta-string">&lt;&lt; 24) | (((l) &amp; 0xFF00) &lt;&lt; 8) | (((l) &amp; 0xFF0000) &gt;&gt; 8) | (((l) &amp; 0xFF000000) &gt;&gt; 24))</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> htons(s)  ( (((s) &amp; 0xFF) <span class="hljs-meta-string">&lt;&lt; 8) | (((s) &amp; 0xFF00) &gt;&gt; 8) )</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ntohl(l)  htonl((l))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ntohs(s)  htons((s))</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BROADCAST_MAC {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> IPV4_PROT_UDP 17</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> IPV4_PROT_TCP 6</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DHCP_MAGIC 0x63825363</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_FLAGS_FIN (1 &lt;&lt; 0)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_FLAGS_SYN (1 &lt;&lt; 1)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_FLAGS_RES (1 &lt;&lt; 2)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_FLAGS_PSH (1 &lt;&lt; 3)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_FLAGS_ACK (1 &lt;&lt; 4)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_FLAGS_URG (1 &lt;&lt; 5)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_FLAGS_ECE (1 &lt;&lt; 6)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_FLAGS_CWR (1 &lt;&lt; 7)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_FLAGS_NS  (1 &lt;&lt; 8)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DATA_OFFSET_5 (0x5 &lt;&lt; 12)</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ETHERNET_TYPE_IPV4 0x0800</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ETHERNET_TYPE_ARP  0x0806</span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">payload</span> {</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ethernet_packet</span> <span class="hljs-title">eth_header</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ipv4_packet</span>     <span class="hljs-title">ip_header</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">udp_packet</span>      <span class="hljs-title">udp_header</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dhcp_packet</span>     <span class="hljs-title">dhcp_header</span>;</span>
+	<span class="hljs-keyword">uint8_t</span> payload[<span class="hljs-number">32</span>];
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ip_ntoa</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">uint32_t</span> src_addr, <span class="hljs-keyword">char</span> * out)</span> </span>{
+	<span class="hljs-built_in">snprintf</span>(out, <span class="hljs-number">16</span>, <span class="hljs-string">"%d.%d.%d.%d"</span>,
+		(src_addr &amp; <span class="hljs-number">0xFF000000</span>) &gt;&gt; <span class="hljs-number">24</span>,
+		(src_addr &amp; <span class="hljs-number">0xFF0000</span>) &gt;&gt; <span class="hljs-number">16</span>,
+		(src_addr &amp; <span class="hljs-number">0xFF00</span>) &gt;&gt; <span class="hljs-number">8</span>,
+		(src_addr &amp; <span class="hljs-number">0xFF</span>));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint16_t</span> <span class="hljs-title">calculate_ipv4_checksum</span><span class="hljs-params">(struct ipv4_packet * p)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> sum = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint16_t</span> * s = (<span class="hljs-keyword">uint16_t</span> *)p;
+
+	<span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> Checksums for options? */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">10</span>; ++i) {
+		sum += ntohs(s[i]);
+	}
+
+	<span class="hljs-keyword">if</span> (sum &gt; <span class="hljs-number">0xFFFF</span>) {
+		sum = (sum &gt;&gt; <span class="hljs-number">16</span>) + (sum &amp; <span class="hljs-number">0xFFFF</span>);
+	}
+
+	<span class="hljs-keyword">return</span> ~(sum &amp; <span class="hljs-number">0xFFFF</span>) &amp; <span class="hljs-number">0xFFFF</span>;
+}
+
+<span class="hljs-keyword">uint8_t</span> mac_addr[<span class="hljs-number">6</span>];
+<span class="hljs-keyword">uint32_t</span> xid = <span class="hljs-number">0x1337</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">fill</span><span class="hljs-params">(struct payload *it, <span class="hljs-keyword">size_t</span> payload_size)</span> </span>{
+
+	it-&gt;eth_header.source[<span class="hljs-number">0</span>] = mac_addr[<span class="hljs-number">0</span>];
+	it-&gt;eth_header.source[<span class="hljs-number">1</span>] = mac_addr[<span class="hljs-number">1</span>];
+	it-&gt;eth_header.source[<span class="hljs-number">2</span>] = mac_addr[<span class="hljs-number">2</span>];
+	it-&gt;eth_header.source[<span class="hljs-number">3</span>] = mac_addr[<span class="hljs-number">3</span>];
+	it-&gt;eth_header.source[<span class="hljs-number">4</span>] = mac_addr[<span class="hljs-number">4</span>];
+	it-&gt;eth_header.source[<span class="hljs-number">5</span>] = mac_addr[<span class="hljs-number">5</span>];
+
+	it-&gt;eth_header.destination[<span class="hljs-number">0</span>] = <span class="hljs-number">0xFF</span>;
+	it-&gt;eth_header.destination[<span class="hljs-number">1</span>] = <span class="hljs-number">0xFF</span>;
+	it-&gt;eth_header.destination[<span class="hljs-number">2</span>] = <span class="hljs-number">0xFF</span>;
+	it-&gt;eth_header.destination[<span class="hljs-number">3</span>] = <span class="hljs-number">0xFF</span>;
+	it-&gt;eth_header.destination[<span class="hljs-number">4</span>] = <span class="hljs-number">0xFF</span>;
+	it-&gt;eth_header.destination[<span class="hljs-number">5</span>] = <span class="hljs-number">0xFF</span>;
+
+	it-&gt;eth_header.type = htons(<span class="hljs-number">0x0800</span>);
+
+	it-&gt;ip_header.version_ihl = ((<span class="hljs-number">0x4</span> &lt;&lt; <span class="hljs-number">4</span>) | (<span class="hljs-number">0x5</span> &lt;&lt; <span class="hljs-number">0</span>));
+	it-&gt;ip_header.dscp_ecn    = <span class="hljs-number">0</span>;
+	it-&gt;ip_header.length      = htons(<span class="hljs-keyword">sizeof</span>(struct ipv4_packet) + <span class="hljs-keyword">sizeof</span>(struct udp_packet) + <span class="hljs-keyword">sizeof</span>(struct dhcp_packet) + payload_size);
+	it-&gt;ip_header.ident       = htons(<span class="hljs-number">1</span>);
+	it-&gt;ip_header.flags_fragment = <span class="hljs-number">0</span>;
+	it-&gt;ip_header.ttl         = <span class="hljs-number">0x40</span>;
+	it-&gt;ip_header.protocol    = IPV4_PROT_UDP;
+	it-&gt;ip_header.checksum    = <span class="hljs-number">0</span>;
+	it-&gt;ip_header.source      = htonl(<span class="hljs-number">0</span>);
+	it-&gt;ip_header.destination = htonl(<span class="hljs-number">0xFFFFFFFF</span>);
+
+	it-&gt;ip_header.checksum = htons(calculate_ipv4_checksum(&amp;it-&gt;ip_header));
+
+	it-&gt;udp_header.source_port = htons(<span class="hljs-number">68</span>);
+	it-&gt;udp_header.destination_port = htons(<span class="hljs-number">67</span>);
+	it-&gt;udp_header.length = htons(<span class="hljs-keyword">sizeof</span>(struct udp_packet) + <span class="hljs-keyword">sizeof</span>(struct dhcp_packet) + payload_size);
+	it-&gt;udp_header.checksum = <span class="hljs-number">0</span>; <span class="hljs-comment">/* uh */</span>
+
+	it-&gt;dhcp_header.op = <span class="hljs-number">1</span>;
+	it-&gt;dhcp_header.htype = <span class="hljs-number">1</span>;
+	it-&gt;dhcp_header.hlen = <span class="hljs-number">6</span>;
+	it-&gt;dhcp_header.hops = <span class="hljs-number">0</span>;
+	it-&gt;dhcp_header.xid = htonl(xid); <span class="hljs-comment">/* transaction id... */</span>
+	it-&gt;dhcp_header.secs = <span class="hljs-number">0</span>;
+	it-&gt;dhcp_header.flags = <span class="hljs-number">0</span>;
+
+	it-&gt;dhcp_header.ciaddr = <span class="hljs-number">0</span>;
+	it-&gt;dhcp_header.yiaddr = <span class="hljs-number">0</span>;
+	it-&gt;dhcp_header.siaddr = <span class="hljs-number">0</span>;
+	it-&gt;dhcp_header.giaddr = <span class="hljs-number">0</span>;
+	it-&gt;dhcp_header.chaddr[<span class="hljs-number">0</span>] = mac_addr[<span class="hljs-number">0</span>];
+	it-&gt;dhcp_header.chaddr[<span class="hljs-number">1</span>] = mac_addr[<span class="hljs-number">1</span>];
+	it-&gt;dhcp_header.chaddr[<span class="hljs-number">2</span>] = mac_addr[<span class="hljs-number">2</span>];
+	it-&gt;dhcp_header.chaddr[<span class="hljs-number">3</span>] = mac_addr[<span class="hljs-number">3</span>];
+	it-&gt;dhcp_header.chaddr[<span class="hljs-number">4</span>] = mac_addr[<span class="hljs-number">4</span>];
+	it-&gt;dhcp_header.chaddr[<span class="hljs-number">5</span>] = mac_addr[<span class="hljs-number">5</span>];
+
+	it-&gt;dhcp_header.magic = htonl(DHCP_MAGIC);
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">time_diff</span><span class="hljs-params">(struct timeval *start, struct timeval *<span class="hljs-built_in">end</span>, <span class="hljs-keyword">time_t</span> *sec_diff, <span class="hljs-keyword">suseconds_t</span> *usec_diff)</span> </span>{
+	*sec_diff = <span class="hljs-built_in">end</span>-&gt;tv_sec - start-&gt;tv_sec;
+	*usec_diff = <span class="hljs-built_in">end</span>-&gt;tv_usec - start-&gt;tv_usec;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">end</span>-&gt;tv_usec &lt; start-&gt;tv_usec) {
+		*sec_diff -= <span class="hljs-number">1</span>;
+		*usec_diff = (<span class="hljs-number">1000000</span> + <span class="hljs-built_in">end</span>-&gt;tv_usec) - start-&gt;tv_usec;
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * _argv_0 = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">configure_interface</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * if_name)</span> </span>{
+	<span class="hljs-comment">/* Open a raw socket. */</span>
+	<span class="hljs-keyword">int</span> sock = socket(AF_RAW, SOCK_RAW, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">if</span> (sock &lt; <span class="hljs-number">0</span>) {
+		perror(_argv_0);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* Bind to this interface */</span>
+	<span class="hljs-keyword">if</span> (setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, if_name, <span class="hljs-built_in">strlen</span>(if_name)+<span class="hljs-number">1</span>)) {
+		perror(_argv_0);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* Request the mac address */</span>
+	<span class="hljs-keyword">char</span> if_path[<span class="hljs-number">100</span>];
+	<span class="hljs-built_in">snprintf</span>(if_path, <span class="hljs-number">100</span>, <span class="hljs-string">"/dev/net/%s"</span>, if_name);
+	<span class="hljs-keyword">int</span> netdev = <span class="hljs-built_in">open</span>(if_path, O_RDWR);
+
+	<span class="hljs-keyword">if</span> (netdev &lt; <span class="hljs-number">0</span>) {
+		perror(_argv_0);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">int</span> res = ioctl(netdev, SIOCGIFHWADDR, &amp;mac_addr);
+
+	<span class="hljs-keyword">if</span> (res == <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>; <span class="hljs-comment">/* Loopback, skip */</span>
+	<span class="hljs-keyword">if</span> (res) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: could not get mac address\n"</span>, _argv_0, if_name);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	xid = rand();
+
+	<span class="hljs-comment">/* Try to frob the whatsit */</span>
+	{
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">payload</span> <span class="hljs-title">thething</span> = {</span>
+			.payload = {<span class="hljs-number">53</span>,<span class="hljs-number">1</span>,<span class="hljs-number">1</span>,<span class="hljs-number">55</span>,<span class="hljs-number">2</span>,<span class="hljs-number">3</span>,<span class="hljs-number">6</span>,<span class="hljs-number">255</span>,<span class="hljs-number">0</span>}
+		};
+
+		<span class="hljs-built_in">fill</span>(&amp;thething, <span class="hljs-number">8</span>);
+
+		send(sock, &amp;thething, <span class="hljs-keyword">sizeof</span>(struct payload), <span class="hljs-number">0</span>);
+	}
+
+	<span class="hljs-keyword">uint32_t</span> yiaddr;
+	<span class="hljs-keyword">int</span> stage = <span class="hljs-number">1</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timeval</span> <span class="hljs-title">start</span>, <span class="hljs-title">end</span>;</span>
+	<span class="hljs-keyword">time_t</span> sec_diff;
+	<span class="hljs-keyword">suseconds_t</span> usec_diff;
+	gettimeofday(&amp;start, <span class="hljs-literal">NULL</span>);
+
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint8_t</span> eth_broadcast[<span class="hljs-number">6</span>] = {<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>};
+
+	<span class="hljs-keyword">do</span> {
+		<span class="hljs-keyword">char</span> buf[<span class="hljs-number">4096</span>] = {<span class="hljs-number">0</span>};
+
+		gettimeofday(&amp;<span class="hljs-built_in">end</span>, <span class="hljs-literal">NULL</span>);
+		time_diff(&amp;start,&amp;<span class="hljs-built_in">end</span>,&amp;sec_diff,&amp;usec_diff);
+		<span class="hljs-keyword">if</span> (sec_diff &gt; <span class="hljs-number">2</span>) {
+			<span class="hljs-built_in">close</span>(netdev);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">pollfd</span> <span class="hljs-title">fds</span>[1];</span>
+		fds[<span class="hljs-number">0</span>].fd = sock;
+		fds[<span class="hljs-number">0</span>].events = POLLIN;
+		<span class="hljs-keyword">int</span> ret = poll(fds,<span class="hljs-number">1</span>,<span class="hljs-number">200</span>);
+		<span class="hljs-keyword">if</span> (ret == <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">continue</span>;
+		}
+		<span class="hljs-keyword">if</span> (ret &lt; <span class="hljs-number">0</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"poll: failed\n"</span>);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		<span class="hljs-keyword">ssize_t</span> rsize = recv(sock, &amp;buf, <span class="hljs-number">4096</span>, <span class="hljs-number">0</span>);
+
+		<span class="hljs-keyword">if</span> (rsize &lt;= <span class="hljs-number">0</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: bad size? %zd\n"</span>, _argv_0, if_name, rsize);
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">payload</span> * <span class="hljs-title">response</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">buf</span>;</span>
+
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">memcmp</span>(response-&gt;eth_header.destination,mac_addr,<span class="hljs-number">6</span>) &amp;&amp;
+		    <span class="hljs-built_in">memcmp</span>(response-&gt;eth_header.destination,eth_broadcast,<span class="hljs-number">6</span>)) {
+			<span class="hljs-comment">/* Not ours */</span>
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (ntohs(response-&gt;udp_header.destination_port) != <span class="hljs-number">68</span>) {
+			<span class="hljs-comment">/* Not DHCP */</span>
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (ntohl(response-&gt;dhcp_header.xid) != xid) {
+			<span class="hljs-comment">/* Not our transaction */</span>
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (stage == <span class="hljs-number">1</span>) {
+			yiaddr = response-&gt;dhcp_header.yiaddr;
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">payload</span> <span class="hljs-title">thething</span> = {</span>
+				.payload = {<span class="hljs-number">53</span>,<span class="hljs-number">1</span>,<span class="hljs-number">3</span>,<span class="hljs-number">50</span>,<span class="hljs-number">4</span>,
+					(yiaddr) &amp; <span class="hljs-number">0xFF</span>,
+					(yiaddr &gt;&gt; <span class="hljs-number">8</span>) &amp; <span class="hljs-number">0xFF</span>,
+					(yiaddr &gt;&gt; <span class="hljs-number">16</span>) &amp; <span class="hljs-number">0xFF</span>,
+					(yiaddr &gt;&gt; <span class="hljs-number">24</span>) &amp; <span class="hljs-number">0xFF</span>,
+					<span class="hljs-number">55</span>,<span class="hljs-number">2</span>,<span class="hljs-number">3</span>,<span class="hljs-number">6</span>,<span class="hljs-number">255</span>,<span class="hljs-number">0</span>}
+			};
+			<span class="hljs-built_in">fill</span>(&amp;thething, <span class="hljs-number">14</span>);
+			send(sock, &amp;thething, <span class="hljs-keyword">sizeof</span>(struct payload), <span class="hljs-number">0</span>);
+			stage = <span class="hljs-number">2</span>;
+			gettimeofday(&amp;start, <span class="hljs-literal">NULL</span>);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (stage == <span class="hljs-number">2</span>) {
+			yiaddr = response-&gt;dhcp_header.yiaddr;
+			<span class="hljs-keyword">char</span> yiaddr_ip[<span class="hljs-number">16</span>];
+			ip_ntoa(ntohl(yiaddr), yiaddr_ip);
+			<span class="hljs-keyword">if</span> (!ioctl(netdev, SIOCSIFADDR, &amp;yiaddr)) {
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s: %s: configured for %s\n"</span>, _argv_0, if_name, yiaddr_ip);
+			} <span class="hljs-keyword">else</span> {
+				perror(_argv_0);
+			}
+
+			<span class="hljs-comment">/* See if we got a gateway and subnet out of it as well, those are cool... */</span>
+			<span class="hljs-keyword">uint8_t</span> * opt = response-&gt;dhcp_header.options;
+			<span class="hljs-keyword">while</span> (*opt &amp;&amp; *opt != <span class="hljs-number">255</span>) {
+				<span class="hljs-keyword">uint8_t</span> opt_type = *opt++;
+				<span class="hljs-keyword">uint8_t</span> len = *opt++;
+				<span class="hljs-keyword">if</span> (opt_type == <span class="hljs-number">1</span>) {
+					<span class="hljs-comment">/* Subnet mask */</span>
+					<span class="hljs-keyword">uint32_t</span> ip_data;
+					<span class="hljs-built_in">memcpy</span>(&amp;ip_data, opt, <span class="hljs-number">4</span>);
+					<span class="hljs-keyword">char</span> addr[<span class="hljs-number">16</span>];
+					ip_ntoa(ntohl(ip_data), addr);
+					<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s: %s: subnet mask %s\n"</span>, _argv_0, if_name, addr);
+					ioctl(netdev, SIOCSIFNETMASK, &amp;ip_data);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (opt_type == <span class="hljs-number">3</span>) {
+					<span class="hljs-comment">/* Gateway address - add this to a route table? */</span>
+					<span class="hljs-keyword">uint32_t</span> ip_data;
+					<span class="hljs-built_in">memcpy</span>(&amp;ip_data, opt, <span class="hljs-number">4</span>);
+					<span class="hljs-keyword">char</span> addr[<span class="hljs-number">16</span>];
+					ip_ntoa(ntohl(ip_data), addr);
+					<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s: %s: gateway %s\n"</span>, _argv_0, if_name, addr);
+					ioctl(netdev, SIOCSIFGATEWAY, &amp;ip_data);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (opt_type == <span class="hljs-number">6</span>) {
+					<span class="hljs-comment">/* DNS server */</span>
+					<span class="hljs-keyword">uint32_t</span> ip_data;
+					<span class="hljs-built_in">memcpy</span>(&amp;ip_data, opt, <span class="hljs-number">4</span>);
+					<span class="hljs-keyword">char</span> addr[<span class="hljs-number">16</span>];
+					ip_ntoa(ntohl(ip_data), addr);
+					<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s: %s: nameserver %s\n"</span>, _argv_0, if_name, addr);
+					FILE * resolve = fopen(<span class="hljs-string">"/etc/resolv.conf"</span>,<span class="hljs-string">"w"</span>);
+					<span class="hljs-keyword">if</span> (!resolve) resolve = fopen(<span class="hljs-string">"/var/resolv.conf"</span>,<span class="hljs-string">"w"</span>);
+					<span class="hljs-keyword">if</span> (resolve) {
+						<span class="hljs-built_in">fprintf</span>(resolve, <span class="hljs-string">"nameserver %s\n"</span>, addr);
+						fclose(resolve);
+					} <span class="hljs-comment">/* else, read-only file system? */</span>
+				}
+				opt += len;
+			}
+
+			<span class="hljs-built_in">close</span>(netdev);
+			<span class="hljs-built_in">close</span>(sock);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+	} <span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">configure_interface_with_backoff</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * if_name)</span> </span>{
+	<span class="hljs-keyword">int</span> sleep_times[] = {<span class="hljs-number">1</span>,<span class="hljs-number">3</span>,<span class="hljs-number">5</span>,<span class="hljs-number">0</span>};
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> *time = sleep_times; *time; time++) {
+		<span class="hljs-keyword">if</span> (!configure_interface(if_name)) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		sleep(*time);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	_argv_0 = argv[<span class="hljs-number">0</span>];
+	<span class="hljs-keyword">int</span> retval = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">return</span> configure_interface(argv[<span class="hljs-number">1</span>]);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-comment">/* Read /dev/net for interfaces */</span>
+		DIR * d = opendir(<span class="hljs-string">"/dev/net"</span>);
+		<span class="hljs-keyword">if</span> (!d) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: no network?\n"</span>, _argv_0);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent</span> * <span class="hljs-title">ent</span>;</span>
+		<span class="hljs-keyword">while</span> ((ent = readdir(d))) {
+			<span class="hljs-keyword">if</span> (ent-&gt;d_name[<span class="hljs-number">0</span>] == <span class="hljs-string">'.'</span>) <span class="hljs-keyword">continue</span>;
+			<span class="hljs-keyword">if</span> (configure_interface_with_backoff(ent-&gt;d_name)) {
+				retval = <span class="hljs-number">1</span>;
+			}
+		}
+
+		closedir(d);
+	}
+
+	<span class="hljs-keyword">return</span> retval;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>arch.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kernel\\arch\\aarch64\\arch.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>arch.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/args.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/spinlock.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/aarch64/regs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/aarch64/gic.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/aarch64/dtb.h&gt;</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">entrypoint</span>
+<span>Address to &quot;return&quot; to in userspace.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">argc</span>
+<span>Number of arguments to provide to the new process.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">argv</span>
+<span>Argument array to pass to the new process; make sure this is user-accessible!
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">envp</span>
+<span>Environment strings array
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">stack</span>
+<span>Userspace stack address.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_enter_user</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> entrypoint, <span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[], <span class="hljs-keyword">char</span> * envp[], <span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">stack</span>)</span> </span>{
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span><span class="hljs-params">(
+		<span class="hljs-string">"msr ELR_EL1, %0\n"</span> <span class="hljs-comment">/* entrypoint */</span>
+		<span class="hljs-string">"msr SP_EL0, %1\n"</span> <span class="hljs-comment">/* stack */</span>
+		<span class="hljs-string">"msr SPSR_EL1, %2\n"</span> <span class="hljs-comment">/* EL 0 */</span>
+		::
+		<span class="hljs-string">"r"</span>(entrypoint), <span class="hljs-string">"r"</span>(<span class="hljs-built_in">stack</span>), <span class="hljs-string">"r"</span>(<span class="hljs-number">0</span>))</span></span>;
+
+	update_process_times_on_exit();
+
+	<span class="hljs-keyword">register</span> <span class="hljs-keyword">uint64_t</span> x0 __asm__(<span class="hljs-string">"x0"</span>) = argc;
+	<span class="hljs-keyword">register</span> <span class="hljs-keyword">uint64_t</span> x1 __asm__(<span class="hljs-string">"x1"</span>) = (<span class="hljs-keyword">uintptr_t</span>)argv;
+	<span class="hljs-keyword">register</span> <span class="hljs-keyword">uint64_t</span> x2 __asm__(<span class="hljs-string">"x2"</span>) = (<span class="hljs-keyword">uintptr_t</span>)envp;
+	<span class="hljs-keyword">register</span> <span class="hljs-keyword">uint64_t</span> x4 __asm__(<span class="hljs-string">"x4"</span>) = (<span class="hljs-keyword">uintptr_t</span>)this_core-&gt;sp_el1;
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span><span class="hljs-params">(
+		<span class="hljs-string">"mov sp, x4\n"</span>
+		<span class="hljs-string">"eret"</span> :: <span class="hljs-string">"r"</span>(x0), <span class="hljs-string">"r"</span>(x1), <span class="hljs-string">"r"</span>(x2), <span class="hljs-string">"r"</span>(x4))</span></span>;
+
+	__builtin_unreachable();
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _kill_it(<span class="hljs-keyword">uintptr_t</span> addr, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * action, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * desc, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>) {
+	dprintf(<span class="hljs-string">"core %d (pid=%d %s): invalid stack for signal %s (%#zx '%s' %zu)\n"</span>,
+		this_core-&gt;cpu_id, this_core-&gt;current_process-&gt;id, this_core-&gt;current_process-&gt;name, action, addr, desc, <span class="hljs-built_in">size</span>);
+	task_exit(((<span class="hljs-number">128</span> + SIGSEGV) &lt;&lt; <span class="hljs-number">8</span>) | SIGSEGV);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PUSH(stack, type, item) do { \
+	stack -= sizeof(type); \
+	<span class="hljs-meta-keyword">if</span> (!mmu_validate_user_pointer((void*)(uintptr_t)stack,sizeof(type),MMU_PTR_WRITE)) \
+		_kill_it((uintptr_t)stack,<span class="hljs-meta-string">"entry"</span>,#item,sizeof(type)); \
+	*((volatile type *) stack) = item; \
+} while (0)</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> POP(stack, type, item) do { \
+	<span class="hljs-meta-keyword">if</span> (!mmu_validate_user_pointer((void*)(uintptr_t)stack,sizeof(type),0)) \
+		_kill_it((uintptr_t)stack,<span class="hljs-meta-string">"return"</span>,#item,sizeof(type)); \
+	item = *((volatile type *) stack); \
+	stack += sizeof(type); \
+} while (0)</span>
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">arch_return_from_signal_handler</span><span class="hljs-params">(struct regs *r)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> spsr;
+	<span class="hljs-keyword">uintptr_t</span> sp = r-&gt;user_sp;
+
+	POP(sp, <span class="hljs-keyword">sigset_t</span>, this_core-&gt;current_process-&gt;blocked_signals);
+	<span class="hljs-keyword">long</span> originalSignal;
+	POP(sp, <span class="hljs-keyword">long</span>, originalSignal);
+
+	<span class="hljs-comment">/* Interrupt system call status */</span>
+	POP(sp, <span class="hljs-keyword">long</span>, this_core-&gt;current_process-&gt;interrupted_system_call);
+
+	<span class="hljs-comment">/* Restore floating point */</span>
+	POP(sp, <span class="hljs-keyword">uintptr_t</span>, this_core-&gt;current_process-&gt;thread.context.saved[<span class="hljs-number">13</span>]);
+	POP(sp, <span class="hljs-keyword">uintptr_t</span>, this_core-&gt;current_process-&gt;thread.context.saved[<span class="hljs-number">12</span>]);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">64</span>; ++i) {
+		POP(sp, <span class="hljs-keyword">uint64_t</span>, this_core-&gt;current_process-&gt;thread.fp_regs[<span class="hljs-number">63</span>-i]);
+	}
+	arch_restore_floating((<span class="hljs-keyword">process_t</span>*)this_core-&gt;current_process);
+
+	<span class="hljs-comment">/* Process state */</span>
+	POP(sp, <span class="hljs-keyword">uintptr_t</span>, spsr);
+	this_core-&gt;current_process-&gt;thread.context.saved[<span class="hljs-number">11</span>] = (spsr &amp; <span class="hljs-number">0xf0000000</span>);
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"msr SPSR_EL1, %0"</span> :: <span class="hljs-string">"r"</span>(this_core-&gt;current_process-&gt;thread.context.saved[<span class="hljs-number">11</span>]))</span></span>;
+	POP(sp, <span class="hljs-keyword">uintptr_t</span>, this_core-&gt;current_process-&gt;thread.context.saved[<span class="hljs-number">10</span>]);
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"msr ELR_EL1, %0"</span> :: <span class="hljs-string">"r"</span>(this_core-&gt;current_process-&gt;thread.context.saved[<span class="hljs-number">10</span>]))</span></span>;
+
+	<span class="hljs-comment">/* Interrupt context registers */</span>
+	POP(sp, struct regs, *r);
+
+	<span class="hljs-comment">/* Anything before this doesn't need to be popped anywhere */</span>
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"msr SP_EL0, %0"</span> :: <span class="hljs-string">"r"</span>(r-&gt;user_sp))</span></span>;
+	<span class="hljs-keyword">return</span> originalSignal;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">cause</span>
+<span>Description of the signal handler to be entered and why it is happening.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_enter_signal_handler</span><span class="hljs-params">(struct signal_config * <span class="hljs-built_in">config</span>, <span class="hljs-keyword">siginfo_t</span> * cause, struct regs *r)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> sp = (r-&gt;user_sp - <span class="hljs-number">128</span>) &amp; <span class="hljs-number">0xFFFFFFFFFFFFFFF0</span>;
+	<span class="hljs-keyword">uintptr_t</span> ucontext_addr = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uintptr_t</span> sainfo_addr = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">config</span>-&gt;flags &amp; SA_SIGINFO) {
+		PUSH(sp, <span class="hljs-keyword">siginfo_t</span>, *cause);
+		sainfo_addr = sp;
+
+		<span class="hljs-comment">/* Bottom of ucontext_t */</span>
+		PUSH(sp, <span class="hljs-keyword">uintptr_t</span>, <span class="hljs-number">0</span>); <span class="hljs-comment">/* TODO uc_link */</span>
+	}
+
+	<span class="hljs-comment">/* Save essential registers */</span>
+	PUSH(sp, struct regs, *r);
+
+	<span class="hljs-comment">/* Save context that wasn't pushed above... */</span>
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"mrs %0, ELR_EL1"</span> : <span class="hljs-string">"=r"</span>(this_core-&gt;current_process-&gt;thread.context.saved[<span class="hljs-number">10</span>]))</span></span>;
+	PUSH(sp, <span class="hljs-keyword">uintptr_t</span>, this_core-&gt;current_process-&gt;thread.context.saved[<span class="hljs-number">10</span>]);
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"mrs %0, SPSR_EL1"</span> : <span class="hljs-string">"=r"</span>(this_core-&gt;current_process-&gt;thread.context.saved[<span class="hljs-number">11</span>]))</span></span>;
+	PUSH(sp, <span class="hljs-keyword">uintptr_t</span>, this_core-&gt;current_process-&gt;thread.context.saved[<span class="hljs-number">11</span>]);
+
+	<span class="hljs-comment">/* Save floating point */</span>
+	arch_save_floating((<span class="hljs-keyword">process_t</span>*)this_core-&gt;current_process);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">64</span>; ++i) {
+		PUSH(sp, <span class="hljs-keyword">uint64_t</span>, this_core-&gt;current_process-&gt;thread.fp_regs[i]);
+	}
+	PUSH(sp, <span class="hljs-keyword">uintptr_t</span>, this_core-&gt;current_process-&gt;thread.context.saved[<span class="hljs-number">12</span>]);
+	PUSH(sp, <span class="hljs-keyword">uintptr_t</span>, this_core-&gt;current_process-&gt;thread.context.saved[<span class="hljs-number">13</span>]);
+
+	<span class="hljs-comment">/* top of mcontext_t */</span>
+
+	PUSH(sp, <span class="hljs-keyword">long</span>, this_core-&gt;current_process-&gt;interrupted_system_call);
+	this_core-&gt;current_process-&gt;interrupted_system_call = <span class="hljs-number">0</span>;
+
+	PUSH(sp, <span class="hljs-keyword">long</span>, cause-&gt;si_signo);
+	PUSH(sp, <span class="hljs-keyword">sigset_t</span>, this_core-&gt;current_process-&gt;blocked_signals);
+
+	this_core-&gt;current_process-&gt;blocked_signals |= <span class="hljs-built_in">config</span>-&gt;mask | (<span class="hljs-built_in">config</span>-&gt;flags &amp; SA_NODEFER ? <span class="hljs-number">0</span> : (<span class="hljs-number">1U</span>L &lt;&lt; cause-&gt;si_signo));
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">config</span>-&gt;flags &amp; SA_SIGINFO) ucontext_addr = sp;
+
+	update_process_times_on_exit();
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span><span class="hljs-params">(
+		<span class="hljs-string">"msr ELR_EL1, %0\n"</span> <span class="hljs-comment">/* entrypoint */</span>
+		<span class="hljs-string">"msr SP_EL0, %1\n"</span> <span class="hljs-comment">/* stack */</span>
+		<span class="hljs-string">"msr SPSR_EL1, %2\n"</span> <span class="hljs-comment">/* spsr from context */</span>
+		::
+		<span class="hljs-string">"r"</span>(<span class="hljs-built_in">config</span>-&gt;handler),
+		<span class="hljs-string">"r"</span>(sp),
+		<span class="hljs-string">"r"</span>(<span class="hljs-number">0</span>))</span></span>;
+
+	<span class="hljs-keyword">register</span> <span class="hljs-keyword">uint64_t</span> x0 __asm__(<span class="hljs-string">"x0"</span>) = cause-&gt;si_signo;
+	<span class="hljs-keyword">register</span> <span class="hljs-keyword">uint64_t</span> x1 __asm__(<span class="hljs-string">"x1"</span>) = sainfo_addr;
+	<span class="hljs-keyword">register</span> <span class="hljs-keyword">uint64_t</span> x2 __asm__(<span class="hljs-string">"x2"</span>) = ucontext_addr;
+	<span class="hljs-keyword">register</span> <span class="hljs-keyword">uint64_t</span> x30 __asm__(<span class="hljs-string">"x30"</span>) = <span class="hljs-number">0x516</span>;
+	<span class="hljs-keyword">register</span> <span class="hljs-keyword">uint64_t</span> x4 __asm__(<span class="hljs-string">"x4"</span>) = (<span class="hljs-keyword">uintptr_t</span>)this_core-&gt;sp_el1;
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span><span class="hljs-params">(
+		<span class="hljs-string">"mov sp, x4\n"</span>
+		<span class="hljs-string">"eret\nnop\nnop"</span> :: <span class="hljs-string">"r"</span>(x0), <span class="hljs-string">"r"</span>(x1), <span class="hljs-string">"r"</span>(x2), <span class="hljs-string">"r"</span>(x30), <span class="hljs-string">"r"</span>(x4))</span></span>;
+
+	__builtin_unreachable();
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_restore_floating</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc)</span> </span>{
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-string">"ldr q0 , [%0, #(0 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q1 , [%0, #(1 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q2 , [%0, #(2 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q3 , [%0, #(3 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q4 , [%0, #(4 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q5 , [%0, #(5 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q6 , [%0, #(6 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q7 , [%0, #(7 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q8 , [%0, #(8 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q9 , [%0, #(9 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q10, [%0, #(10 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q11, [%0, #(11 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q12, [%0, #(12 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q13, [%0, #(13 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q14, [%0, #(14 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q15, [%0, #(15 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q16, [%0, #(16 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q17, [%0, #(17 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q18, [%0, #(18 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q19, [%0, #(19 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q20, [%0, #(20 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q21, [%0, #(21 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q22, [%0, #(22 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q23, [%0, #(23 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q24, [%0, #(24 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q25, [%0, #(25 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q26, [%0, #(26 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q27, [%0, #(27 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q28, [%0, #(28 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q29, [%0, #(29 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q30, [%0, #(30 * 16)]\n"</span>
+		<span class="hljs-string">"ldr q31, [%0, #(31 * 16)]\n"</span>
+		<span class="hljs-string">"msr fpcr, %1\n"</span>
+		<span class="hljs-string">"msr fpsr, %2\n"</span>
+		::<span class="hljs-string">"r"</span>(&amp;proc-&gt;thread.fp_regs),
+		<span class="hljs-string">"r"</span>(proc-&gt;thread.context.saved[<span class="hljs-number">12</span>]),
+		<span class="hljs-string">"r"</span>(proc-&gt;thread.context.saved[<span class="hljs-number">13</span>])
+		)</span></span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_save_floating</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc)</span> </span>{
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-string">"str q0 , [%2, #(0 * 16)]\n"</span>
+		<span class="hljs-string">"str q1 , [%2, #(1 * 16)]\n"</span>
+		<span class="hljs-string">"str q2 , [%2, #(2 * 16)]\n"</span>
+		<span class="hljs-string">"str q3 , [%2, #(3 * 16)]\n"</span>
+		<span class="hljs-string">"str q4 , [%2, #(4 * 16)]\n"</span>
+		<span class="hljs-string">"str q5 , [%2, #(5 * 16)]\n"</span>
+		<span class="hljs-string">"str q6 , [%2, #(6 * 16)]\n"</span>
+		<span class="hljs-string">"str q7 , [%2, #(7 * 16)]\n"</span>
+		<span class="hljs-string">"str q8 , [%2, #(8 * 16)]\n"</span>
+		<span class="hljs-string">"str q9 , [%2, #(9 * 16)]\n"</span>
+		<span class="hljs-string">"str q10, [%2, #(10 * 16)]\n"</span>
+		<span class="hljs-string">"str q11, [%2, #(11 * 16)]\n"</span>
+		<span class="hljs-string">"str q12, [%2, #(12 * 16)]\n"</span>
+		<span class="hljs-string">"str q13, [%2, #(13 * 16)]\n"</span>
+		<span class="hljs-string">"str q14, [%2, #(14 * 16)]\n"</span>
+		<span class="hljs-string">"str q15, [%2, #(15 * 16)]\n"</span>
+		<span class="hljs-string">"str q16, [%2, #(16 * 16)]\n"</span>
+		<span class="hljs-string">"str q17, [%2, #(17 * 16)]\n"</span>
+		<span class="hljs-string">"str q18, [%2, #(18 * 16)]\n"</span>
+		<span class="hljs-string">"str q19, [%2, #(19 * 16)]\n"</span>
+		<span class="hljs-string">"str q20, [%2, #(20 * 16)]\n"</span>
+		<span class="hljs-string">"str q21, [%2, #(21 * 16)]\n"</span>
+		<span class="hljs-string">"str q22, [%2, #(22 * 16)]\n"</span>
+		<span class="hljs-string">"str q23, [%2, #(23 * 16)]\n"</span>
+		<span class="hljs-string">"str q24, [%2, #(24 * 16)]\n"</span>
+		<span class="hljs-string">"str q25, [%2, #(25 * 16)]\n"</span>
+		<span class="hljs-string">"str q26, [%2, #(26 * 16)]\n"</span>
+		<span class="hljs-string">"str q27, [%2, #(27 * 16)]\n"</span>
+		<span class="hljs-string">"str q28, [%2, #(28 * 16)]\n"</span>
+		<span class="hljs-string">"str q29, [%2, #(29 * 16)]\n"</span>
+		<span class="hljs-string">"str q30, [%2, #(30 * 16)]\n"</span>
+		<span class="hljs-string">"str q31, [%2, #(31 * 16)]\n"</span>
+		<span class="hljs-string">"mrs %0, fpcr\n"</span>
+		<span class="hljs-string">"mrs %1, fpsr\n"</span>
+		:
+		<span class="hljs-string">"=r"</span>(proc-&gt;thread.context.saved[<span class="hljs-number">12</span>]),
+		<span class="hljs-string">"=r"</span>(proc-&gt;thread.context.saved[<span class="hljs-number">13</span>])
+		:<span class="hljs-string">"r"</span>(&amp;proc-&gt;thread.fp_regs)
+		:<span class="hljs-string">"memory"</span>)</span></span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_fatal_prepare</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (processor_count &gt; <span class="hljs-number">1</span>) {
+		gic_send_sgi(<span class="hljs-number">2</span>,<span class="hljs-number">-1</span>);
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">See</div>
+<div class="dox_tag_detail">
+<span class="dox_type">arch_fatal_prepare</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_fatal</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	arch_fatal_prepare();
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"wfi"</span>)</span></span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_wakeup_others</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 1</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; processor_count; i++) {
+		<span class="hljs-keyword">if</span> (i == this_core-&gt;cpu_id) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">if</span> (!processor_local_data[i].current_process || (processor_local_data[i].current_process != processor_local_data[i].kernel_idle_task)) <span class="hljs-keyword">continue</span>;
+		gic_send_sgi(<span class="hljs-number">1</span>,i);
+	}
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">arch_reboot</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	arch_fatal_prepare(); <span class="hljs-comment">/* Ensure other cores stop. */</span>
+
+	<span class="hljs-comment">/* This semihosting SYS_EXIT interface only works under TCG */</span>
+	<span class="hljs-keyword">if</span> (args_present(<span class="hljs-string">"semihosting"</span>)) {
+		<span class="hljs-keyword">uint64_t</span> payload[<span class="hljs-number">2</span>] = {<span class="hljs-number">0x20026</span>, <span class="hljs-number">0x0</span>};
+		<span class="hljs-function"><span class="hljs-keyword">register</span> <span class="hljs-keyword">uint32_t</span> w0 <span class="hljs-title">asm</span><span class="hljs-params">(<span class="hljs-string">"w0"</span>)</span> </span>= <span class="hljs-number">0x18</span>;
+		<span class="hljs-function"><span class="hljs-keyword">register</span> <span class="hljs-keyword">uint64_t</span> x1 <span class="hljs-title">asm</span><span class="hljs-params">(<span class="hljs-string">"x1"</span>)</span> </span>= (<span class="hljs-keyword">uintptr_t</span>)payload;
+		<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"hlt #0xF000"</span> :: <span class="hljs-string">"r"</span>(w0), <span class="hljs-string">"r"</span>(x1) : <span class="hljs-string">"memory"</span>)</span></span>;
+	}
+
+	<span class="hljs-keyword">uint32_t</span> * psci = dtb_find_node(<span class="hljs-string">"psci"</span>);
+	<span class="hljs-keyword">if</span> (psci) {
+		<span class="hljs-comment">/* Try to force the QEMU SYSTEM_RESET interface if we have PSCI at all. */</span>
+		<span class="hljs-function"><span class="hljs-keyword">register</span> <span class="hljs-keyword">uint64_t</span> x0 <span class="hljs-title">asm</span><span class="hljs-params">(<span class="hljs-string">"x0"</span>)</span> </span>= <span class="hljs-number">0x84000009</span>;
+		<span class="hljs-function"><span class="hljs-keyword">register</span> <span class="hljs-keyword">uint64_t</span> x1 <span class="hljs-title">asm</span><span class="hljs-params">(<span class="hljs-string">"x1"</span>)</span> </span>= <span class="hljs-number">0</span>;
+		<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"hvc 0"</span> :: <span class="hljs-string">"r"</span>(x0), <span class="hljs-string">"r"</span>(x1) : <span class="hljs-string">"memory"</span>)</span></span>;
+	}
+
+	dprintf(<span class="hljs-string">"aarch64: No reboot method. Halting.\n"</span>);
+	arch_fatal();
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">aarch64_regs</span><span class="hljs-params">(struct regs *r)</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> reg(a,b) printf(<span class="hljs-meta-string">" X%02d=0x%016zx X%02d=0x%016zx\n"</span>,a,r-&gt;x ## a, b, r-&gt;x ## b)</span>
+	reg(<span class="hljs-number">0</span>,<span class="hljs-number">1</span>);
+	reg(<span class="hljs-number">2</span>,<span class="hljs-number">3</span>);
+	reg(<span class="hljs-number">4</span>,<span class="hljs-number">5</span>);
+	reg(<span class="hljs-number">6</span>,<span class="hljs-number">7</span>);
+	reg(<span class="hljs-number">8</span>,<span class="hljs-number">9</span>);
+	reg(<span class="hljs-number">10</span>,<span class="hljs-number">11</span>);
+	reg(<span class="hljs-number">12</span>,<span class="hljs-number">13</span>);
+	reg(<span class="hljs-number">14</span>,<span class="hljs-number">15</span>);
+	reg(<span class="hljs-number">16</span>,<span class="hljs-number">17</span>);
+	reg(<span class="hljs-number">18</span>,<span class="hljs-number">19</span>);
+	reg(<span class="hljs-number">20</span>,<span class="hljs-number">21</span>);
+	reg(<span class="hljs-number">22</span>,<span class="hljs-number">23</span>);
+	reg(<span class="hljs-number">24</span>,<span class="hljs-number">25</span>);
+	reg(<span class="hljs-number">26</span>,<span class="hljs-number">27</span>);
+	reg(<span class="hljs-number">28</span>,<span class="hljs-number">29</span>);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">" X30=0x%016zx  SP=0x%016zx\n"</span>, r-&gt;x30, r-&gt;user_sp);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> reg</span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">aarch64_context</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc)</span> </span>{
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"  SP=0x%016zx BP(x29)=0x%016zx\n"</span>, proc-&gt;thread.context.sp, proc-&gt;thread.context.bp);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"  IP=0x%016zx TLSBASE=0x%016zx\n"</span>, proc-&gt;thread.context.ip, proc-&gt;thread.context.tls_base);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">" X19=0x%016zx     X20=%016zx\n"</span>, proc-&gt;thread.context.saved[<span class="hljs-number">0</span>], proc-&gt;thread.context.saved[<span class="hljs-number">1</span>]);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">" X21=0x%016zx     X22=%016zx\n"</span>, proc-&gt;thread.context.saved[<span class="hljs-number">2</span>], proc-&gt;thread.context.saved[<span class="hljs-number">3</span>]);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">" X23=0x%016zx     X24=%016zx\n"</span>, proc-&gt;thread.context.saved[<span class="hljs-number">4</span>], proc-&gt;thread.context.saved[<span class="hljs-number">5</span>]);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">" X25=0x%016zx     X26=%016zx\n"</span>, proc-&gt;thread.context.saved[<span class="hljs-number">6</span>], proc-&gt;thread.context.saved[<span class="hljs-number">7</span>]);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">" X27=0x%016zx     X28=%016zx\n"</span>, proc-&gt;thread.context.saved[<span class="hljs-number">8</span>], proc-&gt;thread.context.saved[<span class="hljs-number">9</span>]);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">" ELR=0x%016zx    SPSR=%016zx\n"</span>, proc-&gt;thread.context.saved[<span class="hljs-number">10</span>], proc-&gt;thread.context.saved[<span class="hljs-number">11</span>]);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"fpcr=0x%016zx    fpsr=%016zx\n"</span>, proc-&gt;thread.context.saved[<span class="hljs-number">12</span>], proc-&gt;thread.context.saved[<span class="hljs-number">13</span>]);
+}
+
+<span class="hljs-comment">/* Syscall parameter accessors */</span>
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_syscall_return</span><span class="hljs-params">(struct regs * r, <span class="hljs-keyword">long</span> retval)</span> </span>{ r-&gt;x0 = retval; }
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">arch_syscall_number</span><span class="hljs-params">(struct regs * r)</span> </span>{ <span class="hljs-keyword">return</span> r-&gt;x0; }
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">arch_syscall_arg0</span><span class="hljs-params">(struct regs * r)</span>   </span>{ <span class="hljs-keyword">return</span> r-&gt;x1; }
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">arch_syscall_arg1</span><span class="hljs-params">(struct regs * r)</span>   </span>{ <span class="hljs-keyword">return</span> r-&gt;x2; }
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">arch_syscall_arg2</span><span class="hljs-params">(struct regs * r)</span>   </span>{ <span class="hljs-keyword">return</span> r-&gt;x3; }
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">arch_syscall_arg3</span><span class="hljs-params">(struct regs * r)</span>   </span>{ <span class="hljs-keyword">return</span> r-&gt;x4; }
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">arch_syscall_arg4</span><span class="hljs-params">(struct regs * r)</span>   </span>{ <span class="hljs-keyword">return</span> r-&gt;x5; }
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">arch_syscall_arg5</span><span class="hljs-params">(struct regs * r)</span>   </span>{ <span class="hljs-keyword">return</span> r-&gt;x8; }
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">arch_stack_pointer</span><span class="hljs-params">(struct regs * r)</span>  </span>{ <span class="hljs-keyword">return</span> r-&gt;user_sp; }
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">arch_user_ip</span><span class="hljs-params">(struct regs * r)</span>        </span>{ <span class="hljs-keyword">return</span> r-&gt;x30; <span class="hljs-comment">/* TODO this is wrong, this needs to come from ELR but we don't have that */</span> }
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>No port i/o on arm, but these are still littered around some
+drivers we need to remove...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">unsigned</span> short <span class="hljs-title">inports</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> short _port)</span> </span>{ <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>; }
+<span class="hljs-function"><span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> <span class="hljs-title">inportl</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> short _port)</span>   </span>{ <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>; }
+<span class="hljs-function"><span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> <span class="hljs-title">inportb</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> short _port)</span>  </span>{ <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>; }
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">inportsm</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> short port, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> * data, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> <span class="hljs-built_in">size</span>)</span> </span>{
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">outports</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> short _port, <span class="hljs-keyword">unsigned</span> short _data)</span> </span>{
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">outportl</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> short _port, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> _data)</span> </span>{
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">outportb</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> short _port, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> _data)</span> </span>{
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">outportsm</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> short port, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> * data, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> <span class="hljs-built_in">size</span>)</span> </span>{
+}
+
+<span class="hljs-comment">/* From DRM sources */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> fourcc_code(a, b, c, d) ((uint32_t)(a) | ((uint32_t)(b) &lt;&lt; 8) | \
+                                 ((uint32_t)(c) &lt;&lt; 16) | ((uint32_t)(d) &lt;&lt; 24))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DRM_FORMAT_XRGB8888     fourcc_code(<span class="hljs-meta-string">'X'</span>, <span class="hljs-meta-string">'R'</span>, <span class="hljs-meta-string">'2'</span>, <span class="hljs-meta-string">'4'</span>) <span class="hljs-comment">/* [31:0] x:R:G:B 8:8:8:8 little endian */</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ramfb_init</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * value)</span> </span>{
+	<span class="hljs-keyword">extern</span> <span class="hljs-keyword">uint8_t</span> * lfb_vid_memory;
+	<span class="hljs-keyword">extern</span> <span class="hljs-keyword">uint16_t</span> lfb_resolution_x;
+	<span class="hljs-keyword">extern</span> <span class="hljs-keyword">uint16_t</span> lfb_resolution_y;
+	<span class="hljs-keyword">extern</span> <span class="hljs-keyword">uint16_t</span> lfb_resolution_b;
+	<span class="hljs-keyword">extern</span> <span class="hljs-keyword">uint32_t</span> lfb_resolution_s;
+	<span class="hljs-keyword">extern</span> <span class="hljs-keyword">size_t</span> lfb_memsize;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ramfbcfg</span> {</span>
+		<span class="hljs-keyword">uint64_t</span> addr;
+		<span class="hljs-keyword">uint32_t</span> fourcc;
+		<span class="hljs-keyword">uint32_t</span> flags;
+		<span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">width</span>;
+		<span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">height</span>;
+		<span class="hljs-keyword">uint32_t</span> stride;
+	} __attribute__((packed));
+
+	<span class="hljs-keyword">uint32_t</span> * fw_cfg = dtb_find_node_prefix(<span class="hljs-string">"fw-cfg"</span>);
+	<span class="hljs-keyword">if</span> (!fw_cfg) {
+		dprintf(<span class="hljs-string">"ramfb: no fw-cfg interface?\n"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+	<span class="hljs-keyword">uint32_t</span> * regs = dtb_node_find_property(fw_cfg, <span class="hljs-string">"reg"</span>);
+	<span class="hljs-keyword">if</span> (!regs) {
+		dprintf(<span class="hljs-string">"ramfb: no regs for fw-cfg\n"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span> * fw_cfg_addr = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span>*)(<span class="hljs-keyword">uintptr_t</span>)(mmu_map_from_physical(swizzle(regs[<span class="hljs-number">3</span>])));
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint64_t</span> * fw_cfg_data = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint64_t</span> *)fw_cfg_addr;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> * fw_cfg_32   = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> *)fw_cfg_addr;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span> * fw_cfg_sel  = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span> *)(fw_cfg_addr + <span class="hljs-number">8</span>);
+
+	*fw_cfg_sel = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">uint64_t</span> response = fw_cfg_data[<span class="hljs-number">0</span>];
+	(<span class="hljs-keyword">void</span>)response;
+
+	<span class="hljs-comment">/* Needs to be big-endian */</span>
+	*fw_cfg_sel = swizzle16(<span class="hljs-number">0x19</span>);
+
+	<span class="hljs-comment">/* count response is 32-bit BE */</span>
+	<span class="hljs-keyword">uint32_t</span> count = swizzle(fw_cfg_32[<span class="hljs-number">0</span>]);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">fw_cfg_file</span> {</span>
+		<span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">size</span>;
+		<span class="hljs-keyword">uint16_t</span> select;
+		<span class="hljs-keyword">uint16_t</span> reserved;
+		<span class="hljs-keyword">char</span> name[<span class="hljs-number">56</span>];
+	};
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">fw_cfg_file</span> <span class="hljs-title">file</span>;</span>
+	<span class="hljs-keyword">uint8_t</span> * tmp = (<span class="hljs-keyword">uint8_t</span> *)&amp;file;
+
+	<span class="hljs-keyword">uint16_t</span> res_x = <span class="hljs-number">1440</span>;
+	<span class="hljs-keyword">uint16_t</span> res_y = <span class="hljs-number">900</span>;
+
+	<span class="hljs-keyword">if</span> (value) {
+		<span class="hljs-keyword">char</span> * tmp = strdup(value);
+		<span class="hljs-keyword">char</span> * x = <span class="hljs-built_in">strstr</span>(tmp,<span class="hljs-string">"x"</span>);
+		<span class="hljs-keyword">if</span> (x) {
+			*x = <span class="hljs-string">'\0'</span>;
+			res_x = atoi(tmp);
+			res_y = atoi(x+<span class="hljs-number">1</span>);
+			dprintf(<span class="hljs-string">"parsed as %u x %u\n"</span>, res_x, res_y);
+		}
+		<span class="hljs-built_in">free</span>(tmp);
+	}
+
+	<span class="hljs-comment">/* Read count entries */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-keyword">sizeof</span>(struct fw_cfg_file); ++j) {
+			tmp[j] = fw_cfg_addr[<span class="hljs-number">0</span>];
+		}
+
+		file.<span class="hljs-built_in">size</span> = swizzle(file.<span class="hljs-built_in">size</span>);
+		file.select = swizzle16(file.select);
+
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(file.name,<span class="hljs-string">"etc/ramfb"</span>)) {
+			<span class="hljs-keyword">static</span> <span class="hljs-keyword">volatile</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ramfbcfg</span> <span class="hljs-title">tmp</span>;</span>
+			<span class="hljs-keyword">uintptr_t</span> z = mmu_map_to_physical(<span class="hljs-literal">NULL</span>,(<span class="hljs-keyword">uint64_t</span>)&amp;tmp);
+
+			lfb_resolution_x = res_x;
+			lfb_resolution_y = res_y;
+			lfb_resolution_s = lfb_resolution_x*<span class="hljs-number">4</span>;
+			lfb_resolution_b = <span class="hljs-number">32</span>;
+			lfb_memsize = lfb_resolution_s * lfb_resolution_y;
+			<span class="hljs-keyword">uint64_t</span> frames = lfb_memsize/<span class="hljs-number">4096</span>;
+			<span class="hljs-keyword">if</span> ((lfb_memsize/<span class="hljs-number">4096</span>)*<span class="hljs-number">4096</span>!=lfb_memsize) frames++;
+			<span class="hljs-keyword">uint64_t</span> addr = mmu_allocate_n_frames(frames) &lt;&lt; <span class="hljs-number">12</span>;
+			lfb_vid_memory = mmu_map_from_physical(addr);
+			<span class="hljs-comment">/* Clear it while we're here */</span>
+			<span class="hljs-built_in">memset</span>(lfb_vid_memory, <span class="hljs-number">0</span>, lfb_memsize);
+
+			tmp.addr = swizzle64(addr);
+			tmp.<span class="hljs-built_in">width</span> = swizzle(lfb_resolution_x);
+			tmp.<span class="hljs-built_in">height</span> = swizzle(lfb_resolution_y);
+			tmp.flags = <span class="hljs-number">0</span>;
+			tmp.fourcc = swizzle(DRM_FORMAT_XRGB8888);
+			tmp.stride = swizzle(lfb_resolution_s);
+
+			<span class="hljs-keyword">static</span> <span class="hljs-keyword">volatile</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">fwcfg_dma</span> {</span>
+				<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> control;
+				<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> length;
+				<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint64_t</span> address;
+			} dma __attribute__((aligned(<span class="hljs-number">4096</span>)));
+
+			dma.control = swizzle((file.select &lt;&lt; <span class="hljs-number">16</span>) | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">3</span>) | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">4</span>));
+			dma.length  = swizzle(<span class="hljs-keyword">sizeof</span>(struct ramfbcfg));
+			dma.address = swizzle64(z);
+
+			<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+			fw_cfg_data[<span class="hljs-number">2</span>] = swizzle64(mmu_map_to_physical(<span class="hljs-literal">NULL</span>,(<span class="hljs-keyword">uint64_t</span>)&amp;dma));
+			<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_framebuffer_initialize</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>I'm not sure we have any options here...
+lfbvideo calls this expecting it to fill in information
+on a preferred video mode; maybe dtb has that?</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (args_present(<span class="hljs-string">"ramfb"</span>)) {
+		ramfb_init(args_value(<span class="hljs-string">"ramfb"</span>));
+	}
+}
+
+<span class="hljs-keyword">char</span> * _arch_args = <span class="hljs-literal">NULL</span>;
+<span class="hljs-function"><span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">arch_get_cmdline</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-comment">/* this should be available from dtb directly as a string */</span>
+	<span class="hljs-keyword">extern</span> <span class="hljs-keyword">char</span> * _arch_args;
+	<span class="hljs-keyword">return</span> _arch_args ? _arch_args : <span class="hljs-string">""</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">arch_get_loader</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-string">""</span>;
+}
+
+<span class="hljs-comment">/* These should probably assembly. */</span>
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_enter_tasklet</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-string">"ldp x0, x1, [sp], #16\n"</span>
+		<span class="hljs-string">"br x1\n"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+	__builtin_unreachable();
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> deadlock_lock = { <span class="hljs-number">0</span> };
+<span class="hljs-keyword">void</span> _spin_panic(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * lock_name, <span class="hljs-keyword">spin_lock_t</span> * target) {
+	arch_fatal_prepare();
+	<span class="hljs-keyword">while</span> (__sync_lock_test_and_set(deadlock_lock.latch, <span class="hljs-number">0x01</span>));
+	dprintf(<span class="hljs-string">"core %d took over five seconds waiting to acquire %s (owner=%d in %s)\n"</span>,
+		this_core-&gt;cpu_id, lock_name, target-&gt;owner - <span class="hljs-number">1</span>, target-&gt;func);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-11" id="section-11"></a>
+</div>
+<p>arch_dump_traceback();</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	__sync_lock_release(deadlock_lock.latch);
+	arch_fatal();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_spin_lock_acquire</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name, <span class="hljs-keyword">spin_lock_t</span> * target, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * func)</span> </span>{
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+	<span class="hljs-keyword">uint64_t</span> expire = arch_perf_timer() + <span class="hljs-number">5000000U</span>L * arch_cpu_mhz();
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-12" id="section-12"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>&quot;loss of an exclusive monitor&quot; is one of the things that causes an &quot;event&quot;,
+so we spin on wfe to try to load-acquire the latch</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-string">"sevl\n"</span> <span class="hljs-comment">/* And to avoid multiple jumps, we put the wfe first, so sevl will slide past the first one */</span>
+		<span class="hljs-string">"1:\n"</span>
+		<span class="hljs-string">"    wfe\n"</span>
+#<span class="hljs-keyword">if</span> <span class="hljs-number">0</span>
+	)</span></span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-13" id="section-13"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Yes, we can splice these assembly snippets with the clock check, this works fine.
+If we've been trying to load the latch for five seconds, panic.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (arch_perf_timer() &gt; expire) {
+		_spin_panic(name, target);
+	}
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+#endif
+		<span class="hljs-string">"2:\n"</span>
+		<span class="hljs-string">"   ldaxr w2, [ %1 ]\n"</span>     <span class="hljs-comment">/* Acquire exclusive monitor and load latch value */</span>
+		<span class="hljs-string">"   cbnz  w2, 1b\n"</span>         <span class="hljs-comment">/* If the latch value isn't 0, someone else owns the lock, go back to wfe and wait for them to release it */</span>
+		<span class="hljs-string">"   stxr  w2, %0, [ %1 ]\n"</span> <span class="hljs-comment">/* Store our core number as the latch value. */</span>
+		<span class="hljs-string">"   cbnz  w2, 2b\n"</span>         <span class="hljs-comment">/* If we failed to exclusively store, try to load again */</span>
+		::<span class="hljs-string">"r"</span>(this_core-&gt;cpu_id+<span class="hljs-number">1</span>),<span class="hljs-string">"r"</span>(target-&gt;latch) : <span class="hljs-string">"x2"</span>,<span class="hljs-string">"cc"</span>,<span class="hljs-string">"memory"</span>)</span></span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-14" id="section-14"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Set these for compatibility because there's at least one place we check them;
+TODO: just use the latch value since we're setting it to the same thing anyway?</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	target-&gt;owner = this_core-&gt;cpu_id + <span class="hljs-number">1</span>;
+
+	<span class="hljs-comment">/* This is purely for debugging */</span>
+	target-&gt;func  = func;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_spin_lock_release</span><span class="hljs-params">(<span class="hljs-keyword">spin_lock_t</span> * target)</span> </span>{
+	<span class="hljs-comment">/* Clear owner debug data */</span>
+	target-&gt;owner = <span class="hljs-number">0</span>;
+	target-&gt;func  = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-comment">/* Release the exclusive monitor and clear the latch value */</span>
+	__atomic_store_n(target-&gt;latch, <span class="hljs-number">0</span>, __ATOMIC_RELEASE);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

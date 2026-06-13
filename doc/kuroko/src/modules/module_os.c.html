@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>module_os.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kuroko\\src\\modules\\module_os.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>module_os.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;assert.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> _WIN32</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/utsname.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;termios.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;windows.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/value.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/object.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+
+<span class="hljs-comment">/* Did you know this is actually specified to not exist in a header? */</span>
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">char</span> ** environ;
+
+<span class="hljs-keyword">static</span> KrkClass * os_Environ;
+<span class="hljs-keyword">static</span> KrkClass * os_stat_result;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DO_KEY(key) krk_attachNamedObject(AS_DICT(result), #key, (KrkObj*)krk_copyString(buf. key, strlen(buf .key)))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> S_KEY(key,val) krk_attachNamedObject(AS_DICT(result), #key, (KrkObj*)val);</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> _WIN32</span>
+KRK_Function(uname) {
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">utsname</span> <span class="hljs-title">buf</span>;</span>
+	<span class="hljs-keyword">if</span> (uname(&amp;buf) &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	KrkValue result = krk_dict_of(<span class="hljs-number">0</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>);
+	krk_push(result);
+
+	DO_KEY(sysname);
+	DO_KEY(nodename);
+	DO_KEY(<span class="hljs-built_in">release</span>);
+	DO_KEY(version);
+	DO_KEY(machine);
+
+	<span class="hljs-keyword">return</span> krk_pop();;
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+KRK_Function(uname) {
+	KrkValue result = krk_dict_of(<span class="hljs-number">0</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>);
+	krk_push(result);
+
+	TCHAR <span class="hljs-built_in">buffer</span>[<span class="hljs-number">256</span>] = TEXT(<span class="hljs-string">""</span>);
+	DWORD dwSize = <span class="hljs-keyword">sizeof</span>(<span class="hljs-built_in">buffer</span>);
+	GetComputerName(<span class="hljs-built_in">buffer</span>, &amp;dwSize);
+
+	OSVERSIONINFOA versionInfo = {<span class="hljs-number">0</span>};
+	versionInfo.dwOSVersionInfoSize = <span class="hljs-keyword">sizeof</span>(OSVERSIONINFO);
+	GetVersionExA(&amp;versionInfo);
+
+	<span class="hljs-keyword">if</span> (versionInfo.dwMajorVersion == <span class="hljs-number">10</span>) {
+		S_KEY(<span class="hljs-built_in">release</span>,S(<span class="hljs-string">"10"</span>));
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (versionInfo.dwMajorVersion == <span class="hljs-number">6</span>) {
+		<span class="hljs-keyword">if</span> (versionInfo.dwMinorVersion == <span class="hljs-number">3</span>) {
+			S_KEY(<span class="hljs-built_in">release</span>,S(<span class="hljs-string">"8.1"</span>));
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (versionInfo.dwMinorVersion == <span class="hljs-number">2</span>) {
+			S_KEY(<span class="hljs-built_in">release</span>,S(<span class="hljs-string">"8.0"</span>));
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (versionInfo.dwMinorVersion == <span class="hljs-number">1</span>) {
+			S_KEY(<span class="hljs-built_in">release</span>,S(<span class="hljs-string">"7"</span>));
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (versionInfo.dwMinorVersion == <span class="hljs-number">0</span>) {
+			S_KEY(<span class="hljs-built_in">release</span>,S(<span class="hljs-string">"Vista"</span>));
+		}
+	} <span class="hljs-keyword">else</span> {
+		S_KEY(<span class="hljs-built_in">release</span>,S(<span class="hljs-string">"XP or earlier"</span>));
+	}
+
+	<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">256</span>];
+	<span class="hljs-keyword">size_t</span> len = <span class="hljs-built_in">snprintf</span>(tmp, <span class="hljs-number">256</span>, <span class="hljs-string">"%ld"</span>, versionInfo.dwBuildNumber);
+
+	S_KEY(version, krk_copyString(tmp,len));
+	<span class="hljs-keyword">if</span> (<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">void</span> *) == <span class="hljs-number">8</span>) {
+		S_KEY(machine,S(<span class="hljs-string">"x64"</span>));
+	} <span class="hljs-keyword">else</span> {
+		S_KEY(machine,S(<span class="hljs-string">"x86"</span>));
+	}
+
+	S_KEY(sysname,S(<span class="hljs-string">"Windows"</span>));
+	S_KEY(nodename,krk_copyString(<span class="hljs-built_in">buffer</span>,dwSize));
+
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AS_Environ(o) (AS_INSTANCE(o))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> IS_Environ(o) (krk_isInstanceOf(o,os_Environ))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE KrkInstance*</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> _setVar(KrkString * key, KrkString * val) {
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> _WIN32</span>
+	<span class="hljs-keyword">return</span> setenv(key-&gt;chars, val-&gt;chars, <span class="hljs-number">1</span>);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+	<span class="hljs-keyword">size_t</span> len = key-&gt;length + val-&gt;length + <span class="hljs-number">3</span>;
+	<span class="hljs-keyword">char</span> * tmp = <span class="hljs-built_in">malloc</span>(len);
+	<span class="hljs-built_in">snprintf</span>(tmp, len, <span class="hljs-string">"%s=%s"</span>, key-&gt;chars, val-&gt;chars);
+	<span class="hljs-keyword">return</span> putenv(tmp);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+}
+
+KRK_Method(Environ,__setitem__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">2</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,str,KrkString*,key);
+	CHECK_ARG(<span class="hljs-number">2</span>,str,KrkString*,val);
+	<span class="hljs-keyword">int</span> r = _setVar(key,val);
+	<span class="hljs-keyword">if</span> (r == <span class="hljs-number">0</span>) {
+		krk_push(argv[<span class="hljs-number">0</span>]);
+		krk_push(argv[<span class="hljs-number">1</span>]);
+		krk_push(argv[<span class="hljs-number">2</span>]);
+		<span class="hljs-keyword">return</span> krk_callDirect(vm.baseClasses-&gt;dictClass-&gt;_setter, <span class="hljs-number">3</span>);
+	}
+
+	<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _unsetVar(KrkString * str) {
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> _WIN32</span>
+	unsetenv(str-&gt;chars);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+	<span class="hljs-keyword">size_t</span> len = str-&gt;length + <span class="hljs-number">2</span>;
+	<span class="hljs-keyword">char</span> * tmp = <span class="hljs-built_in">malloc</span>(len);
+	<span class="hljs-built_in">snprintf</span>(tmp, len, <span class="hljs-string">"%s"</span>, str-&gt;chars);
+	putenv(tmp);
+	<span class="hljs-built_in">free</span>(tmp);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+}
+
+KRK_Method(Environ,__delitem__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,str,KrkString*,key);
+	_unsetVar(key);
+	krk_push(argv[<span class="hljs-number">0</span>]);
+	krk_push(argv[<span class="hljs-number">1</span>]);
+	<span class="hljs-keyword">return</span> krk_callDirect(vm.baseClasses-&gt;dictClass-&gt;_delitem, <span class="hljs-number">2</span>);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _loadEnviron(KrkInstance * <span class="hljs-keyword">module</span>) {
+	<span class="hljs-comment">/* Create a new class to subclass `dict` */</span>
+	KrkClass * Environ = krk_makeClass(<span class="hljs-keyword">module</span>, &amp;os_Environ, <span class="hljs-string">"_Environ"</span>, vm.baseClasses-&gt;dictClass);
+	krk_attachNamedObject(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"_Environ"</span>, (KrkObj*)Environ);
+
+	<span class="hljs-comment">/* Add our set method that should also call dict's set method */</span>
+	BIND_METHOD(Environ,__setitem__);
+	BIND_METHOD(Environ,__delitem__);
+	krk_finalizeClass(Environ);
+
+	<span class="hljs-comment">/* Start with an empty dictionary */</span>
+	KrkInstance * environObj = AS_INSTANCE(krk_dict_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>));
+	krk_push(OBJECT_VAL(environObj));
+
+	<span class="hljs-comment">/* Transform it into an _Environ */</span>
+	environObj-&gt;_class = Environ;
+
+	<span class="hljs-comment">/* And attach it to the module */</span>
+	krk_attachNamedObject(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"environ"</span>, (KrkObj*)environObj);
+	krk_pop();
+
+	<span class="hljs-comment">/* Now load the environment into it */</span>
+	<span class="hljs-keyword">if</span> (!environ) <span class="hljs-keyword">return</span>; <span class="hljs-comment">/* Empty environment */</span>
+
+	<span class="hljs-keyword">char</span> ** env = environ;
+	<span class="hljs-keyword">for</span> (; *env; env++) {
+		<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * equals = <span class="hljs-built_in">strchr</span>(*env, <span class="hljs-string">'='</span>);
+		<span class="hljs-keyword">if</span> (!equals) <span class="hljs-keyword">continue</span>;
+
+		<span class="hljs-keyword">size_t</span> len = <span class="hljs-built_in">strlen</span>(*env);
+		<span class="hljs-keyword">size_t</span> keyLen = equals - *env;
+		<span class="hljs-keyword">size_t</span> valLen = len - keyLen - <span class="hljs-number">1</span>;
+
+		KrkValue key = OBJECT_VAL(krk_copyString(*env, keyLen));
+		krk_push(key);
+		KrkValue val = OBJECT_VAL(krk_copyString(equals+<span class="hljs-number">1</span>, valLen));
+		krk_push(val);
+
+		krk_tableSet(AS_DICT(OBJECT_VAL(environObj)), key, val);
+		krk_pop(); <span class="hljs-comment">/* val */</span>
+		krk_pop(); <span class="hljs-comment">/* key */</span>
+	}
+
+}
+
+KRK_Function(system) {
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * cmd;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"s"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"command"</span>},&amp;cmd)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">return</span> INTEGER_VAL(system(cmd));
+}
+
+KRK_Function(getcwd) {
+	FUNCTION_TAKES_NONE();
+	<span class="hljs-keyword">char</span> buf[<span class="hljs-number">4096</span>]; <span class="hljs-comment">/* TODO PATH_MAX? */</span>
+	<span class="hljs-keyword">if</span> (!getcwd(buf, <span class="hljs-number">4096</span>)) <span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	<span class="hljs-keyword">return</span> OBJECT_VAL(krk_copyString(buf, <span class="hljs-built_in">strlen</span>(buf)));
+}
+
+KRK_Function(chdir) {
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"s"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"path"</span>}, &amp;path)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">if</span> (chdir(path)) <span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Function(getpid) {
+	FUNCTION_TAKES_NONE();
+	<span class="hljs-keyword">return</span> INTEGER_VAL(getpid());
+}
+
+KRK_Function(strerror) {
+	<span class="hljs-keyword">int</span> errnum;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"i"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"errnum"</span>},&amp;errnum)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">char</span> *s = strerror(errnum);
+	<span class="hljs-keyword">if</span> (!s) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">return</span> OBJECT_VAL(krk_copyString(s,<span class="hljs-built_in">strlen</span>(s)));
+}
+
+KRK_Function(access) {
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path;
+	<span class="hljs-keyword">int</span> mask;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"si"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"pathname"</span>,<span class="hljs-string">"mode"</span>},&amp;path,&amp;mask)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">if</span> (access(path, mask) == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">0</span>);
+}
+
+KRK_Function(<span class="hljs-built_in">abort</span>) {
+	<span class="hljs-built_in">abort</span>();
+}
+
+KRK_Function(<span class="hljs-built_in">exit</span>) {
+	<span class="hljs-keyword">int</span> status;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"i"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"status"</span>},&amp;status)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-built_in">exit</span>(status);
+}
+
+KRK_Function(<span class="hljs-built_in">remove</span>) {
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"s"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"path"</span>}, &amp;path)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">remove</span>(path) != <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Function(truncate) {
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path;
+	<span class="hljs-keyword">size_t</span> length;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"sn"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"path"</span>,<span class="hljs-string">"length"</span>}, &amp;path, &amp;length)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">if</span> (truncate(path, length) != <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Function(dup) {
+	<span class="hljs-keyword">int</span> fd;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"i"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"fd"</span>}, &amp;fd)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">int</span> result = dup(fd);
+	<span class="hljs-keyword">if</span> (result &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+	<span class="hljs-keyword">return</span> INTEGER_VAL(result);
+}
+
+KRK_Function(dup2) {
+	<span class="hljs-keyword">int</span> fd, fd2;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"ii"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"fd"</span>,<span class="hljs-string">"fd2"</span>}, &amp;fd, &amp;fd2)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">int</span> result = dup2(fd,fd2);
+	<span class="hljs-keyword">if</span> (result &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+	<span class="hljs-keyword">return</span> INTEGER_VAL(result);
+}
+
+KRK_Function(isatty) {
+	<span class="hljs-keyword">int</span> fd;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"i"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"fd"</span>}, &amp;fd)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">return</span> BOOLEAN_VAL(isatty(fd));
+}
+
+KRK_Function(lseek) {
+	<span class="hljs-keyword">int</span> fd, how;
+	<span class="hljs-keyword">ssize_t</span> offset;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"ini"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"fd"</span>,<span class="hljs-string">"offset"</span>,<span class="hljs-string">"how"</span>}, &amp;fd, &amp;offset, &amp;how)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">off_t</span> result = lseek(fd,offset,how);
+	<span class="hljs-keyword">if</span> (result == <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+	<span class="hljs-keyword">return</span> krk_int_from_ll(result);
+}
+
+KRK_Function(<span class="hljs-built_in">open</span>) {
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path;
+	<span class="hljs-keyword">int</span> flags;
+	<span class="hljs-keyword">int</span> mode = <span class="hljs-number">0777</span>;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"si|i"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"path"</span>,<span class="hljs-string">"flags"</span>,<span class="hljs-string">"mode"</span>}, &amp;path, &amp;flags, &amp;mode)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">int</span> result = <span class="hljs-built_in">open</span>(path, flags, mode);
+	<span class="hljs-keyword">if</span> (result == <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+	<span class="hljs-keyword">return</span> INTEGER_VAL(result);
+}
+
+KRK_Function(<span class="hljs-built_in">close</span>) {
+	<span class="hljs-keyword">int</span> fd;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"i"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"fd"</span>}, &amp;fd)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">close</span>(fd) == <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> _WIN32</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> mkdir(p,m) mkdir(p); (void)m</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+KRK_Function(<span class="hljs-built_in">mkdir</span>) {
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path;
+	<span class="hljs-keyword">int</span> mode = <span class="hljs-number">0777</span>;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"s|i"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"path"</span>,<span class="hljs-string">"mode"</span>}, &amp;path, &amp;mode)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">int</span> result = <span class="hljs-built_in">mkdir</span>(path, mode);
+	<span class="hljs-keyword">if</span> (result == <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Function(<span class="hljs-built_in">read</span>) {
+	<span class="hljs-keyword">int</span> fd;
+	<span class="hljs-keyword">ssize_t</span> count;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"in"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"fd"</span>,<span class="hljs-string">"count"</span>}, &amp;fd, &amp;count)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-keyword">uint8_t</span> * tmp = <span class="hljs-built_in">malloc</span>(count);
+	<span class="hljs-keyword">ssize_t</span> result = <span class="hljs-built_in">read</span>(fd,tmp,count);
+	<span class="hljs-keyword">if</span> (result == <span class="hljs-number">-1</span>) {
+		<span class="hljs-built_in">free</span>(tmp);
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	} <span class="hljs-keyword">else</span> {
+		krk_push(OBJECT_VAL(krk_newBytes(result,tmp)));
+		<span class="hljs-built_in">free</span>(tmp);
+		<span class="hljs-keyword">return</span> krk_pop();
+	}
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> IS_bytes</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> IS_bytes(o) IS_BYTES(o)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AS_bytes(o) AS_BYTES(o)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+KRK_Function(<span class="hljs-built_in">write</span>) {
+	<span class="hljs-keyword">int</span> fd;
+	KrkBytes * buf;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"iO!"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"fd"</span>,<span class="hljs-string">"buf"</span>}, &amp;fd, KRK_BASE_CLASS(bytes), &amp;buf)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-keyword">ssize_t</span> result = <span class="hljs-built_in">write</span>(fd,buf-&gt;bytes,buf-&gt;length);
+	<span class="hljs-keyword">if</span> (result == <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+	<span class="hljs-keyword">return</span> krk_int_from_ll(result);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> _WIN32</span>
+KRK_Function(pipe) {
+	FUNCTION_TAKES_NONE();
+	<span class="hljs-keyword">int</span> fds[<span class="hljs-number">2</span>];
+	<span class="hljs-keyword">if</span> (pipe(fds) == <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+	krk_push(OBJECT_VAL(krk_newTuple(<span class="hljs-number">2</span>)));
+	AS_TUPLE(krk_peek(<span class="hljs-number">0</span>))-&gt;values.values[<span class="hljs-number">0</span>] = INTEGER_VAL(fds[<span class="hljs-number">0</span>]);
+	AS_TUPLE(krk_peek(<span class="hljs-number">0</span>))-&gt;values.values[<span class="hljs-number">1</span>] = INTEGER_VAL(fds[<span class="hljs-number">1</span>]);
+	AS_TUPLE(krk_peek(<span class="hljs-number">0</span>))-&gt;values.count = <span class="hljs-number">2</span>;
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+
+KRK_Function(kill) {
+	FUNCTION_TAKES_EXACTLY(<span class="hljs-number">2</span>);
+	<span class="hljs-keyword">ssize_t</span> pid;
+	<span class="hljs-keyword">int</span> sig;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"ni"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"pid"</span>,<span class="hljs-string">"sig"</span>}, &amp;pid, &amp;sig)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-keyword">int</span> result = kill(pid, sig);
+	<span class="hljs-keyword">if</span> (result == <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+	<span class="hljs-keyword">return</span> INTEGER_VAL(result);
+}
+
+KRK_Function(fork) {
+	FUNCTION_TAKES_NONE();
+	<span class="hljs-keyword">return</span> INTEGER_VAL(fork());
+}
+
+KRK_Function(symlink) {
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * src;
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * dst;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"ss"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"target"</span>,<span class="hljs-string">"linkpath"</span>}, &amp;src, &amp;dst)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-keyword">if</span> (symlink(src, dst) != <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Function(readlink) {
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"s"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"path"</span>}, &amp;path)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-keyword">char</span> buf[<span class="hljs-number">4096</span>];
+	<span class="hljs-keyword">ssize_t</span> <span class="hljs-built_in">size</span> = readlink(path, buf, <span class="hljs-number">4096</span>);
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+
+	<span class="hljs-keyword">return</span> OBJECT_VAL(krk_copyString(buf, <span class="hljs-built_in">size</span>));
+}
+
+KRK_Function(tcgetpgrp) {
+	<span class="hljs-keyword">int</span> fd;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"i"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"fd"</span>}, &amp;fd)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">int</span> result = tcgetpgrp(fd);
+	<span class="hljs-keyword">if</span> (result == <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+	<span class="hljs-keyword">return</span> INTEGER_VAL(result);
+}
+
+KRK_Function(tcsetpgrp) {
+	<span class="hljs-keyword">int</span> fd;
+	<span class="hljs-keyword">ssize_t</span> pgrp;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"in"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"fd"</span>,<span class="hljs-string">"pgrp"</span>}, &amp;fd, &amp;pgrp)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">int</span> result = tcsetpgrp(fd,pgrp);
+	<span class="hljs-keyword">if</span> (result == <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Function(ttyname) {
+	<span class="hljs-keyword">int</span> fd;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"i"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"fd"</span>}, &amp;fd)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">char</span> * result = ttyname(fd);
+	<span class="hljs-keyword">if</span> (!result) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+	<span class="hljs-keyword">return</span> OBJECT_VAL(krk_copyString(result,<span class="hljs-built_in">strlen</span>(result)));
+}
+
+KRK_Function(get_terminal_size) {
+	<span class="hljs-keyword">int</span> fd = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"|i"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"fd"</span>}, &amp;fd)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">winsize</span> <span class="hljs-title">wsz</span>;</span>
+	<span class="hljs-keyword">int</span> res = ioctl(fd, TIOCGWINSZ, &amp;wsz);
+
+	<span class="hljs-keyword">if</span> (res &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+
+	krk_push(OBJECT_VAL(krk_newTuple(<span class="hljs-number">2</span>)));
+	AS_TUPLE(krk_peek(<span class="hljs-number">0</span>))-&gt;values.values[<span class="hljs-number">0</span>] = INTEGER_VAL(wsz.ws_col);
+	AS_TUPLE(krk_peek(<span class="hljs-number">0</span>))-&gt;values.values[<span class="hljs-number">1</span>] = INTEGER_VAL(wsz.ws_row);
+	AS_TUPLE(krk_peek(<span class="hljs-number">0</span>))-&gt;values.count = <span class="hljs-number">2</span>;
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">makeArgs</span><span class="hljs-params">(<span class="hljs-keyword">int</span> count, <span class="hljs-keyword">const</span> KrkValue * values, <span class="hljs-keyword">char</span> *** argsOut, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * _method_name)</span> </span>{
+	<span class="hljs-keyword">char</span> ** out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span>*)*(count+<span class="hljs-number">1</span>));
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+		<span class="hljs-keyword">if</span> (!IS_STRING(values[i])) {
+			<span class="hljs-built_in">free</span>(out);
+			TYPE_ERROR(str,values[i]);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		out[i] = AS_CSTRING(values[i]);
+	}
+	out[count] = <span class="hljs-literal">NULL</span>;
+	*argsOut = out;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+KRK_Function(execl) {
+	FUNCTION_TAKES_AT_LEAST(<span class="hljs-number">1</span>);
+	CHECK_ARG(<span class="hljs-number">0</span>,str,KrkString*,path);
+	<span class="hljs-keyword">char</span> ** args;
+	<span class="hljs-keyword">if</span> (makeArgs(argc<span class="hljs-number">-1</span>,&amp;argv[<span class="hljs-number">1</span>],&amp;args,_method_name)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">if</span> (execv(path-&gt;chars, args) == <span class="hljs-number">-1</span>) {
+		<span class="hljs-built_in">free</span>(args);
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+	<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"Expected to not return from exec, but did."</span>);
+}
+
+KRK_Function(execlp) {
+	FUNCTION_TAKES_AT_LEAST(<span class="hljs-number">1</span>);
+	CHECK_ARG(<span class="hljs-number">0</span>,str,KrkString*,filename);
+	<span class="hljs-keyword">char</span> ** args;
+	<span class="hljs-keyword">if</span> (makeArgs(argc<span class="hljs-number">-1</span>,&amp;argv[<span class="hljs-number">1</span>],&amp;args,_method_name)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">if</span> (execvp(filename-&gt;chars, args) == <span class="hljs-number">-1</span>) {
+		<span class="hljs-built_in">free</span>(args);
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+	<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"Expected to not return from exec, but did."</span>);
+}
+
+KRK_Function(execle) {
+	FUNCTION_TAKES_AT_LEAST(<span class="hljs-number">1</span>);
+	CHECK_ARG(<span class="hljs-number">0</span>,str,KrkString*,path);
+	CHECK_ARG((argc<span class="hljs-number">-1</span>),<span class="hljs-built_in">list</span>,KrkList*,envp);
+	<span class="hljs-keyword">char</span> ** args;
+	<span class="hljs-keyword">char</span> ** env;
+	<span class="hljs-keyword">if</span> (makeArgs(argc<span class="hljs-number">-2</span>,&amp;argv[<span class="hljs-number">1</span>],&amp;args,_method_name)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">if</span> (makeArgs(envp-&gt;values.count, envp-&gt;values.values,&amp;env,_method_name)) {
+		<span class="hljs-built_in">free</span>(args);
+		<span class="hljs-keyword">return</span> NONE_VAL();
+	}
+	<span class="hljs-keyword">if</span> (execve(path-&gt;chars, args, env) == <span class="hljs-number">-1</span>) {
+		<span class="hljs-built_in">free</span>(args);
+		<span class="hljs-built_in">free</span>(env);
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+	<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"Expected to not return from exec, but did."</span>);
+}
+
+KRK_Function(execv) {
+	FUNCTION_TAKES_EXACTLY(<span class="hljs-number">2</span>);
+	CHECK_ARG(<span class="hljs-number">0</span>,str,KrkString*,filename);
+	CHECK_ARG(<span class="hljs-number">1</span>,<span class="hljs-built_in">list</span>,KrkList*,args);
+	<span class="hljs-keyword">char</span> ** argp;
+	<span class="hljs-keyword">if</span> (makeArgs(args-&gt;values.count, args-&gt;values.values, &amp;argp,_method_name)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">if</span> (execv(filename-&gt;chars, argp) == <span class="hljs-number">-1</span>) {
+		<span class="hljs-built_in">free</span>(argp);
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+	<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"Expected to not return from exec, but did."</span>);
+}
+
+KRK_Function(execvp) {
+	FUNCTION_TAKES_EXACTLY(<span class="hljs-number">2</span>);
+	CHECK_ARG(<span class="hljs-number">0</span>,str,KrkString*,path);
+	CHECK_ARG(<span class="hljs-number">1</span>,<span class="hljs-built_in">list</span>,KrkList*,args);
+	<span class="hljs-keyword">char</span> ** argp;
+	<span class="hljs-keyword">if</span> (makeArgs(args-&gt;values.count, args-&gt;values.values, &amp;argp,_method_name)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">if</span> (execvp(path-&gt;chars, argp) == <span class="hljs-number">-1</span>) {
+		<span class="hljs-built_in">free</span>(argp);
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	}
+	<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"Expected to not return from exec, but did."</span>);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> _WIN32</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> STAT_STRUCT struct __stat64</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> stat _stat64</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> STAT_STRUCT struct stat</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> KrkValue <span class="hljs-title">stat_result_convert</span><span class="hljs-params">(STAT_STRUCT *buf)</span> </span>{
+	KrkInstance * out = krk_newInstance(os_stat_result);
+	krk_push(OBJECT_VAL(out));
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SETU(thing) do { krk_attachNamedValue(&amp;out-&gt;fields, #thing, krk_int_from_ull(buf-&gt; thing)); } while (0)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SETD(thing) do { krk_attachNamedValue(&amp;out-&gt;fields, #thing, krk_int_from_ll(buf-&gt; thing)); } while (0)</span>
+
+	SETU(st_dev); <span class="hljs-comment">/* POSIX doesn't specify, but everyone else assumes unsigned */</span>
+	SETU(st_ino); <span class="hljs-comment">/* POSIX XSI says definitely unsigned */</span>
+
+	<span class="hljs-comment">/* All of these are signed and potentially big */</span>
+	SETD(st_mode);
+	SETD(st_nlink);
+	SETD(st_uid);
+	SETD(st_gid);
+	SETD(st_size);
+	SETD(st_atime);
+	SETD(st_mtime);
+	SETD(st_ctime);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> SETU</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> SETD</span>
+
+	<span class="hljs-comment">/* TODO block sizes */</span>
+
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+
+KRK_Function(stat) {
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"s"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"path"</span>}, &amp;path)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	STAT_STRUCT buf;
+	<span class="hljs-keyword">if</span> (stat(path, &amp;buf) &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	<span class="hljs-keyword">return</span> stat_result_convert(&amp;buf);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> _WIN32</span>
+KRK_Function(lstat) {
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"s"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"path"</span>}, &amp;path)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	STAT_STRUCT buf;
+	<span class="hljs-keyword">if</span> (lstat(path, &amp;buf) &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	<span class="hljs-keyword">return</span> stat_result_convert(&amp;buf);
+}
+
+KRK_Function(fstat) {
+	<span class="hljs-keyword">int</span> fd;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"i"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"fd"</span>}, &amp;fd)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	STAT_STRUCT buf;
+	<span class="hljs-keyword">if</span> (fstat(fd, &amp;buf) &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+	<span class="hljs-keyword">return</span> stat_result_convert(&amp;buf);
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> IS_stat_result(o) (krk_isInstanceOf(o,os_stat_result))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AS_stat_result(o) AS_INSTANCE(o)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_NAME  self</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> getProp(name,sep) \
+	KrkValue name = NONE_VAL(); \
+	krk_tableGet(&amp;self-&gt;fields, OBJECT_VAL(S(<span class="hljs-meta-string">"st_"</span> #name)), &amp;name); \
+	<span class="hljs-meta-keyword">if</span> (!krk_pushStringBuilderFormat(&amp;sb, <span class="hljs-meta-string">"st_"</span> #name <span class="hljs-meta-string">"=%R"</span> sep, name)) return krk_discardStringBuilder(&amp;sb)</span>
+
+KRK_Method(stat_result,__repr__) {
+	METHOD_TAKES_NONE();
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+	krk_pushStringBuilderFormat(&amp;sb,<span class="hljs-string">"os.stat_result("</span>);
+
+	getProp(dev,<span class="hljs-string">","</span>);
+	getProp(ino,<span class="hljs-string">","</span>);
+	getProp(mode,<span class="hljs-string">","</span>);
+	getProp(nlink,<span class="hljs-string">","</span>);
+	getProp(uid,<span class="hljs-string">","</span>);
+	getProp(gid,<span class="hljs-string">","</span>);
+	getProp(<span class="hljs-built_in">size</span>,<span class="hljs-string">","</span>);
+	getProp(atime,<span class="hljs-string">","</span>);
+	getProp(mtime,<span class="hljs-string">","</span>);
+	getProp(ctime,<span class="hljs-string">")"</span>);
+
+	<span class="hljs-keyword">return</span> krk_finishStringBuilder(&amp;sb);
+}
+
+KRK_Module(os) {
+	KRK_DOC(<span class="hljs-keyword">module</span>, <span class="hljs-string">"@brief Provides access to low-level system operations."</span>);
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> _WIN32</span>
+	krk_attachNamedObject(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"name"</span>, (KrkObj*)S(<span class="hljs-string">"nt"</span>));
+	krk_attachNamedObject(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"sep"</span>, (KrkObj*)S(<span class="hljs-string">"\\"</span>));
+	krk_attachNamedObject(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"altsep"</span>, (KrkObj*)S(<span class="hljs-string">"/"</span>));
+	krk_attachNamedObject(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"pathsep"</span>, (KrkObj*)S(<span class="hljs-string">";"</span>));
+	krk_attachNamedObject(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"linesep"</span>, (KrkObj*)S(<span class="hljs-string">"\r\n"</span>));
+	krk_attachNamedObject(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"devnull"</span>, (KrkObj*)S(<span class="hljs-string">"nul"</span>));
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+	krk_attachNamedObject(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"name"</span>, (KrkObj*)S(<span class="hljs-string">"posix"</span>));
+	krk_attachNamedObject(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"sep"</span>, (KrkObj*)S(<span class="hljs-string">"/"</span>));
+	krk_attachNamedValue(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"altsep"</span>, NONE_VAL());
+	krk_attachNamedObject(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"pathsep"</span>, (KrkObj*)S(<span class="hljs-string">":"</span>));
+	krk_attachNamedObject(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"linesep"</span>, (KrkObj*)S(<span class="hljs-string">"\n"</span>));
+	krk_attachNamedObject(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"devnull"</span>, (KrkObj*)S(<span class="hljs-string">"/dev/null"</span>));
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	krk_attachNamedObject(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"curdir"</span>, (KrkObj*)S(<span class="hljs-string">"."</span>));
+	krk_attachNamedObject(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"pardir"</span>, (KrkObj*)S(<span class="hljs-string">".."</span>));
+	krk_attachNamedObject(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"extsep"</span>, (KrkObj*)S(<span class="hljs-string">"."</span>));
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DO_INT(name) krk_attachNamedValue(&amp;module-&gt;fields, #name, INTEGER_VAL(name))</span>
+
+	DO_INT(O_RDONLY);
+	DO_INT(O_WRONLY);
+	DO_INT(O_RDWR);
+	DO_INT(O_APPEND);
+	DO_INT(O_CREAT);
+	DO_INT(O_EXCL);
+	DO_INT(O_TRUNC);
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> O_CLOEXEC</span>
+	DO_INT(O_CLOEXEC);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> O_DIRECTORY</span>
+	DO_INT(O_DIRECTORY);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> O_PATH</span>
+	DO_INT(O_PATH);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> O_NOFOLLOW</span>
+	DO_INT(O_NOFOLLOW);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> O_NONBLOCK</span>
+	DO_INT(O_NONBLOCK);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	DO_INT(SEEK_SET);
+	DO_INT(SEEK_CUR);
+	DO_INT(SEEK_END);
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> SEEK_HOLE</span>
+	DO_INT(SEEK_HOLE);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> SEEK_DATA</span>
+	DO_INT(SEEK_DATA);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,uname),
+		<span class="hljs-string">"@brief Returns a @ref dict of attributes describing the current platform.\n\n"</span>
+		<span class="hljs-string">"On POSIX platforms, the result should match the contents and layout of a standard @c uname() call. "</span>
+		<span class="hljs-string">"On Windows, values are synthesized from available information."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,system),
+		<span class="hljs-string">"@brief Call the system shell.\n"</span>
+		<span class="hljs-string">"@arguments cmd\n\n"</span>
+		<span class="hljs-string">"Runs @p cmd using the system shell and returns the platform-dependent return value."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,getcwd),
+		<span class="hljs-string">"@brief Get the name of the current working directory."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,chdir),
+		<span class="hljs-string">"@brief Change the current working directory.\n"</span>
+		<span class="hljs-string">"@arguments newcwd\n\n"</span>
+		<span class="hljs-string">"Attempts to change the working directory to @p newcwd. Raises @ref OSError on failure."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,getpid),
+		<span class="hljs-string">"@brief Obtain the system process identifier."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,strerror),
+		<span class="hljs-string">"@brief Convert an integer error code to a string.\n"</span>
+		<span class="hljs-string">"@arguments errorno\n\n"</span>
+		<span class="hljs-string">"Provides the string description for the error code specified by @p errorno."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,<span class="hljs-built_in">abort</span>),
+		<span class="hljs-string">"@brief Abort the current process.\n\n"</span>
+		<span class="hljs-string">"@bsnote{This will exit the interpreter without calling cleanup routines.}"</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,<span class="hljs-built_in">exit</span>),
+		<span class="hljs-string">"@brief Exit the current process.\n\n"</span>
+		<span class="hljs-string">"@bsnote{This will exit the interpreter without calling cleanup routines.}"</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,<span class="hljs-built_in">remove</span>),
+		<span class="hljs-string">"@brief Delete a file.\n"</span>
+		<span class="hljs-string">"@arguments path\n\n"</span>
+		<span class="hljs-string">"Attempts to delete the file at @p path."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,truncate),
+		<span class="hljs-string">"@brief Resize a file.\n"</span>
+		<span class="hljs-string">"@arguments path,length\n\n"</span>
+		<span class="hljs-string">"Attempts to resize the file at @p path to @p length bytes."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,dup),
+		<span class="hljs-string">"@brief Duplicate a file descriptor.\n"</span>
+		<span class="hljs-string">"@arguments fd\n\n"</span>
+		<span class="hljs-string">"Returns a new file descriptor pointing to the same file as @p fd."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,dup2),
+		<span class="hljs-string">"@brief Duplicate a file descriptor.\n"</span>
+		<span class="hljs-string">"@arguments oldfd,newfd\n\n"</span>
+		<span class="hljs-string">"Like @ref dup but the new file descriptor is placed at @p newfd.\n"</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,isatty),
+		<span class="hljs-string">"@brief Determine if a file descriptor is a terminal.\n"</span>
+		<span class="hljs-string">"@arguments fd\n\n"</span>
+		<span class="hljs-string">"Returns a @ref bool indicating whether the open file descriptor @p fd refers to a terminal."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,lseek),
+		<span class="hljs-string">"@brief Seek an open file descriptor.\n"</span>
+		<span class="hljs-string">"@arguments fd,pos,how\n\n"</span>
+		<span class="hljs-string">"Seeks the open file descriptor @p fd by @p pos bytes as specified in @p how. "</span>
+		<span class="hljs-string">"Use the values @c SEEK_SET, @c SEEK_CUR, and @c SEEK_END for @p how."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,<span class="hljs-built_in">open</span>),
+		<span class="hljs-string">"@brief Open a file.\n"</span>
+		<span class="hljs-string">"@arguments path,flags,mode=0o777\n\n"</span>
+		<span class="hljs-string">"Opens the file at @p path with the specified @p flags and @p mode. Returns a file descriptor.\n\n"</span>
+		<span class="hljs-string">"@bsnote{Not to be confused with &lt;a class=\"el\" href=\"mod_fileio.html#open\"&gt;fileio.open&lt;/a&gt;}"</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,<span class="hljs-built_in">close</span>),
+		<span class="hljs-string">"@brief Close an open file descriptor.\n"</span>
+		<span class="hljs-string">"@arguments fd"</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,<span class="hljs-built_in">read</span>),
+		<span class="hljs-string">"@brief Read from an open file descriptor.\n"</span>
+		<span class="hljs-string">"@arguments fd,n\n\n"</span>
+		<span class="hljs-string">"Reads at most @p n bytes from the open file descriptor @p fd."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,<span class="hljs-built_in">write</span>),
+		<span class="hljs-string">"@brief Write to an open file descriptor.\n"</span>
+		<span class="hljs-string">"@arguments fd,data\n\n"</span>
+		<span class="hljs-string">"Writes the @ref bytes object @p data to the open file descriptor @p fd."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,<span class="hljs-built_in">mkdir</span>),
+		<span class="hljs-string">"@brief Create a directory.\n"</span>
+		<span class="hljs-string">"@arguments path,mode=0o777\n\n"</span>
+		<span class="hljs-string">"Creates a directory at @p path."</span>);
+
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,execl),
+		<span class="hljs-string">"@brief Replace the current process.\n"</span>
+		<span class="hljs-string">"@arguments path,[args...]\n\n"</span>
+		<span class="hljs-string">"The @c exec* family of functions replaces the calling process's image with a new one. "</span>
+		<span class="hljs-string">"@c execl takes a @p path to a binary and an arbitrary number of @ref str arguments to "</span>
+		<span class="hljs-string">"pass to the new executable."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,execle),
+		<span class="hljs-string">"@brief Replace the current process.\n"</span>
+		<span class="hljs-string">"@arguments path,[args...],env\n\n"</span>
+		<span class="hljs-string">"The @c exec* family of functions replaces the calling process's image with a new one. "</span>
+		<span class="hljs-string">"@c execle takes a @p path to a binary, an arbitrary number of @ref str arguments to "</span>
+		<span class="hljs-string">"pass to the new executable, and @ref list of @c 'KEY=VALUE' pairs to set as the new "</span>
+		<span class="hljs-string">"environment."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,execlp),
+		<span class="hljs-string">"@brief Replace the current process.\n"</span>
+		<span class="hljs-string">"@arguments filename,[args...]\n\n"</span>
+		<span class="hljs-string">"The @c exec* family of functions replaces the calling process's image with a new one. "</span>
+		<span class="hljs-string">"@c execlp takes a @p filename of a binary and an arbitrary number of @ref str arguments to "</span>
+		<span class="hljs-string">"pass to the new executable. @p filename will be searched for in @c $PATH."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,execv),
+		<span class="hljs-string">"@brief Replace the current process.\n"</span>
+		<span class="hljs-string">"@arguments path,args\n\n"</span>
+		<span class="hljs-string">"The @c exec* family of functions replaces the calling process's image with a new one. "</span>
+		<span class="hljs-string">"@c execv takes a @p path to a binary and a @ref list @p args of @ref str arguments to "</span>
+		<span class="hljs-string">"pass to the new executable."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,execvp),
+		<span class="hljs-string">"@brief Replace the current process.\n"</span>
+		<span class="hljs-string">"@arguments filename,args\n\n"</span>
+		<span class="hljs-string">"The @c exec* family of functions replaces the calling process's image with a new one. "</span>
+		<span class="hljs-string">"@c execvp takes a @p filename of a binary and a @ref list @p args of @ref str arguments to "</span>
+		<span class="hljs-string">"pass to the new executable. @p filename will be searched for in @c $PATH."</span>);
+
+	DO_INT(F_OK);
+	DO_INT(R_OK);
+	DO_INT(W_OK);
+	DO_INT(X_OK);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,access),
+		<span class="hljs-string">"@brief Determine if a file can be accessed.\n"</span>
+		<span class="hljs-string">"@arguments path,mask\n\n"</span>
+		<span class="hljs-string">"Use the values @c F_OK, @c R_OK, @c W_OK, and @c X_OK to construct @p mask and check if the current "</span>
+		<span class="hljs-string">"process has sufficient access rights to perform the requested operations on the file "</span>
+		<span class="hljs-string">"at @p path."</span>);
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> _WIN32</span>
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,pipe),
+		<span class="hljs-string">"@brief Create a pipe.\n\n"</span>
+		<span class="hljs-string">"Creates a _pipe_, returning a two-tuple of file descriptors for the read and write ends respectively."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,kill),
+		<span class="hljs-string">"@brief Send a signal to a process.\n"</span>
+		<span class="hljs-string">"@arguments pid,signum\n\n"</span>
+		<span class="hljs-string">"Send the signal @p signum to the process at @p pid.\n"</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,fork),
+		<span class="hljs-string">"@brief Fork the current process.\n\n"</span>
+		<span class="hljs-string">"Returns the PID of the new child process in the original process and @c 0 in the child."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,symlink),
+		<span class="hljs-string">"@brief Create a symbolic link.\n"</span>
+		<span class="hljs-string">"@arguments src,dst\n\n"</span>
+		<span class="hljs-string">"Creates a symbolic link at @p src pointing to @p dst."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,readlink),
+		<span class="hljs-string">"@brief Return a string representing the target of a symbolic link.\n"</span>
+		<span class="hljs-string">"@arguments path"</span>);
+
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,tcgetpgrp),
+		<span class="hljs-string">"@brief Get the terminal foreground process group.\n"</span>
+		<span class="hljs-string">"@arguments fd\n\n"</span>
+		<span class="hljs-string">"Return the PID representing the foreground process group of the terminal specified by the file descriptor @p fd."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,tcsetpgrp),
+		<span class="hljs-string">"@brief %Set the terminal foreground process group.\n"</span>
+		<span class="hljs-string">"@arguments fd,pgrp\n\n"</span>
+		<span class="hljs-string">"%Set the PID representing the foreground process group of the terminal specified by the file descriptor @p fd to @p pgrp."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,ttyname),
+		<span class="hljs-string">"@brief Get the path to a terminal device.\n"</span>
+		<span class="hljs-string">"@arguments fd\n\n"</span>
+		<span class="hljs-string">"Returns a @ref str representing the path to the terminal device provided by the file descriptor @p fd."</span>);
+
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,get_terminal_size),
+		<span class="hljs-string">"@brief Obtain the size of the terminal window.\n"</span>
+		<span class="hljs-string">"@arguments fd=1\n"</span>
+		<span class="hljs-string">"Obtain the size of the host terminal as a tuple of columns and lines."</span>);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	_loadEnviron(<span class="hljs-keyword">module</span>);
+
+	<span class="hljs-comment">/* Nothing special */</span>
+	KrkClass * stat_result = krk_makeClass(<span class="hljs-keyword">module</span>, &amp;os_stat_result, <span class="hljs-string">"stat_result"</span>, vm.baseClasses-&gt;objectClass);
+	BIND_METHOD(stat_result,__repr__);
+	krk_finalizeClass(stat_result);
+
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,stat),
+		<span class="hljs-string">"@brief Get the status of a file\n"</span>
+		<span class="hljs-string">"@arguments path\n\n"</span>
+		<span class="hljs-string">"Runs the @c stat system call on @p path. Returns a @ref stat_result.\n"</span>);
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> _WIN32</span>
+	<span class="hljs-comment">/* lstat doesn't exist, and fstat takes weird arguments. */</span>
+	BIND_FUNC(<span class="hljs-keyword">module</span>,lstat);
+	BIND_FUNC(<span class="hljs-keyword">module</span>,fstat);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+}
+
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

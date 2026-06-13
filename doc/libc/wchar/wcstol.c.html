@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>wcstol.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "libc\\wchar\\wcstol.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>wcstol.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;ctype.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;limits.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;wchar.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">is_valid</span><span class="hljs-params">(<span class="hljs-keyword">int</span> base, <span class="hljs-keyword">wchar_t</span> c)</span> </span>{
+	<span class="hljs-keyword">if</span> (c &lt; <span class="hljs-string">'0'</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (base &lt;= <span class="hljs-number">10</span>) {
+		<span class="hljs-keyword">return</span> c &lt; (<span class="hljs-string">'0'</span> + (<span class="hljs-keyword">wchar_t</span>)base);
+	}
+
+	<span class="hljs-keyword">if</span> (c &gt;= <span class="hljs-string">'a'</span> &amp;&amp; c &lt; <span class="hljs-string">'a'</span> + ((<span class="hljs-keyword">wchar_t</span>)base - <span class="hljs-number">10</span>)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (c &gt;= <span class="hljs-string">'A'</span> &amp;&amp; c &lt; <span class="hljs-string">'A'</span> + ((<span class="hljs-keyword">wchar_t</span>)base - <span class="hljs-number">10</span>)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (c &gt;= <span class="hljs-string">'0'</span> &amp;&amp; c &lt;= <span class="hljs-string">'9'</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">convert_digit</span><span class="hljs-params">(<span class="hljs-keyword">wchar_t</span> c)</span> </span>{
+	<span class="hljs-keyword">if</span> (c &gt;= <span class="hljs-string">'0'</span> &amp;&amp; c &lt;= <span class="hljs-string">'9'</span>) {
+		<span class="hljs-keyword">return</span> c - <span class="hljs-string">'0'</span>;
+	}
+	<span class="hljs-keyword">if</span> (c &gt;= <span class="hljs-string">'a'</span> &amp;&amp; c &lt;= <span class="hljs-string">'z'</span>) {
+		<span class="hljs-keyword">return</span> c - <span class="hljs-string">'a'</span> + <span class="hljs-number">0xa</span>;
+	}
+	<span class="hljs-keyword">if</span> (c &gt;= <span class="hljs-string">'A'</span> &amp;&amp; c &lt;= <span class="hljs-string">'Z'</span>) {
+		<span class="hljs-keyword">return</span> c - <span class="hljs-string">'A'</span> + <span class="hljs-number">0xa</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> strtox(max, type) \
+	<span class="hljs-meta-keyword">if</span> (base <span class="hljs-meta-string">&lt; 0 || base == 1 || base &gt; 36) { \</span></span>
+		errno = EINVAL; \
+		<span class="hljs-keyword">return</span> <span class="hljs-built_in">max</span>; \
+	} \
+	<span class="hljs-keyword">while</span> (*nptr &amp;&amp; <span class="hljs-built_in">isspace</span>(*nptr)) nptr++; \
+	<span class="hljs-keyword">int</span> sign = <span class="hljs-number">1</span>; \
+	<span class="hljs-keyword">if</span> (*nptr == <span class="hljs-string">'-'</span>) { \
+		sign = <span class="hljs-number">-1</span>; \
+		nptr++; \
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (*nptr == <span class="hljs-string">'+'</span>) { \
+		nptr++; \
+	} \
+	<span class="hljs-keyword">if</span> (base == <span class="hljs-number">16</span>) { \
+		<span class="hljs-keyword">if</span> (*nptr == <span class="hljs-string">'0'</span>) { \
+			nptr++; \
+			<span class="hljs-keyword">if</span> (*nptr == <span class="hljs-string">'x'</span>) { \
+				nptr++; \
+			} \
+		} \
+	} \
+	<span class="hljs-keyword">if</span> (base == <span class="hljs-number">0</span>) { \
+		<span class="hljs-keyword">if</span> (*nptr == <span class="hljs-string">'0'</span>) { \
+			base = <span class="hljs-number">8</span>; \
+			nptr++; \
+			<span class="hljs-keyword">if</span> (*nptr == <span class="hljs-string">'x'</span>) { \
+				base = <span class="hljs-number">16</span>; \
+				nptr++; \
+			} \
+		} <span class="hljs-keyword">else</span> { \
+			base = <span class="hljs-number">10</span>; \
+		} \
+	} \
+	type val = <span class="hljs-number">0</span>; \
+	<span class="hljs-keyword">while</span> (is_valid(base, *nptr)) { \
+		val *= base; \
+		val += convert_digit(*nptr); \
+		nptr++; \
+	} \
+	<span class="hljs-keyword">if</span> (endptr) { \
+		*endptr = (<span class="hljs-keyword">wchar_t</span> *)nptr; \
+	} \
+	<span class="hljs-keyword">if</span> (sign == <span class="hljs-number">-1</span>) { \
+		<span class="hljs-keyword">return</span> -val; \
+	} <span class="hljs-keyword">else</span> { \
+		<span class="hljs-keyword">return</span> val; \
+	}
+
+<span class="hljs-function"><span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> <span class="hljs-keyword">int</span> <span class="hljs-title">wcstoul</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">wchar_t</span> *nptr, <span class="hljs-keyword">wchar_t</span> **endptr, <span class="hljs-keyword">int</span> base)</span> </span>{
+	strtox(ULONG_MAX, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> <span class="hljs-keyword">int</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> <span class="hljs-keyword">long</span> <span class="hljs-keyword">int</span> <span class="hljs-title">wcstoull</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *nptr, <span class="hljs-keyword">wchar_t</span> **endptr, <span class="hljs-keyword">int</span> base)</span> </span>{
+	strtox(ULLONG_MAX, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> <span class="hljs-keyword">int</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-keyword">int</span> <span class="hljs-title">wcstol</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">wchar_t</span> *nptr, <span class="hljs-keyword">wchar_t</span> **endptr, <span class="hljs-keyword">int</span> base)</span> </span>{
+	strtox(LONG_MAX, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> <span class="hljs-keyword">int</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-keyword">long</span> <span class="hljs-keyword">int</span> <span class="hljs-title">wcstoll</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">wchar_t</span> *nptr, <span class="hljs-keyword">wchar_t</span> **endptr, <span class="hljs-keyword">int</span> base)</span> </span>{
+	strtox(LLONG_MAX, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> <span class="hljs-keyword">long</span> <span class="hljs-keyword">int</span>);
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

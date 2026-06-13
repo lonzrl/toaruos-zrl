@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ac97.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "modules\\ac97.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>ac97.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">See</div>
+<div class="dox_tag_detail">
+<a href="http://www.intel.com/design/chipsets/manuals/29802801.pdf">http://www.intel.com/design/chipsets/manuals/29802801.pdf</a>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pci.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/module.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mod/snd.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__x86_64__)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/ports.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/regs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/irq.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">elif</span> defined(__aarch64__)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/aarch64/gic.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-comment">/* Utility macros */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> N_ELEMENTS(arr) (sizeof(arr) / sizeof((arr)[0]))</span>
+
+<span class="hljs-comment">/* BARs! */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_NAMBAR  0x10  <span class="hljs-comment">/* Native Audio Mixer Base Address Register */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_NABMBAR 0x14  <span class="hljs-comment">/* Native Audio Bus Mastering Base Address Register */</span></span>
+
+<span class="hljs-comment">/* Bus mastering IO port offsets */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_PO_BDBAR 0x10  <span class="hljs-comment">/* PCM out buffer descriptor BAR */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_PO_CIV   0x14  <span class="hljs-comment">/* PCM out current index value */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_PO_LVI   0x15  <span class="hljs-comment">/* PCM out last valid index */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_PO_SR    0x16  <span class="hljs-comment">/* PCM out status register */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_PO_PICB  0x18  <span class="hljs-comment">/* PCM out position in current buffer register */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_PO_CR    0x1B  <span class="hljs-comment">/* PCM out control register */</span></span>
+
+<span class="hljs-comment">/* Bus mastering misc */</span>
+<span class="hljs-comment">/* Buffer descriptor list constants */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_BDL_LEN              32                    <span class="hljs-comment">/* Buffer descriptor list length */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_BDL_BUFFER_LEN       0x1000                <span class="hljs-comment">/* Length of buffer in BDL */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_CL_GET_LENGTH(cl)    ((cl) &amp; 0xFFFF)       <span class="hljs-comment">/* Decode length from cl */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_CL_SET_LENGTH(cl, v) ((cl) = (v) &amp; 0xFFFF) <span class="hljs-comment">/* Encode length to cl */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_CL_BUP               ((uint32_t)1 &lt;&lt; 30)             <span class="hljs-comment">/* Buffer underrun policy in cl */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_CL_IOC               ((uint32_t)1 &lt;&lt; 31)             <span class="hljs-comment">/* Interrupt on completion flag in cl */</span></span>
+
+<span class="hljs-comment">/* PCM out control register flags */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_X_CR_RPBM  (1 &lt;&lt; 0)  <span class="hljs-comment">/* Run/pause bus master */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_X_CR_RR    (1 &lt;&lt; 1)  <span class="hljs-comment">/* Reset registers */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_X_CR_LVBIE (1 &lt;&lt; 2)  <span class="hljs-comment">/* Last valid buffer interrupt enable */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_X_CR_FEIE  (1 &lt;&lt; 3)  <span class="hljs-comment">/* FIFO error interrupt enable */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_X_CR_IOCE  (1 &lt;&lt; 4)  <span class="hljs-comment">/* Interrupt on completion enable */</span></span>
+
+<span class="hljs-comment">/* Status register flags */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_X_SR_DCH   (1 &lt;&lt; 0)  <span class="hljs-comment">/* DMA controller halted */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_X_SR_CELV  (1 &lt;&lt; 1)  <span class="hljs-comment">/* Current equals last valid */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_X_SR_LVBCI (1 &lt;&lt; 2)  <span class="hljs-comment">/* Last valid buffer completion interrupt */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_X_SR_BCIS  (1 &lt;&lt; 3)  <span class="hljs-comment">/* Buffer completion interrupt status */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_X_SR_FIFOE (1 &lt;&lt; 4)  <span class="hljs-comment">/* FIFO error */</span></span>
+
+<span class="hljs-comment">/* Mixer IO port offsets */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_RESET          0x00</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_MASTER_VOLUME  0x02</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_AUX_OUT_VOLUME 0x04</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_MONO_VOLUME    0x06</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_PCM_OUT_VOLUME 0x18</span>
+
+<span class="hljs-comment">/* snd values */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_SND_NAME <span class="hljs-meta-string">"Intel AC'97"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_PLAYBACK_SPEED 48000</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_PLAYBACK_FORMAT SND_FORMAT_L16SLE</span>
+
+<span class="hljs-comment">/* An entry in a buffer dscriptor list */</span>
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+	<span class="hljs-keyword">uint32_t</span> pointer;  <span class="hljs-comment">/* Pointer to buffer */</span>
+	<span class="hljs-keyword">uint32_t</span> cl;       <span class="hljs-comment">/* Control values and buffer length */</span>
+} __attribute__((packed)) <span class="hljs-keyword">ac97_bdl_entry_t</span>;
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+	<span class="hljs-keyword">uint32_t</span> pci_device;
+	<span class="hljs-keyword">uint16_t</span> nabmbar;               <span class="hljs-comment">/* Native audio bus mastring BAR */</span>
+	<span class="hljs-keyword">uint16_t</span> nambar;                <span class="hljs-comment">/* Native audio mixing BAR */</span>
+	<span class="hljs-keyword">size_t</span> irq;                     <span class="hljs-comment">/* This ac97's irq */</span>
+	<span class="hljs-keyword">uint8_t</span> lvi;                    <span class="hljs-comment">/* The currently set last valid index */</span>
+	<span class="hljs-keyword">uint8_t</span> bits;                   <span class="hljs-comment">/* How many bits of volume are supported (5 or 6) */</span>
+	<span class="hljs-keyword">ac97_bdl_entry_t</span> * bdl;         <span class="hljs-comment">/* Buffer descriptor list */</span>
+	<span class="hljs-keyword">uint16_t</span> * bufs[AC97_BDL_LEN];  <span class="hljs-comment">/* Virtual addresses for buffers in BDL */</span>
+	<span class="hljs-keyword">uint32_t</span> bdl_p;
+	<span class="hljs-keyword">uint32_t</span> mask;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">char</span> *  _iobase;
+	<span class="hljs-keyword">spin_lock_t</span> lock;
+} <span class="hljs-keyword">ac97_device_t</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">ac97_device_t</span> _device;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__aarch64__)</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint8_t</span> <span class="hljs-title">inportb</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> port)</span> </span>{
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span> * _port = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span>*)(_device._iobase + port);
+	<span class="hljs-keyword">return</span> *_port;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint16_t</span> <span class="hljs-title">inports</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> port)</span> </span>{
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span> * _port = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span>*)(_device._iobase + port);
+	<span class="hljs-keyword">return</span> *_port;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">inportl</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> port)</span> </span>{
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> * _port = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span>*)(_device._iobase + port);
+	<span class="hljs-keyword">return</span> *_port;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">outportb</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> port, <span class="hljs-keyword">uint8_t</span> val)</span> </span>{
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span> * _port = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span>*)(_device._iobase + port);
+	*_port = val;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">outports</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> port, <span class="hljs-keyword">uint16_t</span> val)</span> </span>{
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span> * _port = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span>*)(_device._iobase + port);
+	*_port = val;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">outportl</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> port, <span class="hljs-keyword">uint32_t</span> val)</span> </span>{
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> * _port = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span>*)(_device._iobase + port);
+	*_port = val;
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AC97_KNOB_PCM_OUT (SND_KNOB_VENDOR + 0)</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">snd_knob_t</span> _knobs[] = {
+	{
+		<span class="hljs-string">"Master"</span>,
+		SND_KNOB_MASTER
+	},
+	{
+		<span class="hljs-string">"PCM Out"</span>,
+		SND_KNOB_VENDOR + <span class="hljs-number">0</span>
+	}
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ac97_mixer_read</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> knob_id, <span class="hljs-keyword">uint32_t</span> *val)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ac97_mixer_write</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> knob_id, <span class="hljs-keyword">uint32_t</span> val)</span></span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">snd_device_t</span> _snd = {
+	.name            = AC97_SND_NAME,
+	.device          = &amp;_device,
+	.playback_speed  = AC97_PLAYBACK_SPEED,
+	.playback_format = AC97_PLAYBACK_FORMAT,
+
+	.knobs     = _knobs,
+	.num_knobs = N_ELEMENTS(_knobs),
+
+	.mixer_read  = ac97_mixer_read,
+	.mixer_write = ac97_mixer_write,
+};
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>This could be unnecessary if we instead allocate just two buffers and make
+the ac97 think there are more.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">find_ac97</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> device, <span class="hljs-keyword">uint16_t</span> vendorid, <span class="hljs-keyword">uint16_t</span> deviceid, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+
+	<span class="hljs-keyword">ac97_device_t</span> * ac97 = extra;
+
+	<span class="hljs-keyword">if</span> ((vendorid == <span class="hljs-number">0x8086</span>) &amp;&amp; (deviceid == <span class="hljs-number">0x2415</span>)) {
+		ac97-&gt;pci_device = device;
+	}
+
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DIVISION 0x1000</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__x86_64__)</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ac97_irq_handler</span><span class="hljs-params">(struct regs * regs)</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">elif</span> defined(__aarch64__)</span>
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">ac97_irq_handler</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">int</span> irq, <span class="hljs-keyword">void</span> * data)</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	spin_lock(_device.lock);
+	<span class="hljs-keyword">uint16_t</span> sr = inports(_device.nabmbar + AC97_PO_SR);
+	<span class="hljs-keyword">if</span> (sr &amp; AC97_X_SR_BCIS) {
+		outports(_device.nabmbar + AC97_PO_SR, AC97_X_SR_BCIS);
+		spin_unlock(_device.lock);
+		<span class="hljs-keyword">uint16_t</span> current_buffer = inportb(_device.nabmbar + AC97_PO_CIV);
+		<span class="hljs-keyword">uint16_t</span> last_valid = ((current_buffer+<span class="hljs-number">2</span>) &amp; (AC97_BDL_LEN<span class="hljs-number">-1</span>));
+		snd_request_buf(&amp;_snd, <span class="hljs-number">0x1000</span>, (<span class="hljs-keyword">uint8_t</span> *)_device.bufs[last_valid]);
+		outportb(_device.nabmbar + AC97_PO_LVI, last_valid);
+		snd_request_buf(&amp;_snd, <span class="hljs-number">0x1000</span>, (<span class="hljs-keyword">uint8_t</span> *)_device.bufs[last_valid]+<span class="hljs-number">0x1000</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (sr &amp; AC97_X_SR_LVBCI) {
+		outports(_device.nabmbar + AC97_PO_SR, AC97_X_SR_LVBCI);
+		spin_unlock(_device.lock);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (sr &amp; AC97_X_SR_FIFOE) {
+		outports(_device.nabmbar + AC97_PO_SR, AC97_X_SR_FIFOE);
+		spin_unlock(_device.lock);
+	} <span class="hljs-keyword">else</span> {
+		spin_unlock(_device.lock);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __x86_64__</span>
+	irq_ack(_device.irq);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-comment">/* Currently we just assume right and left are the same */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ac97_mixer_read</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> knob_id, <span class="hljs-keyword">uint32_t</span> *val)</span> </span>{
+	<span class="hljs-keyword">uint16_t</span> tmp;
+	<span class="hljs-keyword">switch</span> (knob_id) {
+		<span class="hljs-keyword">case</span> SND_KNOB_MASTER:
+			tmp = inports(_device.nambar + AC97_MASTER_VOLUME);
+			<span class="hljs-keyword">if</span> (tmp == <span class="hljs-number">0x8000</span>) {
+				*val = <span class="hljs-number">0</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-comment">/* 6 bit value */</span>
+				*val = (tmp &amp; _device.mask) &lt;&lt; (<span class="hljs-keyword">sizeof</span>(*val) * <span class="hljs-number">8</span> - _device.bits);
+				*val = ~*val;
+				*val &amp;= (<span class="hljs-keyword">uint32_t</span>)_device.mask &lt;&lt; (<span class="hljs-keyword">sizeof</span>(*val) * <span class="hljs-number">8</span> - _device.bits);
+			}
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> AC97_KNOB_PCM_OUT:
+			tmp = inports(_device.nambar + AC97_PCM_OUT_VOLUME);
+			<span class="hljs-keyword">if</span> (tmp == <span class="hljs-number">0x8000</span>) {
+				*val = <span class="hljs-number">0</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-comment">/* 5 bit value */</span>
+				*val = (tmp &amp; <span class="hljs-number">0x1f</span>) &lt;&lt; (<span class="hljs-keyword">sizeof</span>(*val) * <span class="hljs-number">8</span> - <span class="hljs-number">5</span>);
+				*val = ~*val;
+				*val &amp;= <span class="hljs-number">0x1f</span> &lt;&lt; (<span class="hljs-keyword">sizeof</span>(*val) * <span class="hljs-number">8</span> - <span class="hljs-number">5</span>);
+			}
+			<span class="hljs-keyword">break</span>;
+
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> -ENXIO;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ac97_mixer_write</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> knob_id, <span class="hljs-keyword">uint32_t</span> val)</span> </span>{
+	<span class="hljs-keyword">switch</span> (knob_id) {
+		<span class="hljs-keyword">case</span> SND_KNOB_MASTER: {
+			<span class="hljs-keyword">uint16_t</span> encoded;
+			<span class="hljs-keyword">if</span> (val == <span class="hljs-number">0x0</span>) {
+				encoded = <span class="hljs-number">0x8000</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-comment">/* 0 is the highest volume */</span>
+				val = ~val;
+				<span class="hljs-comment">/* 6 bit value */</span>
+				val &gt;&gt;= (<span class="hljs-keyword">sizeof</span>(val) * <span class="hljs-number">8</span> - _device.bits);
+				encoded = (val &amp; <span class="hljs-number">0xFF</span>) | (val &lt;&lt; <span class="hljs-number">8</span>);
+			}
+			outports(_device.nambar + AC97_MASTER_VOLUME, encoded);
+			<span class="hljs-keyword">break</span>;
+		}
+
+		<span class="hljs-keyword">case</span> AC97_KNOB_PCM_OUT: {
+			<span class="hljs-keyword">uint16_t</span> encoded;
+			<span class="hljs-keyword">if</span> (val == <span class="hljs-number">0x0</span>) {
+				encoded = <span class="hljs-number">0x8000</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-comment">/* 0 is the highest volume */</span>
+				val = ~val;
+				<span class="hljs-comment">/* 5 bit value */</span>
+				val &gt;&gt;= (<span class="hljs-keyword">sizeof</span>(val) * <span class="hljs-number">8</span> - <span class="hljs-number">5</span>);
+				encoded = (val &amp; <span class="hljs-number">0xFF</span>) | (val &lt;&lt; <span class="hljs-number">8</span>);
+			}
+			outports(_device.nambar + AC97_PCM_OUT_VOLUME, encoded);
+			<span class="hljs-keyword">break</span>;
+		}
+
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> -ENXIO;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ac97_install</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<p>debug_print(NOTICE, &quot;Initializing AC97&quot;);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	pci_scan(&amp;find_ac97, <span class="hljs-number">-1</span>, &amp;_device);
+	<span class="hljs-keyword">if</span> (!_device.pci_device) {
+		<span class="hljs-keyword">return</span> -ENODEV;
+	}
+
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__aarch64__)</span>
+	pci_write_field(_device.pci_device, PCI_COMMAND, <span class="hljs-number">2</span>, <span class="hljs-number">0x5</span>);
+	pci_write_field(_device.pci_device, AC97_NABMBAR, <span class="hljs-number">2</span>, <span class="hljs-number">0x1001</span>);
+	pci_write_field(_device.pci_device, PCI_BAR0, <span class="hljs-number">4</span>, <span class="hljs-number">0x2001</span>);
+	_device._iobase = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">char</span> *)mmu_map_mmio_region(<span class="hljs-number">0x3eff0000</span>, <span class="hljs-number">0x3000</span>);
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	_device.nabmbar = pci_read_field(_device.pci_device, AC97_NABMBAR, <span class="hljs-number">2</span>) &amp; ((<span class="hljs-keyword">uint32_t</span>) <span class="hljs-number">-1</span>) &lt;&lt; <span class="hljs-number">1</span>;
+	_device.nambar = pci_read_field(_device.pci_device, PCI_BAR0, <span class="hljs-number">4</span>) &amp; ((<span class="hljs-keyword">uint32_t</span>) <span class="hljs-number">-1</span>) &lt;&lt; <span class="hljs-number">1</span>;
+
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__x86_64__)</span>
+	_device.irq = pci_get_interrupt(_device.pci_device);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<p>printf(&quot;device wants irq %zd\n&quot;, _device.irq);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	irq_install_handler(_device.irq, ac97_irq_handler, <span class="hljs-string">"ac97"</span>);
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">elif</span> defined(__aarch64__)</span>
+	<span class="hljs-keyword">int</span> irq;
+	gic_map_pci_interrupt(<span class="hljs-string">"ac97"</span>,_device.pci_device,&amp;irq,ac97_irq_handler,&amp;_device);
+	_device.irq = irq;
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	<span class="hljs-comment">/* Enable all matter of interrupts */</span>
+	outportb(_device.nabmbar + AC97_PO_CR, AC97_X_CR_FEIE | AC97_X_CR_IOCE);
+
+	<span class="hljs-comment">/* Enable bus mastering and disable memory mapped space */</span>
+	pci_write_field(_device.pci_device, PCI_COMMAND, <span class="hljs-number">2</span>, <span class="hljs-number">0x5</span>);
+	<span class="hljs-comment">/* Default the PCM output to full volume. */</span>
+	outports(_device.nambar + AC97_PCM_OUT_VOLUME, <span class="hljs-number">0x0000</span>);
+
+	<span class="hljs-comment">/* Allocate our BDL and our buffers */</span>
+	_device.bdl_p = mmu_allocate_a_frame() &lt;&lt; <span class="hljs-number">12</span>;
+	_device.bdl   = mmu_map_from_physical(_device.bdl_p);
+	<span class="hljs-built_in">memset</span>(_device.bdl, <span class="hljs-number">0</span>, AC97_BDL_LEN * <span class="hljs-keyword">sizeof</span>(*_device.bdl));
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; AC97_BDL_LEN; i++) {
+		_device.bdl[i].pointer = mmu_allocate_n_frames(<span class="hljs-number">2</span>) &lt;&lt; <span class="hljs-number">12</span>;
+		_device.bufs[i] = mmu_map_from_physical(_device.bdl[i].pointer);
+		<span class="hljs-built_in">memset</span>(_device.bufs[i], <span class="hljs-number">0</span>, AC97_BDL_BUFFER_LEN * <span class="hljs-keyword">sizeof</span>(*_device.bufs[<span class="hljs-number">0</span>]));
+		AC97_CL_SET_LENGTH(_device.bdl[i].cl, AC97_BDL_BUFFER_LEN);
+		<span class="hljs-comment">/* Set all buffers to interrupt */</span>
+		_device.bdl[i].cl |= AC97_CL_IOC;
+
+	}
+	<span class="hljs-comment">/* Tell the ac97 where our BDL is */</span>
+	outportl(_device.nabmbar + AC97_PO_BDBAR, _device.bdl_p);
+	<span class="hljs-comment">/* Set the LVI to be the last index */</span>
+	_device.lvi = <span class="hljs-number">2</span>;
+	outportb(_device.nabmbar + AC97_PO_LVI, _device.lvi);
+
+	<span class="hljs-comment">/* detect whether device supports MSB */</span>
+	outports(_device.nambar + AC97_MASTER_VOLUME, <span class="hljs-number">0x2020</span>);
+	<span class="hljs-keyword">uint16_t</span> t = inports(_device.nambar + AC97_MASTER_VOLUME) &amp; <span class="hljs-number">0x1f</span>;
+	<span class="hljs-keyword">if</span> (t == <span class="hljs-number">0x1f</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<p>debug_print(WARNING, &quot;This device only supports 5 bits of audio volume.&quot;);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		_device.bits = <span class="hljs-number">5</span>;
+		_device.mask = <span class="hljs-number">0x1f</span>;
+	} <span class="hljs-keyword">else</span> {
+		_device.bits = <span class="hljs-number">6</span>;
+		_device.mask = <span class="hljs-number">0x3f</span>;
+	}
+	outports(_device.nambar + AC97_MASTER_VOLUME, <span class="hljs-number">0x0000</span>);
+
+	snd_register(&amp;_snd);
+
+	<span class="hljs-comment">/* Start things playing */</span>
+	outportb(_device.nabmbar + AC97_PO_CR, inportb(_device.nabmbar + AC97_PO_CR) | AC97_X_CR_RPBM);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<p>debug_print(NOTICE, &quot;AC97 initialized successfully&quot;);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">fini</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	snd_unregister(&amp;_snd);
+
+	<span class="hljs-built_in">free</span>(_device.bdl);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; AC97_BDL_LEN; i++) {
+		<span class="hljs-built_in">free</span>(_device.bufs[i]);
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Module</span> <span class="hljs-title">metadata</span> = {</span>
+	.name = <span class="hljs-string">"ac97"</span>,
+	.init = ac97_install,
+	.fini = fini,
+};
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

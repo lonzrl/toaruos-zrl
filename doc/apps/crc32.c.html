@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>crc32.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\crc32.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>crc32.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>crc32 - Simple CRC32 calculator for verifying file integrity.</p>
+</div>
+<div class="body">
+<p>Mostly based on code samples from Wikipedia.</p>
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;libgen.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> RBUF_SIZE 10240</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * _argv_0;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> crctab[<span class="hljs-number">256</span>];
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> reflect_input = <span class="hljs-number">1</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> reflect_output = <span class="hljs-number">1</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> initial_value = <span class="hljs-number">0xFFFFFFFF</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> final_xor = <span class="hljs-number">0xFFFFFFFF</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> print_decimal = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> extend = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"usage: %s [-d] {-c | -P | [-p polynomial] [-e] [-r] [-R] [-i initial_value] [-x final_xor]} [file...]\n"</span>, argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> <span class="hljs-title">reflectn</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> from, <span class="hljs-keyword">int</span> n)</span> </span>{
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> to = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; n; ++i) {
+		to = (to &lt;&lt; <span class="hljs-number">1</span>) | (from &amp; <span class="hljs-number">1</span>);
+		from &gt;&gt;= <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> to;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">calculate</span><span class="hljs-params">(FILE * f, <span class="hljs-keyword">char</span> * name, <span class="hljs-keyword">int</span> print_name)</span> </span>{
+	<span class="hljs-keyword">char</span> buf[RBUF_SIZE];
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> <span class="hljs-built_in">size</span> = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> crc32 = initial_value;
+	<span class="hljs-keyword">while</span> (!feof(f)) {
+		<span class="hljs-keyword">size_t</span> r = fread(buf, <span class="hljs-number">1</span>, RBUF_SIZE, f);
+		<span class="hljs-keyword">if</span> (r == <span class="hljs-number">0</span> &amp;&amp; ferror(f)) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, _argv_0, name, strerror(errno));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; r; ++i) {
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> b = buf[i];
+			<span class="hljs-keyword">if</span> (!reflect_input) b = reflectn(b,<span class="hljs-number">8</span>);
+			<span class="hljs-keyword">int</span> ind = (crc32 ^ b) &amp; <span class="hljs-number">0xFF</span>;
+			crc32 = (crc32 &gt;&gt; <span class="hljs-number">8</span>) ^ (crctab[ind]);
+			<span class="hljs-built_in">size</span> += <span class="hljs-number">1</span>;
+		}
+	}
+	<span class="hljs-keyword">if</span> (extend) {
+		<span class="hljs-keyword">size_t</span> s = <span class="hljs-built_in">size</span>;
+		<span class="hljs-keyword">while</span> (s) {
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> b = s &amp; <span class="hljs-number">0xFF</span>;
+			s &gt;&gt;= <span class="hljs-number">8</span>;
+			<span class="hljs-keyword">if</span> (!reflect_input) b = reflectn(b,<span class="hljs-number">8</span>);
+			<span class="hljs-keyword">int</span> ind = (crc32 ^ b) &amp; <span class="hljs-number">0xFF</span>;
+			crc32 = (crc32 &gt;&gt; <span class="hljs-number">8</span>) ^ (crctab[ind]);
+		}
+	}
+	crc32 ^= final_xor;
+	<span class="hljs-keyword">if</span> (!reflect_output) crc32 = reflectn(crc32,<span class="hljs-number">32</span>);
+	<span class="hljs-keyword">if</span> (print_decimal) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%u %lu%s%s\n"</span>, crc32, <span class="hljs-built_in">size</span>, (*name) ? <span class="hljs-string">" "</span> : <span class="hljs-string">""</span>, name);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (print_name) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%08x\t%s\n"</span>, crc32, name);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%08x\n"</span>, crc32);
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	_argv_0 = argv[<span class="hljs-number">0</span>];
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> poly = <span class="hljs-number">0x04C11DB7</span>;
+
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(basename(argv[<span class="hljs-number">0</span>]),<span class="hljs-string">"cksum"</span>)) {
+		reflect_input = <span class="hljs-number">0</span>;
+		reflect_output = <span class="hljs-number">0</span>;
+		initial_value = <span class="hljs-number">0</span>;
+		extend = <span class="hljs-number">1</span>;
+		print_decimal = <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">int</span> opt;
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"dei:x:rRcp:P"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'d'</span>:
+				print_decimal = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'e'</span>:
+				extend = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'i'</span>:
+				initial_value = strtoul(optarg,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'x'</span>:
+				final_xor = strtoul(optarg,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'r'</span>:
+				reflect_input = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'R'</span>:
+				reflect_output = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'p'</span>:
+				poly = strtoul(optarg,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'c'</span>:
+				poly = <span class="hljs-number">0x1EDC6F41</span>;
+				reflect_input = <span class="hljs-number">1</span>;
+				reflect_output = <span class="hljs-number">1</span>;
+				initial_value = <span class="hljs-number">0xFFFFFFFF</span>;
+				final_xor = <span class="hljs-number">0xFFFFFFFF</span>;
+				extend = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'P'</span>:
+				poly = <span class="hljs-number">0x04C11DB7</span>;
+				reflect_input = <span class="hljs-number">0</span>;
+				reflect_output = <span class="hljs-number">0</span>;
+				initial_value = <span class="hljs-number">0</span>;
+				final_xor = <span class="hljs-number">0xFFFFFFFF</span>;
+				extend = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> usage(argv);
+		}
+	}
+
+	<span class="hljs-comment">/* Bit reverse the polynomial to get the reflected version. */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> rpoly = reflectn(poly, <span class="hljs-number">32</span>);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Calculate reflected lookup table:</p>
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> c = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">128</span>; i; i &gt;&gt;= <span class="hljs-number">1</span>) {
+		c = (c &gt;&gt; <span class="hljs-number">1</span>) ^ (c &amp; <span class="hljs-number">1</span> ? rpoly : <span class="hljs-number">0</span>);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-number">256</span>; j += <span class="hljs-number">2</span> * i) {
+			crctab[i + j] = c ^ crctab[j];
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (optind == argc) {
+		<span class="hljs-keyword">return</span> calculate(<span class="hljs-built_in">stdin</span>,<span class="hljs-string">""</span>,<span class="hljs-number">0</span>);
+	}
+
+	<span class="hljs-keyword">int</span> ret = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> print_names = optind + <span class="hljs-number">1</span> != argc;
+
+	<span class="hljs-keyword">for</span> (; optind &lt; argc; ++optind) {
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[optind],<span class="hljs-string">"-"</span>)) {
+			ret |= calculate(<span class="hljs-built_in">stdin</span>,<span class="hljs-string">"-"</span>, print_names);
+		} <span class="hljs-keyword">else</span> {
+			FILE * f = fopen(argv[optind], <span class="hljs-string">"r"</span>);
+			<span class="hljs-keyword">if</span> (!f) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], argv[optind], strerror(errno));
+				ret |= <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">continue</span>;
+			}
+			ret |= calculate(f, argv[optind], print_names);
+			fclose(f);
+		}
+	}
+
+	<span class="hljs-keyword">return</span> ret;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

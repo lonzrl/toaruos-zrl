@@ -1,0 +1,2279 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>malloc.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\misc\\malloc.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>malloc.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+<span class="hljs-comment">/* Includes {{{ */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stddef.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;limits.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/spinlock.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/misc.h&gt;</span></span>
+<span class="hljs-comment">/* }}} */</span>
+<span class="hljs-comment">/* Definitions {{{ */</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Defines for often-used integral values
+related to our binning and paging strategy.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__x86_64__) || defined(__aarch64__)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> NUM_BINS 10U								<span class="hljs-comment">/* Number of bins, total, under 64-bit. */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SMALLEST_BIN_LOG 3U							<span class="hljs-comment">/* Logarithm base two of the smallest bin: log_2(sizeof(int64)). */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> NUM_BINS 11U								<span class="hljs-comment">/* Number of bins, total, under 32-bit. */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SMALLEST_BIN_LOG 2U							<span class="hljs-comment">/* Logarithm base two of the smallest bin: log_2(sizeof(int32)). */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BIG_BIN (NUM_BINS - 1)						<span class="hljs-comment">/* Index for the big bin, (NUM_BINS - 1) */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SMALLEST_BIN (1UL &lt;&lt; SMALLEST_BIN_LOG)		<span class="hljs-comment">/* Size of the smallest bin. */</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PAGE_SIZE 0x1000							<span class="hljs-comment">/* Size of a page (in bytes), should be 4KB */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PAGE_MASK (PAGE_SIZE - 1)					<span class="hljs-comment">/* Block mask, size of a page * number of pages - 1. */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SKIP_P INT32_MAX							<span class="hljs-comment">/* INT32_MAX is half of UINT32_MAX; this gives us a 50% marker for skip lists. */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SKIP_MAX_LEVEL 6							<span class="hljs-comment">/* We have a maximum of 6 levels in our skip lists. */</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BIN_MAGIC 0xDEFAD00D</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 1</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> assert(statement) ((statement) ? (void)0 : __assert_fail(__FILE__, __LINE__, #statement))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> assert(statement) (void)0</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> __assert_fail(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * f, <span class="hljs-keyword">int</span> l, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * stmt) {
+	arch_fatal_prepare();
+	dprintf(<span class="hljs-string">"assertion failed in %s:%d %s\n"</span>, f, l, stmt);
+	arch_dump_traceback();
+	arch_fatal();
+}
+
+
+<span class="hljs-comment">/* }}} */</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Internal functions.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> * __attribute__ ((<span class="hljs-built_in">malloc</span>)) klmalloc(<span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">size</span>);
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> * __attribute__ ((<span class="hljs-built_in">malloc</span>)) klrealloc(<span class="hljs-keyword">void</span> * ptr, <span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">size</span>);
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> * __attribute__ ((<span class="hljs-built_in">malloc</span>)) klcalloc(<span class="hljs-keyword">uintptr_t</span> nmemb, <span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">size</span>);
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> * __attribute__ ((<span class="hljs-built_in">malloc</span>)) klvalloc(<span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">size</span>);
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">klfree</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * ptr)</span></span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> mem_lock =  { <span class="hljs-number">0</span> };
+
+<span class="hljs-keyword">void</span> * __attribute__ ((<span class="hljs-built_in">malloc</span>)) <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">size</span>) {
+	spin_lock(mem_lock);
+	<span class="hljs-keyword">void</span> * out = klmalloc(<span class="hljs-built_in">size</span>);
+	spin_unlock(mem_lock);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-keyword">void</span> * __attribute__ ((<span class="hljs-built_in">malloc</span>)) <span class="hljs-built_in">realloc</span>(<span class="hljs-keyword">void</span> * ptr, <span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">size</span>) {
+	spin_lock(mem_lock);
+	<span class="hljs-keyword">void</span> * out = klrealloc(ptr, <span class="hljs-built_in">size</span>);
+	spin_unlock(mem_lock);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-keyword">void</span> * __attribute__ ((<span class="hljs-built_in">malloc</span>)) <span class="hljs-built_in">calloc</span>(<span class="hljs-keyword">uintptr_t</span> nmemb, <span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">size</span>) {
+	spin_lock(mem_lock);
+	<span class="hljs-keyword">void</span> * out = klcalloc(nmemb, <span class="hljs-built_in">size</span>);
+	spin_unlock(mem_lock);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-keyword">void</span> * __attribute__ ((<span class="hljs-built_in">malloc</span>)) valloc(<span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">size</span>) {
+	spin_lock(mem_lock);
+	<span class="hljs-keyword">void</span> * out = klvalloc(<span class="hljs-built_in">size</span>);
+	spin_unlock(mem_lock);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">free</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * ptr)</span> </span>{
+	spin_lock(mem_lock);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> __aarch64__</span>
+	<span class="hljs-keyword">if</span> (ptr &lt; (<span class="hljs-keyword">void</span>*)<span class="hljs-number">0xffffff0000000000</span>) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Invalid free detected (%p)\n"</span>, ptr);
+		<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {};
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	klfree(ptr);
+	spin_unlock(mem_lock);
+}
+
+<span class="hljs-comment">/* Bin management {{{ */</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Adjust bin size in bin_size call to proper bounds.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uintptr_t</span> __attribute__ ((always_inline, pure)) klmalloc_adjust_bin(<span class="hljs-keyword">uintptr_t</span> bin)
+{
+	<span class="hljs-keyword">if</span> (bin &lt;= (<span class="hljs-keyword">uintptr_t</span>)SMALLEST_BIN_LOG)
+	{
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	bin -= SMALLEST_BIN_LOG + <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (bin &gt; (<span class="hljs-keyword">uintptr_t</span>)BIG_BIN) {
+		<span class="hljs-keyword">return</span> BIG_BIN;
+	}
+	<span class="hljs-keyword">return</span> bin;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Given a size value, find the correct bin
+to place the requested allocation in.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uintptr_t</span> __attribute__ ((always_inline, pure)) klmalloc_bin_size(<span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">size</span>) {
+	<span class="hljs-keyword">uintptr_t</span> bin = <span class="hljs-keyword">sizeof</span>(<span class="hljs-built_in">size</span>) * CHAR_BIT - __builtin_clzl(<span class="hljs-built_in">size</span>);
+	bin += !!(<span class="hljs-built_in">size</span> &amp; (<span class="hljs-built_in">size</span> - <span class="hljs-number">1</span>));
+	<span class="hljs-keyword">return</span> klmalloc_adjust_bin(bin);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Bin header - One page of memory.
+Appears at the front of a bin to point to the
+previous bin (or NULL if the first), the next bin
+(or NULL if the last) and the head of the bin, which
+is a stack of cells of data.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> _<span class="hljs-title">klmalloc_bin_header</span> {</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> _<span class="hljs-title">klmalloc_bin_header</span> *  <span class="hljs-title">next</span>;</span>	<span class="hljs-comment">/* Pointer to the next node. */</span>
+	<span class="hljs-keyword">void</span> * head;							<span class="hljs-comment">/* Head of this bin. */</span>
+	<span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">size</span>;							<span class="hljs-comment">/* Size of this bin, if big; otherwise bin index. */</span>
+	<span class="hljs-keyword">uintptr_t</span> bin_magic;
+} klmalloc_bin_header;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>A big bin header is basically the same as a regular bin header
+only with a pointer to the previous (physically) instead of
+a &quot;next&quot; and with a list of forward headers.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> _<span class="hljs-title">klmalloc_big_bin_header</span> {</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> _<span class="hljs-title">klmalloc_big_bin_header</span> * <span class="hljs-title">next</span>;</span>
+	<span class="hljs-keyword">void</span> * head;
+	<span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">size</span>;
+	<span class="hljs-keyword">uintptr_t</span> bin_magic;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> _<span class="hljs-title">klmalloc_big_bin_header</span> * <span class="hljs-title">prev</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> _<span class="hljs-title">klmalloc_big_bin_header</span> * <span class="hljs-title">forward</span>[<span class="hljs-title">SKIP_MAX_LEVEL</span>+1];</span>
+} klmalloc_big_bin_header;
+
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>List of pages in a bin.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> _<span class="hljs-title">klmalloc_bin_header_head</span> {</span>
+	klmalloc_bin_header * first;
+} klmalloc_bin_header_head;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Array of available bins.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">static</span> klmalloc_bin_header_head klmalloc_bin_head[NUM_BINS - <span class="hljs-number">1</span>];	<span class="hljs-comment">/* Small bins */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> _<span class="hljs-title">klmalloc_big_bins</span> {</span>
+	klmalloc_big_bin_header head;
+	<span class="hljs-keyword">int</span> level;
+} klmalloc_big_bins;
+<span class="hljs-keyword">static</span> klmalloc_big_bin_header * klmalloc_newest_big = <span class="hljs-literal">NULL</span>;		<span class="hljs-comment">/* Newest big bin */</span>
+
+<span class="hljs-comment">/* }}} Bin management */</span>
+<span class="hljs-comment">/* Doubly-Linked List {{{ */</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Remove an entry from a page list.
+Decouples the element from its
+position in the list by linking
+its neighbors to eachother.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">void</span> __attribute__ ((always_inline)) klmalloc_list_decouple(klmalloc_bin_header_head *head, klmalloc_bin_header *node) {
+	klmalloc_bin_header *next	= node-&gt;next;
+	head-&gt;first = next;
+	node-&gt;next = <span class="hljs-literal">NULL</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-11" id="section-11"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Insert an entry into a page list.
+The new entry is placed at the front
+of the list and the existing border
+elements are updated to point back
+to it (our list is doubly linked).</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">void</span> __attribute__ ((always_inline)) klmalloc_list_insert(klmalloc_bin_header_head *head, klmalloc_bin_header *node) {
+	node-&gt;next = head-&gt;first;
+	head-&gt;first = node;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-12" id="section-12"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Get the head of a page list.
+Because redundant function calls
+are really great, and just in case
+we change the list implementation.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> klmalloc_bin_header * __attribute__ ((always_inline)) klmalloc_list_head(klmalloc_bin_header_head *head) {
+	<span class="hljs-keyword">return</span> head-&gt;first;
+}
+
+<span class="hljs-comment">/* }}} Lists */</span>
+<span class="hljs-comment">/* Skip List {{{ */</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-13" id="section-13"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Skip lists are efficient
+data structures for storing
+and searching ordered data.</p>
+<p>Here, the skip lists are used
+to keep track of big bins.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-14" id="section-14"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Generate a random value in an appropriate range.
+This is a xor-shift RNG.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> __attribute__ ((pure)) klmalloc_skip_rand(<span class="hljs-keyword">void</span>) {
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> x = <span class="hljs-number">123456789</span>;
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> y = <span class="hljs-number">362436069</span>;
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> z = <span class="hljs-number">521288629</span>;
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> w = <span class="hljs-number">88675123</span>;
+
+	<span class="hljs-keyword">uint32_t</span> t;
+
+	t = x ^ (x &lt;&lt; <span class="hljs-number">11</span>);
+	x = y; y = z; z = w;
+	<span class="hljs-keyword">return</span> w = w ^ (w &gt;&gt; <span class="hljs-number">19</span>) ^ t ^ (t &gt;&gt; <span class="hljs-number">8</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-15" id="section-15"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Generate a random level for a skip node</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">int</span> __attribute__ ((pure, always_inline)) klmalloc_random_level(<span class="hljs-keyword">void</span>) {
+	<span class="hljs-keyword">int</span> level = <span class="hljs-number">0</span>;
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-16" id="section-16"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Keep trying to check rand() against 50% of its maximum.
+This provides 50%, 25%, 12.5%, etc. chance for each level.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">while</span> (klmalloc_skip_rand() &lt; SKIP_P &amp;&amp; level &lt; SKIP_MAX_LEVEL) {
+		++level;
+	}
+	<span class="hljs-keyword">return</span> level;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-17" id="section-17"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Find best fit for a given value.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> klmalloc_big_bin_header * <span class="hljs-title">klmalloc_skip_list_findbest</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> search_size)</span> </span>{
+	klmalloc_big_bin_header * node = &amp;klmalloc_big_bins.head;
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-18" id="section-18"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Loop through the skip list until we hit something &gt; our search value.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">int</span> i;
+	<span class="hljs-keyword">for</span> (i = klmalloc_big_bins.level; i &gt;= <span class="hljs-number">0</span>; --i) {
+		<span class="hljs-keyword">while</span> (node-&gt;forward[i] &amp;&amp; (node-&gt;forward[i]-&gt;<span class="hljs-built_in">size</span> &lt; search_size)) {
+			node = node-&gt;forward[i];
+			<span class="hljs-keyword">if</span> (node)
+				assert((node-&gt;<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header)) % PAGE_SIZE == <span class="hljs-number">0</span>);
+		}
+	}
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-19" id="section-19"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>This value will either be NULL (we found nothing)
+or a node (we found a minimum fit).</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	node = node-&gt;forward[<span class="hljs-number">0</span>];
+	<span class="hljs-keyword">if</span> (node) {
+		assert((<span class="hljs-keyword">uintptr_t</span>)node % PAGE_SIZE == <span class="hljs-number">0</span>);
+		assert((node-&gt;<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header)) % PAGE_SIZE == <span class="hljs-number">0</span>);
+	}
+	<span class="hljs-keyword">return</span> node;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-20" id="section-20"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Insert a header into the skip list.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">klmalloc_skip_list_insert</span><span class="hljs-params">(klmalloc_big_bin_header * value)</span> </span>{
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-21" id="section-21"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>You better be giving me something valid to insert,
+or I will slit your ****ing throat.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	assert(value != <span class="hljs-literal">NULL</span>);
+	assert(value-&gt;head != <span class="hljs-literal">NULL</span>);
+	assert((<span class="hljs-keyword">uintptr_t</span>)value-&gt;head &gt; (<span class="hljs-keyword">uintptr_t</span>)value);
+	<span class="hljs-keyword">if</span> (value-&gt;<span class="hljs-built_in">size</span> &gt; NUM_BINS) {
+		assert((<span class="hljs-keyword">uintptr_t</span>)value-&gt;head &lt; (<span class="hljs-keyword">uintptr_t</span>)value + value-&gt;<span class="hljs-built_in">size</span>);
+	} <span class="hljs-keyword">else</span> {
+		assert((<span class="hljs-keyword">uintptr_t</span>)value-&gt;head &lt; (<span class="hljs-keyword">uintptr_t</span>)value + PAGE_SIZE);
+	}
+	assert((<span class="hljs-keyword">uintptr_t</span>)value % PAGE_SIZE == <span class="hljs-number">0</span>);
+	assert((value-&gt;<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header)) % PAGE_SIZE == <span class="hljs-number">0</span>);
+	assert(value-&gt;<span class="hljs-built_in">size</span> != <span class="hljs-number">0</span>);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-22" id="section-22"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Starting from the head node of the bin locator...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	klmalloc_big_bin_header * node = &amp;klmalloc_big_bins.head;
+	klmalloc_big_bin_header * update[SKIP_MAX_LEVEL + <span class="hljs-number">1</span>];
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-23" id="section-23"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Loop through the skiplist to find the right place
+to insert the node (where -&gt;forward[] &gt; value)</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">int</span> i;
+	<span class="hljs-keyword">for</span> (i = klmalloc_big_bins.level; i &gt;= <span class="hljs-number">0</span>; --i) {
+		<span class="hljs-keyword">while</span> (node-&gt;forward[i] &amp;&amp; node-&gt;forward[i]-&gt;<span class="hljs-built_in">size</span> &lt; value-&gt;<span class="hljs-built_in">size</span>) {
+			node = node-&gt;forward[i];
+			<span class="hljs-keyword">if</span> (node)
+				assert((node-&gt;<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header)) % PAGE_SIZE == <span class="hljs-number">0</span>);
+		}
+		update[i] = node;
+	}
+	node = node-&gt;forward[<span class="hljs-number">0</span>];
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-24" id="section-24"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Make the new skip node and update
+the forward values.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (node != value) {
+		<span class="hljs-keyword">int</span> level = klmalloc_random_level();
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-25" id="section-25"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Get all of the nodes before this.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		<span class="hljs-keyword">if</span> (level &gt; klmalloc_big_bins.level) {
+			<span class="hljs-keyword">for</span> (i = klmalloc_big_bins.level + <span class="hljs-number">1</span>; i &lt;= level; ++i) {
+				update[i] = &amp;klmalloc_big_bins.head;
+			}
+			klmalloc_big_bins.level = level;
+		}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-26" id="section-26"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Make the new node.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		node = value;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-27" id="section-27"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Run through and point the preceeding nodes
+for each level to the new node.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		<span class="hljs-keyword">for</span> (i = <span class="hljs-number">0</span>; i &lt;= level; ++i) {
+			node-&gt;forward[i] = update[i]-&gt;forward[i];
+			<span class="hljs-keyword">if</span> (node-&gt;forward[i])
+				assert((node-&gt;forward[i]-&gt;<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header)) % PAGE_SIZE == <span class="hljs-number">0</span>);
+			update[i]-&gt;forward[i] = node;
+		}
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-28" id="section-28"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Delete a header from the skip list.
+Be sure you didn't change the size, or we won't be able to find it.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">klmalloc_skip_list_delete</span><span class="hljs-params">(klmalloc_big_bin_header * value)</span> </span>{
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-29" id="section-29"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Debug assertions</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	assert(value != <span class="hljs-literal">NULL</span>);
+	assert(value-&gt;head);
+	assert((<span class="hljs-keyword">uintptr_t</span>)value-&gt;head &gt; (<span class="hljs-keyword">uintptr_t</span>)value);
+	<span class="hljs-keyword">if</span> (value-&gt;<span class="hljs-built_in">size</span> &gt; NUM_BINS) {
+		assert((<span class="hljs-keyword">uintptr_t</span>)value-&gt;head &lt; (<span class="hljs-keyword">uintptr_t</span>)value + value-&gt;<span class="hljs-built_in">size</span>);
+	} <span class="hljs-keyword">else</span> {
+		assert((<span class="hljs-keyword">uintptr_t</span>)value-&gt;head &lt; (<span class="hljs-keyword">uintptr_t</span>)value + PAGE_SIZE);
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-30" id="section-30"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Starting from the bin header, again...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	klmalloc_big_bin_header * node = &amp;klmalloc_big_bins.head;
+	klmalloc_big_bin_header * update[SKIP_MAX_LEVEL + <span class="hljs-number">1</span>];
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-31" id="section-31"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Find the node.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">int</span> i;
+	<span class="hljs-keyword">for</span> (i = klmalloc_big_bins.level; i &gt;= <span class="hljs-number">0</span>; --i) {
+		<span class="hljs-keyword">while</span> (node-&gt;forward[i] &amp;&amp; node-&gt;forward[i]-&gt;<span class="hljs-built_in">size</span> &lt; value-&gt;<span class="hljs-built_in">size</span>) {
+			node = node-&gt;forward[i];
+			<span class="hljs-keyword">if</span> (node)
+				assert((node-&gt;<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header)) % PAGE_SIZE == <span class="hljs-number">0</span>);
+		}
+		update[i] = node;
+	}
+	node = node-&gt;forward[<span class="hljs-number">0</span>];
+	<span class="hljs-keyword">while</span> (node != value) {
+		node = node-&gt;forward[<span class="hljs-number">0</span>];
+	}
+
+	<span class="hljs-keyword">if</span> (node != value) {
+		node = klmalloc_big_bins.head.forward[<span class="hljs-number">0</span>];
+		<span class="hljs-keyword">while</span> (node-&gt;forward[<span class="hljs-number">0</span>] &amp;&amp; node-&gt;forward[<span class="hljs-number">0</span>] != value) {
+			node = node-&gt;forward[<span class="hljs-number">0</span>];
+		}
+		node = node-&gt;forward[<span class="hljs-number">0</span>];
+	}
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-32" id="section-32"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If we found the node, delete it;
+otherwise, we do nothing.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (node == value) {
+		<span class="hljs-keyword">for</span> (i = <span class="hljs-number">0</span>; i &lt;= klmalloc_big_bins.level; ++i) {
+			<span class="hljs-keyword">if</span> (update[i]-&gt;forward[i] != node) {
+				<span class="hljs-keyword">break</span>;
+			}
+			update[i]-&gt;forward[i] = node-&gt;forward[i];
+			<span class="hljs-keyword">if</span> (update[i]-&gt;forward[i]) {
+				assert((<span class="hljs-keyword">uintptr_t</span>)(update[i]-&gt;forward[i]) % PAGE_SIZE == <span class="hljs-number">0</span>);
+				assert((update[i]-&gt;forward[i]-&gt;<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header)) % PAGE_SIZE == <span class="hljs-number">0</span>);
+			}
+		}
+
+		<span class="hljs-keyword">while</span> (klmalloc_big_bins.level &gt; <span class="hljs-number">0</span> &amp;&amp; klmalloc_big_bins.head.forward[klmalloc_big_bins.level] == <span class="hljs-literal">NULL</span>) {
+			--klmalloc_big_bins.level;
+		}
+	}
+}
+
+<span class="hljs-comment">/* }}} */</span>
+<span class="hljs-comment">/* Stack {{{ */</span>
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-33" id="section-33"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Pop an item from a block.
+Free space is stored as a stack,
+so we get a free space for a bin
+by popping a free node from the
+top of the stack.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> * <span class="hljs-title">klmalloc_stack_pop</span><span class="hljs-params">(klmalloc_bin_header *header)</span> </span>{
+	assert(header);
+	assert(header-&gt;head != <span class="hljs-literal">NULL</span>);
+	assert((<span class="hljs-keyword">uintptr_t</span>)header-&gt;head &gt; (<span class="hljs-keyword">uintptr_t</span>)header);
+	<span class="hljs-keyword">if</span> (header-&gt;<span class="hljs-built_in">size</span> &gt; NUM_BINS) {
+		assert((<span class="hljs-keyword">uintptr_t</span>)header-&gt;head &lt; (<span class="hljs-keyword">uintptr_t</span>)header + header-&gt;<span class="hljs-built_in">size</span>);
+	} <span class="hljs-keyword">else</span> {
+		assert((<span class="hljs-keyword">uintptr_t</span>)header-&gt;head &lt; (<span class="hljs-keyword">uintptr_t</span>)header + PAGE_SIZE);
+		assert((<span class="hljs-keyword">uintptr_t</span>)header-&gt;head &gt; (<span class="hljs-keyword">uintptr_t</span>)header + <span class="hljs-keyword">sizeof</span>(klmalloc_bin_header) - <span class="hljs-number">1</span>);
+	}
+	
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-34" id="section-34"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Remove the current head and point
+the head to where the old head pointed.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">void</span> *item = header-&gt;head;
+	<span class="hljs-keyword">uintptr_t</span> **head = header-&gt;head;
+	<span class="hljs-keyword">uintptr_t</span> *next = *head;
+	header-&gt;head = next;
+	<span class="hljs-keyword">return</span> item;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-35" id="section-35"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Push an item into a block.
+When we free memory, we need
+to add the freed cell back
+into the stack of free spaces
+for the block.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">klmalloc_stack_push</span><span class="hljs-params">(klmalloc_bin_header *header, <span class="hljs-keyword">void</span> *ptr)</span> </span>{
+	assert(ptr != <span class="hljs-literal">NULL</span>);
+	assert((<span class="hljs-keyword">uintptr_t</span>)ptr &gt; (<span class="hljs-keyword">uintptr_t</span>)header);
+	<span class="hljs-keyword">if</span> (header-&gt;<span class="hljs-built_in">size</span> &gt; NUM_BINS) {
+		assert((<span class="hljs-keyword">uintptr_t</span>)ptr &lt; (<span class="hljs-keyword">uintptr_t</span>)header + header-&gt;<span class="hljs-built_in">size</span>);
+	} <span class="hljs-keyword">else</span> {
+		assert((((<span class="hljs-keyword">uintptr_t</span>)ptr - <span class="hljs-keyword">sizeof</span>(klmalloc_bin_header)) &amp; ((<span class="hljs-number">1U</span>L &lt;&lt; (header-&gt;<span class="hljs-built_in">size</span> + SMALLEST_BIN_LOG)) - <span class="hljs-number">1</span>)) == <span class="hljs-number">0</span>);
+		assert((<span class="hljs-keyword">uintptr_t</span>)ptr &lt; (<span class="hljs-keyword">uintptr_t</span>)header + PAGE_SIZE);
+	}
+	<span class="hljs-keyword">uintptr_t</span> **item = (<span class="hljs-keyword">uintptr_t</span> **)ptr;
+	*item = (<span class="hljs-keyword">uintptr_t</span> *)header-&gt;head;
+	header-&gt;head = item;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-36" id="section-36"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Is this cell stack empty?
+If the head of the stack points
+to NULL, we have exhausted the
+stack, so there is no more free
+space available in the block.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">int</span> __attribute__ ((always_inline)) klmalloc_stack_empty(klmalloc_bin_header *header) {
+	<span class="hljs-keyword">return</span> header-&gt;head == <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-comment">/* }}} Stack */</span>
+
+<span class="hljs-comment">/* malloc() {{{ */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> * __attribute__ ((<span class="hljs-built_in">malloc</span>)) klmalloc(<span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">size</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-37" id="section-37"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>C standard implementation:
+If size is zero, we can choose do a number of things.
+This implementation will return a NULL pointer.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (__builtin_expect(<span class="hljs-built_in">size</span> == <span class="hljs-number">0</span>, <span class="hljs-number">0</span>))
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-38" id="section-38"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Find the appropriate bin for the requested
+allocation and start looking through that list.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> bucket_id = klmalloc_bin_size(<span class="hljs-built_in">size</span>);
+
+	<span class="hljs-keyword">if</span> (bucket_id &lt; BIG_BIN) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-39" id="section-39"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Small bins.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		klmalloc_bin_header * bin_header = klmalloc_list_head(&amp;klmalloc_bin_head[bucket_id]);
+		<span class="hljs-keyword">if</span> (!bin_header) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-40" id="section-40"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Grow the heap for the new bin.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			bin_header = (klmalloc_bin_header*)sbrk(PAGE_SIZE);
+			bin_header-&gt;bin_magic = BIN_MAGIC;
+			assert((<span class="hljs-keyword">uintptr_t</span>)bin_header % PAGE_SIZE == <span class="hljs-number">0</span>);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-41" id="section-41"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Set the head of the stack.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			bin_header-&gt;head = (<span class="hljs-keyword">void</span>*)((<span class="hljs-keyword">uintptr_t</span>)bin_header + <span class="hljs-keyword">sizeof</span>(klmalloc_bin_header));
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-42" id="section-42"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Insert the new bin at the front of
+the list of bins for this size.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			klmalloc_list_insert(&amp;klmalloc_bin_head[bucket_id], bin_header);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-43" id="section-43"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Initialize the stack inside the bin.
+The stack is initially full, with each
+entry pointing to the next until the end
+which points to NULL.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			<span class="hljs-keyword">uintptr_t</span> adj = SMALLEST_BIN_LOG + bucket_id;
+			<span class="hljs-keyword">uintptr_t</span> i, <span class="hljs-built_in">available</span> = ((PAGE_SIZE - <span class="hljs-keyword">sizeof</span>(klmalloc_bin_header)) &gt;&gt; adj) - <span class="hljs-number">1</span>;
+
+			<span class="hljs-keyword">uintptr_t</span> **base = bin_header-&gt;head;
+			<span class="hljs-keyword">for</span> (i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">available</span>; ++i) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-44" id="section-44"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Our available memory is made into a stack, with each
+piece of memory turned into a pointer to the next
+available piece. When we want to get a new piece
+of memory from this block, we just pop off a free
+spot and give its address.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				base[i &lt;&lt; bucket_id] = (<span class="hljs-keyword">uintptr_t</span> *)&amp;base[(i + <span class="hljs-number">1</span>) &lt;&lt; bucket_id];
+			}
+			base[<span class="hljs-built_in">available</span> &lt;&lt; bucket_id] = <span class="hljs-literal">NULL</span>;
+			bin_header-&gt;<span class="hljs-built_in">size</span> = bucket_id;
+		} <span class="hljs-keyword">else</span> {
+			assert(bin_header-&gt;bin_magic == BIN_MAGIC);
+		}
+		<span class="hljs-keyword">uintptr_t</span> ** item = klmalloc_stack_pop(bin_header);
+		<span class="hljs-keyword">if</span> (klmalloc_stack_empty(bin_header)) {
+			klmalloc_list_decouple(&amp;(klmalloc_bin_head[bucket_id]),bin_header);
+		}
+		<span class="hljs-keyword">return</span> item;
+	} <span class="hljs-keyword">else</span> {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-45" id="section-45"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Big bins.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		klmalloc_big_bin_header * bin_header = klmalloc_skip_list_findbest(<span class="hljs-built_in">size</span>);
+		<span class="hljs-keyword">if</span> (bin_header) {
+			assert(bin_header-&gt;<span class="hljs-built_in">size</span> &gt;= <span class="hljs-built_in">size</span>);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-46" id="section-46"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If we found one, delete it from the skip list</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			klmalloc_skip_list_delete(bin_header);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-47" id="section-47"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Retreive the head of the block.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			<span class="hljs-keyword">uintptr_t</span> ** item = klmalloc_stack_pop((klmalloc_bin_header *)bin_header);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-48" id="section-48"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Resize block, if necessary</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			assert(bin_header-&gt;head == <span class="hljs-literal">NULL</span>);
+			<span class="hljs-keyword">uintptr_t</span> old_size = bin_header-&gt;<span class="hljs-built_in">size</span>;
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-49" id="section-49"></a>
+</div>
+<p>uintptr_t rsize = size;</p>
+<div class="dox">
+<div class="summary">
+<p>Round the requeste size to our full required size.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			<span class="hljs-built_in">size</span> = ((<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header)) / PAGE_SIZE + <span class="hljs-number">1</span>) * PAGE_SIZE - <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header);
+			assert((<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header)) % PAGE_SIZE == <span class="hljs-number">0</span>);
+			<span class="hljs-keyword">if</span> (bin_header-&gt;<span class="hljs-built_in">size</span> &gt; <span class="hljs-built_in">size</span> * <span class="hljs-number">2</span>) {
+				assert(old_size != <span class="hljs-built_in">size</span>);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-50" id="section-50"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If we have extra space, start splitting.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				bin_header-&gt;<span class="hljs-built_in">size</span> = <span class="hljs-built_in">size</span>;
+				assert(sbrk(<span class="hljs-number">0</span>) &gt;= bin_header-&gt;<span class="hljs-built_in">size</span> + (<span class="hljs-keyword">uintptr_t</span>)bin_header);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-51" id="section-51"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Make a new block at the end of the needed space.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				klmalloc_big_bin_header * header_new = (klmalloc_big_bin_header *)((<span class="hljs-keyword">uintptr_t</span>)bin_header + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header) + <span class="hljs-built_in">size</span>);
+				assert((<span class="hljs-keyword">uintptr_t</span>)header_new % PAGE_SIZE == <span class="hljs-number">0</span>);
+				<span class="hljs-built_in">memset</span>(header_new, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header) + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">void</span> *));
+				header_new-&gt;prev = bin_header;
+				<span class="hljs-keyword">if</span> (bin_header-&gt;next) {
+					bin_header-&gt;next-&gt;prev = header_new;
+				}
+				header_new-&gt;next = bin_header-&gt;next;
+				bin_header-&gt;next = header_new;
+				<span class="hljs-keyword">if</span> (klmalloc_newest_big == bin_header) {
+					klmalloc_newest_big = header_new;
+				}
+				header_new-&gt;<span class="hljs-built_in">size</span> = old_size - (<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header));
+				assert(((<span class="hljs-keyword">uintptr_t</span>)header_new-&gt;<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header)) % PAGE_SIZE == <span class="hljs-number">0</span>);
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Splitting %p [now %zx] at %p [%zx] from [%zx,%zx].\n"</span>, (<span class="hljs-keyword">void</span>*)bin_header, bin_header-&gt;<span class="hljs-built_in">size</span>, (<span class="hljs-keyword">void</span>*)header_new, header_new-&gt;<span class="hljs-built_in">size</span>, old_size, <span class="hljs-built_in">size</span>);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-52" id="section-52"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Free the new block.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				klfree((<span class="hljs-keyword">void</span> *)((<span class="hljs-keyword">uintptr_t</span>)header_new + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header)));
+			}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+			<span class="hljs-keyword">return</span> item;
+		} <span class="hljs-keyword">else</span> {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-53" id="section-53"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Round requested size to a set of pages, plus the header size.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			<span class="hljs-keyword">uintptr_t</span> pages = (<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header)) / PAGE_SIZE + <span class="hljs-number">1</span>;
+			bin_header = (klmalloc_big_bin_header*)sbrk(PAGE_SIZE * pages);
+			bin_header-&gt;bin_magic = BIN_MAGIC;
+			assert((<span class="hljs-keyword">uintptr_t</span>)bin_header % PAGE_SIZE == <span class="hljs-number">0</span>);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-54" id="section-54"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Give the header the remaining space.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			bin_header-&gt;<span class="hljs-built_in">size</span> = pages * PAGE_SIZE - <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header);
+			assert((bin_header-&gt;<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header)) % PAGE_SIZE == <span class="hljs-number">0</span>);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-55" id="section-55"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Link the block in physical memory.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			bin_header-&gt;prev = klmalloc_newest_big;
+			<span class="hljs-keyword">if</span> (bin_header-&gt;prev) {
+				bin_header-&gt;prev-&gt;next = bin_header;
+			}
+			klmalloc_newest_big = bin_header;
+			bin_header-&gt;next = <span class="hljs-literal">NULL</span>;
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-56" id="section-56"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Return the head of the block.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			bin_header-&gt;head = <span class="hljs-literal">NULL</span>;
+			<span class="hljs-keyword">return</span> (<span class="hljs-keyword">void</span>*)((<span class="hljs-keyword">uintptr_t</span>)bin_header + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header));
+		}
+	}
+}
+<span class="hljs-comment">/* }}} */</span>
+<span class="hljs-comment">/* free() {{{ */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">klfree</span><span class="hljs-params">(<span class="hljs-keyword">void</span> *ptr)</span> </span>{
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-57" id="section-57"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>C standard implementation: Do nothing when NULL is passed to free.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (__builtin_expect(ptr == <span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>)) {
+		<span class="hljs-keyword">return</span>;
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-58" id="section-58"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Woah, woah, hold on, was this a page-aligned block?</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">uintptr_t</span>)ptr % PAGE_SIZE == <span class="hljs-number">0</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-59" id="section-59"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Well howdy-do, it was.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		ptr = (<span class="hljs-keyword">void</span> *)((<span class="hljs-keyword">uintptr_t</span>)ptr - <span class="hljs-number">1</span>);
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-60" id="section-60"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Get our pointer to the head of this block by
+page aligning it.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	klmalloc_bin_header * header = (klmalloc_bin_header *)((<span class="hljs-keyword">uintptr_t</span>)ptr &amp; (<span class="hljs-keyword">uintptr_t</span>)~PAGE_MASK);
+	assert((<span class="hljs-keyword">uintptr_t</span>)header % PAGE_SIZE == <span class="hljs-number">0</span>);
+
+	<span class="hljs-keyword">if</span> (header-&gt;bin_magic != BIN_MAGIC)
+		<span class="hljs-keyword">return</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-61" id="section-61"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>For small bins, the bin number is stored in the size
+field of the header. For large bins, the actual size
+available in the bin is stored in this field. It's
+easy to tell which is which, though.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">uintptr_t</span> bucket_id = header-&gt;<span class="hljs-built_in">size</span>;
+	<span class="hljs-keyword">if</span> (bucket_id &gt; (<span class="hljs-keyword">uintptr_t</span>)NUM_BINS) {
+		bucket_id = BIG_BIN;
+		klmalloc_big_bin_header *bheader = (klmalloc_big_bin_header*)header;
+		
+		assert(bheader);
+		assert(bheader-&gt;head == <span class="hljs-literal">NULL</span>);
+		assert((bheader-&gt;<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header)) % PAGE_SIZE == <span class="hljs-number">0</span>);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-62" id="section-62"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Coalesce forward blocks into us.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+		<span class="hljs-keyword">if</span> (bheader != klmalloc_newest_big) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-63" id="section-63"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If we are not the newest big bin, there is most definitely
+something in front of us that we can read.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			assert((bheader-&gt;<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header)) % PAGE_SIZE == <span class="hljs-number">0</span>);
+			klmalloc_big_bin_header * next = (<span class="hljs-keyword">void</span> *)((<span class="hljs-keyword">uintptr_t</span>)bheader + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header) + bheader-&gt;<span class="hljs-built_in">size</span>);
+			assert((<span class="hljs-keyword">uintptr_t</span>)next % PAGE_SIZE == <span class="hljs-number">0</span>);
+			<span class="hljs-keyword">if</span> (next == bheader-&gt;next &amp;&amp; next-&gt;head) { <span class="hljs-comment">//next-&gt;size &gt; NUM_BINS &amp;&amp; next-&gt;head) {</span>
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-64" id="section-64"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If that something is an available big bin, we can
+coalesce it into us to form one larger bin.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+				<span class="hljs-keyword">uintptr_t</span> old_size = bheader-&gt;<span class="hljs-built_in">size</span>;
+
+				klmalloc_skip_list_delete(next);
+				bheader-&gt;<span class="hljs-built_in">size</span> = (<span class="hljs-keyword">uintptr_t</span>)bheader-&gt;<span class="hljs-built_in">size</span> + (<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header) + next-&gt;<span class="hljs-built_in">size</span>;
+				assert((bheader-&gt;<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header))  % PAGE_SIZE == <span class="hljs-number">0</span>);
+
+				<span class="hljs-keyword">if</span> (next == klmalloc_newest_big) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-65" id="section-65"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If the guy in front of us was the newest,
+we are now the newest (as we are him).</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">					klmalloc_newest_big = bheader;
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-keyword">if</span> (next-&gt;next) {
+						next-&gt;next-&gt;prev = bheader;
+					}
+				}
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,<span class="hljs-string">"Coelesced (forwards)  %p [%zx] &lt;- %p [%zx] = %zx\n"</span>, (<span class="hljs-keyword">void</span>*)bheader, old_size, (<span class="hljs-keyword">void</span>*)next, next-&gt;<span class="hljs-built_in">size</span>, bheader-&gt;<span class="hljs-built_in">size</span>);
+			}
+		}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-66" id="section-66"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Coalesce backwards</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+		<span class="hljs-keyword">if</span> (bheader-&gt;prev &amp;&amp; bheader-&gt;prev-&gt;head) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-67" id="section-67"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If there is something behind us, it is available, and there is nothing between
+it and us, we can coalesce ourselves into it to form a big block.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">uintptr_t</span>)bheader-&gt;prev + (bheader-&gt;prev-&gt;<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header)) == (<span class="hljs-keyword">uintptr_t</span>)bheader) {
+
+				<span class="hljs-keyword">uintptr_t</span> old_size = bheader-&gt;prev-&gt;<span class="hljs-built_in">size</span>;
+
+				klmalloc_skip_list_delete(bheader-&gt;prev);
+				bheader-&gt;prev-&gt;<span class="hljs-built_in">size</span> = (<span class="hljs-keyword">uintptr_t</span>)bheader-&gt;prev-&gt;<span class="hljs-built_in">size</span> + (<span class="hljs-keyword">uintptr_t</span>)bheader-&gt;<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header);
+				assert((bheader-&gt;prev-&gt;<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header))  % PAGE_SIZE == <span class="hljs-number">0</span>);
+				klmalloc_skip_list_insert(bheader-&gt;prev);
+				<span class="hljs-keyword">if</span> (klmalloc_newest_big == bheader) {
+					klmalloc_newest_big = bheader-&gt;prev;
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-keyword">if</span> (bheader-&gt;next) {
+						bheader-&gt;next-&gt;prev = bheader-&gt;prev;
+					}
+				}
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,<span class="hljs-string">"Coelesced (backwards) %p [%zx] &lt;- %p [%zx] = %zx\n"</span>, (<span class="hljs-keyword">void</span>*)bheader-&gt;prev, old_size, (<span class="hljs-keyword">void</span>*)bheader, bheader-&gt;<span class="hljs-built_in">size</span>, bheader-&gt;<span class="hljs-built_in">size</span>);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-68" id="section-68"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If we coalesced backwards, we are done.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				<span class="hljs-keyword">return</span>;
+			}
+		}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-69" id="section-69"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Push new space back into the stack.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		klmalloc_stack_push((klmalloc_bin_header *)bheader, (<span class="hljs-keyword">void</span> *)((<span class="hljs-keyword">uintptr_t</span>)bheader + <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header)));
+		assert(bheader-&gt;head != <span class="hljs-literal">NULL</span>);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-70" id="section-70"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Insert the block into list of available slabs.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		klmalloc_skip_list_insert(bheader);
+	} <span class="hljs-keyword">else</span> {
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-71" id="section-71"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If the stack is empty, we are freeing
+a block from a previously full bin.
+Return it to the busy bins list.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		<span class="hljs-keyword">if</span> (klmalloc_stack_empty(header)) {
+			klmalloc_list_insert(&amp;klmalloc_bin_head[bucket_id], header);
+		}
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-72" id="section-72"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Push new space back into the stack.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		klmalloc_stack_push(header, ptr);
+	}
+}
+<span class="hljs-comment">/* }}} */</span>
+<span class="hljs-comment">/* valloc() {{{ */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> * __attribute__ ((<span class="hljs-built_in">malloc</span>)) klvalloc(<span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">size</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-73" id="section-73"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Allocate a page-aligned block.
+XXX: THIS IS HORRIBLY, HORRIBLY WASTEFUL!! ONLY USE THIS
+IF YOU KNOW WHAT YOU ARE DOING!</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">uintptr_t</span> true_size = <span class="hljs-built_in">size</span> + PAGE_SIZE - <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header); <span class="hljs-comment">/* Here we go... */</span>
+	<span class="hljs-keyword">void</span> * result = klmalloc(true_size);
+	<span class="hljs-keyword">void</span> * out = (<span class="hljs-keyword">void</span> *)((<span class="hljs-keyword">uintptr_t</span>)result + (PAGE_SIZE - <span class="hljs-keyword">sizeof</span>(klmalloc_big_bin_header)));
+	assert((<span class="hljs-keyword">uintptr_t</span>)out % PAGE_SIZE == <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">return</span> out;
+}
+<span class="hljs-comment">/* }}} */</span>
+<span class="hljs-comment">/* realloc() {{{ */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> * __attribute__ ((<span class="hljs-built_in">malloc</span>)) klrealloc(<span class="hljs-keyword">void</span> *ptr, <span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">size</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-74" id="section-74"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>C standard implementation: When NULL is passed to realloc,
+simply malloc the requested size and return a pointer to that.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (__builtin_expect(ptr == <span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>))
+		<span class="hljs-keyword">return</span> klmalloc(<span class="hljs-built_in">size</span>);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-75" id="section-75"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>C standard implementation: For a size of zero, free the
+pointer and return NULL, allocating no new memory.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (__builtin_expect(<span class="hljs-built_in">size</span> == <span class="hljs-number">0</span>, <span class="hljs-number">0</span>))
+	{
+		<span class="hljs-built_in">free</span>(ptr);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-76" id="section-76"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Find the bin for the given pointer
+by aligning it to a page.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	klmalloc_bin_header * header_old = (<span class="hljs-keyword">void</span> *)((<span class="hljs-keyword">uintptr_t</span>)ptr &amp; (<span class="hljs-keyword">uintptr_t</span>)~PAGE_MASK);
+	<span class="hljs-keyword">if</span> (header_old-&gt;bin_magic != BIN_MAGIC) {
+		assert(<span class="hljs-number">0</span> &amp;&amp; <span class="hljs-string">"Bad magic on realloc."</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">uintptr_t</span> old_size = header_old-&gt;<span class="hljs-built_in">size</span>;
+	<span class="hljs-keyword">if</span> (old_size &lt; (<span class="hljs-keyword">uintptr_t</span>)BIG_BIN) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-77" id="section-77"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If we are copying from a small bin,
+we need to get the size of the bin
+from its id.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		old_size = (<span class="hljs-number">1U</span>L &lt;&lt; (SMALLEST_BIN_LOG + old_size));
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-78" id="section-78"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>(This will only happen for a big bin, mathematically speaking)
+If we still have room in our bin for the additonal space,
+we don't need to do anything.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (old_size &gt;= <span class="hljs-built_in">size</span>) {
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-79" id="section-79"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>TODO: Break apart blocks here, which is far more important
+than breaking them up on allocations.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		<span class="hljs-keyword">return</span> ptr;
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-80" id="section-80"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Reallocate more memory.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">void</span> * newptr = klmalloc(<span class="hljs-built_in">size</span>);
+	<span class="hljs-keyword">if</span> (__builtin_expect(newptr != <span class="hljs-literal">NULL</span>, <span class="hljs-number">1</span>)) {
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-81" id="section-81"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Copy the old value into the new value.
+Be sure to only copy as much as was in
+the old block.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		<span class="hljs-built_in">memcpy</span>(newptr, ptr, old_size);
+		klfree(ptr);
+		<span class="hljs-keyword">return</span> newptr;
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-82" id="section-82"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>We failed to allocate more memory,
+which means we're probably out.</p>
+<p>Bail and return NULL.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+<span class="hljs-comment">/* }}} */</span>
+<span class="hljs-comment">/* calloc() {{{ */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> * __attribute__ ((<span class="hljs-built_in">malloc</span>)) klcalloc(<span class="hljs-keyword">uintptr_t</span> nmemb, <span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">size</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-83" id="section-83"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Allocate memory and zero it before returning
+a pointer to the newly allocated memory.</p>
+<p>Implemented by way of a simple malloc followed
+by a memset to 0x00 across the length of the
+requested memory chunk.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+	<span class="hljs-keyword">void</span> *ptr = klmalloc(nmemb * <span class="hljs-built_in">size</span>);
+	<span class="hljs-keyword">if</span> (__builtin_expect(ptr != <span class="hljs-literal">NULL</span>, <span class="hljs-number">1</span>))
+		<span class="hljs-built_in">memset</span>(ptr,<span class="hljs-number">0x00</span>,nmemb * <span class="hljs-built_in">size</span>);
+	<span class="hljs-keyword">return</span> ptr;
+}
+<span class="hljs-comment">/* }}} */</span>
+
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

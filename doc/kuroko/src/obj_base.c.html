@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>obj_base.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\src\\obj_base.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>obj_base.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/value.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/memory.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_NAME  self</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> IS_type(o) (IS_CLASS(o))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AS_type(o) (AS_CLASS(o))</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE KrkClass *</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _callSetName(KrkClass * _class) {
+	KrkValue setnames = krk_list_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	krk_push(setnames);
+	<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-title">FUNC_SIG</span><span class="hljs-params">(<span class="hljs-built_in">list</span>,append)</span></span>;
+
+	<span class="hljs-comment">/* The semantics of this require that we first collect all of the relevant items... */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; _class-&gt;methods.capacity; ++i) {
+		KrkTableEntry * entry = &amp;_class-&gt;methods.entries[i];
+		<span class="hljs-keyword">if</span> (!IS_KWARGS(entry-&gt;key)) {
+			KrkClass * type = krk_getType(entry-&gt;value);
+			<span class="hljs-keyword">if</span> (type-&gt;_set_name) {
+				FUNC_NAME(<span class="hljs-built_in">list</span>,append)(<span class="hljs-number">2</span>,(KrkValue[]){setnames,entry-&gt;key},<span class="hljs-number">0</span>);
+				FUNC_NAME(<span class="hljs-built_in">list</span>,append)(<span class="hljs-number">2</span>,(KrkValue[]){setnames,entry-&gt;value},<span class="hljs-number">0</span>);
+			}
+		}
+	}
+
+	<span class="hljs-comment">/* Then call __set_name__ on them */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; AS_LIST(setnames)-&gt;count; i += <span class="hljs-number">2</span>) {
+		KrkValue name = AS_LIST(setnames)-&gt;values[i];
+		KrkValue value = AS_LIST(setnames)-&gt;values[i+<span class="hljs-number">1</span>];
+		KrkClass * type = krk_getType(value);
+		<span class="hljs-keyword">if</span> (type-&gt;_set_name) {
+			krk_push(value);
+			krk_push(OBJECT_VAL(_class));
+			krk_push(name);
+			krk_callDirect(type-&gt;_set_name, <span class="hljs-number">3</span>);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If any of these raises an exception, bail; CPython raises
+an outer exception, setting the cause, but I'm being lazy
+at the moment...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			<span class="hljs-keyword">if</span> (unlikely(krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION)) {
+				<span class="hljs-keyword">break</span>;
+			}
+		}
+	}
+
+	<span class="hljs-comment">/* List used to store name+value pairs */</span>
+	krk_pop();
+}
+
+KRK_StaticMethod(type,__new__) {
+	KrkClass * metaclass;
+	KrkString * name;
+	KrkClass * base;
+	KrkDict * nspace;
+
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"O!O!O!O!~:type"</span>,
+		(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"cls"</span>,<span class="hljs-string">"name"</span>,<span class="hljs-string">"base"</span>,<span class="hljs-string">"namespace"</span>},
+		vm.baseClasses-&gt;typeClass, &amp;metaclass,
+		vm.baseClasses-&gt;strClass, &amp;name,
+		vm.baseClasses-&gt;typeClass, &amp;base,
+		vm.baseClasses-&gt;dictClass, &amp;nspace)) {
+		<span class="hljs-keyword">return</span> NONE_VAL();
+	}
+
+	<span class="hljs-keyword">if</span> (base-&gt;obj.flags &amp; KRK_OBJ_FLAGS_NO_INHERIT) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"'%S' can not be subclassed"</span>, base-&gt;name);
+	}
+
+	<span class="hljs-comment">/* Now make a class */</span>
+	KrkClass * _class = krk_newClass(name, base);
+	krk_push(OBJECT_VAL(_class));
+	_class-&gt;_class = metaclass;
+
+	<span class="hljs-comment">/* Now copy the values over */</span>
+	krk_tableAddAll(&amp;nspace-&gt;entries, &amp;_class-&gt;methods);
+
+	KrkValue tmp;
+
+	<span class="hljs-keyword">if</span> (krk_tableGet_fast(&amp;_class-&gt;methods, S(<span class="hljs-string">"__class_getitem__"</span>), &amp;tmp) &amp;&amp; IS_CLOSURE(tmp)) {
+		AS_CLOSURE(tmp)-&gt;obj.flags |= KRK_OBJ_FLAGS_FUNCTION_IS_CLASS_METHOD;
+	}
+
+	<span class="hljs-keyword">if</span> (krk_tableGet_fast(&amp;_class-&gt;methods, S(<span class="hljs-string">"__init_subclass__"</span>), &amp;tmp) &amp;&amp; IS_CLOSURE(tmp)) {
+		AS_CLOSURE(tmp)-&gt;obj.flags |= KRK_OBJ_FLAGS_FUNCTION_IS_CLASS_METHOD;
+	}
+
+	<span class="hljs-keyword">if</span> (krk_tableGet_fast(&amp;_class-&gt;methods, S(<span class="hljs-string">"__new__"</span>), &amp;tmp) &amp;&amp; IS_CLOSURE(tmp)) {
+		AS_CLOSURE(tmp)-&gt;obj.flags |= KRK_OBJ_FLAGS_FUNCTION_IS_STATIC_METHOD;
+	}
+
+	krk_finalizeClass(_class);
+	_callSetName(_class);
+
+	<span class="hljs-comment">/* Call super().__init_subclass__ */</span>
+	krk_push(NONE_VAL());
+	<span class="hljs-keyword">if</span> (!krk_bindMethodSuper(base,S(<span class="hljs-string">"__init_subclass__"</span>),_class)) {
+		krk_pop(); <span class="hljs-comment">/* none */</span>
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">if</span> (hasKw) {
+			krk_push(KWARGS_VAL(KWARGS_DICT));
+			krk_push(argv[argc]);
+			krk_push(KWARGS_VAL(<span class="hljs-number">1</span>));
+			krk_callStack(<span class="hljs-number">3</span>);
+		} <span class="hljs-keyword">else</span> {
+			krk_callStack(<span class="hljs-number">0</span>);
+		}
+	}
+
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+
+KRK_Method(type,__base__) {
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"__base__ can not be reassigned"</span>);
+	<span class="hljs-keyword">return</span> self-&gt;base ? OBJECT_VAL(self-&gt;base) : NONE_VAL();
+}
+
+KRK_Method(type,__name__) {
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">if</span> (!IS_STRING(argv[<span class="hljs-number">1</span>])) <span class="hljs-keyword">return</span> TYPE_ERROR(str,argv[<span class="hljs-number">1</span>]);
+		self-&gt;name = AS_STRING(argv[<span class="hljs-number">1</span>]);
+	}
+	<span class="hljs-keyword">return</span> self-&gt;name ? OBJECT_VAL(self-&gt;name) : NONE_VAL();
+}
+
+KRK_Method(type,__file__) {
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">if</span> (!IS_STRING(argv[<span class="hljs-number">1</span>])) <span class="hljs-keyword">return</span> TYPE_ERROR(str,argv[<span class="hljs-number">1</span>]);
+		self-&gt;filename = AS_STRING(argv[<span class="hljs-number">1</span>]);
+	}
+	<span class="hljs-keyword">return</span> self-&gt;filename ? OBJECT_VAL(self-&gt;filename) : NONE_VAL();
+}
+
+KRK_Method(type,__repr__) {
+	<span class="hljs-comment">/* Determine if this class has a module */</span>
+	KrkValue <span class="hljs-keyword">module</span> = NONE_VAL();
+	krk_tableGet(&amp;self-&gt;methods, OBJECT_VAL(S(<span class="hljs-string">"__module__"</span>)), &amp;<span class="hljs-keyword">module</span>);
+
+	KrkValue qualname = NONE_VAL();
+	krk_tableGet(&amp;self-&gt;methods, OBJECT_VAL(S(<span class="hljs-string">"__qualname__"</span>)), &amp;qualname);
+	KrkString * name = IS_STRING(qualname) ? AS_STRING(qualname) : self-&gt;name;
+
+	<span class="hljs-keyword">int</span> includeModule = !(IS_NONE(<span class="hljs-keyword">module</span>) || (IS_STRING(<span class="hljs-keyword">module</span>) &amp;&amp; AS_STRING(<span class="hljs-keyword">module</span>) == S(<span class="hljs-string">"builtins"</span>)));
+
+	<span class="hljs-keyword">return</span> krk_stringFromFormat(<span class="hljs-string">"&lt;class '%s%s%S'&gt;"</span>,
+		includeModule ? AS_CSTRING(<span class="hljs-keyword">module</span>) : <span class="hljs-string">""</span>,
+		includeModule ? <span class="hljs-string">"."</span> : <span class="hljs-string">""</span>,
+		name);
+}
+
+KRK_Method(type,__subclasses__) {
+	KrkValue myList = krk_list_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	krk_push(myList);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; self-&gt;subclasses.capacity; ++i) {
+		KrkTableEntry * entry = &amp;self-&gt;subclasses.entries[i];
+		<span class="hljs-keyword">if</span> (IS_KWARGS(entry-&gt;key)) <span class="hljs-keyword">continue</span>;
+		krk_writeValueArray(AS_LIST(myList), entry-&gt;key);
+	}
+
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+
+KRK_Method(type,__getitem__) {
+	<span class="hljs-keyword">if</span> (self-&gt;_classgetitem &amp;&amp; argc == <span class="hljs-number">2</span>) {
+		krk_push(argv[<span class="hljs-number">0</span>]);
+		krk_push(argv[<span class="hljs-number">1</span>]);
+		<span class="hljs-keyword">return</span> krk_callDirect(self-&gt;_classgetitem, <span class="hljs-number">2</span>);
+	}
+	<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;attributeError, <span class="hljs-string">"'%s' object is not subscriptable"</span>, <span class="hljs-string">"type"</span>);
+}
+
+KRK_Method(type,__call__) {
+	<span class="hljs-keyword">if</span> (self == vm.baseClasses-&gt;typeClass) {
+		<span class="hljs-keyword">if</span> (argc == <span class="hljs-number">2</span>) {
+			<span class="hljs-keyword">return</span> OBJECT_VAL(krk_getType(argv[<span class="hljs-number">1</span>]));
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!self-&gt;_new) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"%S() can not be built"</span>, self-&gt;name);
+	}
+
+	KrkValue result;
+	<span class="hljs-keyword">if</span> (self-&gt;_new-&gt;type == KRK_OBJ_NATIVE) {
+		<span class="hljs-comment">/* Fast call to native __new__ function. */</span>
+		result = ((KrkNative*)self-&gt;_new)-&gt;function(argc,argv,hasKw);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-comment">/* Slow call: Put arguments back on the stack with kwargs call format */</span>
+		<span class="hljs-keyword">int</span> argCount = argc;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; argc; ++i) {
+			krk_push(argv[i]);
+		}
+
+		<span class="hljs-keyword">if</span> (hasKw) {
+			argCount += <span class="hljs-number">3</span>;
+			krk_push(KWARGS_VAL(KWARGS_DICT));
+			krk_push(argv[argc]);
+			krk_push(KWARGS_VAL(<span class="hljs-number">1</span>));
+		}
+
+		result = krk_callDirect(self-&gt;_new, argCount);
+	}
+
+	<span class="hljs-comment">/* If an exception happened in __new__, don't try to call __init__ even if the conditions would be right. */</span>
+	<span class="hljs-keyword">if</span> (unlikely(krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-keyword">if</span> (self-&gt;_init != KRK_BASE_CLASS(object)-&gt;_init &amp;&amp; self-&gt;_init != <span class="hljs-literal">NULL</span> &amp;&amp; krk_isInstanceOf(result, self)) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Because we have to swap the class for the instance here, we can't do a fast call even
+if <strong>init</strong> is a native function, so we're stuck with the slow approach...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		krk_push(result); <span class="hljs-comment">/* once for safe keeping */</span>
+		krk_push(result); <span class="hljs-comment">/* once as an argument */</span>
+		<span class="hljs-keyword">int</span> argCount = argc;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; argc - <span class="hljs-number">1</span>; ++i) {
+			krk_push(argv[i+<span class="hljs-number">1</span>]);
+		}
+
+		<span class="hljs-keyword">if</span> (hasKw) {
+			argCount += <span class="hljs-number">3</span>;
+			krk_push(KWARGS_VAL(KWARGS_DICT));
+			krk_push(argv[argc]);
+			krk_push(KWARGS_VAL(<span class="hljs-number">1</span>));
+		}
+
+		KrkValue result = krk_callDirect(self-&gt;_init, argCount);
+		<span class="hljs-keyword">if</span> (!IS_NONE(result)) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Warning: Non-None result returned from %s.__init__\n"</span>,
+				self-&gt;name-&gt;chars);
+		}
+		<span class="hljs-keyword">return</span> krk_pop();
+	}
+
+	<span class="hljs-keyword">return</span> result;
+}
+
+_noexport
+<span class="hljs-keyword">void</span> _createAndBind_type(<span class="hljs-keyword">void</span>) {
+	KrkClass * type = ADD_BASE_CLASS(vm.baseClasses-&gt;typeClass, <span class="hljs-string">"type"</span>, vm.baseClasses-&gt;objectClass);
+	type-&gt;allocSize = <span class="hljs-keyword">sizeof</span>(KrkClass);
+
+	BIND_PROP(type,__base__);
+	BIND_PROP(type,__file__);
+	BIND_PROP(type,__name__);
+
+	BIND_METHOD(type,__repr__);
+	BIND_METHOD(type,__subclasses__);
+	BIND_METHOD(type,__getitem__);
+	BIND_METHOD(type,__call__);
+	BIND_STATICMETHOD(type,__new__);
+
+	krk_finalizeClass(type);
+	KRK_DOC(type, <span class="hljs-string">"Obtain the object representation of the class of an object."</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

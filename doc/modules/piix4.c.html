@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>piix4.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "modules\\piix4.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>piix4.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/args.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pci.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/module.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PIIX4_PCI_PIRQRC  0x60</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">find_isa_bridge</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> device, <span class="hljs-keyword">uint16_t</span> vendorid, <span class="hljs-keyword">uint16_t</span> deviceid, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-keyword">if</span> (vendorid == <span class="hljs-number">0x8086</span> &amp;&amp; (deviceid == <span class="hljs-number">0x7000</span> || deviceid == <span class="hljs-number">0x7110</span>)) {
+		*((<span class="hljs-keyword">uint32_t</span> *)extra) = device;
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> pci_isa = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> pci_isa_base_slot = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> pci_isa_bus_offset = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> pci_isa_last_bus = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint8_t</span> pci_remaps[<span class="hljs-number">4</span>] = {<span class="hljs-number">0</span>};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">piix_remap</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> device, <span class="hljs-keyword">uint16_t</span> vendorid, <span class="hljs-keyword">uint16_t</span> deviceid, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> irq_pin = pci_read_field(device, PCI_INTERRUPT_PIN, <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">uint32_t</span> irq_line = pci_read_field(device, PCI_INTERRUPT_LINE, <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (irq_pin == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">if</span> (pci_extract_bus(device) != pci_isa_last_bus) {
+		pci_isa_bus_offset++;
+		pci_isa_last_bus = pci_extract_bus(device);
+	}
+	<span class="hljs-comment">/* Calculate PIRQ from pin and device slot. */</span>
+	<span class="hljs-keyword">int</span> slot = (pci_extract_slot(device) - pci_isa_base_slot) % <span class="hljs-number">4</span>;
+	<span class="hljs-keyword">int</span> bus  = (pci_isa_bus_offset) % <span class="hljs-number">4</span>;
+	<span class="hljs-keyword">int</span> pirq = (slot + irq_pin + bus - <span class="hljs-number">1</span>) % <span class="hljs-number">4</span>;
+	<span class="hljs-keyword">if</span> (irq_line &lt; <span class="hljs-number">32</span> &amp;&amp; irq_line != pci_remaps[pirq]) {
+		pci_write_field(device, PCI_INTERRUPT_LINE, <span class="hljs-number">1</span>, pci_remaps[pirq]);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">init</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">if</span> (args_present(<span class="hljs-string">"nopciremap"</span>)) <span class="hljs-keyword">return</span> -ENODEV;
+
+	pci_scan(&amp;find_isa_bridge, <span class="hljs-number">-1</span>, &amp;pci_isa);
+	<span class="hljs-keyword">if</span> (!pci_isa) {
+		<span class="hljs-keyword">return</span> -ENODEV;
+	}
+
+	pci_isa_base_slot = pci_extract_slot(pci_isa);
+	pci_isa_last_bus = pci_extract_bus(pci_isa);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">4</span>; ++i) {
+		pci_remaps[i] = pci_read_field(pci_isa, PIIX4_PCI_PIRQRC + i, <span class="hljs-number">1</span>);
+	}
+
+	<span class="hljs-keyword">uint32_t</span> out = <span class="hljs-number">0</span>;
+	<span class="hljs-built_in">memcpy</span>(&amp;out, &amp;pci_remaps, <span class="hljs-number">4</span>);
+	pci_write_field(pci_isa, PIIX4_PCI_PIRQRC, <span class="hljs-number">4</span>, out);
+	pci_scan(piix_remap, <span class="hljs-number">-1</span>, <span class="hljs-literal">NULL</span>);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">fini</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Module</span> <span class="hljs-title">metadata</span> = {</span>
+	.name = <span class="hljs-string">"piix4"</span>,
+	.init = init,
+	.fini = fini,
+};
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

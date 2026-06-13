@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>table.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\src\\table.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>table.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/kuroko.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/object.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/value.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/memory.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/table.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/threads.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TABLE_MAX_LOAD 3 / 4</span>
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_initTable</span><span class="hljs-params">(KrkTable * table)</span> </span>{
+	table-&gt;count = <span class="hljs-number">0</span>;
+	table-&gt;capacity = <span class="hljs-number">0</span>;
+	table-&gt;used = <span class="hljs-number">0</span>;
+	table-&gt;entries = <span class="hljs-literal">NULL</span>;
+	table-&gt;indexes = <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_freeTable</span><span class="hljs-params">(KrkTable * table)</span> </span>{
+	KRK_FREE_ARRAY(KrkTableEntry, table-&gt;entries, table-&gt;capacity);
+	KRK_FREE_ARRAY(<span class="hljs-keyword">ssize_t</span>, table-&gt;indexes, table-&gt;capacity);
+	krk_initTable(table);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">inline</span> <span class="hljs-keyword">int</span> <span class="hljs-title">krk_hashValue</span><span class="hljs-params">(KrkValue value, <span class="hljs-keyword">uint32_t</span> *hashOut)</span> </span>{
+	<span class="hljs-keyword">switch</span> (KRK_VAL_TYPE(value)) {
+		<span class="hljs-keyword">case</span> KRK_VAL_BOOLEAN:
+		<span class="hljs-keyword">case</span> KRK_VAL_INTEGER:
+		<span class="hljs-keyword">case</span> KRK_VAL_NONE:
+		<span class="hljs-keyword">case</span> KRK_VAL_HANDLER:
+		<span class="hljs-keyword">case</span> KRK_VAL_KWARGS:
+			*hashOut = (<span class="hljs-keyword">uint32_t</span>)AS_INTEGER(value);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">case</span> KRK_VAL_OBJECT:
+			<span class="hljs-keyword">if</span> (AS_OBJECT(value)-&gt;flags &amp; KRK_OBJ_FLAGS_VALID_HASH) {
+				*hashOut = AS_OBJECT(value)-&gt;hash;
+				<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			}
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">default</span>:
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_NO_FLOAT</span>
+			*hashOut = (<span class="hljs-keyword">uint32_t</span>)AS_FLOATING(value);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+			<span class="hljs-keyword">break</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	}
+	KrkClass * type = krk_getType(value);
+	<span class="hljs-keyword">if</span> (type &amp;&amp; type-&gt;_hash) {
+		krk_push(value);
+		KrkValue result = krk_callDirect(type-&gt;_hash, <span class="hljs-number">1</span>);
+		<span class="hljs-keyword">if</span> (!IS_INTEGER(result)) <span class="hljs-keyword">goto</span> _unhashable;
+		*hashOut = (<span class="hljs-keyword">uint32_t</span>)AS_INTEGER(result);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">if</span> (IS_CLASS(value)) {
+		*hashOut = (<span class="hljs-keyword">uint32_t</span>)((<span class="hljs-keyword">int</span>)(<span class="hljs-keyword">intptr_t</span>)AS_OBJECT(value));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+_unhashable:
+	<span class="hljs-keyword">if</span> (IS_NONE(krk_currentThread.currentException))
+		krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"unhashable type: '%T'"</span>, value);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">krk_tableIndexKeyC</span><span class="hljs-params">(<span class="hljs-keyword">const</span> KrkTableEntry * entries, <span class="hljs-keyword">const</span> <span class="hljs-keyword">ssize_t</span> * indexes, <span class="hljs-keyword">size_t</span> capacity, KrkValue key, <span class="hljs-keyword">int</span> (*comparator)(KrkValue,KrkValue))</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> index;
+	<span class="hljs-keyword">if</span> (krk_hashValue(key, &amp;index)) <span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	index &amp;= (capacity - <span class="hljs-number">1</span>);
+
+	<span class="hljs-keyword">ssize_t</span> tombstone = <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">for</span> (;;) {
+		<span class="hljs-keyword">if</span> (indexes[index] == <span class="hljs-number">-1</span>) {
+			<span class="hljs-keyword">return</span> tombstone != <span class="hljs-number">-1</span> ? tombstone : index;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (indexes[index] == <span class="hljs-number">-2</span>) {
+			<span class="hljs-keyword">if</span> (tombstone == index) <span class="hljs-keyword">return</span> tombstone;
+			<span class="hljs-keyword">if</span> (tombstone == <span class="hljs-number">-1</span>) tombstone = index;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (comparator(entries[indexes[index]].key, key)) {
+			<span class="hljs-keyword">return</span> index;
+		}
+		index = (index + <span class="hljs-number">1</span>) &amp; (capacity - <span class="hljs-number">1</span>);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">krk_tableIndexKey</span><span class="hljs-params">(<span class="hljs-keyword">const</span> KrkTableEntry * entries, <span class="hljs-keyword">const</span> <span class="hljs-keyword">ssize_t</span> * indexes, <span class="hljs-keyword">size_t</span> capacity, KrkValue key)</span> </span>{
+	<span class="hljs-keyword">return</span> krk_tableIndexKeyC(entries,indexes,capacity,key,krk_valuesSameOrEqual);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">krk_tableIndexKeyExact</span><span class="hljs-params">(<span class="hljs-keyword">const</span> KrkTableEntry * entries, <span class="hljs-keyword">const</span> <span class="hljs-keyword">ssize_t</span> * indexes, <span class="hljs-keyword">size_t</span> capacity, KrkValue key)</span> </span>{
+	<span class="hljs-keyword">return</span> krk_tableIndexKeyC(entries,indexes,capacity,key,krk_valuesSame);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_tableAdjustCapacity</span><span class="hljs-params">(KrkTable * table, <span class="hljs-keyword">size_t</span> capacity)</span> </span>{
+	KrkTableEntry * nentries = KRK_ALLOCATE(KrkTableEntry, capacity);
+	<span class="hljs-keyword">ssize_t</span> * nindexes = KRK_ALLOCATE(<span class="hljs-keyword">ssize_t</span>, capacity);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; capacity; ++i) {
+		nindexes[i] = <span class="hljs-number">-1</span>;
+		nentries[i].key = KWARGS_VAL(<span class="hljs-number">0</span>);
+		nentries[i].value = KWARGS_VAL(<span class="hljs-number">0</span>);
+	}
+
+	<span class="hljs-comment">/* Fill in used entries */</span>
+	<span class="hljs-keyword">const</span> KrkTableEntry * e = table-&gt;entries;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; table-&gt;count; ++i) {
+		<span class="hljs-keyword">while</span> (IS_KWARGS(e-&gt;key)) e++;
+		<span class="hljs-built_in">memcpy</span>(&amp;nentries[i], e, <span class="hljs-keyword">sizeof</span>(KrkTableEntry));
+		<span class="hljs-keyword">ssize_t</span> indexkey = krk_tableIndexKeyExact(nentries,nindexes,capacity, e-&gt;key);
+		nindexes[indexkey] = i;
+		e++;
+	}
+
+	<span class="hljs-comment">/* Swap before freeing */</span>
+	KrkTableEntry * oldEntries = table-&gt;entries;
+	table-&gt;entries = nentries;
+	KRK_FREE_ARRAY(KrkTableEntry, oldEntries, table-&gt;capacity);
+
+	<span class="hljs-keyword">ssize_t</span> * oldIndexes = table-&gt;indexes;
+	table-&gt;indexes = nindexes;
+	KRK_FREE_ARRAY(<span class="hljs-keyword">ssize_t</span>, oldIndexes, table-&gt;capacity);
+
+	<span class="hljs-comment">/* Update table with new capacity and used count */</span>
+	table-&gt;capacity = capacity;
+	table-&gt;used = table-&gt;count;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_tableSet</span><span class="hljs-params">(KrkTable * table, KrkValue key, KrkValue value)</span> </span>{
+	<span class="hljs-keyword">if</span> (table-&gt;used + <span class="hljs-number">1</span> &gt; table-&gt;capacity * TABLE_MAX_LOAD) {
+		<span class="hljs-keyword">size_t</span> capacity = KRK_GROW_CAPACITY(table-&gt;capacity);
+		krk_tableAdjustCapacity(table, capacity);
+	}
+
+	<span class="hljs-keyword">ssize_t</span> index = krk_tableIndexKey(table-&gt;entries, table-&gt;indexes, table-&gt;capacity, key);
+	<span class="hljs-keyword">if</span> (index &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	KrkTableEntry * entry;
+	<span class="hljs-keyword">int</span> isNew = table-&gt;indexes[index] &lt; <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (isNew) {
+		table-&gt;indexes[index] = table-&gt;used;
+		entry = &amp;table-&gt;entries[table-&gt;used];
+		entry-&gt;key = key;
+		table-&gt;used++;
+		table-&gt;count++;
+	} <span class="hljs-keyword">else</span> {
+		entry = &amp;table-&gt;entries[table-&gt;indexes[index]];
+	}
+	entry-&gt;value = value;
+	<span class="hljs-keyword">return</span> isNew;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_tableSetExact</span><span class="hljs-params">(KrkTable * table, KrkValue key, KrkValue value)</span> </span>{
+	<span class="hljs-keyword">if</span> (table-&gt;used + <span class="hljs-number">1</span> &gt; table-&gt;capacity * TABLE_MAX_LOAD) {
+		<span class="hljs-keyword">size_t</span> capacity = KRK_GROW_CAPACITY(table-&gt;capacity);
+		krk_tableAdjustCapacity(table, capacity);
+	}
+
+	<span class="hljs-keyword">ssize_t</span> index = krk_tableIndexKeyExact(table-&gt;entries, table-&gt;indexes, table-&gt;capacity, key);
+	<span class="hljs-keyword">if</span> (index &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	KrkTableEntry * entry;
+	<span class="hljs-keyword">int</span> isNew = table-&gt;indexes[index] &lt; <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (isNew) {
+		table-&gt;indexes[index] = table-&gt;used;
+		entry = &amp;table-&gt;entries[table-&gt;used];
+		entry-&gt;key = key;
+		table-&gt;used++;
+		table-&gt;count++;
+	} <span class="hljs-keyword">else</span> {
+		entry = &amp;table-&gt;entries[table-&gt;indexes[index]];
+	}
+	entry-&gt;value = value;
+	<span class="hljs-keyword">return</span> isNew;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_tableSetIfExists</span><span class="hljs-params">(KrkTable * table, KrkValue key, KrkValue value)</span> </span>{
+	<span class="hljs-keyword">if</span> (table-&gt;count == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">ssize_t</span> index = krk_tableIndexKey(table-&gt;entries, table-&gt;indexes, table-&gt;capacity, key);
+	<span class="hljs-keyword">if</span> (index &lt; <span class="hljs-number">0</span> || table-&gt;indexes[index] &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	table-&gt;entries[table-&gt;indexes[index]].value = value;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_tableAddAll</span><span class="hljs-params">(KrkTable * from, KrkTable * to)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; from-&gt;capacity; ++i) {
+		KrkTableEntry * entry = &amp;from-&gt;entries[i];
+		<span class="hljs-keyword">if</span> (!IS_KWARGS(entry-&gt;key)) {
+			krk_tableSet(to, entry-&gt;key, entry-&gt;value);
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_tableGet</span><span class="hljs-params">(KrkTable * table, KrkValue key, KrkValue * value)</span> </span>{
+	<span class="hljs-keyword">if</span> (table-&gt;count == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">ssize_t</span> index = krk_tableIndexKey(table-&gt;entries, table-&gt;indexes, table-&gt;capacity, key);
+	<span class="hljs-keyword">if</span> (index &lt; <span class="hljs-number">0</span> || table-&gt;indexes[index] &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	*value = table-&gt;entries[table-&gt;indexes[index]].value;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_tableGet_fast</span><span class="hljs-params">(KrkTable * table, KrkString * str, KrkValue * value)</span> </span>{
+	<span class="hljs-keyword">if</span> (table-&gt;count == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint32_t</span> index = str-&gt;obj.hash &amp; (table-&gt;capacity<span class="hljs-number">-1</span>);
+
+	<span class="hljs-keyword">ssize_t</span> tombstone = <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">for</span> (;;) {
+		<span class="hljs-keyword">if</span> (table-&gt;indexes[index] == <span class="hljs-number">-1</span>) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (table-&gt;indexes[index] == <span class="hljs-number">-2</span>) {
+			<span class="hljs-keyword">if</span> (tombstone == index) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">if</span> (tombstone == <span class="hljs-number">-1</span>) tombstone = index;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (krk_valuesSame(table-&gt;entries[table-&gt;indexes[index]].key, OBJECT_VAL(str))) {
+			*value = table-&gt;entries[table-&gt;indexes[index]].value;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		index = (index + <span class="hljs-number">1</span>) &amp; (table-&gt;capacity - <span class="hljs-number">1</span>);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_tableDelete</span><span class="hljs-params">(KrkTable * table, KrkValue key)</span> </span>{
+	<span class="hljs-keyword">if</span> (table-&gt;count == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">ssize_t</span> index = krk_tableIndexKey(table-&gt;entries, table-&gt;indexes, table-&gt;capacity, key);
+	<span class="hljs-keyword">if</span> (index &lt; <span class="hljs-number">0</span> || table-&gt;indexes[index] &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	table-&gt;count--;
+	table-&gt;entries[table-&gt;indexes[index]].key = KWARGS_VAL(<span class="hljs-number">0</span>);
+	table-&gt;entries[table-&gt;indexes[index]].value = KWARGS_VAL(<span class="hljs-number">0</span>);
+	table-&gt;indexes[index] = <span class="hljs-number">-2</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_tableDeleteExact</span><span class="hljs-params">(KrkTable * table, KrkValue key)</span> </span>{
+	<span class="hljs-keyword">if</span> (table-&gt;count == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">ssize_t</span> index = krk_tableIndexKeyExact(table-&gt;entries, table-&gt;indexes, table-&gt;capacity, key);
+	<span class="hljs-keyword">if</span> (index &lt; <span class="hljs-number">0</span> || table-&gt;indexes[index] &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	table-&gt;count--;
+	table-&gt;entries[table-&gt;indexes[index]].key = KWARGS_VAL(<span class="hljs-number">0</span>);
+	table-&gt;entries[table-&gt;indexes[index]].value = KWARGS_VAL(<span class="hljs-number">0</span>);
+	table-&gt;indexes[index] = <span class="hljs-number">-2</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function">KrkString * <span class="hljs-title">krk_tableFindString</span><span class="hljs-params">(KrkTable * table, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * chars, <span class="hljs-keyword">size_t</span> length, <span class="hljs-keyword">uint32_t</span> hash)</span> </span>{
+	<span class="hljs-keyword">if</span> (table-&gt;count == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">uint32_t</span> index = hash &amp; (table-&gt;capacity - <span class="hljs-number">1</span>);
+
+	<span class="hljs-keyword">ssize_t</span> tombstone = <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">for</span> (;;) {
+		<span class="hljs-keyword">if</span> (table-&gt;indexes[index] == <span class="hljs-number">-1</span>) {
+			<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (table-&gt;indexes[index] == <span class="hljs-number">-2</span>) {
+			<span class="hljs-keyword">if</span> (tombstone == index) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+			<span class="hljs-keyword">if</span> (tombstone == <span class="hljs-number">-1</span>) tombstone = index;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (AS_STRING(table-&gt;entries[table-&gt;indexes[index]].key)-&gt;length == length &amp;&amp;
+		           AS_OBJECT(table-&gt;entries[table-&gt;indexes[index]].key)-&gt;hash == hash &amp;&amp;
+		           <span class="hljs-built_in">memcmp</span>(AS_STRING(table-&gt;entries[table-&gt;indexes[index]].key)-&gt;chars, chars, length) == <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">return</span> AS_STRING(table-&gt;entries[table-&gt;indexes[index]].key);
+		}
+		index = (index + <span class="hljs-number">1</span>) &amp; (table-&gt;capacity - <span class="hljs-number">1</span>);
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

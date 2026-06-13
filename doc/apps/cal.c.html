@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>cal.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\cal.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>cal.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/time.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> days_in_months[] = {
+	<span class="hljs-number">31</span>, <span class="hljs-number">0</span>, <span class="hljs-number">31</span>, <span class="hljs-number">30</span>, <span class="hljs-number">31</span>, <span class="hljs-number">30</span>, <span class="hljs-number">31</span>,
+	<span class="hljs-number">31</span>, <span class="hljs-number">30</span>, <span class="hljs-number">31</span>, <span class="hljs-number">30</span>, <span class="hljs-number">31</span>,
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+		<span class="hljs-string">"usage: %s [-h3O] [-A n] [-B n] [[month] year]\n"</span>,
+		argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">next_month</span><span class="hljs-params">(struct tm * target)</span> </span>{
+	<span class="hljs-keyword">if</span> (target-&gt;tm_mon == <span class="hljs-number">11</span>) {
+		target-&gt;tm_mon = <span class="hljs-number">0</span>;
+		target-&gt;tm_year += <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> {
+		target-&gt;tm_mon += <span class="hljs-number">1</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">previous_month</span><span class="hljs-params">(struct tm * target)</span> </span>{
+	<span class="hljs-keyword">if</span> (target-&gt;tm_mon == <span class="hljs-number">0</span>) {
+		target-&gt;tm_mon = <span class="hljs-number">11</span>;
+		target-&gt;tm_year -= <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> {
+		target-&gt;tm_mon -= <span class="hljs-number">1</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">print_calendars</span><span class="hljs-params">(struct tm *today, struct tm *target, <span class="hljs-keyword">int</span> count, <span class="hljs-keyword">int</span> highlight_today, <span class="hljs-keyword">int</span> is_year)</span> </span>{
+	<span class="hljs-comment">/* Now turn our time back into the actual time. */</span>
+	<span class="hljs-keyword">time_t</span> target_time;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tm</span> * <span class="hljs-title">actual</span> = <span class="hljs-title">calloc</span>(<span class="hljs-title">count</span>, <span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">tm</span>));</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tm</span> ** <span class="hljs-title">timeinfo</span> = <span class="hljs-title">calloc</span>(<span class="hljs-title">count</span>, <span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">tm</span>*));</span>
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+		target_time = mktime(target);
+		timeinfo[i] = localtime_r(&amp;target_time, &amp;actual[i]);
+		next_month(target);
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+		<span class="hljs-keyword">char</span> month[<span class="hljs-number">20</span>];
+		strftime(month, <span class="hljs-keyword">sizeof</span>(month), is_year ? <span class="hljs-string">"%B"</span> : <span class="hljs-string">"%B %Y"</span>, timeinfo[i]);
+
+		<span class="hljs-keyword">int</span> len = (<span class="hljs-number">20</span> - <span class="hljs-built_in">strlen</span>(month)) / <span class="hljs-number">2</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; len; ++j) <span class="hljs-built_in">printf</span>(<span class="hljs-string">" "</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s"</span>, month);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-number">22</span> - (<span class="hljs-keyword">int</span>)<span class="hljs-built_in">strlen</span>(month) - len; ++j) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">" "</span>);
+		}
+	}
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\n"</span>);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Su Mo Tu We Th Fr Sa  "</span>);
+	}
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\n"</span>);
+
+	<span class="hljs-keyword">int</span> * days_in_month = <span class="hljs-built_in">calloc</span>(count, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>));
+	<span class="hljs-keyword">int</span> * mday = <span class="hljs-built_in">calloc</span>(count, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>));
+	<span class="hljs-keyword">int</span> * wday = <span class="hljs-built_in">calloc</span>(count, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>));
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Figure out how many days are in each of months we are going
+to display, and what day of the week each starts on</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+		days_in_month[i] = days_in_months[timeinfo[i]-&gt;tm_mon];
+		<span class="hljs-keyword">if</span> (days_in_month[i] == <span class="hljs-number">0</span>) {
+			<span class="hljs-comment">/* How many days in February? */</span>
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tm</span> <span class="hljs-title">tmp</span>;</span>
+			<span class="hljs-built_in">memcpy</span>(&amp;tmp, timeinfo[i], <span class="hljs-keyword">sizeof</span>(struct tm));
+			tmp.tm_mday = <span class="hljs-number">29</span>;
+			tmp.tm_hour = <span class="hljs-number">12</span>;
+			<span class="hljs-keyword">time_t</span> tmp3 = mktime(&amp;tmp);
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tm</span> * <span class="hljs-title">tmp2</span> = <span class="hljs-title">localtime</span>(&amp;<span class="hljs-title">tmp3</span>);</span>
+			<span class="hljs-keyword">if</span> (tmp2-&gt;tm_mday == <span class="hljs-number">29</span>) {
+				days_in_month[i] = <span class="hljs-number">29</span>;
+			} <span class="hljs-keyword">else</span> {
+				days_in_month[i] = <span class="hljs-number">28</span>;
+			}
+		}
+		mday[i] = timeinfo[i]-&gt;tm_mday;
+		wday[i] = timeinfo[i]-&gt;tm_wday;
+
+		<span class="hljs-keyword">while</span> (mday[i] &gt; <span class="hljs-number">1</span>) {
+			mday[i]--;
+			wday[i] = (wday[i] + <span class="hljs-number">6</span>) % <span class="hljs-number">7</span>;
+		}
+	}
+
+	<span class="hljs-comment">/* Each pass through this loop is one row */</span>
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">int</span> maybe_stop = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+			<span class="hljs-keyword">if</span> (mday[i] == <span class="hljs-number">1</span>) <span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; wday[i]; ++j) <span class="hljs-built_in">printf</span>(<span class="hljs-string">"   "</span>);
+			<span class="hljs-keyword">int</span> printed = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">while</span> (mday[i] &lt;= days_in_month[i]) {
+				<span class="hljs-keyword">if</span> (mday[i] == today-&gt;tm_mday &amp;&amp; timeinfo[i]-&gt;tm_mon == today-&gt;tm_mon &amp;&amp; timeinfo[i]-&gt;tm_year == today-&gt;tm_year &amp;&amp; highlight_today) {
+					<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[7m%2d\033[0m "</span>, mday[i]);
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%2d "</span>, mday[i]);
+				}
+
+				mday[i] += <span class="hljs-number">1</span>;
+				wday[i] = (wday[i] + <span class="hljs-number">1</span>) % <span class="hljs-number">7</span>;
+				printed = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">if</span> (wday[i] == <span class="hljs-number">0</span>) <span class="hljs-keyword">break</span>;
+			}
+
+			<span class="hljs-keyword">if</span> (i + <span class="hljs-number">1</span> != count) {
+				<span class="hljs-keyword">if</span> (!printed) {
+					<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-number">22</span>; ++j) <span class="hljs-built_in">printf</span>(<span class="hljs-string">" "</span>);
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = wday[i]; j != <span class="hljs-number">0</span> &amp;&amp; j &lt; <span class="hljs-number">7</span>; ++j) <span class="hljs-built_in">printf</span>(<span class="hljs-string">"   "</span>);
+					<span class="hljs-built_in">printf</span>(<span class="hljs-string">" "</span>);
+				}
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\n"</span>);
+			}
+
+			<span class="hljs-keyword">if</span> (mday[i] &gt; days_in_month[i]) maybe_stop += <span class="hljs-number">1</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (maybe_stop == count) <span class="hljs-keyword">break</span>;
+	}
+
+	<span class="hljs-built_in">free</span>(mday);
+	<span class="hljs-built_in">free</span>(wday);
+	<span class="hljs-built_in">free</span>(days_in_month);
+	<span class="hljs-built_in">free</span>(timeinfo);
+	<span class="hljs-built_in">free</span>(actual);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">int</span> highlight_today = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">int</span> months_before = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> months_after = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> one_row = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> opt;
+
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"h3A:B:O"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'h'</span>:
+				highlight_today = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'3'</span>:
+				months_before = <span class="hljs-number">1</span>;
+				months_after = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'A'</span>:
+				months_after = strtoul(optarg, <span class="hljs-literal">NULL</span>, <span class="hljs-number">10</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'B'</span>:
+				months_before = strtoul(optarg, <span class="hljs-literal">NULL</span>, <span class="hljs-number">10</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'O'</span>:
+				one_row = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> usage(argv);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (optind + <span class="hljs-number">3</span> &lt;= argc) <span class="hljs-keyword">return</span> usage(argv);
+
+	<span class="hljs-comment">/* Get today as a reference point */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timeval</span> <span class="hljs-title">now</span>;</span>
+	gettimeofday(&amp;now, <span class="hljs-literal">NULL</span>);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tm</span> <span class="hljs-title">today</span>;</span>
+	localtime_r((<span class="hljs-keyword">time_t</span> *)&amp;now.tv_sec, &amp;today);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tm</span> <span class="hljs-title">target</span> = {</span><span class="hljs-number">0</span>};
+	target.tm_year = today.tm_year;
+	target.tm_mon = today.tm_mon;
+	target.tm_mday = <span class="hljs-number">3</span>; <span class="hljs-comment">/* Use the third so I don't have to think about timezones at all */</span>
+
+	<span class="hljs-keyword">int</span> whole_year = (optind + <span class="hljs-number">1</span> == argc);
+
+	<span class="hljs-comment">/* If we have a month and a year, process a month first */</span>
+	<span class="hljs-keyword">if</span> (optind + <span class="hljs-number">2</span> &lt;= argc) {
+		<span class="hljs-keyword">char</span> * <span class="hljs-built_in">end</span> = <span class="hljs-literal">NULL</span>;
+		<span class="hljs-keyword">long</span> month = strtol(argv[optind], &amp;<span class="hljs-built_in">end</span>, <span class="hljs-number">10</span>);
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">end</span> == argv[optind] || *<span class="hljs-built_in">end</span> || month &lt; <span class="hljs-number">1</span> || month &gt; <span class="hljs-number">12</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: not an understood month\n"</span>, argv[<span class="hljs-number">0</span>], argv[optind]);
+			<span class="hljs-keyword">return</span> usage(argv);
+		}
+		target.tm_mon = month - <span class="hljs-number">1</span>;
+		optind++;
+	}
+
+	<span class="hljs-comment">/* If we still have a year to process... */</span>
+	<span class="hljs-keyword">if</span> (optind + <span class="hljs-number">1</span> &lt;= argc) {
+		<span class="hljs-keyword">char</span> * <span class="hljs-built_in">end</span> = <span class="hljs-literal">NULL</span>;
+		<span class="hljs-keyword">long</span> year = strtol(argv[optind], &amp;<span class="hljs-built_in">end</span>, <span class="hljs-number">10</span>);
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">end</span> == argv[optind] || *<span class="hljs-built_in">end</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: year must be an integer\n"</span>, argv[<span class="hljs-number">0</span>], argv[optind]);
+			<span class="hljs-keyword">return</span> usage(argv);
+		}
+		<span class="hljs-keyword">if</span> (year &lt; <span class="hljs-number">1970</span> || year &gt; <span class="hljs-number">2099</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: this tool only supports years between 1970 and 2099\n"</span>, argv[<span class="hljs-number">0</span>], argv[optind]);
+			<span class="hljs-keyword">return</span> usage(argv);
+		}
+		target.tm_year = year - <span class="hljs-number">1900</span>;
+		<span class="hljs-keyword">if</span> (whole_year) {
+			target.tm_mon = <span class="hljs-number">0</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (whole_year &amp;&amp; (months_before || months_after || one_row)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: can not mix -3/-A/-B/-O and year with no month\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> usage(argv);
+	}
+
+	<span class="hljs-keyword">if</span> (whole_year) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">30</span>; ++i) <span class="hljs-built_in">printf</span>(<span class="hljs-string">" "</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%d"</span>, target.tm_year + <span class="hljs-number">1900</span>);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">30</span>; ++i) <span class="hljs-built_in">printf</span>(<span class="hljs-string">" "</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\n"</span>);
+		print_calendars(&amp;today, &amp;target, <span class="hljs-number">3</span>, highlight_today, <span class="hljs-number">1</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\n"</span>);
+		print_calendars(&amp;today, &amp;target, <span class="hljs-number">3</span>, highlight_today, <span class="hljs-number">1</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\n"</span>);
+		print_calendars(&amp;today, &amp;target, <span class="hljs-number">3</span>, highlight_today, <span class="hljs-number">1</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\n"</span>);
+		print_calendars(&amp;today, &amp;target, <span class="hljs-number">3</span>, highlight_today, <span class="hljs-number">1</span>);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; months_before; ++i) previous_month(&amp;target);
+		<span class="hljs-keyword">if</span> (one_row) {
+			print_calendars(&amp;today, &amp;target, months_after + months_before + <span class="hljs-number">1</span>, highlight_today, <span class="hljs-number">0</span>);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">int</span> months_left = months_after + months_before + <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">while</span> (months_left &gt; <span class="hljs-number">0</span>) {
+				print_calendars(&amp;today, &amp;target, months_left &gt;= <span class="hljs-number">3</span> ? <span class="hljs-number">3</span> : months_left, highlight_today, <span class="hljs-number">0</span>);
+				months_left -= <span class="hljs-number">3</span>;
+				<span class="hljs-keyword">if</span> (months_left &gt; <span class="hljs-number">0</span>) <span class="hljs-built_in">printf</span>(<span class="hljs-string">"\n"</span>);
+			}
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

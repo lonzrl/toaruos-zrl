@@ -1,0 +1,1441 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>vfs.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\vfs\\vfs.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>vfs.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stddef.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/hashmap.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/tree.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/spinlock.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MAX_SYMLINK_DEPTH 8</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MAX_SYMLINK_SIZE 4096</span>
+
+<span class="hljs-keyword">tree_t</span>    * fs_tree = <span class="hljs-literal">NULL</span>; <span class="hljs-comment">/* File system mountpoint tree */</span>
+<span class="hljs-keyword">fs_node_t</span> * fs_root = <span class="hljs-literal">NULL</span>; <span class="hljs-comment">/* Pointer to the root mount fs_node (must be some form of filesystem, even ramdisk) */</span>
+
+<span class="hljs-keyword">hashmap_t</span> * fs_types = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MIN(l,r) ((l) &lt; (r) ? (l) : (r))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MAX(l,r) ((l) &gt; (r) ? (l) : (r))</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> debug_print(x, fmt, ...) do { <span class="hljs-meta-keyword">if</span> (0) {dprintf(<span class="hljs-meta-string">"vfs.c ["</span> #x <span class="hljs-meta-string">"] "</span> fmt <span class="hljs-meta-string">"\n"</span>, ## __VA_ARGS__); } } while (0)</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">cb_printf</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * user, <span class="hljs-keyword">char</span> c)</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> * f = user;
+	write_fs(f, <span class="hljs-number">0</span>, <span class="hljs-number">1</span>, (<span class="hljs-keyword">uint8_t</span>*)&amp;c);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">fprintf</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * f, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * fmt, ...)</span> </span>{
+	va_list args;
+	va_start(args, fmt);
+	<span class="hljs-keyword">int</span> out = xvasprintf(cb_printf, f, fmt, args);
+	va_end(args);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">has_permission</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">int</span> permission_bit)</span> </span>{
+	<span class="hljs-keyword">if</span> (!node) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">uid_t</span> whom  = this_core-&gt;current_process-&gt;user;
+	<span class="hljs-keyword">gid_t</span> whomg = this_core-&gt;current_process-&gt;user_group;
+	<span class="hljs-keyword">if</span> (permission_bit &amp; <span class="hljs-number">010</span>) {
+		whom = this_core-&gt;current_process-&gt;real_user;
+		whomg = this_core-&gt;current_process-&gt;real_user_group;
+		permission_bit &amp;= ~<span class="hljs-number">010</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (whom == USER_ROOT_UID) {
+		<span class="hljs-keyword">if</span> (!(permission_bit &amp; <span class="hljs-number">01</span>)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">if</span> (node-&gt;flags &amp; FS_DIRECTORY) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">uint64_t</span> permissions = node-&gt;mask;
+
+	<span class="hljs-keyword">uint8_t</span> my_permissions = (permissions) &amp; <span class="hljs-number">07</span>;
+	<span class="hljs-keyword">uint8_t</span> user_perm  = (permissions &gt;&gt; <span class="hljs-number">6</span>) &amp; <span class="hljs-number">07</span>;
+	<span class="hljs-keyword">uint8_t</span> group_perm = (permissions &gt;&gt; <span class="hljs-number">3</span>) &amp; <span class="hljs-number">07</span>;
+
+	<span class="hljs-keyword">if</span> (whom  == node-&gt;uid) my_permissions |= user_perm;
+	<span class="hljs-keyword">if</span> (whomg == node-&gt;gid) my_permissions |= group_perm;
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;supplementary_group_count) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; this_core-&gt;current_process-&gt;supplementary_group_count; ++i) {
+			<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;supplementary_group_list[i] == node-&gt;gid) {
+				my_permissions |= group_perm;
+			}
+		}
+	}
+
+	<span class="hljs-keyword">return</span> (permission_bit &amp; my_permissions) == permission_bit;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">readdir_mapper</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> index, struct dirent * dir)</span> </span>{
+	<span class="hljs-keyword">tree_node_t</span> * d = (<span class="hljs-keyword">tree_node_t</span> *)node-&gt;device;
+
+	<span class="hljs-keyword">if</span> (!d) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (index == <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">strcpy</span>(dir-&gt;d_name, <span class="hljs-string">"."</span>);
+		dir-&gt;d_ino = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (index == <span class="hljs-number">1</span>) {
+		<span class="hljs-built_in">strcpy</span>(dir-&gt;d_name, <span class="hljs-string">".."</span>);
+		dir-&gt;d_ino = <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	index -= <span class="hljs-number">2</span>;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> i = <span class="hljs-number">0</span>;
+	foreach(child, d-&gt;children) {
+		<span class="hljs-keyword">if</span> (i == index) {
+			<span class="hljs-comment">/* Recursively print the children */</span>
+			<span class="hljs-keyword">tree_node_t</span> * tchild = (<span class="hljs-keyword">tree_node_t</span> *)child-&gt;value;
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vfs_entry</span> * <span class="hljs-title">n</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">vfs_entry</span> *)<span class="hljs-title">tchild</span>-&gt;<span class="hljs-title">value</span>;</span>
+
+			<span class="hljs-keyword">size_t</span> len = <span class="hljs-built_in">strlen</span>(n-&gt;name) + <span class="hljs-number">1</span>;
+			<span class="hljs-built_in">memcpy</span>(&amp;dir-&gt;d_name, n-&gt;name, MIN(<span class="hljs-number">256</span>, len));
+			dir-&gt;d_ino = i;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		++i;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">vfs_mapper</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> * fnode = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">memset</span>(fnode, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	fnode-&gt;mask    = <span class="hljs-number">0555</span>;
+	fnode-&gt;flags   = FS_DIRECTORY;
+	fnode-&gt;readdir = readdir_mapper;
+	fnode-&gt;ctime   = now();
+	fnode-&gt;mtime   = now();
+	fnode-&gt;atime   = now();
+	<span class="hljs-keyword">return</span> fnode;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">selectcheck_fs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node)</span> </span>{
+	<span class="hljs-keyword">if</span> (!node) <span class="hljs-keyword">return</span> -ENOENT;
+
+	<span class="hljs-keyword">if</span> (node-&gt;selectcheck) {
+		<span class="hljs-keyword">return</span> node-&gt;selectcheck(node);
+	}
+
+	<span class="hljs-keyword">return</span> -EINVAL;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">selectwait_fs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">void</span> * <span class="hljs-built_in">process</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (!node) <span class="hljs-keyword">return</span> -ENOENT;
+
+	<span class="hljs-keyword">if</span> (node-&gt;selectwait) {
+		<span class="hljs-keyword">return</span> node-&gt;selectwait(node, <span class="hljs-built_in">process</span>);
+	}
+
+	<span class="hljs-keyword">return</span> -EINVAL;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">node</span>
+<span>Node to read
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">offset</span>
+<span>Offset into the node data to read from
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">size</span>
+<span>How much data to read (in bytes)
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">buffer</span>
+<span>A buffer to copy of the read data into
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">ssize_t</span> <span class="hljs-title">read_fs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (!node) <span class="hljs-keyword">return</span> -ENOENT;
+	<span class="hljs-keyword">if</span> (node-&gt;<span class="hljs-built_in">read</span>) {
+		<span class="hljs-keyword">return</span> node-&gt;<span class="hljs-built_in">read</span>(node, offset, <span class="hljs-built_in">size</span>, <span class="hljs-built_in">buffer</span>);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">if</span> (node-&gt;flags &amp; FS_DIRECTORY) <span class="hljs-keyword">return</span> -EISDIR;
+		<span class="hljs-keyword">return</span> -EINVAL;
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">node</span>
+<span>Node to write to
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">offset</span>
+<span>Offset into the node data to write to
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">size</span>
+<span>How much data to write (in bytes)
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">buffer</span>
+<span>A buffer to copy from
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">ssize_t</span> <span class="hljs-title">write_fs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (!node) <span class="hljs-keyword">return</span> -ENOENT;
+	<span class="hljs-keyword">if</span> (node-&gt;<span class="hljs-built_in">write</span>) {
+		<span class="hljs-keyword">return</span> node-&gt;<span class="hljs-built_in">write</span>(node, offset, <span class="hljs-built_in">size</span>, <span class="hljs-built_in">buffer</span>);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">if</span> (node-&gt;flags &amp; FS_DIRECTORY) <span class="hljs-keyword">return</span> -EISDIR;
+		<span class="hljs-keyword">return</span> -EROFS;
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">node</span>
+<span>File to resize
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">truncate_fs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (!node) <span class="hljs-keyword">return</span> -ENOENT;
+
+	<span class="hljs-keyword">if</span> (node-&gt;truncate) {
+		<span class="hljs-keyword">return</span> node-&gt;truncate(node, <span class="hljs-built_in">size</span>);
+	}
+
+	<span class="hljs-keyword">return</span> -EINVAL;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<p>volatile uint8_t tmp_refcount_lock = 0;</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> tmp_refcount_lock = { <span class="hljs-number">0</span> };
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">vfs_lock</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node)</span> </span>{
+	spin_lock(tmp_refcount_lock);
+	<span class="hljs-comment">/* We no longer immortalize things in the mount tree, just increment the refcount */</span>
+	node-&gt;refcount += <span class="hljs-number">1</span>;
+	spin_unlock(tmp_refcount_lock);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">node</span>
+<span>Node to open
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">flags</span>
+<span>Same as open, specifies read/write/append/truncate
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">open_fs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> flags)</span> </span>{
+
+	<span class="hljs-keyword">if</span> (!node) <span class="hljs-keyword">return</span>;
+
+	spin_lock(tmp_refcount_lock);
+	<span class="hljs-keyword">if</span> (node-&gt;refcount &gt;= <span class="hljs-number">0</span>) {
+		node-&gt;refcount++;
+	}
+	spin_unlock(tmp_refcount_lock);
+
+	<span class="hljs-keyword">if</span> (node-&gt;<span class="hljs-built_in">open</span>) {
+		node-&gt;<span class="hljs-built_in">open</span>(node, flags);
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">node</span>
+<span>Node to close
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">close_fs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-11" id="section-11"></a>
+</div>
+<p>assert(node != fs_root &amp;&amp; &quot;Attempted to close the filesystem root. kablooey&quot;);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+	<span class="hljs-keyword">if</span> (!node) {
+		debug_print(WARNING, <span class="hljs-string">"Double close? This isn't an fs_node."</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	spin_lock(tmp_refcount_lock);
+	<span class="hljs-keyword">if</span> (node-&gt;refcount &lt; <span class="hljs-number">0</span>) {
+		spin_unlock(tmp_refcount_lock);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	node-&gt;refcount--;
+	<span class="hljs-keyword">if</span> (node-&gt;refcount == <span class="hljs-number">0</span>) {
+		debug_print(NOTICE, <span class="hljs-string">"Node refcount [%s] is now 0: %ld"</span>, node-&gt;name, node-&gt;refcount);
+
+		<span class="hljs-keyword">if</span> (node-&gt;<span class="hljs-built_in">close</span>) {
+			node-&gt;<span class="hljs-built_in">close</span>(node);
+		}
+
+		<span class="hljs-built_in">free</span>(node);
+	}
+	spin_unlock(tmp_refcount_lock);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-12" id="section-12"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">node</span>
+<span>Node to change permissions for
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">mode</span>
+<span>New mode bits
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">chmod_fs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">mode_t</span> mode)</span> </span>{
+	<span class="hljs-keyword">if</span> (node-&gt;chmod) {
+		<span class="hljs-keyword">return</span> node-&gt;chmod(node, mode);
+	}
+	<span class="hljs-keyword">return</span> -EPERM;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-13" id="section-13"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">chown_fs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">uid_t</span> uid, <span class="hljs-keyword">gid_t</span> gid)</span> </span>{
+	<span class="hljs-keyword">if</span> (node-&gt;chown) {
+		<span class="hljs-keyword">return</span> node-&gt;chown(node, uid, gid);
+	}
+	<span class="hljs-keyword">return</span> -EPERM;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-14" id="section-14"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">node</span>
+<span>Directory to read
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">index</span>
+<span>Offset to look for
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">readdir_fs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> index, struct dirent * out)</span> </span>{
+	<span class="hljs-keyword">if</span> (!node || !(node-&gt;flags &amp; FS_DIRECTORY) || !node-&gt;readdir) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">return</span> node-&gt;readdir(node, index, out);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-15" id="section-15"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">node</span>
+<span>Directory to search
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">name</span>
+<span>File to look for
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">fs_node_t</span> *<span class="hljs-title">finddir_fs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *name)</span> </span>{
+	<span class="hljs-keyword">if</span> (!node || !(node-&gt;flags &amp; FS_DIRECTORY) || !node-&gt;finddir) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">return</span> node-&gt;finddir(node, name);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-16" id="section-16"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">node</span>
+<span>Device node to control
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">request</span>
+<span>Device-specific request code
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">argp</span>
+<span>Depends on <code>request</code>
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">ioctl_fs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> request, <span class="hljs-keyword">void</span> * argp)</span> </span>{
+	<span class="hljs-keyword">if</span> (!node) <span class="hljs-keyword">return</span> -ENOENT;
+	<span class="hljs-keyword">return</span> node-&gt;ioctl ? node-&gt;ioctl(node, request, argp) : -ENOTTY;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">file_get_parent</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path, <span class="hljs-keyword">int</span> *error)</span> </span>{
+	<span class="hljs-keyword">char</span> * parent_path = <span class="hljs-built_in">malloc</span>(<span class="hljs-built_in">strlen</span>(path) + <span class="hljs-number">5</span>);
+	<span class="hljs-built_in">snprintf</span>(parent_path, <span class="hljs-built_in">strlen</span>(path) + <span class="hljs-number">4</span>, <span class="hljs-string">"%s/.."</span>, path);
+	<span class="hljs-keyword">fs_node_t</span> * parent  = kopen_error(parent_path, <span class="hljs-number">0</span>, error);
+	<span class="hljs-built_in">free</span>(parent_path);
+	<span class="hljs-keyword">return</span> parent;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">fs_basename</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path)</span> </span>{
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * f_path = path + <span class="hljs-built_in">strlen</span>(path) - <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">while</span> (f_path &gt; path &amp;&amp; *f_path == <span class="hljs-string">'/'</span>) {
+		<span class="hljs-comment">/* Trailing slashes */</span>
+		f_path--;
+	}
+	<span class="hljs-keyword">while</span> (f_path &gt; path) {
+		<span class="hljs-keyword">if</span> (*f_path == <span class="hljs-string">'/'</span>) {
+			f_path += <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">break</span>;
+		}
+		f_path--;
+	}
+
+	<span class="hljs-keyword">while</span> (*f_path == <span class="hljs-string">'/'</span>) {
+		f_path++;
+	}
+
+	<span class="hljs-keyword">return</span> f_path;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">rename_file_fs</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * src, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * dest)</span> </span>{
+	<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (!*src || !*dest) <span class="hljs-keyword">return</span> -ENOENT;
+	<span class="hljs-keyword">fs_node_t</span> * src_parent = file_get_parent(src, &amp;error);
+	<span class="hljs-keyword">if</span> (!src_parent) <span class="hljs-keyword">return</span> -error;
+	<span class="hljs-keyword">fs_node_t</span> * dest_parent = file_get_parent(dest, &amp;error);
+	<span class="hljs-keyword">if</span> (!dest_parent) { close_fs(src_parent); <span class="hljs-keyword">return</span> -error; }
+
+	<span class="hljs-keyword">int</span> out = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (!src_parent-&gt;mount) { out = -EROFS; <span class="hljs-keyword">goto</span> _nope; }
+	<span class="hljs-keyword">if</span> (src_parent-&gt;mount != dest_parent-&gt;mount) { out = -EXDEV; <span class="hljs-keyword">goto</span> _nope; }
+	<span class="hljs-keyword">if</span> (!src_parent-&gt;mount-&gt;rename) { out = -ENOTSUP; <span class="hljs-keyword">goto</span> _nope; }
+
+	<span class="hljs-keyword">if</span> (!has_permission(src_parent, W_OK|X_OK)) { out = -EACCES; <span class="hljs-keyword">goto</span> _nope; }
+	<span class="hljs-keyword">if</span> (!has_permission(dest_parent, W_OK|X_OK)) { out = -EACCES; <span class="hljs-keyword">goto</span> _nope; }
+
+	<span class="hljs-comment">/* Get basename of each path component */</span>
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * src_name = fs_basename(src);
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * dest_name = fs_basename(dest);
+
+	<span class="hljs-keyword">if</span> (!*src_name || !*dest_name) { out = -EINVAL; <span class="hljs-keyword">goto</span> _nope; }
+	<span class="hljs-keyword">if</span> (*src_name == <span class="hljs-string">'/'</span> || *dest_name == <span class="hljs-string">'/'</span>) { out = -EINVAL; <span class="hljs-keyword">goto</span> _nope; }
+
+	out = src_parent-&gt;mount-&gt;rename(src_parent-&gt;mount, src_parent, src_name, dest_parent, dest_name);
+
+_nope:
+	close_fs(dest_parent);
+	close_fs(src_parent);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">create_file_fs</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *name, <span class="hljs-keyword">mode_t</span> permission, <span class="hljs-keyword">fs_node_t</span> **out)</span> </span>{
+	<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">fs_node_t</span> * parent = file_get_parent(name, &amp;error);
+	<span class="hljs-keyword">if</span> (!parent) <span class="hljs-keyword">return</span> -error;
+
+	<span class="hljs-comment">/* Need both exec and write on the parent to create a new entry */</span>
+	<span class="hljs-keyword">if</span> (!has_permission(parent, W_OK|X_OK)) <span class="hljs-keyword">return</span> close_fs(parent), -EACCES;
+	<span class="hljs-keyword">if</span> (!parent-&gt;create) <span class="hljs-keyword">return</span> close_fs(parent), -EROFS;
+
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * src = fs_basename(name);
+	<span class="hljs-keyword">if</span> (!*src || *src == <span class="hljs-string">'/'</span>) <span class="hljs-keyword">return</span> close_fs(parent), -EINVAL;
+
+	<span class="hljs-keyword">int</span> ret = parent-&gt;create(parent, src, permission, out);
+	close_fs(parent);
+	<span class="hljs-keyword">return</span> ret;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">unlink_fs</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">fs_node_t</span> * parent = file_get_parent(name, &amp;error);
+	<span class="hljs-keyword">if</span> (!parent) <span class="hljs-keyword">return</span> -error;
+
+	<span class="hljs-keyword">if</span> (!has_permission(parent, W_OK|X_OK)) <span class="hljs-keyword">return</span> close_fs(parent), -EACCES;
+	<span class="hljs-keyword">if</span> (!parent-&gt;unlink) <span class="hljs-keyword">return</span> close_fs(parent), -EROFS;
+
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * src = fs_basename(name);
+	<span class="hljs-keyword">if</span> (!*src || *src == <span class="hljs-string">'/'</span>) <span class="hljs-keyword">return</span> close_fs(parent), -EINVAL;
+
+	<span class="hljs-keyword">int</span> ret = parent-&gt;unlink(parent, src);
+	close_fs(parent);
+	<span class="hljs-keyword">return</span> ret;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">mkdir_fs</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *name, <span class="hljs-keyword">mode_t</span> permission, <span class="hljs-keyword">fs_node_t</span> **out)</span> </span>{
+	<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">fs_node_t</span> * parent = file_get_parent(name, &amp;error);
+	<span class="hljs-keyword">if</span> (!parent) <span class="hljs-keyword">return</span> -error;
+	<span class="hljs-keyword">if</span> (!parent-&gt;<span class="hljs-built_in">mkdir</span>) <span class="hljs-keyword">return</span> close_fs(parent), -EROFS;
+
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * src = fs_basename(name);
+	<span class="hljs-keyword">if</span> (!*src || *src == <span class="hljs-string">'/'</span>) <span class="hljs-keyword">return</span> close_fs(parent), -EEXIST;
+
+	<span class="hljs-comment">/* -&gt;mkdir checks perms on parent itself; no need to do that here. */</span>
+	<span class="hljs-keyword">int</span> ret = parent-&gt;<span class="hljs-built_in">mkdir</span>(parent, src, permission, out);
+	close_fs(parent);
+	<span class="hljs-keyword">return</span> ret;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">symlink_fs</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * target, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">fs_node_t</span> * parent = file_get_parent(name, &amp;error);
+	<span class="hljs-keyword">if</span> (!parent) <span class="hljs-keyword">return</span> -error;
+	<span class="hljs-keyword">if</span> (!has_permission(parent, W_OK|X_OK)) <span class="hljs-keyword">return</span> close_fs(parent), -EACCES;
+	<span class="hljs-keyword">if</span> (!parent-&gt;symlink) <span class="hljs-keyword">return</span> close_fs(parent), -EPERM;
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * src = fs_basename(name);
+	<span class="hljs-keyword">if</span> (!*src || *src == <span class="hljs-string">'/'</span>) <span class="hljs-keyword">return</span> -EINVAL;
+
+	<span class="hljs-keyword">int</span> ret = parent-&gt;symlink(parent, target, src);
+	close_fs(parent);
+	<span class="hljs-keyword">return</span> ret;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">ssize_t</span> <span class="hljs-title">readlink_fs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">char</span> * buf, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (!node) <span class="hljs-keyword">return</span> -ENOENT;
+	<span class="hljs-keyword">if</span> (!node-&gt;readlink) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">return</span> node-&gt;readlink(node, buf, <span class="hljs-built_in">size</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">fs_node_t</span> *<span class="hljs-title">clone_fs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *source)</span> </span>{
+	<span class="hljs-keyword">if</span> (!source) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+
+	spin_lock(tmp_refcount_lock);
+	<span class="hljs-keyword">if</span> (source-&gt;refcount &gt;= <span class="hljs-number">0</span>) {
+		source-&gt;refcount++;
+	}
+	spin_unlock(tmp_refcount_lock);
+
+	<span class="hljs-keyword">return</span> source;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-17" id="section-17"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">cwd</span>
+<span>Current working directory
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">input</span>
+<span>Path to append or canonicalize on
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">char</span> *<span class="hljs-title">canonicalize_path</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *cwd, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *input)</span> </span>{
+	<span class="hljs-comment">/* This is a stack-based canonicalizer; we use a list as a stack */</span>
+	<span class="hljs-keyword">list_t</span> *out = list_create(<span class="hljs-string">"vfs canonicalize_path working memory"</span>,input);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-18" id="section-18"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If we have a relative path, we need to canonicalize
+the working directory and insert it into the stack.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (*input &amp;&amp; *input != PATH_SEPARATOR) {
+		<span class="hljs-comment">/* Make a copy of the working directory */</span>
+		<span class="hljs-keyword">char</span> *path = strdup(cwd);
+
+		<span class="hljs-comment">/* Setup tokenizer */</span>
+		<span class="hljs-keyword">char</span> *pch;
+		<span class="hljs-keyword">char</span> *save;
+		pch = strtok_r(path,PATH_SEPARATOR_STRING,&amp;save);
+
+		<span class="hljs-comment">/* Start tokenizing */</span>
+		<span class="hljs-keyword">while</span> (pch != <span class="hljs-literal">NULL</span>) {
+			list_insert(out, strdup(pch));
+			pch = strtok_r(<span class="hljs-literal">NULL</span>,PATH_SEPARATOR_STRING,&amp;save);
+		}
+		<span class="hljs-built_in">free</span>(path);
+	}
+
+	<span class="hljs-comment">/* Similarly, we need to push the elements from the new path */</span>
+	<span class="hljs-keyword">char</span> *path = strdup(input);
+
+	<span class="hljs-comment">/* Initialize the tokenizer... */</span>
+	<span class="hljs-keyword">char</span> *pch;
+	<span class="hljs-keyword">char</span> *save;
+	pch = strtok_r(path,PATH_SEPARATOR_STRING,&amp;save);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-19" id="section-19"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Tokenize the path, this time, taking care to properly
+handle .. and . to represent up (stack pop) and current
+(do nothing)</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">while</span> (pch != <span class="hljs-literal">NULL</span>) {
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(pch,PATH_UP)) {
+			<span class="hljs-comment">/* Pop */</span>
+			<span class="hljs-keyword">node_t</span> * n = list_pop(out);
+			<span class="hljs-keyword">if</span> (n) {
+				<span class="hljs-built_in">free</span>(n-&gt;value);
+				<span class="hljs-built_in">free</span>(n);
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(pch,PATH_DOT)) {
+			<span class="hljs-comment">/* Ignore dot */</span>
+		} <span class="hljs-keyword">else</span> {
+			list_insert(out, strdup(pch));
+		}
+		pch = strtok_r(<span class="hljs-literal">NULL</span>, PATH_SEPARATOR_STRING, &amp;save);
+	}
+	<span class="hljs-built_in">free</span>(path);
+
+	<span class="hljs-comment">/* Calculate the size of the path string */</span>
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = <span class="hljs-number">0</span>;
+	foreach(item, out) {
+		<span class="hljs-comment">/* Helpful use of our foreach macro. */</span>
+		<span class="hljs-built_in">size</span> += <span class="hljs-built_in">strlen</span>(item-&gt;value) + <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* join() the list */</span>
+	<span class="hljs-keyword">char</span> *output = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span>) * (<span class="hljs-built_in">size</span> + <span class="hljs-number">1</span>));
+	<span class="hljs-keyword">char</span> *output_offset = output;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-number">0</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-20" id="section-20"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If the path is empty, we take this to mean the root
+thus we synthesize a path of &quot;/&quot; to return.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		output = <span class="hljs-built_in">realloc</span>(output, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span>) * <span class="hljs-number">2</span>);
+		output[<span class="hljs-number">0</span>] = PATH_SEPARATOR;
+		output[<span class="hljs-number">1</span>] = <span class="hljs-string">'\0'</span>;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-comment">/* Otherwise, append each element together */</span>
+		foreach(item, out) {
+			output_offset[<span class="hljs-number">0</span>] = PATH_SEPARATOR;
+			output_offset++;
+			<span class="hljs-built_in">memcpy</span>(output_offset, item-&gt;value, <span class="hljs-built_in">strlen</span>(item-&gt;value) + <span class="hljs-number">1</span>);
+			output_offset += <span class="hljs-built_in">strlen</span>(item-&gt;value);
+		}
+	}
+
+	<span class="hljs-comment">/* Clean up the various things we used to get here */</span>
+	list_destroy(out);
+	list_free(out);
+	<span class="hljs-built_in">free</span>(out);
+
+	<span class="hljs-comment">/* And return a working, absolute path */</span>
+	<span class="hljs-keyword">return</span> output;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">vfs_install</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-comment">/* Initialize the mountpoint tree */</span>
+	fs_tree = tree_create();
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vfs_entry</span> * <span class="hljs-title">root</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">vfs_entry</span>));</span>
+
+	root-&gt;name = strdup(<span class="hljs-string">"[root]"</span>);
+	root-&gt;file = <span class="hljs-literal">NULL</span>; <span class="hljs-comment">/* Nothing mounted as root */</span>
+	root-&gt;fs_type = <span class="hljs-literal">NULL</span>;
+	root-&gt;device = <span class="hljs-literal">NULL</span>;
+
+	tree_set_root(fs_tree, root);
+
+	fs_types = hashmap_create(<span class="hljs-number">5</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">vfs_register</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name, vfs_mount_callback callback)</span> </span>{
+	<span class="hljs-keyword">if</span> (hashmap_get(fs_types, name)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	hashmap_set(fs_types, name, (<span class="hljs-keyword">void</span> *)(<span class="hljs-keyword">uintptr_t</span>)callback);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">vfs_mount_type</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * type, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * arg, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * mountpoint)</span> </span>{
+
+	vfs_mount_callback t = (vfs_mount_callback)(<span class="hljs-keyword">uintptr_t</span>)hashmap_get(fs_types, type);
+	<span class="hljs-keyword">if</span> (!t) {
+		debug_print(WARNING, <span class="hljs-string">"Unknown filesystem type: %s"</span>, type);
+		<span class="hljs-keyword">return</span> -ENODEV;
+	}
+
+	<span class="hljs-keyword">fs_node_t</span> * n = t(arg, mountpoint);
+
+	<span class="hljs-comment">/* Quick hack to let partition mappers not return a node to mount at 'mountpoint'... */</span>
+	<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">uintptr_t</span>)n == (<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (!n) <span class="hljs-keyword">return</span> -EINVAL;
+
+	<span class="hljs-keyword">tree_node_t</span> * node = vfs_mount(mountpoint, n, type, arg);
+	<span class="hljs-keyword">if</span> (!node) <span class="hljs-keyword">return</span> -EINVAL;
+
+	debug_print(NOTICE, <span class="hljs-string">"Mounted %s[%s] to %s: %p"</span>, type, arg, mountpoint, (<span class="hljs-keyword">void</span>*)n);
+	debug_print_vfs_tree();
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> tmp_vfs_lock = { <span class="hljs-number">0</span> };
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-21" id="section-21"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> * <span class="hljs-title">vfs_mount</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path, <span class="hljs-keyword">fs_node_t</span> * local_root, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * type, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * options)</span> </span>{
+	<span class="hljs-keyword">if</span> (!fs_tree) {
+		debug_print(ERROR, <span class="hljs-string">"VFS hasn't been initialized, you can't mount things yet!"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+	<span class="hljs-keyword">if</span> (!path || path[<span class="hljs-number">0</span>] != <span class="hljs-string">'/'</span>) {
+		debug_print(ERROR, <span class="hljs-string">"Path must be absolute for mountpoint."</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	spin_lock(tmp_vfs_lock);
+
+	vfs_lock(local_root);
+
+	<span class="hljs-keyword">tree_node_t</span> * ret_val = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">char</span> * p = strdup(path);
+	<span class="hljs-keyword">char</span> * i = p;
+
+	<span class="hljs-keyword">int</span> path_len   = <span class="hljs-built_in">strlen</span>(p);
+
+	<span class="hljs-comment">/* Chop the path up */</span>
+	<span class="hljs-keyword">while</span> (i &lt; p + path_len) {
+		<span class="hljs-keyword">if</span> (*i == PATH_SEPARATOR) {
+			*i = <span class="hljs-string">'\0'</span>;
+		}
+		i++;
+	}
+	<span class="hljs-comment">/* Clean up */</span>
+	p[path_len] = <span class="hljs-string">'\0'</span>;
+	i = p + <span class="hljs-number">1</span>;
+
+	<span class="hljs-comment">/* Root */</span>
+	<span class="hljs-keyword">tree_node_t</span> * root_node = fs_tree-&gt;root;
+
+	<span class="hljs-keyword">if</span> (*i == <span class="hljs-string">'\0'</span>) {
+		<span class="hljs-comment">/* Special case, we're trying to set the root node */</span>
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vfs_entry</span> * <span class="hljs-title">root</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">vfs_entry</span> *)<span class="hljs-title">root_node</span>-&gt;<span class="hljs-title">value</span>;</span>
+		<span class="hljs-keyword">if</span> (root-&gt;file) {
+			debug_print(WARNING, <span class="hljs-string">"Path %s already mounted, unmount before trying to mount something else."</span>, path);
+		}
+		root-&gt;file = local_root;
+		root-&gt;device = strdup(options);
+		root-&gt;fs_type = strdup(type);
+		<span class="hljs-comment">/* We also keep a legacy shortcut around for that */</span>
+		fs_root = local_root;
+		ret_val = root_node;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">tree_node_t</span> * node = root_node;
+		<span class="hljs-keyword">char</span> * at = i;
+		<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+			<span class="hljs-keyword">if</span> (at &gt;= p + path_len) {
+				<span class="hljs-keyword">break</span>;
+			}
+			<span class="hljs-keyword">int</span> found = <span class="hljs-number">0</span>;
+			debug_print(NOTICE, <span class="hljs-string">"Searching for %s"</span>, at);
+			foreach(child, node-&gt;children) {
+				<span class="hljs-keyword">tree_node_t</span> * tchild = (<span class="hljs-keyword">tree_node_t</span> *)child-&gt;value;
+				<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vfs_entry</span> * <span class="hljs-title">ent</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">vfs_entry</span> *)<span class="hljs-title">tchild</span>-&gt;<span class="hljs-title">value</span>;</span>
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(ent-&gt;name, at)) {
+					found = <span class="hljs-number">1</span>;
+					node = tchild;
+					ret_val = node;
+					<span class="hljs-keyword">break</span>;
+				}
+			}
+			<span class="hljs-keyword">if</span> (!found) {
+				debug_print(NOTICE, <span class="hljs-string">"Did not find %s, making it."</span>, at);
+				<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vfs_entry</span> * <span class="hljs-title">ent</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">vfs_entry</span>));</span>
+				ent-&gt;name = strdup(at);
+				ent-&gt;file = <span class="hljs-literal">NULL</span>;
+				ent-&gt;device = <span class="hljs-literal">NULL</span>;
+				ent-&gt;fs_type = <span class="hljs-literal">NULL</span>;
+				node = tree_node_insert_child(fs_tree, node, ent);
+			}
+			at = at + <span class="hljs-built_in">strlen</span>(at) + <span class="hljs-number">1</span>;
+		}
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vfs_entry</span> * <span class="hljs-title">ent</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">vfs_entry</span> *)<span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+		<span class="hljs-keyword">if</span> (ent-&gt;file) {
+			debug_print(WARNING, <span class="hljs-string">"Path %s already mounted, unmount before trying to mount something else."</span>, path);
+		}
+		ent-&gt;file = local_root;
+		ent-&gt;device = strdup(options);
+		ent-&gt;fs_type = strdup(type);
+		ret_val = node;
+	}
+
+	<span class="hljs-built_in">free</span>(p);
+	spin_unlock(tmp_vfs_lock);
+	<span class="hljs-keyword">return</span> ret_val;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">map_vfs_directory</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * c)</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> * f = vfs_mapper();
+	<span class="hljs-keyword">tree_node_t</span> * e = vfs_mount((<span class="hljs-keyword">char</span>*)c, f, <span class="hljs-string">"vfs_mapper"</span>, <span class="hljs-string">""</span>);
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(c, <span class="hljs-string">"/"</span>)) {
+		f-&gt;device = fs_tree-&gt;root;
+	} <span class="hljs-keyword">else</span> {
+		f-&gt;device = e;
+	}
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">debug_print_vfs_tree_node</span><span class="hljs-params">(<span class="hljs-keyword">tree_node_t</span> * node, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">height</span>)</span> </span>{
+	<span class="hljs-comment">/* End recursion on a blank entry */</span>
+	<span class="hljs-keyword">if</span> (!node) <span class="hljs-keyword">return</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> MISAKA_DEBUG_PRINT_VFS_TREE</span>
+	<span class="hljs-keyword">char</span> * tmp = <span class="hljs-built_in">malloc</span>(<span class="hljs-number">512</span>);
+	<span class="hljs-built_in">memset</span>(tmp, <span class="hljs-number">0</span>, <span class="hljs-number">512</span>);
+	<span class="hljs-keyword">char</span> * c = tmp;
+	<span class="hljs-comment">/* Indent output */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint32_t</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">height</span>; ++i) {
+		c += <span class="hljs-built_in">snprintf</span>(c, <span class="hljs-number">3</span>, <span class="hljs-string">"  "</span>);
+	}
+	<span class="hljs-comment">/* Get the current process */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vfs_entry</span> * <span class="hljs-title">fnode</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">vfs_entry</span> *)<span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+	<span class="hljs-comment">/* Print the process name */</span>
+	<span class="hljs-keyword">if</span> (fnode-&gt;file) {
+		c += <span class="hljs-built_in">snprintf</span>(c, <span class="hljs-number">100</span>, <span class="hljs-string">"%s → %s %p (%s, %s)"</span>, fnode-&gt;name, fnode-&gt;device, (<span class="hljs-keyword">void</span>*)fnode-&gt;file, fnode-&gt;fs_type, fnode-&gt;file-&gt;name);
+	} <span class="hljs-keyword">else</span> {
+		c += <span class="hljs-built_in">snprintf</span>(c, <span class="hljs-number">100</span>, <span class="hljs-string">"%s → (empty)"</span>, fnode-&gt;name);
+	}
+	<span class="hljs-comment">/* Linefeed */</span>
+	debug_print(NOTICE, <span class="hljs-string">"%s"</span>, tmp);
+	<span class="hljs-built_in">free</span>(tmp);
+	foreach(child, node-&gt;children) {
+		<span class="hljs-comment">/* Recursively print the children */</span>
+		debug_print_vfs_tree_node(child-&gt;value, <span class="hljs-built_in">height</span> + <span class="hljs-number">1</span>);
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">debug_print_vfs_tree</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	debug_print_vfs_tree_node(fs_tree-&gt;root, <span class="hljs-number">0</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-22" id="section-22"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>get_mount_point</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">fs_node_t</span> *<span class="hljs-title">get_mount_point</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * path, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> path_depth, <span class="hljs-keyword">char</span> **outpath, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> * outdepth)</span> </span>{
+	<span class="hljs-keyword">size_t</span> depth;
+
+	<span class="hljs-keyword">for</span> (depth = <span class="hljs-number">0</span>; depth &lt;= path_depth; ++depth) {
+		path += <span class="hljs-built_in">strlen</span>(path) + <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* Last available node */</span>
+	<span class="hljs-keyword">fs_node_t</span>   * last = fs_root;
+	<span class="hljs-keyword">tree_node_t</span> * node = fs_tree-&gt;root;
+
+	<span class="hljs-keyword">char</span> * at = *outpath;
+	<span class="hljs-keyword">int</span> _depth = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">int</span> _tree_depth = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">if</span> (at &gt;= path) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">int</span> found = <span class="hljs-number">0</span>;
+		debug_print(INFO, <span class="hljs-string">"Searching for %s"</span>, at);
+		foreach(child, node-&gt;children) {
+			<span class="hljs-keyword">tree_node_t</span> * tchild = (<span class="hljs-keyword">tree_node_t</span> *)child-&gt;value;
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vfs_entry</span> * <span class="hljs-title">ent</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">vfs_entry</span> *)<span class="hljs-title">tchild</span>-&gt;<span class="hljs-title">value</span>;</span>
+			<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(ent-&gt;name, at)) {
+				found = <span class="hljs-number">1</span>;
+				node = tchild;
+				at = at + <span class="hljs-built_in">strlen</span>(at) + <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">if</span> (ent-&gt;file) {
+					_tree_depth = _depth;
+					last = ent-&gt;file;
+					*outpath = at;
+				}
+				<span class="hljs-keyword">break</span>;
+			}
+		}
+		<span class="hljs-keyword">if</span> (!found) <span class="hljs-keyword">break</span>;
+		_depth++;
+	}
+
+	*outdepth = _tree_depth;
+
+	<span class="hljs-keyword">return</span> last;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">path_tokenize</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * path, <span class="hljs-keyword">size_t</span> len, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> *depth)</span> </span>{
+	<span class="hljs-keyword">char</span> *path_offset = path;
+	*depth = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (path_offset &lt; path + len) {
+		<span class="hljs-comment">/* Find each PATH_SEPARATOR */</span>
+		<span class="hljs-keyword">if</span> (*path_offset == PATH_SEPARATOR) {
+			*path_offset = <span class="hljs-string">'\0'</span>;
+			(*depth)++;
+		}
+		path_offset++;
+	}
+	<span class="hljs-comment">/* Clean up */</span>
+	path[len] = <span class="hljs-string">'\0'</span>;
+	<span class="hljs-keyword">return</span> path + <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">path_untokenize</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * path, <span class="hljs-keyword">size_t</span> len, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> depth)</span> </span>{
+	<span class="hljs-keyword">char</span> * out = <span class="hljs-built_in">malloc</span>(len + <span class="hljs-number">1</span>);
+	<span class="hljs-built_in">memcpy</span>(out, path, len + <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">char</span> * p = out;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; depth &amp;&amp; i &lt; depth - <span class="hljs-number">1</span>; i++) {
+		<span class="hljs-keyword">while</span> (*p) p++;
+		*p = PATH_SEPARATOR;
+	}
+	<span class="hljs-keyword">return</span> out;
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">fs_node_t</span> *<span class="hljs-title">kopen_recur</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *filename, <span class="hljs-keyword">uint64_t</span> flags, <span class="hljs-keyword">uint64_t</span> symlink_depth, <span class="hljs-keyword">char</span> *relative_to, <span class="hljs-keyword">int</span> * error)</span> </span>{
+	<span class="hljs-comment">/* Simple sanity checks that we actually have a file system */</span>
+	<span class="hljs-keyword">if</span> (!filename) <span class="hljs-keyword">return</span> *error = ENOENT, <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-comment">/* Canonicalize the (potentially relative) path... */</span>
+	<span class="hljs-keyword">char</span> *path = canonicalize_path(relative_to, filename);
+	<span class="hljs-comment">/* And store the length once to save recalculations */</span>
+	<span class="hljs-keyword">size_t</span> path_len = <span class="hljs-built_in">strlen</span>(path);
+
+	<span class="hljs-comment">/* If strlen(path) == 1, then path = "/"; return root */</span>
+	<span class="hljs-keyword">if</span> (path_len == <span class="hljs-number">1</span>) {
+		<span class="hljs-built_in">free</span>(path);
+		open_fs(fs_root, flags);
+		<span class="hljs-keyword">return</span> fs_root;
+	}
+
+	<span class="hljs-comment">/* Otherwise, we need to break the path up and start searching */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> path_depth = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> * path_offset = path_tokenize(path, path_len, &amp;path_depth);
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> depth = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">fs_node_t</span> *node_ptr = get_mount_point(path, path_depth, &amp;path_offset, &amp;depth);
+
+	<span class="hljs-keyword">if</span> (!node_ptr) <span class="hljs-keyword">return</span> *error = ENOENT, <span class="hljs-literal">NULL</span>;
+	open_fs(node_ptr, flags);
+
+	<span class="hljs-keyword">do</span> {
+		<span class="hljs-keyword">if</span> ((node_ptr-&gt;flags &amp; FS_SYMLINK) &amp;&amp; !((flags &amp; O_NOFOLLOW) &amp;&amp; depth == path_depth)) {
+			<span class="hljs-keyword">if</span> (symlink_depth &gt;= MAX_SYMLINK_DEPTH) <span class="hljs-keyword">return</span> *error = ELOOP, <span class="hljs-built_in">free</span>(path), close_fs(node_ptr), <span class="hljs-literal">NULL</span>;
+			<span class="hljs-keyword">char</span> *symlink_buf = <span class="hljs-built_in">calloc</span>(MAX_SYMLINK_SIZE+<span class="hljs-number">1</span>, <span class="hljs-number">1</span>);
+
+			<span class="hljs-keyword">ssize_t</span> len = readlink_fs(node_ptr, symlink_buf, MAX_SYMLINK_SIZE);
+			close_fs(node_ptr); <span class="hljs-comment">/* We don't need the reference to the original symlink anymore.*/</span>
+
+			<span class="hljs-keyword">if</span> (len &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-built_in">free</span>(symlink_buf), *error = -len, <span class="hljs-built_in">free</span>(path), <span class="hljs-literal">NULL</span>; <span class="hljs-comment">/* Could not read symlink */</span>
+			<span class="hljs-keyword">if</span> (!len) <span class="hljs-keyword">return</span> <span class="hljs-built_in">free</span>(symlink_buf), *error = ENOENT, <span class="hljs-built_in">free</span>(path), <span class="hljs-literal">NULL</span>;
+
+			symlink_buf[len] = <span class="hljs-string">'\0'</span>;
+
+			<span class="hljs-comment">/* Rebuild our path up to this point. This is hella hacky. */</span>
+			<span class="hljs-keyword">char</span> * relpath = path_untokenize(path, path_len, depth);
+
+			symlink_depth += <span class="hljs-number">1</span>;
+			node_ptr = kopen_recur(symlink_buf, <span class="hljs-number">0</span>, symlink_depth, relpath, error);
+			<span class="hljs-built_in">free</span>(symlink_buf);
+			<span class="hljs-built_in">free</span>(relpath);
+
+			<span class="hljs-keyword">if</span> (!node_ptr) <span class="hljs-keyword">return</span> <span class="hljs-built_in">free</span>((<span class="hljs-keyword">void</span> *)path), <span class="hljs-literal">NULL</span>;
+		}
+
+		<span class="hljs-comment">/* Found what we were looking for. */</span>
+		<span class="hljs-keyword">if</span> (path_offset &gt;= path+path_len || depth == path_depth) <span class="hljs-keyword">return</span> <span class="hljs-built_in">free</span>(path), node_ptr;
+
+		<span class="hljs-comment">/* We are still searching, so this needs to be a directory. */</span>
+		<span class="hljs-keyword">if</span> (!(node_ptr-&gt;flags &amp; FS_DIRECTORY)) <span class="hljs-keyword">return</span> *error = ENOTDIR, <span class="hljs-built_in">free</span>(path), close_fs(node_ptr), <span class="hljs-literal">NULL</span>;
+		<span class="hljs-keyword">if</span> (!has_permission(node_ptr, X_OK)) <span class="hljs-keyword">return</span> *error = EACCES, <span class="hljs-built_in">free</span>(path), close_fs(node_ptr), <span class="hljs-literal">NULL</span>;
+
+		<span class="hljs-comment">/* Search for the requested file. */</span>
+		<span class="hljs-keyword">fs_node_t</span> * node_next = finddir_fs(node_ptr, path_offset);
+		close_fs(node_ptr);
+
+		<span class="hljs-keyword">if</span> (!node_next) <span class="hljs-keyword">return</span> <span class="hljs-built_in">free</span>(path), *error = ENOENT, <span class="hljs-literal">NULL</span>;
+		node_ptr = node_next;
+		open_fs(node_ptr, flags);
+
+		path_offset += <span class="hljs-built_in">strlen</span>(path_offset) + <span class="hljs-number">1</span>;
+		++depth;
+	} <span class="hljs-keyword">while</span> (depth &lt; path_depth + <span class="hljs-number">1</span>);
+
+	<span class="hljs-built_in">free</span>(path);
+	*error = ENOENT;
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-23" id="section-23"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">filename</span>
+<span>Filename to open
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">flags</span>
+<span>Flag bits for read/write mode.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">error</span>
+<span>Where to place an error number, when returning NULL.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">fs_node_t</span> *<span class="hljs-title">kopen_error</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *filename, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> flags, <span class="hljs-keyword">int</span> *error)</span> </span>{
+	*error = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> kopen_recur(filename, flags, <span class="hljs-number">0</span>, (<span class="hljs-keyword">char</span> *)(this_core-&gt;current_process-&gt;wd_name), error);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">fs_node_t</span> *<span class="hljs-title">kopen</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *filename, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> kopen_error(filename, flags, &amp;error);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

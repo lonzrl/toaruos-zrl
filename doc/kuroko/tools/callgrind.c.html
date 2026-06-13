@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>callgrind.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\tools\\callgrind.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>callgrind.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/kuroko.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/debug.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"../src/opcode_enum.h"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"../src/vendor/keigo.h"</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"common.h"</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> KrkValue <span class="hljs-title">krk_operator_add</span> <span class="hljs-params">(KrkValue a, KrkValue b)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">extern</span> KrkValue <span class="hljs-title">krk_operator_sub</span> <span class="hljs-params">(KrkValue a, KrkValue b)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"usage: %s [-f LOG_FILE] [-q] [-m] FILE [args...]\n"</span>, argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">help</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	usage(argv);
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+		<span class="hljs-string">"Generate callgrind-format trace files.\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"Options:\n"</span>
+		<span class="hljs-string">" -f LOG_FILE Output callgrind-format data to LOG_FILE.\n"</span>
+		<span class="hljs-string">" -q          Do not print execution summary.\n"</span>
+		<span class="hljs-string">" -m          Interpret first argument as a module name rather than a file.\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" --help      Show this help text.\n"</span>
+		<span class="hljs-string">"\n"</span>);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-keyword">static</span> KrkValue lineCache; <span class="hljs-comment">/* {sourceCO: {line: count}} */</span>
+<span class="hljs-keyword">static</span> KrkValue callCache; <span class="hljs-comment">/* {sourceCO: {(codeobject,targetLine,sourceLine): [calls,instructions,time]}} */</span>
+<span class="hljs-keyword">static</span> KrkValue timeCache; <span class="hljs-comment">/* {sourceCO: time} */</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> lastFrameCount = <span class="hljs-number">0</span>;   <span class="hljs-comment">/* Previously seen frame count, to track function entry/exit */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> instrCounter = <span class="hljs-number">0</span>;     <span class="hljs-comment">/* Total counter of executed instructions */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> functionsEntered = <span class="hljs-number">0</span>; <span class="hljs-comment">/* Number of function entries seen */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span>    quiet = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span>    moduleAsMain = <span class="hljs-number">0</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">in_time</span>
+<span>Start time to calculate from.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">buf</span>
+<span>String buffer to write into.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">time_diff</span><span class="hljs-params">(struct timespec in_time, <span class="hljs-keyword">char</span> * buf)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timespec</span> <span class="hljs-title">outTime</span>, <span class="hljs-title">diff</span>;</span>
+	clock_gettime(CLOCK_MONOTONIC, &amp;outTime);
+	diff.tv_sec  = outTime.tv_sec  - in_time.tv_sec;
+	diff.tv_nsec = outTime.tv_nsec - in_time.tv_nsec;
+	<span class="hljs-keyword">if</span> (diff.tv_nsec &lt; <span class="hljs-number">0</span>) {
+		diff.tv_sec--;
+		diff.tv_nsec += <span class="hljs-number">1000000000L</span>;
+	}
+	<span class="hljs-built_in">snprintf</span>(buf,<span class="hljs-number">50</span>,<span class="hljs-string">"%lld%.9ld"</span>, (<span class="hljs-keyword">long</span> <span class="hljs-keyword">long</span>)diff.tv_sec, diff.tv_nsec);
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">FrameMetadata</span> {</span>
+	KrkCodeObject * target_obj; <span class="hljs-comment">/* Function being entered */</span>
+	<span class="hljs-keyword">size_t</span> target_line;         <span class="hljs-comment">/* First line seen in the entered function */</span>
+	<span class="hljs-keyword">size_t</span> count;               <span class="hljs-comment">/* Instruction count on entry */</span>
+	<span class="hljs-keyword">size_t</span> source_line;         <span class="hljs-comment">/* Line we came from in the caller */</span>
+	KrkCodeObject * source_obj; <span class="hljs-comment">/* Function we came from in the caller */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timespec</span> <span class="hljs-title">in_time</span>;</span>    <span class="hljs-comment">/* Time of frame entry */</span>
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> maxFrameCount = KRK_CALL_FRAMES_MAX;
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">FrameMetadata</span> * <span class="hljs-title">frameMetadata</span>;</span>
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_callgrind_debuggerHook</span><span class="hljs-params">(KrkCallFrame * frame)</span> </span>{
+	instrCounter++;
+
+	<span class="hljs-keyword">if</span> (krk_currentThread.frameCount != lastFrameCount) {
+		<span class="hljs-keyword">if</span> (maxFrameCount != krk_currentThread.maximumCallDepth) {
+			frameMetadata = <span class="hljs-built_in">realloc</span>(frameMetadata, <span class="hljs-keyword">sizeof</span>(*frameMetadata) * krk_currentThread.maximumCallDepth);
+			maxFrameCount = krk_currentThread.maximumCallDepth;
+		}
+		<span class="hljs-keyword">if</span> (krk_currentThread.frameCount &gt; lastFrameCount) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>When we detect function entry, record details of the function being called
+and what called in, and record the current time.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			KrkCallFrame * prev = lastFrameCount ? &amp;krk_currentThread.frames[lastFrameCount<span class="hljs-number">-1</span>] : <span class="hljs-literal">NULL</span>;
+			frameMetadata[lastFrameCount].target_obj = frame-&gt;closure-&gt;function;
+			frameMetadata[lastFrameCount].target_line = krk_lineNumber(&amp;frame-&gt;closure-&gt;function-&gt;chunk, frame-&gt;ip - frame-&gt;closure-&gt;function-&gt;chunk.code);
+			frameMetadata[lastFrameCount].count = instrCounter;
+			frameMetadata[lastFrameCount].source_obj = prev ? prev-&gt;closure-&gt;function : <span class="hljs-literal">NULL</span>;
+			frameMetadata[lastFrameCount].source_line = prev ? krk_lineNumber(&amp;prev-&gt;closure-&gt;function-&gt;chunk, prev-&gt;ip - <span class="hljs-number">1</span> - prev-&gt;closure-&gt;function-&gt;chunk.code) : <span class="hljs-number">0</span>;
+			clock_gettime(CLOCK_MONOTONIC, &amp;frameMetadata[lastFrameCount].in_time);
+			functionsEntered++;
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">size_t</span> procFrame = lastFrameCount - <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">while</span> (procFrame &gt;= krk_currentThread.frameCount) {
+				<span class="hljs-keyword">if</span> (procFrame == <span class="hljs-number">0</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>This is the outermost call, eg. <module>, returning to the interpreter. We still want to make
+sure we collect the time spent in the call and add it to the time for the function, so that
+the time spent inside other function calls is subtracted to get the time spent actually
+executing code in the module.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">					<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">50</span>];
+					time_diff(frameMetadata[procFrame].in_time, tmp);
+					KrkValue diffTime = krk_parse_int(tmp,<span class="hljs-built_in">strlen</span>(tmp),<span class="hljs-number">10</span>);
+					krk_push(diffTime);
+					KrkValue totalTime = INTEGER_VAL(<span class="hljs-number">0</span>);
+					krk_tableGet(AS_DICT(timeCache),OBJECT_VAL(frameMetadata[procFrame].target_obj),&amp;totalTime);
+					krk_push(krk_operator_add(totalTime,diffTime));
+					krk_tableSet(AS_DICT(timeCache),OBJECT_VAL(frameMetadata[procFrame].target_obj),krk_peek(<span class="hljs-number">0</span>));
+					krk_pop();
+					krk_pop();
+					<span class="hljs-keyword">break</span>;
+				}
+
+				<span class="hljs-comment">/* Set up dict for call mappings */</span>
+				KrkValue ndict = NONE_VAL();
+				<span class="hljs-keyword">if</span> (!krk_tableGet(AS_DICT(callCache),OBJECT_VAL(frameMetadata[procFrame].source_obj),&amp;ndict)) {
+					ndict = krk_dict_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+					krk_push(ndict);
+					krk_tableSet(AS_DICT(callCache),OBJECT_VAL(frameMetadata[procFrame].source_obj),ndict);
+					krk_pop();
+				}
+
+				KrkTuple * t = krk_newTuple(<span class="hljs-number">3</span>);
+				krk_push(OBJECT_VAL(t));
+
+				<span class="hljs-comment">/* Target code object */</span>
+				t-&gt;values.values[t-&gt;values.count++] = OBJECT_VAL(frameMetadata[procFrame].target_obj);
+
+				<span class="hljs-comment">/* Target and source lines */</span>
+				t-&gt;values.values[t-&gt;values.count++] = INTEGER_VAL(frameMetadata[procFrame].target_line);
+				t-&gt;values.values[t-&gt;values.count++] = INTEGER_VAL(frameMetadata[procFrame].source_line);
+
+				KrkValue nlist = NONE_VAL();
+				<span class="hljs-keyword">if</span> (!krk_tableGet(AS_DICT(ndict),krk_peek(<span class="hljs-number">0</span>),&amp;nlist)) {
+					nlist = krk_list_of(<span class="hljs-number">3</span>,(<span class="hljs-keyword">const</span> KrkValue[]){INTEGER_VAL(<span class="hljs-number">0</span>),INTEGER_VAL(<span class="hljs-number">0</span>),INTEGER_VAL(<span class="hljs-number">0</span>)},<span class="hljs-number">0</span>);
+					krk_push(nlist);
+					krk_tableSet(AS_DICT(ndict),krk_peek(<span class="hljs-number">1</span>),krk_peek(<span class="hljs-number">0</span>));
+					krk_pop();
+				}
+				krk_pop(); <span class="hljs-comment">/* tuple */</span>
+
+				<span class="hljs-comment">/* totalCalls += 1 */</span>
+				krk_push(krk_operator_add(AS_LIST(nlist)-&gt;values[<span class="hljs-number">0</span>],INTEGER_VAL(<span class="hljs-number">1</span>)));
+				AS_LIST(nlist)-&gt;values[<span class="hljs-number">0</span>] = krk_pop();
+
+				<span class="hljs-comment">/* totalCosts += last cost */</span>
+				<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">50</span>];
+				<span class="hljs-built_in">snprintf</span>(tmp,<span class="hljs-number">50</span>,<span class="hljs-string">"%zu"</span>, instrCounter - frameMetadata[procFrame].count);
+				KrkValue diffCount = krk_parse_int(tmp,<span class="hljs-built_in">strlen</span>(tmp),<span class="hljs-number">10</span>);
+				krk_push(diffCount);
+				krk_push(krk_operator_add(AS_LIST(nlist)-&gt;values[<span class="hljs-number">1</span>],diffCount));
+				AS_LIST(nlist)-&gt;values[<span class="hljs-number">1</span>] = krk_pop();
+				krk_pop(); <span class="hljs-comment">/* diffCount */</span>
+
+				time_diff(frameMetadata[procFrame].in_time, tmp); <span class="hljs-comment">/* Time for this call */</span>
+				KrkValue diffTime = krk_parse_int(tmp,<span class="hljs-built_in">strlen</span>(tmp),<span class="hljs-number">10</span>);
+				krk_push(diffTime);
+				krk_push(krk_operator_add(AS_LIST(nlist)-&gt;values[<span class="hljs-number">2</span>],diffTime));
+				AS_LIST(nlist)-&gt;values[<span class="hljs-number">2</span>] = krk_pop();
+
+				KrkValue myTime = INTEGER_VAL(<span class="hljs-number">0</span>); <span class="hljs-comment">/* Time spent here */</span>
+				krk_tableGet(AS_DICT(timeCache),OBJECT_VAL(frameMetadata[procFrame].target_obj),&amp;myTime);
+				krk_push(krk_operator_add(myTime,diffTime));
+				krk_tableSet(AS_DICT(timeCache),OBJECT_VAL(frameMetadata[procFrame].target_obj),krk_peek(<span class="hljs-number">0</span>));
+				krk_pop(); <span class="hljs-comment">/* myTime + diffTime */</span>
+
+				KrkValue parentTime = INTEGER_VAL(<span class="hljs-number">0</span>); <span class="hljs-comment">/* Was not spent there */</span>
+				krk_tableGet(AS_DICT(timeCache),OBJECT_VAL(frameMetadata[procFrame].source_obj),&amp;parentTime);
+				krk_push(krk_operator_sub(parentTime,diffTime));
+				krk_tableSet(AS_DICT(timeCache),OBJECT_VAL(frameMetadata[procFrame].source_obj),krk_peek(<span class="hljs-number">0</span>));
+				krk_pop(); <span class="hljs-comment">/* parentTime - diffTime */</span>
+
+				krk_pop(); <span class="hljs-comment">/* diffTime */</span>
+
+				<span class="hljs-built_in">memset</span>(&amp;frameMetadata[procFrame], <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(struct FrameMetadata));
+				procFrame--;
+			}
+		}
+		lastFrameCount = krk_currentThread.frameCount;
+	}
+
+	<span class="hljs-keyword">if</span> (!frame) <span class="hljs-keyword">return</span> KRK_DEBUGGER_QUIT;
+
+	<span class="hljs-comment">/* Set up dict for instruction counts */</span>
+	KrkValue ndict = NONE_VAL();
+	<span class="hljs-keyword">if</span> (!krk_tableGet(AS_DICT(lineCache),OBJECT_VAL(frame-&gt;closure-&gt;function),&amp;ndict)) {
+		ndict = krk_dict_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+		krk_push(ndict);
+		krk_tableSet(AS_DICT(lineCache),OBJECT_VAL(frame-&gt;closure-&gt;function),ndict);
+		krk_pop();
+	}
+
+	KrkValue lineNumber = INTEGER_VAL(krk_lineNumber(&amp;frame-&gt;closure-&gt;function-&gt;chunk, frame-&gt;ip - frame-&gt;closure-&gt;function-&gt;chunk.code));
+
+	<span class="hljs-comment">/* Add one to instruction count for this line */</span>
+	KrkValue count = INTEGER_VAL(<span class="hljs-number">0</span>);
+	krk_tableGet(AS_DICT(ndict), lineNumber, &amp;count);
+	krk_push(krk_operator_add(count, INTEGER_VAL(<span class="hljs-number">1</span>)));
+	krk_tableSet(AS_DICT(ndict), lineNumber, krk_peek(<span class="hljs-number">0</span>));
+	krk_pop(); <span class="hljs-comment">/* count + 1 */</span>
+
+	<span class="hljs-keyword">return</span> KRK_DEBUGGER_STEP;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">fprint_krk</span><span class="hljs-params">(FILE * f, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * fmt, ...)</span> </span>{
+	va_list args;
+	va_start(args, fmt);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+	krk_pushStringBuilderFormatV(&amp;sb, fmt, args);
+	fwrite(sb.bytes, sb.length, <span class="hljs-number">1</span>, f);
+	krk_discardStringBuilder(&amp;sb);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> *argv[])</span> </span>{
+	<span class="hljs-keyword">char</span> outfile[<span class="hljs-number">1024</span>];
+	<span class="hljs-built_in">snprintf</span>(outfile,<span class="hljs-number">1024</span>,<span class="hljs-string">"callgrind.out.%d"</span>,getpid());
+
+	<span class="hljs-keyword">int</span> opt;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Keigo</span> <span class="hljs-title">ctx</span> = {</span><span class="hljs-number">0</span>};
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> optind (ctx.i)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> optarg (ctx.arg)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> optopt (ctx.opt)</span>
+	<span class="hljs-keyword">while</span> ((opt = keigo(&amp;ctx,argc,argv,<span class="hljs-string">"f:qm-:"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>:
+				<span class="hljs-built_in">snprintf</span>(outfile,<span class="hljs-number">1024</span>,<span class="hljs-string">"%s"</span>, optarg);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'q'</span>:
+				quiet = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'m'</span>:
+				moduleAsMain = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">':'</span>:
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: option '%c' requires an argument\n"</span>, argv[<span class="hljs-number">0</span>], optopt);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: unrecognized option '%c'\n"</span>, argv[<span class="hljs-number">0</span>], optopt);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'-'</span>:
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(optarg,<span class="hljs-string">"help"</span>)) {
+					<span class="hljs-keyword">return</span> help(argv);
+				}
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: unrecognized option: '--%s'\n"</span>, argv[<span class="hljs-number">0</span>], optarg);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+	<span class="hljs-keyword">if</span> (optind == argc) {
+		<span class="hljs-keyword">return</span> usage(argv);
+	}
+
+	findInterpreter(argv);
+	krk_initVM(KRK_THREAD_SINGLE_STEP);
+	frameMetadata = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(*frameMetadata) * krk_currentThread.maximumCallDepth);
+	krk_debug_registerCallback(krk_callgrind_debuggerHook);
+	KrkValue argList = addArgs(argc,argv,optind);
+
+	krk_startModule(<span class="hljs-string">"__callgrind__"</span>);
+
+	lineCache = krk_dict_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	krk_attachNamedValue(&amp;krk_currentThread.<span class="hljs-keyword">module</span>-&gt;fields,<span class="hljs-string">"__line_cache__"</span>,lineCache);
+	callCache = krk_dict_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	krk_attachNamedValue(&amp;krk_currentThread.<span class="hljs-keyword">module</span>-&gt;fields,<span class="hljs-string">"__call_cache__"</span>,callCache);
+	timeCache = krk_dict_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	krk_attachNamedValue(&amp;krk_currentThread.<span class="hljs-keyword">module</span>-&gt;fields,<span class="hljs-string">"__time_cache__"</span>,timeCache);
+
+	<span class="hljs-keyword">if</span> (moduleAsMain) {
+		krk_importModule(AS_STRING(AS_LIST(argList)-&gt;values[<span class="hljs-number">0</span>]), S(<span class="hljs-string">"__main__"</span>));
+		<span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION) krk_dumpTraceback();
+		<span class="hljs-comment">/* no need to reset here */</span>
+	} <span class="hljs-keyword">else</span> {
+		krk_startModule(<span class="hljs-string">"__main__"</span>);
+		krk_runfile(argv[optind],argv[optind]);
+	}
+
+	<span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION) {
+		krk_currentThread.flags &amp;= ~(KRK_THREAD_HAS_EXCEPTION);
+		<span class="hljs-keyword">if</span> (!quiet) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"== Executed ended by exception ==\n"</span>);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">if</span> (!quiet) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"== Execution completed ==\n"</span>);
+	}
+	krk_callgrind_debuggerHook(<span class="hljs-literal">NULL</span>);
+
+	<span class="hljs-keyword">if</span> (!quiet) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%10zu total instruction%s\n"</span>, instrCounter, (instrCounter != <span class="hljs-number">1</span>) ? <span class="hljs-string">"s"</span> : <span class="hljs-string">""</span>);
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%10zu function%s calls\n"</span>, functionsEntered, (functionsEntered != <span class="hljs-number">1</span>) ? <span class="hljs-string">"s"</span> : <span class="hljs-string">""</span>);
+	}
+
+	FILE * f = fopen(outfile,<span class="hljs-string">"w"</span>);
+	<span class="hljs-keyword">if</span> (!f) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], outfile, strerror(errno));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"# callgrind format\n"</span>);
+	<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"creator: Kuroko\n"</span>);
+	<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"positions: line\n"</span>);
+	<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"events: instructions nanoseconds\n"</span>);
+	fprint_krk(f,<span class="hljs-string">"cmd: %R\n"</span>, argList);
+	<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"summary: %zu "</span>, instrCounter);
+	<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">50</span>];
+	time_diff(frameMetadata[<span class="hljs-number">0</span>].in_time, tmp);
+	<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"%s\n"</span>, tmp);
+
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> j = <span class="hljs-number">0</span>; j &lt; AS_DICT(lineCache)-&gt;used; ++j) {
+		<span class="hljs-keyword">if</span> (IS_KWARGS(AS_DICT(lineCache)-&gt;entries[j].key)) <span class="hljs-keyword">continue</span>;
+
+		KrkCodeObject * function = (<span class="hljs-keyword">void</span>*)AS_OBJECT(AS_DICT(lineCache)-&gt;entries[j].key);
+		KrkValue        ndict    = AS_DICT(lineCache)-&gt;entries[j].value;
+
+		<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"fl=%s\n"</span>, function-&gt;chunk.filename-&gt;chars);
+		<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"fn=%s@%p\n"</span>, function-&gt;qualname ? function-&gt;qualname-&gt;chars : function-&gt;name-&gt;chars, (<span class="hljs-keyword">void</span>*)function);
+
+		KrkValue timeValue = NONE_VAL();
+		krk_tableGet(AS_DICT(timeCache), OBJECT_VAL(function), &amp;timeValue);
+		<span class="hljs-keyword">if</span> (!IS_NONE(timeValue)) {
+			<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"%zu "</span>, (<span class="hljs-keyword">size_t</span>)krk_lineNumber(&amp;function-&gt;chunk, <span class="hljs-number">0</span>));
+			fprint_krk(f,<span class="hljs-string">"0 %R\n"</span>, timeValue);
+		}
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> k = <span class="hljs-number">0</span>; k &lt; AS_DICT(ndict)-&gt;used; ++k) {
+			<span class="hljs-keyword">if</span> (IS_KWARGS(AS_DICT(ndict)-&gt;entries[k].key)) <span class="hljs-keyword">continue</span>;
+			fprint_krk(f,<span class="hljs-string">"%R %R 0\n"</span>, AS_DICT(ndict)-&gt;entries[k].key, AS_DICT(ndict)-&gt;entries[k].value);
+		}
+
+		KrkValue cdict = NONE_VAL();
+		krk_tableGet(AS_DICT(callCache), OBJECT_VAL(function), &amp;cdict);
+		<span class="hljs-keyword">if</span> (!IS_NONE(cdict)) {
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> l = <span class="hljs-number">0</span>; l &lt; AS_DICT(cdict)-&gt;used; ++l) {
+				<span class="hljs-keyword">if</span> (IS_KWARGS(AS_DICT(cdict)-&gt;entries[l].key)) <span class="hljs-keyword">continue</span>;
+
+				KrkCodeObject * target = (<span class="hljs-keyword">void</span>*)AS_OBJECT(AS_TUPLE(AS_DICT(cdict)-&gt;entries[l].key)-&gt;values.values[<span class="hljs-number">0</span>]);
+				KrkValue targetLine    = AS_TUPLE(AS_DICT(cdict)-&gt;entries[l].key)-&gt;values.values[<span class="hljs-number">1</span>];
+				KrkValue sourceLine    = AS_TUPLE(AS_DICT(cdict)-&gt;entries[l].key)-&gt;values.values[<span class="hljs-number">2</span>];
+				KrkValue totalCalls    = AS_LIST(AS_DICT(cdict)-&gt;entries[l].value)-&gt;values[<span class="hljs-number">0</span>];
+				KrkValue totalCost     = AS_LIST(AS_DICT(cdict)-&gt;entries[l].value)-&gt;values[<span class="hljs-number">1</span>];
+				KrkValue totalTime     = AS_LIST(AS_DICT(cdict)-&gt;entries[l].value)-&gt;values[<span class="hljs-number">2</span>];
+
+				<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"cfi=%s\n"</span>, target-&gt;chunk.filename-&gt;chars);
+				<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"cfn=%s@%p\n"</span>, target-&gt;qualname ? target-&gt;qualname-&gt;chars : target-&gt;name-&gt;chars, (<span class="hljs-keyword">void</span>*)target);
+				fprint_krk(f,<span class="hljs-string">"calls=%R %R\n%R %R %R\n"</span>, totalCalls, targetLine, sourceLine, totalCost, totalTime);
+			}
+		}
+	}
+
+	fclose(f);
+
+	krk_freeVM();
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

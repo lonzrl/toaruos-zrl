@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>mixerctl.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\mixerctl.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>mixerctl.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mod/sound.h&gt;</span></span>
+
+<span class="hljs-keyword">enum</span> operations {
+	OP_LIST,
+	OP_READ,
+	OP_WRITE,
+	OP_LIST_DEVICES,
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">show_usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> *argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_S <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_E <span class="hljs-meta-string">"\033[0m"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+		<span class="hljs-string">"%s - Control audio mixer settings.\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"Usage  %s [-m mixer] [-d device_id] [-l]\n"</span>
+		<span class="hljs-string">"       %s [-m mixer] [-d device_id] [-k knob_id] -r\n"</span>
+		<span class="hljs-string">"       %s [-m mixer] [-d device_id] [-k knob_id] -w knob_value\n"</span>
+		<span class="hljs-string">"       %s -h\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" -d "</span> X_S <span class="hljs-string">"device_id    Device id to address. Defaults to the main sound device."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" -l              "</span> X_S <span class="hljs-string">"List the knobs on a device."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" -k "</span> X_S <span class="hljs-string">"knob_id      Knob id to address. Defaults to the device's master knob."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" -r              "</span> X_S <span class="hljs-string">"Perform a read on the given device's knob. Defaults to"</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"                 "</span> X_S <span class="hljs-string">"the device's master knob."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" -w "</span> X_S <span class="hljs-string">"knob_value   Perform a write on the given device's knob. The value"</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"                 "</span> X_S <span class="hljs-string">"should be a float from 0.0 to 1.0."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" -m "</span> X_S <span class="hljs-string">"mixer        Use an alternative mixer device file."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" -h              "</span> X_S <span class="hljs-string">"Print this help message and exit."</span> X_E <span class="hljs-string">"\n"</span>,
+		argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">snd_error</span><span class="hljs-params">(<span class="hljs-keyword">int</span> err, <span class="hljs-keyword">char</span> * argv0, <span class="hljs-keyword">char</span> * mixer_path, <span class="hljs-keyword">uint32_t</span> device_id, <span class="hljs-keyword">uint32_t</span> knob_id)</span> </span>{
+	<span class="hljs-keyword">if</span> (err == ENODEV)      <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: no audio device at id '%u'\n"</span>, argv0, device_id);
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (err == ENXIO)  <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: device %u has no knob at id '%u'\n"</span>, argv0, knob_id, device_id);
+	<span class="hljs-keyword">else</span>                    <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv0, mixer_path, strerror(err));
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">format_name</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> format)</span> </span>{
+	<span class="hljs-keyword">switch</span>(format) {
+		<span class="hljs-keyword">case</span> SND_FORMAT_L16SLE:
+			<span class="hljs-keyword">return</span> <span class="hljs-string">"s16le"</span>;
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> <span class="hljs-string">"unknown"</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> device_id = SND_DEVICE_MAIN;
+	<span class="hljs-keyword">uint32_t</span> knob_id   = SND_KNOB_MASTER;
+	<span class="hljs-keyword">double</span> write_value = <span class="hljs-number">0.0</span>;
+	<span class="hljs-keyword">char</span> * mixer_path = <span class="hljs-string">"/dev/mixer"</span>;
+
+	<span class="hljs-keyword">enum</span> operations operation = OP_LIST;
+
+	<span class="hljs-keyword">int</span> c;
+
+	<span class="hljs-keyword">while</span> ((c = getopt(argc, argv, <span class="hljs-string">"d:lk:rw:m:Lh?"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (c) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'d'</span>:
+				device_id = atoi(optarg);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'l'</span>:
+				<span class="hljs-keyword">if</span> (operation) <span class="hljs-keyword">return</span> show_usage(argv);
+				operation = OP_LIST;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'L'</span>:
+				<span class="hljs-keyword">if</span> (operation) <span class="hljs-keyword">return</span> show_usage(argv);
+				operation = OP_LIST_DEVICES;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'k'</span>:
+				knob_id = atoi(optarg);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'r'</span>:
+				<span class="hljs-keyword">if</span> (operation) <span class="hljs-keyword">return</span> show_usage(argv);
+				operation = OP_READ;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'w'</span>:
+				<span class="hljs-keyword">if</span> (operation) <span class="hljs-keyword">return</span> show_usage(argv);
+				operation = OP_WRITE;
+				write_value = atof(optarg);
+				<span class="hljs-keyword">if</span> (write_value &lt; <span class="hljs-number">0.0</span> || write_value &gt; <span class="hljs-number">1.0</span>) {
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"argument -w value must be between 0.0 and 1.0\n"</span>);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'m'</span>:
+				mixer_path = optarg;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'h'</span>:
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+			<span class="hljs-keyword">default</span>:
+				<span class="hljs-keyword">return</span> show_usage(argv);
+		}
+	}
+
+	<span class="hljs-keyword">int</span> mixer = <span class="hljs-built_in">open</span>(mixer_path, O_RDONLY);
+	<span class="hljs-keyword">if</span> (mixer &lt; <span class="hljs-number">1</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], mixer_path, strerror(errno));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">switch</span> (operation) {
+		<span class="hljs-keyword">case</span> OP_LIST: {
+			<span class="hljs-keyword">snd_knob_list_t</span> <span class="hljs-built_in">list</span> = {<span class="hljs-number">0</span>};
+			<span class="hljs-built_in">list</span>.device = device_id;
+			<span class="hljs-keyword">if</span> (ioctl(mixer, SND_MIXER_GET_KNOBS, &amp;<span class="hljs-built_in">list</span>) &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> snd_error(errno, argv[<span class="hljs-number">0</span>], mixer_path, device_id, <span class="hljs-number">0</span>);
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint32_t</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">list</span>.num; i++) {
+				<span class="hljs-keyword">snd_knob_info_t</span> info = {<span class="hljs-number">0</span>};
+				info.device = device_id;
+				info.id = <span class="hljs-built_in">list</span>.ids[i];
+				<span class="hljs-keyword">if</span> (ioctl(mixer, SND_MIXER_GET_KNOB_INFO, &amp;info) &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> snd_error(errno, argv[<span class="hljs-number">0</span>], mixer_path, device_id, <span class="hljs-number">0</span>);
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%d: %s\n"</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)info.id, info.name);
+			}
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+
+		<span class="hljs-keyword">case</span> OP_READ: {
+			<span class="hljs-keyword">snd_knob_value_t</span> value = {<span class="hljs-number">0</span>};
+			value.device = device_id;
+			value.id = knob_id;
+			<span class="hljs-keyword">if</span> (ioctl(mixer, SND_MIXER_READ_KNOB, &amp;value) &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> snd_error(errno, argv[<span class="hljs-number">0</span>], mixer_path, device_id, knob_id);
+			<span class="hljs-keyword">double</span> double_val = (<span class="hljs-keyword">double</span>)value.val / SND_KNOB_MAX_VALUE;
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%f\n"</span>, double_val);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+
+		<span class="hljs-keyword">case</span> OP_WRITE: {
+			<span class="hljs-keyword">snd_knob_value_t</span> value = {<span class="hljs-number">0</span>};
+			value.device = device_id;
+			value.id = knob_id;
+			value.val = (<span class="hljs-keyword">uint32_t</span>)(write_value * SND_KNOB_MAX_VALUE);
+			<span class="hljs-keyword">if</span> (ioctl(mixer, SND_MIXER_WRITE_KNOB, &amp;value) &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> snd_error(errno, argv[<span class="hljs-number">0</span>], mixer_path, device_id, knob_id);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+
+		<span class="hljs-keyword">case</span> OP_LIST_DEVICES: {
+			<span class="hljs-keyword">snd_device_list_t</span> * devlist = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">snd_device_list_t</span>));
+			<span class="hljs-keyword">if</span> (ioctl(mixer, SND_MIXER_GET_DEVICES, devlist) &lt; <span class="hljs-number">0</span>)  <span class="hljs-keyword">return</span> snd_error(errno, argv[<span class="hljs-number">0</span>], mixer_path, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>);
+			<span class="hljs-keyword">if</span> (devlist-&gt;count == <span class="hljs-number">0</span>) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: no devices\n"</span>, argv[<span class="hljs-number">0</span>]);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			}
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%zu device%s:\n"</span>, devlist-&gt;count, devlist-&gt;count == <span class="hljs-number">1</span> ? <span class="hljs-string">""</span> : <span class="hljs-string">"s"</span>);
+			devlist = <span class="hljs-built_in">realloc</span>(devlist, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">snd_device_list_t</span>) + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">snd_device_user_t</span>) * devlist-&gt;count);
+			devlist-&gt;space = devlist-&gt;count;
+			<span class="hljs-keyword">if</span> (ioctl(mixer, SND_MIXER_GET_DEVICES, devlist) &lt; <span class="hljs-number">0</span>)  <span class="hljs-keyword">return</span> snd_error(errno, argv[<span class="hljs-number">0</span>], mixer_path, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>);
+			<span class="hljs-keyword">size_t</span> entries = devlist-&gt;count &lt; devlist-&gt;space ? devlist-&gt;count : devlist-&gt;space;
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; entries; ++i) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%02u %.256s (%u knob%s; format %s; sample rate %uHz)\n"</span>,
+					devlist-&gt;devices[i].id,
+					devlist-&gt;devices[i].name,
+					devlist-&gt;devices[i].num_knobs,
+					devlist-&gt;devices[i].num_knobs == <span class="hljs-number">1</span> ? <span class="hljs-string">""</span> : <span class="hljs-string">"s"</span>,
+					format_name(devlist-&gt;devices[i].playback_format),
+					devlist-&gt;devices[i].playback_speed);
+			}
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> show_usage(argv);
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

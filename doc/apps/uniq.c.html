@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>uniq.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\uniq.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>uniq.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;getopt.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;ctype.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> skip_fields = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> skip_chars  = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> suppress_unique = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> suppress_nonunique = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> show_count = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> ignore_case = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _I <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _E <span class="hljs-meta-string">"\033[0m\n"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+		<span class="hljs-string">"usage: %s [-i] [-c] [-d] [-f fields] [-s chars] [-u]  [input_file [output_file]]\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"Filters repeated lines from input.\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" Options:\n"</span>
+		<span class="hljs-string">"  -c     "</span> _I <span class="hljs-string">"Preceed each output line with a count of the times it appeared."</span> _E
+		<span class="hljs-string">"  -d     "</span> _I <span class="hljs-string">"Suppress the output of non-repeated lines."</span> _E
+		<span class="hljs-string">"  -u     "</span> _I <span class="hljs-string">"Suppress the output of repeated lines."</span> _E
+		<span class="hljs-string">"  -f N   "</span> _I <span class="hljs-string">"Skip N fields for comparison."</span> _E
+		<span class="hljs-string">"  -s N   "</span> _I <span class="hljs-string">"Skip N characters for comparison."</span> _E
+		<span class="hljs-string">"  -i     "</span> _I <span class="hljs-string">"Ignore case when comparing lines."</span> _E
+		<span class="hljs-string">"  -?     "</span> _I <span class="hljs-string">"Display this help text."</span> _E
+		<span class="hljs-string">"\n"</span>,
+		argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">skip_as_needed</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * str)</span> </span>{
+	<span class="hljs-keyword">char</span> * out = str;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; skip_fields &amp;&amp; *out; ++i) {
+		<span class="hljs-keyword">while</span> (*out &amp;&amp; <span class="hljs-built_in">isspace</span>(*out)) out++;
+		<span class="hljs-keyword">while</span> (*out &amp;&amp; !<span class="hljs-built_in">isspace</span>(*out)) out++;
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; skip_chars &amp;&amp; *out; ++i) out++;
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">finish_line</span><span class="hljs-params">(FILE * output, <span class="hljs-keyword">char</span> * prev, <span class="hljs-keyword">size_t</span> count)</span> </span>{
+	<span class="hljs-keyword">if</span> (count == <span class="hljs-number">1</span> &amp;&amp; suppress_unique) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">if</span> (count &gt; <span class="hljs-number">1</span> &amp;&amp; suppress_nonunique) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-keyword">if</span> (show_count) <span class="hljs-built_in">fprintf</span>(output, <span class="hljs-string">"%zu "</span>, count);
+	<span class="hljs-built_in">fprintf</span>(output, <span class="hljs-string">"%s\n"</span>, prev);
+
+	<span class="hljs-built_in">free</span>(prev);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">getline_helper</span><span class="hljs-params">(FILE * input_file)</span> </span>{
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">line</span> = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">size_t</span> avail = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">ssize_t</span> len = getline(&amp;<span class="hljs-built_in">line</span>, &amp;avail, input_file);
+	<span class="hljs-keyword">if</span> (len &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">line</span>) <span class="hljs-built_in">free</span>(<span class="hljs-built_in">line</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+	<span class="hljs-keyword">if</span> (len &amp;&amp; <span class="hljs-built_in">line</span>[len<span class="hljs-number">-1</span>] == <span class="hljs-string">'\n'</span>) <span class="hljs-built_in">line</span>[len<span class="hljs-number">-1</span>] = <span class="hljs-string">'\0'</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">line</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	FILE * input_file = <span class="hljs-built_in">stdin</span>;
+	FILE * output_file = <span class="hljs-built_in">stdout</span>;
+
+	<span class="hljs-keyword">int</span> opt;
+
+	<span class="hljs-comment">/* <span class="hljs-doctag">XXX:</span> POSIX says we should also accept + as an alternative for - but we don't do that. */</span>
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"?cdf:is:u"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'c'</span>:
+				show_count = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'d'</span>:
+				suppress_unique = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'u'</span>:
+				suppress_nonunique = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>:
+				skip_fields = atoi(optarg);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'s'</span>:
+				skip_chars = atoi(optarg);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'i'</span>:
+				ignore_case = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> usage(argv);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (optind + <span class="hljs-number">2</span> &lt; argc) <span class="hljs-keyword">return</span> usage(argv);
+
+	<span class="hljs-keyword">if</span> (optind &lt; argc) {
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strcmp</span>(argv[optind],<span class="hljs-string">"-"</span>)) {
+			input_file = fopen(argv[optind], <span class="hljs-string">"r"</span>);
+			<span class="hljs-keyword">if</span> (!input_file) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], argv[optind], strerror(errno));
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			}
+		}
+		<span class="hljs-keyword">if</span> (optind + <span class="hljs-number">1</span> &lt; argc) {
+			output_file = fopen(argv[optind+<span class="hljs-number">1</span>],<span class="hljs-string">"w"</span>);
+			<span class="hljs-keyword">if</span> (!output_file) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], argv[optind+<span class="hljs-number">1</span>], strerror(errno));
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			}
+		}
+	}
+
+	<span class="hljs-keyword">size_t</span> count = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">char</span> *prev = getline_helper(input_file);
+
+	<span class="hljs-keyword">if</span> (!prev) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>; <span class="hljs-comment">/* Empty file? */</span>
+
+	<span class="hljs-keyword">char</span> *prev_comp = skip_as_needed(prev);
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">char</span> * nline = getline_helper(input_file);
+		<span class="hljs-keyword">if</span> (!nline) <span class="hljs-keyword">break</span>;
+
+		<span class="hljs-keyword">char</span> * ncomp = skip_as_needed(nline);
+
+		<span class="hljs-keyword">if</span> (!(ignore_case ? strcasecmp : <span class="hljs-built_in">strcmp</span>)(prev_comp, ncomp)) {
+			<span class="hljs-built_in">free</span>(nline);
+			count++;
+		} <span class="hljs-keyword">else</span> {
+			finish_line(output_file, prev, count);
+			count = <span class="hljs-number">1</span>;
+			prev = nline;
+			prev_comp = ncomp;
+		}
+	}
+
+	finish_line(output_file, prev, count);
+
+	<span class="hljs-keyword">if</span> (input_file != <span class="hljs-built_in">stdin</span>) fclose(input_file);
+	<span class="hljs-keyword">if</span> (output_file != <span class="hljs-built_in">stdout</span>) fclose(output_file);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

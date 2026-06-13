@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>getopt_long.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "libc\\unistd\\getopt_long.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>getopt_long.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;getopt.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;ctype.h&gt;</span></span>
+
+<span class="hljs-keyword">char</span> * optarg = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">int</span> optind = <span class="hljs-number">1</span>;
+<span class="hljs-keyword">int</span> opterr = <span class="hljs-number">1</span>;
+<span class="hljs-keyword">int</span> optopt = <span class="hljs-number">0</span>;
+
+<span class="hljs-comment">/* Reverse the elements in [left,right] */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">reverse</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * <span class="hljs-keyword">const</span> argv[], <span class="hljs-keyword">int</span> left, <span class="hljs-keyword">int</span> right)</span> </span>{
+	<span class="hljs-comment">/* left and right are inclusive and can be the same */</span>
+	<span class="hljs-keyword">if</span> (left == right) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">while</span> (left &lt; right) {
+		<span class="hljs-keyword">char</span> * scratch = argv[left];
+		<span class="hljs-comment">/* We lied about being const (BSD and GNU do something like this, too). */</span>
+		((<span class="hljs-keyword">char</span>**)argv)[left] = argv[right];
+		((<span class="hljs-keyword">char</span>**)argv)[right] = scratch;
+		left++;
+		right--;
+	}
+}
+
+<span class="hljs-comment">/* Swaps the items from [a,b] with the ones in (b,optind) */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">permutate_args</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * <span class="hljs-keyword">const</span> argv[], <span class="hljs-keyword">int</span> first_nonopt, <span class="hljs-keyword">int</span> last_nonopt, <span class="hljs-keyword">int</span> optind)</span> </span>{
+	<span class="hljs-keyword">if</span> (last_nonopt == optind - <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>; <span class="hljs-comment">/* nothing to swap */</span>
+	reverse(argv, first_nonopt, last_nonopt);
+	reverse(argv, last_nonopt + <span class="hljs-number">1</span>, optind - <span class="hljs-number">1</span>);
+	reverse(argv, first_nonopt, optind - <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">return</span> optind - last_nonopt - <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-comment">/* Macro to cleanly record that we expect to process the next argument. */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> finish_arg() do { \
+	nextchar = NULL; \
+	optind++; \
+	optind_expected = optind; \
+} while (0)</span>
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">getopt_long</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * <span class="hljs-keyword">const</span> argv[], <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *optstring, <span class="hljs-keyword">const</span> struct option *longopts, <span class="hljs-keyword">int</span> *longindex)</span> </span>{
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * nextchar = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> optind_expected = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> first_nonopt = <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> last_nonopt = <span class="hljs-number">-1</span>;
+
+	<span class="hljs-comment">/* If optind changed, ensure we process this argument from the start */</span>
+	<span class="hljs-keyword">if</span> (optind != optind_expected) nextchar = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-comment">/* If optind was set to 0, accept this as forcing a reset and starting parsing again from 1. */</span>
+	<span class="hljs-keyword">if</span> (optind == <span class="hljs-number">0</span>) {
+		first_nonopt = last_nonopt = <span class="hljs-number">-1</span>;
+		optind = <span class="hljs-number">1</span>;
+	}
+
+	optind_expected = optind;
+
+	<span class="hljs-comment">/* Argument parsing has ended. */</span>
+	<span class="hljs-keyword">if</span> (optind &gt;= argc) <span class="hljs-keyword">goto</span> _finish_up;
+
+	<span class="hljs-comment">/* XXX Does this play right with `optind` moving? */</span>
+	<span class="hljs-keyword">if</span> (first_nonopt != <span class="hljs-number">-1</span>) {
+		<span class="hljs-comment">/* Swap the nonopts with the arguments we processed in the last go. */</span>
+		<span class="hljs-keyword">int</span> ops = permutate_args(argv, first_nonopt, last_nonopt, optind);
+		last_nonopt += ops;
+		first_nonopt += ops;
+	}
+
+	<span class="hljs-keyword">int</span> print_errors = !!opterr;
+	<span class="hljs-keyword">int</span> was_colon = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> no_permute = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* POSIX.1-2024 says ignore leading + with no change in behavior */</span>
+	<span class="hljs-keyword">if</span> (*optstring == <span class="hljs-string">'+'</span>) {
+		no_permute = <span class="hljs-number">1</span>;
+		optstring++;
+	}
+
+	<span class="hljs-comment">/* Print errors unless opterr was unset, or if start of opstring (after a possible +) was : */</span>
+	<span class="hljs-keyword">if</span> (*optstring == <span class="hljs-string">':'</span>) {
+		print_errors = <span class="hljs-number">0</span>;
+		optstring++;
+		was_colon = <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">do</span> {
+		<span class="hljs-keyword">if</span> (!nextchar) {
+			nextchar = argv[optind];
+
+			<span class="hljs-comment">/* no leading - or just a - is a non-option argument. */</span>
+			<span class="hljs-keyword">if</span> (*nextchar != <span class="hljs-string">'-'</span> || nextchar[<span class="hljs-number">1</span>] == <span class="hljs-string">'\0'</span>) {
+				<span class="hljs-keyword">if</span> (no_permute) <span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>; <span class="hljs-comment">/* We are done. */</span>
+
+				<span class="hljs-comment">/* Extend current block of nonopts (or start a new one), and continue to next argument */</span>
+				<span class="hljs-keyword">if</span> (first_nonopt == <span class="hljs-number">-1</span>) first_nonopt = optind;
+				last_nonopt = optind;
+				finish_arg();
+				<span class="hljs-keyword">continue</span>;
+			}
+
+			nextchar++;
+
+			<span class="hljs-comment">/* Just two dashes ends processing, consumes this argument. */</span>
+			<span class="hljs-keyword">if</span> (*nextchar == <span class="hljs-string">'-'</span> &amp;&amp; !nextchar[<span class="hljs-number">1</span>]) {
+				optind++;
+				<span class="hljs-keyword">goto</span> _finish_up;
+			}
+
+			<span class="hljs-comment">/* If long options are enabled, -- starts a long option. */</span>
+			<span class="hljs-keyword">if</span> (*nextchar == <span class="hljs-string">'-'</span> &amp;&amp; longopts) {
+				<span class="hljs-comment">/* Scan through options */</span>
+				nextchar++;
+				<span class="hljs-keyword">char</span> * eq = strchrnul(nextchar, <span class="hljs-string">'='</span>);
+				optarg = *eq ? eq + <span class="hljs-number">1</span> : <span class="hljs-literal">NULL</span>;
+
+				<span class="hljs-keyword">int</span> found = <span class="hljs-number">-1</span>;
+				<span class="hljs-keyword">int</span> ambiguous = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">int</span> ret = <span class="hljs-string">'?'</span>;
+
+				<span class="hljs-comment">/* Try for a prefix match */</span>
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> index = <span class="hljs-number">0</span>; longopts[index].name; ++index) {
+					<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strncmp</span>(longopts[index].name, nextchar, eq - nextchar)) {
+						<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strlen</span>(longopts[index].name) == (<span class="hljs-keyword">size_t</span>)(eq - nextchar)) {
+							<span class="hljs-comment">/* An exact match is an exact match, take it. */</span>
+							found = index;
+							ambiguous = <span class="hljs-number">0</span>;
+							<span class="hljs-keyword">break</span>;
+						}
+						<span class="hljs-keyword">if</span> (found != <span class="hljs-number">-1</span>) ambiguous = <span class="hljs-number">1</span>;
+						found = index;
+					}
+				}
+
+				<span class="hljs-keyword">if</span> (ambiguous) {
+					<span class="hljs-keyword">if</span> (print_errors) {
+						<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: Ambiguous option: '--%.*s'; possibilities:"</span>, argv[<span class="hljs-number">0</span>], (<span class="hljs-keyword">int</span>)(eq - nextchar), nextchar);
+						<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> index = <span class="hljs-number">0</span>; longopts[index].name; ++index) {
+							<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strncmp</span>(longopts[index].name, nextchar, eq - nextchar)) {
+								<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">" '--%s'"</span>, longopts[index].name);
+							}
+						}
+						<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,<span class="hljs-string">"\n"</span>);
+					}
+					optopt = <span class="hljs-string">'\0'</span>;
+					<span class="hljs-keyword">goto</span> _erroneous_longopt;
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (found == <span class="hljs-number">-1</span>) {
+					<span class="hljs-keyword">if</span> (print_errors) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: Unrecognized option: '--%.*s'\n"</span>, argv[<span class="hljs-number">0</span>], (<span class="hljs-keyword">int</span>)(eq - nextchar), nextchar);
+					optopt = <span class="hljs-string">'\0'</span>;
+					<span class="hljs-keyword">goto</span> _erroneous_longopt;
+				}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>GNU does not set longindex when an option was identified but had an error;
+BSD does, and it seems more useful.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				<span class="hljs-keyword">if</span> (longindex) *longindex = found;
+
+				<span class="hljs-keyword">if</span> (longopts[found].has_arg == required_argument) {
+					<span class="hljs-keyword">if</span> (!optarg) {
+						<span class="hljs-keyword">if</span> (optind + <span class="hljs-number">1</span> == argc) {
+							<span class="hljs-keyword">if</span> (print_errors) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: Option requires an argument: '--%s'\n"</span>, argv[<span class="hljs-number">0</span>], longopts[found].name);
+							optopt = longopts[found].val;
+							ret = was_colon ? <span class="hljs-string">':'</span> : <span class="hljs-string">'?'</span>; <span class="hljs-comment">/* Just for missing required argument, if caller asked, they get a colon. */</span>
+							<span class="hljs-keyword">goto</span> _erroneous_longopt;
+						}
+						optarg = argv[optind+<span class="hljs-number">1</span>];
+						optind++;
+					}
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (longopts[found].has_arg == no_argument &amp;&amp; optarg) {
+					<span class="hljs-keyword">if</span> (print_errors) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: Option does not accept an argument: '--%s'\n"</span>, argv[<span class="hljs-number">0</span>], longopts[found].name);
+					optopt = longopts[found].val;
+					<span class="hljs-keyword">goto</span> _erroneous_longopt;
+				}
+				<span class="hljs-comment">/* optional_argument was handled implicitly */</span>
+
+				finish_arg();
+
+				<span class="hljs-keyword">if</span> (!longopts[found].flag) <span class="hljs-keyword">return</span> longopts[found].val;
+
+				*longopts[found].flag = longopts[found].val;
+				<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+_erroneous_longopt:
+				finish_arg();
+				<span class="hljs-keyword">return</span> ret;
+			}
+		}
+
+		<span class="hljs-keyword">int</span> optout = *nextchar;
+		<span class="hljs-keyword">char</span> * opt = <span class="hljs-built_in">strchr</span>(optstring, optout);
+
+		<span class="hljs-keyword">if</span> (!opt || *opt == <span class="hljs-string">':'</span>) {
+			<span class="hljs-keyword">if</span> (print_errors) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: Unrecognized option character: '%c'\n"</span>, argv[<span class="hljs-number">0</span>], optout);
+			optopt = optout;
+			nextchar++;
+			<span class="hljs-keyword">if</span> (!*nextchar) finish_arg();
+			<span class="hljs-keyword">return</span> <span class="hljs-string">'?'</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (opt[<span class="hljs-number">1</span>] == <span class="hljs-string">':'</span>) {
+			<span class="hljs-keyword">if</span> (nextchar[<span class="hljs-number">1</span>] != <span class="hljs-string">'\0'</span>) {
+				<span class="hljs-comment">/* Argument comes from the rest of this argv */</span>
+				optarg = &amp;nextchar[<span class="hljs-number">1</span>];
+				finish_arg();
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (opt[<span class="hljs-number">2</span>] == <span class="hljs-string">':'</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Double colon is a GNU extension: Argument is optional, and only to be read from the same argv element.
+If we didn't find an argument here, optarg is to be set to 0, rather than taking the next argv.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				optarg = <span class="hljs-number">0</span>;
+				finish_arg();
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-comment">/* Argument is the next argv */</span>
+				<span class="hljs-keyword">if</span> (optind + <span class="hljs-number">1</span> == argc) {
+					<span class="hljs-keyword">if</span> (print_errors) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: Option requires an argument: '%c'\n"</span>, argv[<span class="hljs-number">0</span>], optout);
+					optopt = optout;
+					nextchar++;
+					<span class="hljs-keyword">return</span> was_colon ? <span class="hljs-string">':'</span> : <span class="hljs-string">'?'</span>;
+				}
+				optarg = argv[optind+<span class="hljs-number">1</span>];
+				optind++;
+				finish_arg();
+			}
+		} <span class="hljs-keyword">else</span> {
+			nextchar++;
+			<span class="hljs-keyword">if</span> (!*nextchar) finish_arg();
+		}
+
+		<span class="hljs-keyword">return</span> optout;
+
+	} <span class="hljs-keyword">while</span> (optind &lt; argc);
+
+_finish_up: (<span class="hljs-keyword">void</span>)<span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (first_nonopt != <span class="hljs-number">-1</span>) {
+		optind = first_nonopt + permutate_args(argv, first_nonopt, last_nonopt, optind);
+		first_nonopt = last_nonopt = <span class="hljs-number">-1</span>;
+		<span class="hljs-comment">/* Don't use finish_arg() because we already set optind to the right thing. */</span>
+		nextchar = <span class="hljs-literal">NULL</span>;
+		optind_expected = optind;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">getopt</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * <span class="hljs-keyword">const</span> argv[], <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * optstring)</span> </span>{
+	<span class="hljs-keyword">return</span> getopt_long(argc, argv, optstring, <span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,1573 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>text.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "lib\\text.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>text.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/shm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;math.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/hashmap.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/decodeutf8.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/spinlock.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"toaru/text.h"</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> min</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> min(a,b) ((a) &lt; (b) ? (a) : (b))</span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Table</span> {</span>
+	<span class="hljs-keyword">off_t</span> offset;
+	<span class="hljs-keyword">size_t</span> length;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Coord</span> {</span>
+	<span class="hljs-keyword">float</span> x;
+	<span class="hljs-keyword">float</span> y;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Line</span> {</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Coord</span> <span class="hljs-title">start</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Coord</span> <span class="hljs-title">end</span>;</span>
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Contour</span> {</span>
+	<span class="hljs-keyword">size_t</span> edgeCount;
+	<span class="hljs-keyword">size_t</span> nextAlloc;
+	<span class="hljs-keyword">size_t</span> flags;
+	<span class="hljs-keyword">size_t</span> last_start;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Line</span> <span class="hljs-title">edges</span>[];</span>
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Intersection</span> {</span>
+	<span class="hljs-keyword">float</span> x;
+	<span class="hljs-keyword">int</span> affect;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Edge</span> {</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Coord</span> <span class="hljs-title">start</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Coord</span> <span class="hljs-title">end</span>;</span>
+	<span class="hljs-keyword">int</span> direction;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Shape</span> {</span>
+	<span class="hljs-keyword">size_t</span> edgeCount;
+	<span class="hljs-keyword">int</span> lastY;
+	<span class="hljs-keyword">int</span> startY;
+	<span class="hljs-keyword">int</span> lastX;
+	<span class="hljs-keyword">int</span> startX;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Edge</span> <span class="hljs-title">edges</span>[];</span>
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Vertex</span> {</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> flags;
+	<span class="hljs-keyword">int</span> x;
+	<span class="hljs-keyword">int</span> y;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Font</span> {</span>
+	<span class="hljs-keyword">int</span> privFlags;
+	FILE * filePtr;
+	<span class="hljs-keyword">uint8_t</span> * <span class="hljs-built_in">buffer</span>;
+	<span class="hljs-keyword">uint8_t</span> * memPtr;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Table</span> <span class="hljs-title">head_ptr</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Table</span> <span class="hljs-title">cmap_ptr</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Table</span> <span class="hljs-title">loca_ptr</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Table</span> <span class="hljs-title">glyf_ptr</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Table</span> <span class="hljs-title">hhea_ptr</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Table</span> <span class="hljs-title">hmtx_ptr</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Table</span> <span class="hljs-title">name_ptr</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Table</span> <span class="hljs-title">os_2_ptr</span>;</span>
+
+	<span class="hljs-keyword">off_t</span> cmap_start;
+
+	<span class="hljs-keyword">size_t</span> cmap_maxInd;
+
+	<span class="hljs-keyword">float</span> scale;
+	<span class="hljs-keyword">float</span> emSize;
+
+	<span class="hljs-keyword">int</span> cmap_type;
+	<span class="hljs-keyword">int</span> loca_type;
+};
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Currently, the edge sorter is disabled. It doesn't really help much,
+and it's very slow with our horrible qsort implementation.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">edge_sorter_high_scanline</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> * a, <span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> * b)</span> </span>{
+	<span class="hljs-keyword">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Edge</span> * <span class="hljs-title">left</span>  = <span class="hljs-title">a</span>;</span>
+	<span class="hljs-keyword">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Edge</span> * <span class="hljs-title">right</span> = <span class="hljs-title">b</span>;</span>
+
+	<span class="hljs-keyword">if</span> (left-&gt;start.y &lt; right-&gt;start.y) <span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">if</span> (left-&gt;start.y &gt; right-&gt;start.y) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sort_edges</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> edgeCount, struct TT_Edge edges[edgeCount])</span> </span>{
+	qsort(edges, edgeCount, <span class="hljs-keyword">sizeof</span>(struct TT_Edge), edge_sorter_high_scanline);
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">intersection_sorter</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> * a, <span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> * b)</span> </span>{
+	<span class="hljs-keyword">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Intersection</span> * <span class="hljs-title">left</span>  = <span class="hljs-title">a</span>;</span>
+	<span class="hljs-keyword">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Intersection</span> * <span class="hljs-title">right</span> = <span class="hljs-title">b</span>;</span>
+
+	<span class="hljs-keyword">if</span> (left-&gt;x &lt; right-&gt;x) <span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">if</span> (left-&gt;x &gt; right-&gt;x) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sort_intersections</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> cnt, struct TT_Intersection intersections[cnt])</span> </span>{
+	qsort(intersections, cnt, <span class="hljs-keyword">sizeof</span>(struct TT_Intersection), intersection_sorter);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">float</span> <span class="hljs-title">edge_at</span><span class="hljs-params">(<span class="hljs-keyword">float</span> y, <span class="hljs-keyword">const</span> struct TT_Edge * edge)</span> </span>{
+	<span class="hljs-keyword">float</span> u = (y - edge-&gt;start.y) / (edge-&gt;<span class="hljs-built_in">end</span>.y - edge-&gt;start.y);
+	<span class="hljs-keyword">return</span> edge-&gt;start.x + u * (edge-&gt;<span class="hljs-built_in">end</span>.x - edge-&gt;start.x);
+}
+
+__attribute__((hot))
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">size_t</span> <span class="hljs-title">prune_edges</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> edgeCount, <span class="hljs-keyword">float</span> y, <span class="hljs-keyword">const</span> struct TT_Edge edges[edgeCount], struct TT_Intersection into[edgeCount])</span> </span>{
+	<span class="hljs-keyword">size_t</span> outWriter = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; edgeCount; ++i) {
+		<span class="hljs-keyword">if</span> (y &gt; edges[i].<span class="hljs-built_in">end</span>.y || y &lt;= edges[i].start.y) <span class="hljs-keyword">continue</span>;
+		into[outWriter].x = edge_at(y,&amp;edges[i]);
+		into[outWriter].affect = edges[i].direction;
+		outWriter++;
+	}
+	<span class="hljs-keyword">return</span> outWriter;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">process_scanline</span><span class="hljs-params">(
+		<span class="hljs-keyword">float</span> _y,
+		<span class="hljs-keyword">const</span> struct TT_Shape * shape,
+		<span class="hljs-keyword">size_t</span> subsample_width,
+		<span class="hljs-keyword">float</span> subsamples[subsample_width],
+		<span class="hljs-keyword">size_t</span> cnt,
+		<span class="hljs-keyword">const</span> struct TT_Intersection crosses[cnt]
+	)</span> </span>{
+	<span class="hljs-keyword">int</span> wind = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> j = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = shape-&gt;startX; x &lt; shape-&gt;lastX &amp;&amp; j &lt; cnt; ++x) {
+		<span class="hljs-keyword">while</span> (j &lt; cnt &amp;&amp; x &gt; crosses[j].x) {
+			wind += crosses[j].affect;
+			j++;
+		}
+		<span class="hljs-keyword">float</span> last = x;
+		<span class="hljs-keyword">while</span> (j &lt; cnt &amp;&amp; (x+<span class="hljs-number">1</span>) &gt; crosses[j].x) {
+			<span class="hljs-keyword">if</span> (wind != <span class="hljs-number">0</span>) {
+				subsamples[x - shape-&gt;startX] += crosses[j].x - last;
+			}
+			last = crosses[j].x;
+			wind += crosses[j].affect;
+			j++;
+		}
+		<span class="hljs-keyword">if</span> (wind != <span class="hljs-number">0</span>) {
+			subsamples[x - shape-&gt;startX] += (x+<span class="hljs-number">1</span>) - last;
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">tt_rgba</span><span class="hljs-params">(<span class="hljs-keyword">uint8_t</span> r, <span class="hljs-keyword">uint8_t</span> g, <span class="hljs-keyword">uint8_t</span> b, <span class="hljs-keyword">uint8_t</span> a)</span> </span>{
+	<span class="hljs-keyword">return</span> (a &lt;&lt; <span class="hljs-number">24U</span>) | (r &lt;&lt; <span class="hljs-number">16</span>) | (g &lt;&lt; <span class="hljs-number">8</span>) | (b);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">tt_apply_alpha</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> color, <span class="hljs-keyword">uint16_t</span> alpha)</span> </span>{
+	<span class="hljs-keyword">uint8_t</span> r = ((<span class="hljs-keyword">uint32_t</span>)(_RED(color) * alpha + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L;
+	<span class="hljs-keyword">uint8_t</span> g = ((<span class="hljs-keyword">uint32_t</span>)(_GRE(color) * alpha + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L;
+	<span class="hljs-keyword">uint8_t</span> b = ((<span class="hljs-keyword">uint32_t</span>)(_BLU(color) * alpha + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L;
+	<span class="hljs-keyword">uint8_t</span> a = ((<span class="hljs-keyword">uint32_t</span>)(_ALP(color) * alpha + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L;
+	<span class="hljs-keyword">return</span> tt_rgba(r,g,b,a);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">tt_alpha_blend_rgba</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> bottom, <span class="hljs-keyword">uint32_t</span> top)</span> </span>{
+	<span class="hljs-keyword">if</span> (_ALP(bottom) == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> top;
+	<span class="hljs-keyword">if</span> (_ALP(top) == <span class="hljs-number">255</span>) <span class="hljs-keyword">return</span> top;
+	<span class="hljs-keyword">if</span> (_ALP(top) == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> bottom;
+	<span class="hljs-keyword">uint8_t</span> a = _ALP(top);
+	<span class="hljs-keyword">uint16_t</span> t = <span class="hljs-number">0xFF</span> ^ a;
+	<span class="hljs-keyword">uint8_t</span> d_r = _RED(top) + (((<span class="hljs-keyword">uint32_t</span>)(_RED(bottom) * t + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L);
+	<span class="hljs-keyword">uint8_t</span> d_g = _GRE(top) + (((<span class="hljs-keyword">uint32_t</span>)(_GRE(bottom) * t + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L);
+	<span class="hljs-keyword">uint8_t</span> d_b = _BLU(top) + (((<span class="hljs-keyword">uint32_t</span>)(_BLU(bottom) * t + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L);
+	<span class="hljs-keyword">uint8_t</span> d_a = _ALP(top) + (((<span class="hljs-keyword">uint32_t</span>)(_ALP(bottom) * t + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L);
+	<span class="hljs-keyword">return</span> tt_rgba(d_r, d_g, d_b, d_a);
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">paint_scanline</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">int</span> y, <span class="hljs-keyword">const</span> struct TT_Shape * shape, <span class="hljs-keyword">float</span> * subsamples, <span class="hljs-keyword">uint32_t</span> color)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = shape-&gt;startX &lt; <span class="hljs-number">0</span> ? <span class="hljs-number">0</span> : shape-&gt;startX; x &lt; shape-&gt;lastX &amp;&amp; x &lt; ctx-&gt;<span class="hljs-built_in">width</span>; ++x) {
+		<span class="hljs-keyword">uint16_t</span> na = (<span class="hljs-keyword">int</span>)(<span class="hljs-number">255</span> * subsamples[x - shape-&gt;startX]) &gt;&gt; <span class="hljs-number">2</span>;
+		<span class="hljs-keyword">uint32_t</span> nc = tt_apply_alpha(color, na);
+		GFX(ctx, x, y) = tt_alpha_blend_rgba(GFX(ctx, x, y), nc);
+		subsamples[x-shape-&gt;startX] = <span class="hljs-number">0</span>;
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">int</span> _is_in_clip(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">int32_t</span> y) {
+	<span class="hljs-keyword">if</span> (!ctx-&gt;clips) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (y &lt; <span class="hljs-number">0</span> || y &gt;= ctx-&gt;clips_size) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> ctx-&gt;clips[y];
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">tt_path_paint</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">const</span> struct TT_Shape * shape, <span class="hljs-keyword">uint32_t</span> color)</span> </span>{
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = shape-&gt;edgeCount;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Intersection</span> * <span class="hljs-title">crosses</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">TT_Intersection</span>) * <span class="hljs-title">size</span>);</span>
+
+	<span class="hljs-keyword">size_t</span> subsample_width = shape-&gt;lastX - shape-&gt;startX;
+	<span class="hljs-keyword">float</span> * subsamples = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">float</span>) * subsample_width);
+	<span class="hljs-built_in">memset</span>(subsamples, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">float</span>) * subsample_width);
+
+	<span class="hljs-keyword">int</span> startY = shape-&gt;startY &lt; <span class="hljs-number">0</span> ? <span class="hljs-number">0</span> : shape-&gt;startY;
+	<span class="hljs-keyword">int</span> endY = shape-&gt;lastY &lt;= ctx-&gt;<span class="hljs-built_in">height</span> ? shape-&gt;lastY : ctx-&gt;<span class="hljs-built_in">height</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> y = startY; y &lt; endY; ++y) {
+		<span class="hljs-keyword">if</span> (!_is_in_clip(ctx,y)) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">float</span> _y = y + <span class="hljs-number">0.0001</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> l = <span class="hljs-number">0</span>; l &lt; <span class="hljs-number">4</span>; ++l) {
+			<span class="hljs-keyword">size_t</span> cnt;
+			<span class="hljs-keyword">if</span> ((cnt = prune_edges(<span class="hljs-built_in">size</span>, _y, shape-&gt;edges, crosses))) {
+				sort_intersections(cnt, crosses);
+				process_scanline(_y, shape, subsample_width, subsamples, cnt, crosses);
+			}
+			_y += <span class="hljs-number">1.0</span>/<span class="hljs-number">4.0</span>;
+		}
+		paint_scanline(ctx, y, shape, subsamples, color);
+	}
+
+	<span class="hljs-built_in">free</span>(subsamples);
+	<span class="hljs-built_in">free</span>(crosses);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">tt_path_contains</span><span class="hljs-params">(<span class="hljs-keyword">const</span> struct TT_Shape * shape, <span class="hljs-keyword">float</span> x, <span class="hljs-keyword">float</span> y)</span> </span>{
+	<span class="hljs-keyword">int</span> hit = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = shape-&gt;edgeCount;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Intersection</span> * <span class="hljs-title">crosses</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">TT_Intersection</span>) * <span class="hljs-title">size</span>);</span>
+	<span class="hljs-keyword">size_t</span> cnt;
+	<span class="hljs-keyword">if</span> ((cnt = prune_edges(<span class="hljs-built_in">size</span>, y, shape-&gt;edges, crosses))) {
+		sort_intersections(cnt, crosses);
+		<span class="hljs-keyword">int</span> wind = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">size_t</span> j = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">while</span> (j &lt; cnt &amp;&amp; x &gt; crosses[j].x) {
+			wind += crosses[j].affect;
+			j++;
+		}
+		hit = (wind != <span class="hljs-number">0</span>);
+	}
+
+	<span class="hljs-built_in">free</span>(crosses);
+	<span class="hljs-keyword">return</span> hit;
+}
+
+<span class="hljs-function">struct TT_Contour * <span class="hljs-title">tt_contour_line_to</span><span class="hljs-params">(struct TT_Contour * shape, <span class="hljs-keyword">float</span> x, <span class="hljs-keyword">float</span> y)</span> </span>{
+	<span class="hljs-keyword">if</span> (shape-&gt;flags &amp; <span class="hljs-number">1</span>) {
+		shape-&gt;edges[shape-&gt;edgeCount].<span class="hljs-built_in">end</span>.x = x;
+		shape-&gt;edges[shape-&gt;edgeCount].<span class="hljs-built_in">end</span>.y = y;
+		shape-&gt;edgeCount++;
+		shape-&gt;flags &amp;= ~<span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">if</span> (shape-&gt;edgeCount + <span class="hljs-number">1</span> == shape-&gt;nextAlloc) {
+			shape-&gt;nextAlloc *= <span class="hljs-number">2</span>;
+			shape = <span class="hljs-built_in">realloc</span>(shape, <span class="hljs-keyword">sizeof</span>(struct TT_Contour) + <span class="hljs-keyword">sizeof</span>(struct TT_Line) * (shape-&gt;nextAlloc));
+		}
+		shape-&gt;edges[shape-&gt;edgeCount].start.x = shape-&gt;edges[shape-&gt;edgeCount<span class="hljs-number">-1</span>].<span class="hljs-built_in">end</span>.x;
+		shape-&gt;edges[shape-&gt;edgeCount].start.y = shape-&gt;edges[shape-&gt;edgeCount<span class="hljs-number">-1</span>].<span class="hljs-built_in">end</span>.y;
+		shape-&gt;edges[shape-&gt;edgeCount].<span class="hljs-built_in">end</span>.x = x;
+		shape-&gt;edges[shape-&gt;edgeCount].<span class="hljs-built_in">end</span>.y = y;
+		shape-&gt;edgeCount++;
+		shape-&gt;flags &amp;= ~<span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> shape;
+}
+
+<span class="hljs-function">struct TT_Contour * <span class="hljs-title">tt_contour_move_to</span><span class="hljs-params">(struct TT_Contour * shape, <span class="hljs-keyword">float</span> x, <span class="hljs-keyword">float</span> y)</span> </span>{
+	<span class="hljs-keyword">if</span> (!(shape-&gt;flags &amp; <span class="hljs-number">1</span>) &amp;&amp; shape-&gt;edgeCount) {
+		shape = tt_contour_line_to(shape, shape-&gt;edges[shape-&gt;last_start].start.x, shape-&gt;edges[shape-&gt;last_start].start.y);
+	}
+	<span class="hljs-keyword">if</span> (shape-&gt;edgeCount + <span class="hljs-number">1</span> == shape-&gt;nextAlloc) {
+		shape-&gt;nextAlloc *= <span class="hljs-number">2</span>;
+		shape = <span class="hljs-built_in">realloc</span>(shape, <span class="hljs-keyword">sizeof</span>(struct TT_Contour) + <span class="hljs-keyword">sizeof</span>(struct TT_Line) * (shape-&gt;nextAlloc));
+	}
+	shape-&gt;edges[shape-&gt;edgeCount].start.x = x;
+	shape-&gt;edges[shape-&gt;edgeCount].start.y = y;
+	shape-&gt;last_start = shape-&gt;edgeCount;
+	shape-&gt;flags |= <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> shape;
+}
+
+<span class="hljs-function">struct TT_Contour * <span class="hljs-title">tt_contour_start</span><span class="hljs-params">(<span class="hljs-keyword">float</span> x, <span class="hljs-keyword">float</span> y)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Contour</span> * <span class="hljs-title">shape</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">TT_Contour</span>) + <span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">TT_Line</span>) * 2);</span>
+	shape-&gt;edgeCount = <span class="hljs-number">0</span>;
+	shape-&gt;nextAlloc = <span class="hljs-number">2</span>;
+	shape-&gt;flags = <span class="hljs-number">0</span>;
+	shape-&gt;last_start = <span class="hljs-number">0</span>;
+	shape-&gt;edges[shape-&gt;edgeCount].start.x = x;
+	shape-&gt;edges[shape-&gt;edgeCount].start.y = y;
+	shape-&gt;last_start = shape-&gt;edgeCount;
+	shape-&gt;flags |= <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> shape;
+}
+
+<span class="hljs-function">struct TT_Shape * <span class="hljs-title">tt_contour_finish</span><span class="hljs-params">(<span class="hljs-keyword">const</span> struct TT_Contour * in)</span> </span>{
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = in-&gt;edgeCount + <span class="hljs-number">1</span>;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Shape</span> * <span class="hljs-title">tmp</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">TT_Shape</span>) + <span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">TT_Edge</span>) * <span class="hljs-title">size</span>);</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; in-&gt;edgeCount; ++i) {
+		<span class="hljs-built_in">memcpy</span>(&amp;tmp-&gt;edges[i], &amp;in-&gt;edges[i], <span class="hljs-keyword">sizeof</span>(struct TT_Line));
+	}
+
+	<span class="hljs-keyword">if</span> (in-&gt;flags &amp; <span class="hljs-number">1</span>) {
+		<span class="hljs-built_in">size</span>--;
+	} <span class="hljs-keyword">else</span> {
+		tmp-&gt;edges[in-&gt;edgeCount].start.x = in-&gt;edges[in-&gt;edgeCount<span class="hljs-number">-1</span>].<span class="hljs-built_in">end</span>.x;
+		tmp-&gt;edges[in-&gt;edgeCount].start.y = in-&gt;edges[in-&gt;edgeCount<span class="hljs-number">-1</span>].<span class="hljs-built_in">end</span>.y;
+		tmp-&gt;edges[in-&gt;edgeCount].<span class="hljs-built_in">end</span>.x   = in-&gt;edges[in-&gt;last_start].start.x;
+		tmp-&gt;edges[in-&gt;edgeCount].<span class="hljs-built_in">end</span>.y   = in-&gt;edges[in-&gt;last_start].start.y;
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">size</span>; ++i) {
+		<span class="hljs-keyword">if</span> (tmp-&gt;edges[i].start.y &lt; tmp-&gt;edges[i].<span class="hljs-built_in">end</span>.y) {
+			tmp-&gt;edges[i].direction = <span class="hljs-number">1</span>;
+		} <span class="hljs-keyword">else</span> {
+			tmp-&gt;edges[i].direction = <span class="hljs-number">-1</span>;
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Coord</span> <span class="hljs-title">j</span> = <span class="hljs-title">tmp</span>-&gt;<span class="hljs-title">edges</span>[<span class="hljs-title">i</span>].<span class="hljs-title">start</span>;</span>
+			tmp-&gt;edges[i].start = tmp-&gt;edges[i].<span class="hljs-built_in">end</span>;
+			tmp-&gt;edges[i].<span class="hljs-built_in">end</span> = j;
+		}
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<p>sort_edges(size, tmp-&gt;edges);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	tmp-&gt;edgeCount = <span class="hljs-built_in">size</span>;
+	tmp-&gt;startY = INT_MAX;
+	tmp-&gt;lastY = INT_MIN;
+	tmp-&gt;startX = INT_MAX;
+	tmp-&gt;lastX = INT_MIN;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">size</span>; ++i) {
+		<span class="hljs-keyword">if</span> (tmp-&gt;edges[i].<span class="hljs-built_in">end</span>.y + <span class="hljs-number">1</span> &gt; tmp-&gt;lastY) tmp-&gt;lastY = tmp-&gt;edges[i].<span class="hljs-built_in">end</span>.y + <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">if</span> (tmp-&gt;edges[i].start.y + <span class="hljs-number">1</span> &gt; tmp-&gt;lastY) tmp-&gt;lastY = tmp-&gt;edges[i].start.y + <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">if</span> (tmp-&gt;edges[i].<span class="hljs-built_in">end</span>.y &lt; tmp-&gt;startY) tmp-&gt;startY = tmp-&gt;edges[i].<span class="hljs-built_in">end</span>.y;
+		<span class="hljs-keyword">if</span> (tmp-&gt;edges[i].start.y &lt; tmp-&gt;startY) tmp-&gt;startY = tmp-&gt;edges[i].start.y;
+
+		<span class="hljs-keyword">if</span> (tmp-&gt;edges[i].<span class="hljs-built_in">end</span>.x + <span class="hljs-number">2</span> &gt; tmp-&gt;lastX) tmp-&gt;lastX = tmp-&gt;edges[i].<span class="hljs-built_in">end</span>.x + <span class="hljs-number">2</span>;
+		<span class="hljs-keyword">if</span> (tmp-&gt;edges[i].start.x + <span class="hljs-number">2</span> &gt; tmp-&gt;lastX) tmp-&gt;lastX = tmp-&gt;edges[i].start.x + <span class="hljs-number">2</span>;
+		<span class="hljs-keyword">if</span> (tmp-&gt;edges[i].<span class="hljs-built_in">end</span>.x &lt; tmp-&gt;startX) tmp-&gt;startX = tmp-&gt;edges[i].<span class="hljs-built_in">end</span>.x;
+		<span class="hljs-keyword">if</span> (tmp-&gt;edges[i].start.x &lt; tmp-&gt;startX) tmp-&gt;startX = tmp-&gt;edges[i].start.x;
+	}
+
+	<span class="hljs-keyword">if</span> (tmp-&gt;lastY &lt; tmp-&gt;startY) tmp-&gt;startY = tmp-&gt;lastY;
+	<span class="hljs-keyword">if</span> (tmp-&gt;lastX &lt; tmp-&gt;startX) tmp-&gt;startX = tmp-&gt;lastX;
+
+	<span class="hljs-keyword">return</span> tmp;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">int</span> <span class="hljs-title">tt_seek</span><span class="hljs-params">(struct TT_Font * font, <span class="hljs-keyword">off_t</span> offset)</span> </span>{
+	<span class="hljs-keyword">if</span> (font-&gt;privFlags &amp; <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">return</span> fseek(font-&gt;filePtr, offset, SEEK_SET);
+	} <span class="hljs-keyword">else</span> {
+		font-&gt;memPtr = font-&gt;<span class="hljs-built_in">buffer</span> + offset;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">long</span> <span class="hljs-title">tt_tell</span><span class="hljs-params">(struct TT_Font * font)</span> </span>{
+	<span class="hljs-keyword">if</span> (font-&gt;privFlags &amp; <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">return</span> ftell(font-&gt;filePtr);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">return</span> font-&gt;memPtr - font-&gt;<span class="hljs-built_in">buffer</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint8_t</span> <span class="hljs-title">tt_read_8</span><span class="hljs-params">(struct TT_Font * font)</span> </span>{
+	<span class="hljs-keyword">if</span> (font-&gt;privFlags &amp; <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">return</span> fgetc(font-&gt;filePtr);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">return</span> *(font-&gt;memPtr++);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">tt_read_32</span><span class="hljs-params">(struct TT_Font * font)</span> </span>{
+	<span class="hljs-keyword">int</span> a = tt_read_8(font);
+	<span class="hljs-keyword">int</span> b = tt_read_8(font);
+	<span class="hljs-keyword">int</span> c = tt_read_8(font);
+	<span class="hljs-keyword">int</span> d = tt_read_8(font);
+	<span class="hljs-keyword">if</span> (a &lt; <span class="hljs-number">0</span> || b &lt; <span class="hljs-number">0</span> || c &lt; <span class="hljs-number">0</span> || d &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> ((a &amp; <span class="hljs-number">0xFF</span>) &lt;&lt; <span class="hljs-number">24</span>) |
+	       ((b &amp; <span class="hljs-number">0xFF</span>) &lt;&lt; <span class="hljs-number">16</span>) |
+	       ((c &amp; <span class="hljs-number">0xFF</span>) &lt;&lt; <span class="hljs-number">8</span>) |
+	       ((d &amp; <span class="hljs-number">0xFF</span>) &lt;&lt; <span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint16_t</span> <span class="hljs-title">tt_read_16</span><span class="hljs-params">(struct TT_Font * font)</span> </span>{
+	<span class="hljs-keyword">int</span> a = tt_read_8(font);
+	<span class="hljs-keyword">int</span> b = tt_read_8(font);
+	<span class="hljs-keyword">if</span> (a &lt; <span class="hljs-number">0</span> || b &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> ((a &amp; <span class="hljs-number">0xFF</span>) &lt;&lt; <span class="hljs-number">8</span>) |
+	       ((b &amp; <span class="hljs-number">0xFF</span>) &lt;&lt; <span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">tt_measure_font</span><span class="hljs-params">(struct TT_Font * font, struct TT_FontMetrics * metrics)</span> </span>{
+	<span class="hljs-keyword">int</span> a, d, l;
+	<span class="hljs-keyword">if</span> (font-&gt;os_2_ptr.offset) {
+		tt_seek(font, font-&gt;os_2_ptr.offset + <span class="hljs-number">2</span> * <span class="hljs-number">37</span>);
+		a = (<span class="hljs-keyword">int16_t</span>)tt_read_16(font);
+		d = -(<span class="hljs-keyword">int16_t</span>)tt_read_16(font);
+
+		tt_seek(font, font-&gt;hhea_ptr.offset + <span class="hljs-number">2</span> * <span class="hljs-number">4</span>);
+		l = (<span class="hljs-keyword">int16_t</span>)tt_read_16(font);
+	} <span class="hljs-keyword">else</span> {
+		tt_seek(font, font-&gt;hhea_ptr.offset + <span class="hljs-number">2</span> * <span class="hljs-number">2</span>);
+		a = (<span class="hljs-keyword">int16_t</span>)tt_read_16(font);
+		d = (<span class="hljs-keyword">int16_t</span>)tt_read_16(font);
+		l = (<span class="hljs-keyword">int16_t</span>)tt_read_16(font);
+	}
+
+	metrics-&gt;ascender  = a * font-&gt;scale;
+	metrics-&gt;descender = d * font-&gt;scale;
+	metrics-&gt;lineGap   = l * font-&gt;scale;
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">tt_xadvance_for_glyph</span><span class="hljs-params">(struct TT_Font * font, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> ind)</span> </span>{
+	tt_seek(font, font-&gt;hhea_ptr.offset + <span class="hljs-number">2</span> * <span class="hljs-number">17</span>);
+	<span class="hljs-keyword">uint16_t</span> numLong = tt_read_16(font);
+
+	<span class="hljs-keyword">if</span> (ind &lt; numLong) {
+		tt_seek(font, font-&gt;hmtx_ptr.offset + ind * <span class="hljs-number">4</span>);
+		<span class="hljs-keyword">return</span> tt_read_16(font);
+	}
+
+	tt_seek(font, font-&gt;hmtx_ptr.offset + (numLong - <span class="hljs-number">1</span>) * <span class="hljs-number">4</span>);
+	<span class="hljs-keyword">return</span> tt_read_16(font);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">tt_set_size</span><span class="hljs-params">(struct TT_Font * font, <span class="hljs-keyword">float</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	font-&gt;scale = <span class="hljs-built_in">size</span> / font-&gt;emSize;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">tt_set_size_px</span><span class="hljs-params">(struct TT_Font * font, <span class="hljs-keyword">float</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	tt_set_size(font, <span class="hljs-built_in">size</span> * <span class="hljs-number">4.0</span> / <span class="hljs-number">3.0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">off_t</span> <span class="hljs-title">tt_get_glyph_offset</span><span class="hljs-params">(struct TT_Font * font, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> glyph)</span> </span>{
+	<span class="hljs-keyword">if</span> (font-&gt;loca_type == <span class="hljs-number">0</span>) {
+		tt_seek(font, font-&gt;loca_ptr.offset + glyph * <span class="hljs-number">2</span>);
+		<span class="hljs-keyword">return</span> tt_read_16(font) * <span class="hljs-number">2</span>;
+	} <span class="hljs-keyword">else</span> {
+		tt_seek(font, font-&gt;loca_ptr.offset + glyph * <span class="hljs-number">4</span>);
+		<span class="hljs-keyword">return</span> tt_read_32(font);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">tt_glyph_for_codepoint</span><span class="hljs-params">(struct TT_Font * font, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> codepoint)</span> </span>{
+	<span class="hljs-keyword">if</span> (font-&gt;cmap_type == <span class="hljs-number">12</span>) {
+		<span class="hljs-comment">/* Get group count */</span>
+		tt_seek(font, font-&gt;cmap_start + <span class="hljs-number">4</span> + <span class="hljs-number">8</span>);
+		<span class="hljs-keyword">uint32_t</span> ngroups = tt_read_32(font);
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; ngroups; ++i) {
+			<span class="hljs-keyword">uint32_t</span> start = tt_read_32(font);
+			<span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">end</span>   = tt_read_32(font);
+			<span class="hljs-keyword">uint32_t</span> ind   = tt_read_32(font);
+
+			<span class="hljs-keyword">if</span> (codepoint &gt;= start &amp;&amp; codepoint &lt;= <span class="hljs-built_in">end</span>) {
+				<span class="hljs-keyword">return</span> ind + (codepoint - start);
+			}
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (font-&gt;cmap_type == <span class="hljs-number">4</span>) {
+		<span class="hljs-keyword">if</span> (codepoint &gt; <span class="hljs-number">0xFFFF</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+		tt_seek(font, font-&gt;cmap_start + <span class="hljs-number">6</span>);
+		<span class="hljs-keyword">uint16_t</span> segCount = tt_read_16(font) / <span class="hljs-number">2</span>;
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; segCount; ++i) {
+			tt_seek(font, font-&gt;cmap_start + <span class="hljs-number">12</span> + <span class="hljs-number">2</span> * i);
+			<span class="hljs-keyword">uint16_t</span> endCode = tt_read_16(font);
+			<span class="hljs-keyword">if</span> (endCode &gt;= codepoint) {
+				tt_seek(font, font-&gt;cmap_start + <span class="hljs-number">12</span> + <span class="hljs-number">2</span> * segCount + <span class="hljs-number">2</span> + <span class="hljs-number">2</span> * i);
+				<span class="hljs-keyword">uint16_t</span> startCode = tt_read_16(font);
+				<span class="hljs-keyword">if</span> (startCode &gt; codepoint) {
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				}
+				tt_seek(font, font-&gt;cmap_start + <span class="hljs-number">12</span> + <span class="hljs-number">4</span> * segCount + <span class="hljs-number">2</span> + <span class="hljs-number">2</span> * i);
+				<span class="hljs-keyword">int16_t</span> idDelta = tt_read_16(font);
+				tt_seek(font, font-&gt;cmap_start + <span class="hljs-number">12</span> + <span class="hljs-number">6</span> * segCount + <span class="hljs-number">2</span> + <span class="hljs-number">2</span> * i);
+				<span class="hljs-keyword">uint16_t</span> idRangeOffset = tt_read_16(font);
+				<span class="hljs-keyword">if</span> (idRangeOffset == <span class="hljs-number">0</span>) {
+					<span class="hljs-keyword">return</span> idDelta + codepoint;
+				} <span class="hljs-keyword">else</span> {
+					tt_seek(font, font-&gt;cmap_start + <span class="hljs-number">12</span> + <span class="hljs-number">6</span> * segCount + <span class="hljs-number">2</span> + <span class="hljs-number">2</span> * i + idRangeOffset + (codepoint - startCode) * <span class="hljs-number">2</span>);
+					<span class="hljs-keyword">return</span> tt_read_16(font);
+				}
+			}
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">midpoint</span><span class="hljs-params">(<span class="hljs-keyword">float</span> x_0, <span class="hljs-keyword">float</span> y_0, <span class="hljs-keyword">float</span> cx, <span class="hljs-keyword">float</span> cy, <span class="hljs-keyword">float</span> x_1, <span class="hljs-keyword">float</span> y_1, <span class="hljs-keyword">float</span> t, <span class="hljs-keyword">float</span> * outx, <span class="hljs-keyword">float</span> * outy)</span> </span>{
+	<span class="hljs-keyword">float</span> t2 = t * t;
+	<span class="hljs-keyword">float</span> nt = <span class="hljs-number">1.0</span> - t;
+	<span class="hljs-keyword">float</span> nt2 = nt * nt;
+	*outx = nt2 * x_0 + <span class="hljs-number">2</span> * t * nt * cx + t2 * x_1;
+	*outy = nt2 * y_0 + <span class="hljs-number">2</span> * t * nt * cy + t2 * y_1;
+}
+
+__attribute__((visibility(<span class="hljs-string">"protected"</span>)))
+<span class="hljs-function">struct TT_Contour * <span class="hljs-title">tt_draw_glyph_into</span><span class="hljs-params">(struct TT_Contour * contour, struct TT_Font * font, <span class="hljs-keyword">float</span> x_offset, <span class="hljs-keyword">float</span> y_offset, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> glyph)</span> </span>{
+	<span class="hljs-keyword">off_t</span> glyf_offset = tt_get_glyph_offset(font, glyph);
+	<span class="hljs-keyword">if</span> (tt_get_glyph_offset(font, glyph + <span class="hljs-number">1</span>) == glyf_offset) <span class="hljs-keyword">return</span> contour;
+
+	tt_seek(font, font-&gt;glyf_ptr.offset + glyf_offset);
+
+	<span class="hljs-keyword">int16_t</span> numContours = tt_read_16(font);
+	<span class="hljs-comment">/* int16_t xMin = */</span> tt_read_16(font);
+	<span class="hljs-comment">/* int16_t yMin = */</span> tt_read_16(font);
+	<span class="hljs-comment">/* int16_t xMax = */</span> tt_read_16(font);
+	<span class="hljs-comment">/* int16_t yMax = */</span> tt_read_16(font);
+
+	tt_seek(font, font-&gt;glyf_ptr.offset + glyf_offset + <span class="hljs-number">10</span>);
+
+	<span class="hljs-keyword">if</span> (numContours &gt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">uint16_t</span> endPt;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; numContours; ++i) {
+			endPt = tt_read_16(font);
+		}
+		<span class="hljs-keyword">uint16_t</span> numInstr = tt_read_16(font);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; numInstr; ++i) {
+			tt_read_8(font);
+		}
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Vertex</span> * <span class="hljs-title">vertices</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">TT_Vertex</span>) * (<span class="hljs-title">endPt</span> + 1));</span>
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; endPt + <span class="hljs-number">1</span>; ) {
+			<span class="hljs-keyword">uint8_t</span> v = tt_read_8(font);
+			vertices[i].flags = v;
+			i++;
+			<span class="hljs-keyword">if</span> (v &amp; <span class="hljs-number">8</span>) {
+				<span class="hljs-keyword">uint8_t</span> repC = tt_read_8(font);
+				<span class="hljs-keyword">while</span> (repC) {
+					vertices[i].flags = v;
+					repC--;
+					i++;
+				}
+			}
+		}
+		<span class="hljs-keyword">int</span> last_x = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">int</span> last_y = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; endPt + <span class="hljs-number">1</span>; i++) {
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> flags = vertices[i].flags;
+			<span class="hljs-keyword">if</span> (flags &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">1</span>)) {
+				<span class="hljs-comment">/* One byte */</span>
+				<span class="hljs-keyword">if</span> (flags &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">4</span>)) {
+					<span class="hljs-comment">/* Positive */</span>
+					vertices[i].x = last_x + tt_read_8(font);
+				} <span class="hljs-keyword">else</span> {
+					vertices[i].x = last_x - tt_read_8(font);
+				}
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">if</span> (flags &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">4</span>)) {
+					vertices[i].x = last_x;
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-keyword">int16_t</span> diff = tt_read_16(font);
+					vertices[i].x = last_x + diff;
+				}
+			}
+			last_x = vertices[i].x;
+		}
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; endPt + <span class="hljs-number">1</span>; i++) {
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> flags = vertices[i].flags;
+			<span class="hljs-keyword">if</span> (flags &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">2</span>)) {
+				<span class="hljs-comment">/* One byte */</span>
+				<span class="hljs-keyword">if</span> (flags &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">5</span>)) {
+					<span class="hljs-comment">/* Positive */</span>
+					vertices[i].y = last_y + tt_read_8(font);
+				} <span class="hljs-keyword">else</span> {
+					vertices[i].y = last_y - tt_read_8(font);
+				}
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">if</span> (flags &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">5</span>)) {
+					vertices[i].y = last_y;
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-keyword">int16_t</span> diff = tt_read_16(font);
+					vertices[i].y = last_y + diff;
+				}
+			}
+			last_y = vertices[i].y;
+		}
+
+		tt_seek(font, font-&gt;glyf_ptr.offset + glyf_offset + <span class="hljs-number">10</span>);
+
+		<span class="hljs-keyword">int</span> move_next = <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">int</span> next_end = tt_read_16(font);
+
+		<span class="hljs-keyword">float</span> lx = <span class="hljs-number">0</span>, ly = <span class="hljs-number">0</span>, cx = <span class="hljs-number">0</span>, cy = <span class="hljs-number">0</span>, x = <span class="hljs-number">0</span>, y = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">float</span> sx = <span class="hljs-number">0</span>, sy = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">int</span> wasControl = <span class="hljs-number">0</span>;
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; endPt + <span class="hljs-number">1</span>; ++i) {
+			x = ((<span class="hljs-keyword">float</span>)vertices[i].x) * font-&gt;scale + x_offset;
+			y = (-(<span class="hljs-keyword">float</span>)vertices[i].y) * font-&gt;scale + y_offset;
+			<span class="hljs-keyword">int</span> isCurve = !(vertices[i].flags &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">0</span>));
+			<span class="hljs-keyword">if</span> (move_next) {
+				contour = tt_contour_move_to(contour, x, y);
+				<span class="hljs-keyword">if</span> (isCurve) {
+					<span class="hljs-comment">/* Is the point before this on-curve? */</span>
+					<span class="hljs-keyword">float</span> px = (<span class="hljs-keyword">float</span>)vertices[next_end].x * font-&gt;scale + x_offset;
+					<span class="hljs-keyword">float</span> py = (-(<span class="hljs-keyword">float</span>)vertices[next_end].y) * font-&gt;scale + y_offset;
+					<span class="hljs-keyword">if</span> (vertices[next_end].flags &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">0</span>)) {
+						<span class="hljs-comment">/* Else we're just a regular off-curve point? */</span>
+						sx = px;
+						sy = py;
+						lx = px;
+						ly = py;
+					} <span class="hljs-keyword">else</span> {
+						<span class="hljs-keyword">float</span> dx = (px + x) / <span class="hljs-number">2.0</span>;
+						<span class="hljs-keyword">float</span> dy = (py + y) / <span class="hljs-number">2.0</span>;
+						lx = dx;
+						ly = dy;
+						sx = dx;
+						sy = dy;
+					}
+					cx = x;
+					cy = y;
+					wasControl = <span class="hljs-number">1</span>;
+				} <span class="hljs-keyword">else</span> {
+					lx = x;
+					ly = y;
+					sx = x;
+					sy = y;
+					wasControl = <span class="hljs-number">0</span>;
+				}
+				move_next = <span class="hljs-number">0</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">if</span> (isCurve) {
+					<span class="hljs-keyword">if</span> (wasControl) {
+						<span class="hljs-keyword">float</span> dx = (cx + x) / <span class="hljs-number">2.0</span>;
+						<span class="hljs-keyword">float</span> dy = (cy + y) / <span class="hljs-number">2.0</span>;
+						<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; i &lt; <span class="hljs-number">10</span>; ++i) {
+							<span class="hljs-keyword">float</span> mx, my;
+							midpoint(lx,ly,cx,cy,dx,dy,(<span class="hljs-keyword">float</span>)i / <span class="hljs-number">10.0</span>,&amp;mx,&amp;my);
+							contour = tt_contour_line_to(contour, mx, my);
+						}
+						contour = tt_contour_line_to(contour, dx, dy);
+						lx = dx;
+						ly = dy;
+					}
+					cx = x;
+					cy = y;
+					wasControl = <span class="hljs-number">1</span>;
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-keyword">if</span> (wasControl) {
+						<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; i &lt; <span class="hljs-number">10</span>; ++i) {
+							<span class="hljs-keyword">float</span> mx, my;
+							midpoint(lx,ly,cx,cy,x,y,(<span class="hljs-keyword">float</span>)i / <span class="hljs-number">10.0</span>,&amp;mx,&amp;my);
+							contour = tt_contour_line_to(contour, mx, my);
+						}
+					}
+					contour = tt_contour_line_to(contour, x, y);
+					lx = x;
+					ly = y;
+					wasControl = <span class="hljs-number">0</span>;
+				}
+			}
+			<span class="hljs-keyword">if</span> (i == next_end) {
+				<span class="hljs-keyword">if</span> (wasControl) {
+					<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; i &lt; <span class="hljs-number">10</span>; ++i) {
+						<span class="hljs-keyword">float</span> mx, my;
+						midpoint(lx,ly,cx,cy,sx,sy,(<span class="hljs-keyword">float</span>)i / <span class="hljs-number">10.0</span>,&amp;mx,&amp;my);
+						contour = tt_contour_line_to(contour, mx, my);
+					}
+				}
+				contour = tt_contour_line_to(contour, sx, sy);
+				move_next = <span class="hljs-number">1</span>;
+				next_end = tt_read_16(font);
+			}
+		}
+
+		<span class="hljs-built_in">free</span>(vertices);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (numContours &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+			<span class="hljs-keyword">uint16_t</span> flags = tt_read_16(font);
+			<span class="hljs-keyword">uint16_t</span> ind   = tt_read_16(font);
+			<span class="hljs-keyword">int16_t</span> x, y;
+			<span class="hljs-keyword">if</span> (flags &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">0</span>)) {
+				x = tt_read_16(font);
+				y = tt_read_16(font);
+			} <span class="hljs-keyword">else</span> {
+				x = tt_read_8(font);
+				y = tt_read_8(font);
+			}
+
+			<span class="hljs-keyword">float</span> x_f = x_offset;
+			<span class="hljs-keyword">float</span> y_f = y_offset;
+			<span class="hljs-keyword">if</span> (flags &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">1</span>)) {
+				x_f = x_offset + x * font-&gt;scale;
+				y_f = y_offset - y * font-&gt;scale;
+			}
+
+			<span class="hljs-keyword">if</span> (flags &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">3</span>)) {
+				<span class="hljs-comment">/* TODO */</span>
+				tt_read_16(font);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (flags &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">6</span>)) {
+				<span class="hljs-comment">/* TODO */</span>
+				tt_read_16(font);
+				tt_read_16(font);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (flags &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">7</span>)) {
+				<span class="hljs-comment">/* TODO */</span>
+				tt_read_16(font);
+				tt_read_16(font);
+				tt_read_16(font);
+				tt_read_16(font);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">long</span> o = tt_tell(font);
+				contour = tt_draw_glyph_into(contour,font,x_f,y_f,ind);
+				tt_seek(font, o);
+			}
+			<span class="hljs-keyword">if</span> (!(flags &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">5</span>))) <span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> contour;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">sprite_t</span> * <span class="hljs-title">tt_bake_glyph</span><span class="hljs-params">(struct TT_Font * font, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> glyph, <span class="hljs-keyword">uint32_t</span> color, <span class="hljs-keyword">int</span> *_x, <span class="hljs-keyword">int</span> *_y, <span class="hljs-keyword">float</span> xadjust)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Contour</span> * <span class="hljs-title">contour</span> = <span class="hljs-title">tt_contour_start</span>(0, 0);</span>
+	contour = tt_draw_glyph_into(contour,font,<span class="hljs-number">100</span>+xadjust,<span class="hljs-number">100</span>,glyph);
+	<span class="hljs-keyword">if</span> (!contour-&gt;edgeCount) {
+		*_x = <span class="hljs-number">0</span>;
+		*_y = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">free</span>(contour);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-comment">/* Calculate bounds to render a sprite */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Shape</span> * <span class="hljs-title">shape</span> = <span class="hljs-title">tt_contour_finish</span>(<span class="hljs-title">contour</span>);</span>
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">width</span> = shape-&gt;lastX - shape-&gt;startX + <span class="hljs-number">3</span>;
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">height</span> = shape-&gt;lastY - shape-&gt;startY + <span class="hljs-number">2</span>;
+
+	<span class="hljs-keyword">int</span> off_x = shape-&gt;startX - <span class="hljs-number">1</span>; shape-&gt;startX -= off_x; shape-&gt;lastX -= off_x;
+	<span class="hljs-keyword">int</span> off_y = shape-&gt;startY - <span class="hljs-number">1</span>; shape-&gt;startY -= off_y; shape-&gt;lastY -= off_y;
+
+	<span class="hljs-comment">/* Adjust the entire shape */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; shape-&gt;edgeCount; ++i) {
+		shape-&gt;edges[i].start.x -= off_x;
+		shape-&gt;edges[i].<span class="hljs-built_in">end</span>.x -= off_x;
+		shape-&gt;edges[i].start.y -= off_y;
+		shape-&gt;edges[i].<span class="hljs-built_in">end</span>.y -= off_y;
+	}
+
+	*_x = off_x - <span class="hljs-number">100</span>;
+	*_y = off_y - <span class="hljs-number">100</span>;
+
+	<span class="hljs-comment">/* Create sprite */</span>
+	<span class="hljs-keyword">sprite_t</span> * out = create_sprite(<span class="hljs-built_in">width</span>,<span class="hljs-built_in">height</span>,ALPHA_EMBEDDED);
+	<span class="hljs-keyword">gfx_context_t</span> * ctx = init_graphics_sprite(out);
+
+	<span class="hljs-comment">/* Fill to clear */</span>
+	draw_fill(ctx, <span class="hljs-number">0</span>);
+
+	tt_path_paint(ctx, shape, color);
+
+	<span class="hljs-built_in">free</span>(ctx);
+	<span class="hljs-built_in">free</span>(shape);
+	<span class="hljs-built_in">free</span>(contour);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">tt_draw_glyph</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, struct TT_Font * font, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> glyph, <span class="hljs-keyword">uint32_t</span> color)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Contour</span> * <span class="hljs-title">contour</span> = <span class="hljs-title">tt_contour_start</span>(0, 0);</span>
+	contour = tt_draw_glyph_into(contour,font,x,y,glyph);
+	<span class="hljs-keyword">if</span> (contour-&gt;edgeCount) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Shape</span> * <span class="hljs-title">shape</span> = <span class="hljs-title">tt_contour_finish</span>(<span class="hljs-title">contour</span>);</span>
+		tt_path_paint(ctx, shape, color);
+		<span class="hljs-built_in">free</span>(shape);
+	}
+	<span class="hljs-built_in">free</span>(contour);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">tt_string_width</span><span class="hljs-params">(struct TT_Font * font, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * s)</span> </span>{
+	<span class="hljs-keyword">float</span> x_offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint32_t</span> cp = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint32_t</span> istate = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">const</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> * c = (<span class="hljs-keyword">const</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span>*)s; *c; ++c) {
+		<span class="hljs-keyword">if</span> (!decode(&amp;istate, &amp;cp, *c)) {
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> glyph = tt_glyph_for_codepoint(font, cp);
+			x_offset += tt_xadvance_for_glyph(font, glyph) * font-&gt;scale;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> x_offset;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">tt_string_width_int</span><span class="hljs-params">(struct TT_Font * font, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * s)</span> </span>{
+	<span class="hljs-keyword">int</span> x_offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint32_t</span> cp = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint32_t</span> istate = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">const</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> * c = (<span class="hljs-keyword">const</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span>*)s; *c; ++c) {
+		<span class="hljs-keyword">if</span> (!decode(&amp;istate, &amp;cp, *c)) {
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> glyph = tt_glyph_for_codepoint(font, cp);
+			x_offset += tt_xadvance_for_glyph(font, glyph) * font-&gt;scale;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> x_offset;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">float</span> <span class="hljs-title">tt_glyph_width</span><span class="hljs-params">(struct TT_Font * font, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> glyph)</span> </span>{
+	<span class="hljs-keyword">return</span> tt_xadvance_for_glyph(font, glyph) * font-&gt;scale;
+}
+
+__attribute__((visibility(<span class="hljs-string">"protected"</span>)))
+<span class="hljs-function">struct TT_Contour * <span class="hljs-title">tt_prepare_string_into</span><span class="hljs-params">(struct TT_Contour * contour, struct TT_Font * font, <span class="hljs-keyword">float</span> x, <span class="hljs-keyword">float</span> y, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * s, <span class="hljs-keyword">float</span> * out_width)</span> </span>{
+	<span class="hljs-keyword">if</span> (contour == <span class="hljs-literal">NULL</span>) {
+		contour = tt_contour_start(<span class="hljs-number">0</span>, <span class="hljs-number">0</span>);
+	}
+
+	<span class="hljs-keyword">float</span> x_offset = x;
+	<span class="hljs-keyword">uint32_t</span> cp = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint32_t</span> istate = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">const</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> * c = (<span class="hljs-keyword">const</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span>*)s; *c; ++c) {
+		<span class="hljs-keyword">if</span> (!decode(&amp;istate, &amp;cp, *c)) {
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> glyph = tt_glyph_for_codepoint(font, cp);
+			contour = tt_draw_glyph_into(contour,font,x_offset,y,glyph);
+			x_offset += tt_xadvance_for_glyph(font, glyph) * font-&gt;scale;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (out_width) *out_width = x_offset - x;
+
+	<span class="hljs-keyword">return</span> contour;
+}
+
+__attribute__((visibility(<span class="hljs-string">"protected"</span>)))
+<span class="hljs-function">struct TT_Contour * <span class="hljs-title">tt_prepare_string</span><span class="hljs-params">(struct TT_Font * font, <span class="hljs-keyword">float</span> x, <span class="hljs-keyword">float</span> y, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * s, <span class="hljs-keyword">float</span> * out_width)</span> </span>{
+	<span class="hljs-keyword">return</span> tt_prepare_string_into(<span class="hljs-literal">NULL</span>, font, x, y, s, out_width);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">tt_draw_string</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, struct TT_Font * font, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * s, <span class="hljs-keyword">uint32_t</span> color)</span> </span>{
+	<span class="hljs-keyword">float</span> <span class="hljs-built_in">width</span>;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Contour</span> * <span class="hljs-title">contour</span> = <span class="hljs-title">tt_prepare_string</span>(<span class="hljs-title">font</span>,<span class="hljs-title">x</span>,<span class="hljs-title">y</span>,<span class="hljs-title">s</span>,&amp;<span class="hljs-title">width</span>);</span>
+	<span class="hljs-keyword">if</span> (contour-&gt;edgeCount) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Shape</span> * <span class="hljs-title">shape</span> = <span class="hljs-title">tt_contour_finish</span>(<span class="hljs-title">contour</span>);</span>
+		tt_path_paint(ctx, shape, color);
+		<span class="hljs-built_in">free</span>(shape);
+	}
+	<span class="hljs-built_in">free</span>(contour);
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">width</span>;
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">tt_font_load</span><span class="hljs-params">(struct TT_Font * font)</span> </span>{
+	<span class="hljs-keyword">if</span> (tt_seek(font, <span class="hljs-number">4</span>)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"tt: failed to seek to 4\n"</span>);
+		<span class="hljs-keyword">goto</span> _fail_free;
+	}
+	<span class="hljs-keyword">uint16_t</span> numTables = tt_read_16(font);
+	<span class="hljs-keyword">if</span> (tt_seek(font, <span class="hljs-number">12</span>)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"tt: failed to seek to 12\n"</span>);
+		<span class="hljs-keyword">goto</span> _fail_free;
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; numTables; ++i) {
+		<span class="hljs-keyword">uint32_t</span> tag = tt_read_32(font);
+		<span class="hljs-comment">/* uint32_t checkSum = */</span> tt_read_32(font);
+		<span class="hljs-keyword">uint32_t</span> offset = tt_read_32(font);
+		<span class="hljs-keyword">uint32_t</span> length = tt_read_32(font);
+
+		<span class="hljs-keyword">switch</span> (tag) {
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x68656164</span>: <span class="hljs-comment">/* head */</span>
+				font-&gt;head_ptr.offset = offset;
+				font-&gt;head_ptr.length = length;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x636d6170</span>: <span class="hljs-comment">/* cmap */</span>
+				font-&gt;cmap_ptr.offset = offset;
+				font-&gt;cmap_ptr.length = length;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x676c7966</span>: <span class="hljs-comment">/* glyf */</span>
+				font-&gt;glyf_ptr.offset = offset;
+				font-&gt;glyf_ptr.length = length;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x6c6f6361</span>: <span class="hljs-comment">/* loca */</span>
+				font-&gt;loca_ptr.offset = offset;
+				font-&gt;loca_ptr.length = length;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x68686561</span>: <span class="hljs-comment">/* hhea */</span>
+				font-&gt;hhea_ptr.offset = offset;
+				font-&gt;hhea_ptr.length = length;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x686d7478</span>: <span class="hljs-comment">/* hmtx */</span>
+				font-&gt;hmtx_ptr.offset = offset;
+				font-&gt;hmtx_ptr.length = length;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x6e616d65</span>: <span class="hljs-comment">/* name */</span>
+				font-&gt;name_ptr.offset = offset;
+				font-&gt;name_ptr.length = length;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x4f532f32</span>: <span class="hljs-comment">/* OS/2 */</span>
+				font-&gt;os_2_ptr.offset = offset;
+				font-&gt;name_ptr.length = length;
+				<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!font-&gt;head_ptr.offset) { <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"tt: no head table\n"</span>); <span class="hljs-keyword">goto</span> _fail_free; }
+	<span class="hljs-keyword">if</span> (!font-&gt;glyf_ptr.offset) { <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"tt: no glyf table\n"</span>); <span class="hljs-keyword">goto</span> _fail_free; }
+	<span class="hljs-keyword">if</span> (!font-&gt;cmap_ptr.offset) { <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"tt: no cmap table\n"</span>); <span class="hljs-keyword">goto</span> _fail_free; }
+	<span class="hljs-keyword">if</span> (!font-&gt;loca_ptr.offset) { <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"tt: no loca table\n"</span>); <span class="hljs-keyword">goto</span> _fail_free; }
+
+	<span class="hljs-comment">/* Get emSize */</span>
+	tt_seek(font, font-&gt;head_ptr.offset + <span class="hljs-number">18</span>);
+	font-&gt;emSize = (<span class="hljs-keyword">float</span>)tt_read_16(font);
+
+	<span class="hljs-comment">/* Try to pick a viable cmap */</span>
+	tt_seek(font, font-&gt;cmap_ptr.offset);
+
+	<span class="hljs-keyword">uint32_t</span> best = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> bestScore = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Read size */</span>
+	<span class="hljs-comment">/* uint16_t cmap_vers = */</span> tt_read_16(font);
+	<span class="hljs-keyword">uint16_t</span> cmap_size = tt_read_16(font);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; cmap_size; ++i) {
+		<span class="hljs-keyword">uint16_t</span> platform = tt_read_16(font);
+		<span class="hljs-keyword">uint16_t</span> type     = tt_read_16(font);
+		<span class="hljs-keyword">uint32_t</span> offset   = tt_read_32(font);
+
+		<span class="hljs-keyword">if</span> ((platform == <span class="hljs-number">3</span> || platform == <span class="hljs-number">0</span>) &amp;&amp; type == <span class="hljs-number">10</span>) {
+			best = offset;
+			bestScore = <span class="hljs-number">4</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (platform == <span class="hljs-number">0</span> &amp;&amp; type == <span class="hljs-number">4</span>) {
+			best = offset;
+			bestScore = <span class="hljs-number">4</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (((platform == <span class="hljs-number">0</span> &amp;&amp; type == <span class="hljs-number">3</span>) || (platform == <span class="hljs-number">3</span> &amp;&amp; type == <span class="hljs-number">1</span>)) &amp;&amp; bestScore &lt; <span class="hljs-number">2</span>) {
+			best = offset;
+			bestScore = <span class="hljs-number">2</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!best) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"tt: TODO: unsupported cmap (best = %#x bestScore = %d)\n"</span>, best, bestScore);
+		<span class="hljs-keyword">goto</span> _fail_free;
+	}
+
+	<span class="hljs-comment">/* What type is this */</span>
+	tt_seek(font, font-&gt;cmap_ptr.offset + best);
+
+	font-&gt;cmap_type = tt_read_16(font);
+	<span class="hljs-keyword">if</span> (font-&gt;cmap_type != <span class="hljs-number">12</span> &amp;&amp; font-&gt;cmap_type != <span class="hljs-number">4</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"tt: TODO: unsupported cmap indexing %d\n"</span>, font-&gt;cmap_type);
+		<span class="hljs-keyword">goto</span> _fail_free;
+	}
+
+	font-&gt;cmap_start = font-&gt;cmap_ptr.offset + best;
+
+	tt_seek(font, font-&gt;head_ptr.offset + <span class="hljs-number">50</span>);
+	font-&gt;loca_type = tt_read_16(font);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+
+_fail_free:
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-built_in">free</span>(font);
+}
+
+<span class="hljs-function">struct TT_Font * <span class="hljs-title">tt_font_from_file</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * fileName)</span> </span>{
+	FILE * f = fopen(fileName, <span class="hljs-string">"r"</span>);
+	<span class="hljs-keyword">if</span> (!f) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Font</span> * <span class="hljs-title">font</span> = <span class="hljs-title">calloc</span>(1, <span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">TT_Font</span>));</span>
+	font-&gt;filePtr = f;
+	font-&gt;privFlags = <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">if</span> (!tt_font_load(font)) <span class="hljs-keyword">goto</span> _fail_close;
+
+	<span class="hljs-keyword">return</span> font;
+
+_fail_close:
+	fclose(f);
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function">struct TT_Font * <span class="hljs-title">tt_font_from_memory</span><span class="hljs-params">(<span class="hljs-keyword">uint8_t</span> * <span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Font</span> * <span class="hljs-title">font</span> = <span class="hljs-title">calloc</span>(1, <span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">TT_Font</span>));</span>
+	font-&gt;privFlags = <span class="hljs-number">0</span>;
+	font-&gt;<span class="hljs-built_in">buffer</span> = <span class="hljs-built_in">buffer</span>;
+	<span class="hljs-keyword">if</span> (!tt_font_load(font)) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">return</span> font;
+}
+
+<span class="hljs-function">struct TT_Font * <span class="hljs-title">tt_font_from_file_mem</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * fileName)</span> </span>{
+	FILE * f = fopen(fileName, <span class="hljs-string">"r"</span>);
+	<span class="hljs-keyword">if</span> (!f) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">sb</span>;</span>
+	fstat(fileno(f), &amp;sb);
+	<span class="hljs-keyword">long</span> <span class="hljs-built_in">size</span> = sb.st_size;
+
+	<span class="hljs-keyword">uint8_t</span> * buf = <span class="hljs-built_in">malloc</span>(<span class="hljs-built_in">size</span>);
+	fread(buf, <span class="hljs-number">1</span>, <span class="hljs-built_in">size</span>, f);
+
+	fclose(f);
+
+	<span class="hljs-keyword">return</span> tt_font_from_memory(buf);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">hashmap_t</span> * shm_font_cache = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-keyword">volatile</span> shm_font_lock = <span class="hljs-number">0</span>;
+
+<span class="hljs-function">struct TT_Font * <span class="hljs-title">tt_font_from_shm</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * identifier)</span> </span>{
+	spin_lock(&amp;shm_font_lock);
+
+	<span class="hljs-keyword">if</span> (!shm_font_cache) {
+		shm_font_cache = hashmap_create(<span class="hljs-number">10</span>);
+	}
+
+	<span class="hljs-keyword">void</span> * fontData = hashmap_get(shm_font_cache, (<span class="hljs-keyword">char</span>*)identifier);
+	<span class="hljs-keyword">if</span> (fontData) <span class="hljs-keyword">goto</span> shm_success;
+
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">display</span> = getenv(<span class="hljs-string">"DISPLAY"</span>);
+
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">display</span>) <span class="hljs-keyword">goto</span> shm_fail;
+
+	<span class="hljs-keyword">char</span> fullIdentifier[<span class="hljs-number">1024</span>];
+	<span class="hljs-built_in">snprintf</span>(fullIdentifier, <span class="hljs-number">1023</span>, <span class="hljs-string">"sys.%s.fonts.%s"</span>, <span class="hljs-built_in">display</span>, identifier);
+
+	<span class="hljs-keyword">size_t</span> fontSize = <span class="hljs-number">0</span>;
+	fontData = shm_obtain(fullIdentifier, &amp;fontSize);
+
+	<span class="hljs-keyword">if</span> (fontSize == <span class="hljs-number">0</span>) {
+		shm_release(identifier);
+		<span class="hljs-keyword">goto</span> shm_fail;
+	}
+
+	hashmap_set(shm_font_cache, (<span class="hljs-keyword">char</span>*)identifier, fontData);
+
+shm_success:
+	spin_unlock(&amp;shm_font_lock);
+	<span class="hljs-keyword">return</span> tt_font_from_memory(fontData);
+
+shm_fail:
+	spin_unlock(&amp;shm_font_lock);
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">tt_draw_string_shadow</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, struct TT_Font * font, <span class="hljs-keyword">char</span> * <span class="hljs-built_in">string</span>, <span class="hljs-keyword">int</span> font_size, <span class="hljs-keyword">int</span> left, <span class="hljs-keyword">int</span> top, <span class="hljs-keyword">uint32_t</span> text_color, <span class="hljs-keyword">uint32_t</span> shadow_color, <span class="hljs-keyword">int</span> blur)</span> </span>{
+	tt_set_size(font, font_size);
+	<span class="hljs-keyword">int</span> w = tt_string_width(font, <span class="hljs-built_in">string</span>);
+	<span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> We need to check the bounds of descenders and ascenders so we can fit things more correctly... */</span>
+	<span class="hljs-keyword">sprite_t</span> * _tmp_s = create_sprite(w + blur * <span class="hljs-number">2</span>, font_size + blur * <span class="hljs-number">2</span> + <span class="hljs-number">5</span>, ALPHA_EMBEDDED);
+	<span class="hljs-keyword">gfx_context_t</span> * _tmp = init_graphics_sprite(_tmp_s);
+	draw_fill(_tmp, rgba(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+	tt_draw_string(_tmp, font, blur, blur + font_size, <span class="hljs-built_in">string</span>, shadow_color);
+	blur_context_box(_tmp, blur);
+	blur_context_box(_tmp, blur);
+	<span class="hljs-built_in">free</span>(_tmp);
+	draw_sprite(ctx, _tmp_s, left - blur, top - blur);
+	sprite_free(_tmp_s);
+	tt_draw_string(ctx, font, left, top + font_size, <span class="hljs-built_in">string</span>, text_color);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">to_eight</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> codepoint, <span class="hljs-keyword">char</span> * out)</span> </span>{
+	<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-number">7</span>);
+
+	<span class="hljs-keyword">if</span> (codepoint &lt; <span class="hljs-number">0x0080</span>) {
+		out[<span class="hljs-number">0</span>] = (<span class="hljs-keyword">char</span>)codepoint;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (codepoint &lt; <span class="hljs-number">0x0800</span>) {
+		out[<span class="hljs-number">0</span>] = <span class="hljs-number">0xC0</span> | (codepoint &gt;&gt; <span class="hljs-number">6</span>);
+		out[<span class="hljs-number">1</span>] = <span class="hljs-number">0x80</span> | (codepoint &amp; <span class="hljs-number">0x3F</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (codepoint &lt; <span class="hljs-number">0x10000</span>) {
+		out[<span class="hljs-number">0</span>] = <span class="hljs-number">0xE0</span> | (codepoint &gt;&gt; <span class="hljs-number">12</span>);
+		out[<span class="hljs-number">1</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">6</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">2</span>] = <span class="hljs-number">0x80</span> | (codepoint &amp; <span class="hljs-number">0x3F</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (codepoint &lt; <span class="hljs-number">0x200000</span>) {
+		out[<span class="hljs-number">0</span>] = <span class="hljs-number">0xF0</span> | (codepoint &gt;&gt; <span class="hljs-number">18</span>);
+		out[<span class="hljs-number">1</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">12</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">2</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">6</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">3</span>] = <span class="hljs-number">0x80</span> | ((codepoint) &amp; <span class="hljs-number">0x3F</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (codepoint &lt; <span class="hljs-number">0x4000000</span>) {
+		out[<span class="hljs-number">0</span>] = <span class="hljs-number">0xF8</span> | (codepoint &gt;&gt; <span class="hljs-number">24</span>);
+		out[<span class="hljs-number">1</span>] = <span class="hljs-number">0x80</span> | (codepoint &gt;&gt; <span class="hljs-number">18</span>);
+		out[<span class="hljs-number">2</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">12</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">3</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">6</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">4</span>] = <span class="hljs-number">0x80</span> | ((codepoint) &amp; <span class="hljs-number">0x3F</span>);
+	} <span class="hljs-keyword">else</span> {
+		out[<span class="hljs-number">0</span>] = <span class="hljs-number">0xF8</span> | (codepoint &gt;&gt; <span class="hljs-number">30</span>);
+		out[<span class="hljs-number">1</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">24</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">2</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">18</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">3</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">12</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">4</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">6</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">5</span>] = <span class="hljs-number">0x80</span> | ((codepoint) &amp; <span class="hljs-number">0x3F</span>);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">strlen</span>(out);
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">char</span> * <span class="hljs-title">tt_get_name_string</span><span class="hljs-params">(struct TT_Font * font, <span class="hljs-keyword">int</span> identifier)</span> </span>{
+	<span class="hljs-keyword">if</span> (!font-&gt;name_ptr.offset) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+
+	tt_seek(font, font-&gt;name_ptr.offset);
+	<span class="hljs-keyword">uint16_t</span> nameFormat = tt_read_16(font);
+	<span class="hljs-keyword">uint16_t</span> count = tt_read_16(font);
+	<span class="hljs-keyword">uint16_t</span> stringOffset = tt_read_16(font);
+
+	<span class="hljs-keyword">if</span> (nameFormat != <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>; <span class="hljs-comment">/* Unsupported table format */</span>
+
+	<span class="hljs-comment">/* Read records until we find one that matches what we asked for, in a suitable format */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+		<span class="hljs-keyword">uint16_t</span> platformId = tt_read_16(font);
+		<span class="hljs-keyword">uint16_t</span> platformSpecificId = tt_read_16(font);
+		<span class="hljs-comment">/* uint16_t languageId = */</span> tt_read_16(font);
+		<span class="hljs-keyword">uint16_t</span> nameId = tt_read_16(font);
+		<span class="hljs-keyword">uint16_t</span> length = tt_read_16(font);
+		<span class="hljs-keyword">uint16_t</span> offset = tt_read_16(font);
+
+		<span class="hljs-keyword">if</span> (nameId != identifier) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">if</span> (!(platformId == <span class="hljs-number">3</span> &amp;&amp; platformSpecificId == <span class="hljs-number">1</span>)) <span class="hljs-keyword">continue</span>;
+
+		<span class="hljs-keyword">char</span> * tmp = <span class="hljs-built_in">calloc</span>(length * <span class="hljs-number">3</span> + <span class="hljs-number">1</span>,<span class="hljs-number">1</span>); <span class="hljs-comment">/* Should be enough ? */</span>
+		<span class="hljs-keyword">char</span> * c = tmp;
+
+		tt_seek(font, stringOffset + offset + font-&gt;name_ptr.offset);
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; length; j += <span class="hljs-number">2</span>) {
+			<span class="hljs-keyword">uint32_t</span> cp = tt_read_16(font);
+			<span class="hljs-keyword">if</span> (cp &gt; <span class="hljs-number">0xD7FF</span> &amp;&amp; cp &lt; <span class="hljs-number">0xE000</span>) {
+				<span class="hljs-keyword">uint32_t</span> highBits = cp - <span class="hljs-number">0xD800</span>;
+				<span class="hljs-keyword">uint32_t</span> lowBits = tt_read_16(font) - <span class="hljs-number">0xDC00</span>;
+				cp = <span class="hljs-number">0x10000</span> + (highBits &lt;&lt; <span class="hljs-number">10</span>) + lowBits;
+				j += <span class="hljs-number">2</span>;
+			}
+			c += to_eight(cp, c);
+		}
+
+		<span class="hljs-keyword">return</span> tmp;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">PenPoly</span> {</span>
+	<span class="hljs-keyword">float</span> x;
+	<span class="hljs-keyword">float</span> y;
+	<span class="hljs-keyword">float</span> inner;
+	<span class="hljs-keyword">float</span> outer;
+	<span class="hljs-keyword">float</span> basis;
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">float</span> <span class="hljs-title">tangent</span><span class="hljs-params">(<span class="hljs-keyword">float</span> x_0, <span class="hljs-keyword">float</span> y_0, <span class="hljs-keyword">float</span> x_1, <span class="hljs-keyword">float</span> y_1)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">fmod</span>(<span class="hljs-built_in">atan2</span>(y_0 - y_1, x_1 - x_0) + <span class="hljs-number">2.0</span> * M_PI, <span class="hljs-number">2.0</span> * M_PI);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">angle_compare</span><span class="hljs-params">(<span class="hljs-keyword">float</span> s, struct PenPoly * pen, <span class="hljs-keyword">int</span> a)</span> </span>{
+	<span class="hljs-keyword">if</span> (s &gt;= pen[a].inner &amp;&amp; s &lt; pen[a].outer) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (s &gt;= pen[a].inner &amp;&amp; pen[a].outer &lt; pen[a].inner) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (s &lt;  pen[a].outer &amp;&amp; pen[a].outer &lt; pen[a].inner) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (s &lt;  pen[a].outer &amp;&amp; (<span class="hljs-number">2.0</span> * M_PI + s - pen[a].outer &gt; M_PI)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (s &gt;  pen[a].outer &amp;&amp; (s - pen[a].outer &gt; M_PI)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">best_angle</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sides, struct PenPoly * pen, <span class="hljs-keyword">float</span> s)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> a = <span class="hljs-number">0</span>; a &lt; sides; ++a) {
+		<span class="hljs-keyword">if</span> (angle_compare(s,pen,a) == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> a;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+__attribute__((visibility(<span class="hljs-string">"protected"</span>)))
+<span class="hljs-function">struct TT_Contour * <span class="hljs-title">tt_contour_stroke_contour</span><span class="hljs-params">(<span class="hljs-keyword">const</span> struct TT_Contour * in, <span class="hljs-keyword">float</span> <span class="hljs-built_in">width</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Contour</span> * <span class="hljs-title">stroke</span> = <span class="hljs-title">tt_contour_start</span>(0,0);</span>
+
+	<span class="hljs-keyword">if</span> (in-&gt;edgeCount) {
+		<span class="hljs-keyword">int</span> sides = <span class="hljs-built_in">width</span> &lt; <span class="hljs-number">1.0</span> ? <span class="hljs-number">4</span> : <span class="hljs-number">16</span>;
+		<span class="hljs-keyword">float</span> inner = <span class="hljs-number">2.0</span> * M_PI / (<span class="hljs-keyword">float</span>)sides;
+		<span class="hljs-keyword">float</span> outer = (M_PI - inner) / <span class="hljs-number">2.0</span>;
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">PenPoly</span> * <span class="hljs-title">pen</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">PenPoly</span>) * <span class="hljs-title">sides</span>);</span> <span class="hljs-comment">/* Arbitrary */</span>
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; sides; ++i) {
+			<span class="hljs-keyword">float</span> angle = (<span class="hljs-keyword">float</span>)i * <span class="hljs-number">2.0</span> * M_PI / (<span class="hljs-keyword">float</span>)sides;
+			pen[i].x = <span class="hljs-built_in">cos</span>(angle) * <span class="hljs-built_in">width</span>;
+			pen[i].y = -<span class="hljs-built_in">sin</span>(angle) * <span class="hljs-built_in">width</span>;
+			pen[i].basis = angle;
+			pen[i].inner = <span class="hljs-built_in">fmod</span>(angle + outer, <span class="hljs-number">2.0</span> * M_PI);
+			pen[i].outer = <span class="hljs-built_in">fmod</span>(angle + outer + inner, <span class="hljs-number">2.0</span> * M_PI);
+		}
+
+
+		<span class="hljs-keyword">int</span> start_of_segment = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">int</span> next_segment = (<span class="hljs-keyword">int</span>)in-&gt;edgeCount;
+
+		<span class="hljs-keyword">do</span> {
+			<span class="hljs-keyword">int</span> started = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">int</span> v = start_of_segment;
+			<span class="hljs-keyword">float</span> s = tangent(in-&gt;edges[v].start.x, in-&gt;edges[v].start.y, in-&gt;edges[v].<span class="hljs-built_in">end</span>.x, in-&gt;edges[v].<span class="hljs-built_in">end</span>.y);
+			<span class="hljs-keyword">int</span> a = best_angle(sides,pen,s);
+
+			<span class="hljs-keyword">while</span> (v &lt; (<span class="hljs-keyword">int</span>)in-&gt;edgeCount) {
+				s = tangent(in-&gt;edges[v].start.x, in-&gt;edges[v].start.y, in-&gt;edges[v].<span class="hljs-built_in">end</span>.x, in-&gt;edges[v].<span class="hljs-built_in">end</span>.y);
+				<span class="hljs-built_in">stroke</span> = (started ? tt_contour_line_to : tt_contour_move_to)(<span class="hljs-built_in">stroke</span>, pen[a].x + in-&gt;edges[v].start.x, pen[a].y + in-&gt;edges[v].start.y);
+				started = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">int</span> comp = angle_compare(s,pen,a);
+				<span class="hljs-keyword">if</span> (comp == <span class="hljs-number">0</span>) {
+					<span class="hljs-keyword">if</span> (v + <span class="hljs-number">1</span> == (<span class="hljs-keyword">int</span>)in-&gt;edgeCount) {
+						next_segment = in-&gt;edgeCount;
+						<span class="hljs-keyword">break</span>;
+					}
+					<span class="hljs-keyword">if</span> (in-&gt;edges[v+<span class="hljs-number">1</span>].start.x != in-&gt;edges[v].<span class="hljs-built_in">end</span>.x || in-&gt;edges[v+<span class="hljs-number">1</span>].start.y != in-&gt;edges[v].<span class="hljs-built_in">end</span>.y) {
+						next_segment = v + <span class="hljs-number">1</span>;
+						<span class="hljs-keyword">break</span>;
+					}
+					v++;
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (comp == <span class="hljs-number">1</span>) {
+					a = (sides + a - <span class="hljs-number">1</span>) % sides;
+				} <span class="hljs-keyword">else</span> {
+					a = (a + <span class="hljs-number">1</span>) % sides;
+				}
+			}
+			<span class="hljs-keyword">while</span> (v &gt;= start_of_segment) {
+				s = tangent(in-&gt;edges[v].<span class="hljs-built_in">end</span>.x, in-&gt;edges[v].<span class="hljs-built_in">end</span>.y, in-&gt;edges[v].start.x, in-&gt;edges[v].start.y);
+				<span class="hljs-built_in">stroke</span> = tt_contour_line_to(<span class="hljs-built_in">stroke</span>, in-&gt;edges[v].<span class="hljs-built_in">end</span>.x + pen[a].x, in-&gt;edges[v].<span class="hljs-built_in">end</span>.y + pen[a].y);
+				<span class="hljs-keyword">int</span> comp = angle_compare(s,pen,a);
+				<span class="hljs-keyword">if</span> (comp == <span class="hljs-number">0</span>) {
+					<span class="hljs-keyword">if</span> (v == start_of_segment) <span class="hljs-keyword">break</span>;
+					v--;
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (comp == <span class="hljs-number">1</span>) {
+					a = (sides + a - <span class="hljs-number">1</span>) % sides;
+				} <span class="hljs-keyword">else</span> {
+					a = (a + <span class="hljs-number">1</span>) % sides;
+				}
+			}
+			<span class="hljs-keyword">while</span> (v == start_of_segment) {
+				s = tangent(in-&gt;edges[v].start.x, in-&gt;edges[v].start.y, in-&gt;edges[v].<span class="hljs-built_in">end</span>.x, in-&gt;edges[v].<span class="hljs-built_in">end</span>.y);
+				<span class="hljs-built_in">stroke</span> = tt_contour_line_to(<span class="hljs-built_in">stroke</span>, pen[a].x + in-&gt;edges[v].start.x, pen[a].y + in-&gt;edges[v].start.y);
+				<span class="hljs-keyword">int</span> comp = angle_compare(s,pen,a);
+				<span class="hljs-keyword">if</span> (comp == <span class="hljs-number">0</span>) {
+					<span class="hljs-keyword">break</span>;
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (comp == <span class="hljs-number">1</span>) {
+					a = (sides + a - <span class="hljs-number">1</span>) % sides;
+				} <span class="hljs-keyword">else</span> {
+					a = (a + <span class="hljs-number">1</span>) % sides;
+				}
+			}
+			start_of_segment = next_segment;
+		} <span class="hljs-keyword">while</span> (next_segment != (<span class="hljs-keyword">int</span>)in-&gt;edgeCount);
+
+		<span class="hljs-built_in">free</span>(pen);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">stroke</span>;
+}
+
+<span class="hljs-function">struct TT_Shape * <span class="hljs-title">tt_contour_stroke_shape</span><span class="hljs-params">(<span class="hljs-keyword">const</span> struct TT_Contour * in, <span class="hljs-keyword">float</span> <span class="hljs-built_in">width</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Contour</span> * <span class="hljs-title">stroke</span> = <span class="hljs-title">tt_contour_stroke_contour</span>(<span class="hljs-title">in</span>,<span class="hljs-title">width</span>);</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Shape</span> * <span class="hljs-title">out</span> = <span class="hljs-title">tt_contour_finish</span>(<span class="hljs-title">stroke</span>);</span>
+	<span class="hljs-built_in">free</span>(<span class="hljs-built_in">stroke</span>);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">tt_contour_transform</span><span class="hljs-params">(struct TT_Contour * cnt, <span class="hljs-keyword">gfx_matrix_t</span> matrix)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; cnt-&gt;edgeCount; i++) {
+		<span class="hljs-keyword">double</span> x, y;
+		gfx_apply_matrix(cnt-&gt;edges[i].start.x, cnt-&gt;edges[i].start.y, matrix, &amp;x, &amp;y);
+		cnt-&gt;edges[i].start.x = x;
+		cnt-&gt;edges[i].start.y = y;
+		gfx_apply_matrix(cnt-&gt;edges[i].<span class="hljs-built_in">end</span>.x, cnt-&gt;edges[i].<span class="hljs-built_in">end</span>.y, matrix, &amp;x, &amp;y);
+		cnt-&gt;edges[i].<span class="hljs-built_in">end</span>.x = x;
+		cnt-&gt;edges[i].<span class="hljs-built_in">end</span>.y = y;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">tt_contour_get_edge</span><span class="hljs-params">(<span class="hljs-keyword">const</span> struct TT_Contour * cnt, <span class="hljs-keyword">long</span> index, <span class="hljs-keyword">float</span> * x1, <span class="hljs-keyword">float</span> * y1, <span class="hljs-keyword">float</span> * x2, <span class="hljs-keyword">float</span> * y2)</span> </span>{
+	<span class="hljs-keyword">size_t</span> resolved = index;
+	<span class="hljs-keyword">if</span> (index &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">size_t</span>)-index &gt; cnt-&gt;edgeCount) <span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+		resolved = cnt-&gt;edgeCount + index;
+	}
+	<span class="hljs-keyword">if</span> (resolved &gt;= cnt-&gt;edgeCount) <span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+
+	<span class="hljs-keyword">if</span> (x1) *x1 = cnt-&gt;edges[resolved].start.x;
+	<span class="hljs-keyword">if</span> (y1) *y1 = cnt-&gt;edges[resolved].start.y;
+	<span class="hljs-keyword">if</span> (x2) *x2 = cnt-&gt;edges[resolved].<span class="hljs-built_in">end</span>.x;
+	<span class="hljs-keyword">if</span> (y2) *y2 = cnt-&gt;edges[resolved].<span class="hljs-built_in">end</span>.y;
+
+	<span class="hljs-keyword">return</span> resolved;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">int</span> <span class="hljs-title">out_of_bounds</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">sprite_t</span> * tex, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y)</span> </span>{
+	<span class="hljs-keyword">return</span> x &lt; <span class="hljs-number">0</span> || y &lt; <span class="hljs-number">0</span> || x &gt;= tex-&gt;<span class="hljs-built_in">width</span> || y &gt;= tex-&gt;<span class="hljs-built_in">height</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">linear_interp</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> left, <span class="hljs-keyword">uint32_t</span> right, <span class="hljs-keyword">uint16_t</span> pr)</span> </span>{
+	<span class="hljs-keyword">uint16_t</span> pl = <span class="hljs-number">0xFF</span> ^ pr;
+	<span class="hljs-keyword">uint8_t</span> d_r = (((<span class="hljs-keyword">uint32_t</span>)(_RED(right) * pr + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L) + (((<span class="hljs-keyword">uint32_t</span>)(_RED(left) * pl + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L);
+	<span class="hljs-keyword">uint8_t</span> d_g = (((<span class="hljs-keyword">uint32_t</span>)(_GRE(right) * pr + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L) + (((<span class="hljs-keyword">uint32_t</span>)(_GRE(left) * pl + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L);
+	<span class="hljs-keyword">uint8_t</span> d_b = (((<span class="hljs-keyword">uint32_t</span>)(_BLU(right) * pr + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L) + (((<span class="hljs-keyword">uint32_t</span>)(_BLU(left) * pl + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L);
+	<span class="hljs-keyword">uint8_t</span> d_a = (((<span class="hljs-keyword">uint32_t</span>)(_ALP(right) * pr + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L) + (((<span class="hljs-keyword">uint32_t</span>)(_ALP(left) * pl + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L);
+	<span class="hljs-keyword">return</span> tt_rgba(d_r, d_g, d_b, d_a);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">sprite_pixel_no_repeat</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">sprite_t</span> * tex, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y)</span> </span>{
+	<span class="hljs-keyword">return</span> out_of_bounds(tex,x,y) ? <span class="hljs-number">0</span> : SPRITE(tex,x,y);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">int</span> <span class="hljs-title">wrap</span><span class="hljs-params">(<span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> w)</span> </span>{
+	<span class="hljs-keyword">return</span> x &lt; <span class="hljs-number">0</span> ? (w - <span class="hljs-number">1</span> - (-x <span class="hljs-number">-1</span>) % w) : (x % w);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">sprite_pixel_repeat</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">sprite_t</span> * tex, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y)</span> </span>{
+	<span class="hljs-keyword">int</span> w = tex-&gt;<span class="hljs-built_in">width</span>;
+	<span class="hljs-keyword">int</span> h = tex-&gt;<span class="hljs-built_in">height</span>;
+	<span class="hljs-keyword">return</span> SPRITE(tex,wrap(x,w),wrap(y,h));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">sprite_pixel_pad</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">sprite_t</span> * tex, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y)</span> </span>{
+	<span class="hljs-keyword">int</span> w = tex-&gt;<span class="hljs-built_in">width</span>;
+	<span class="hljs-keyword">int</span> h = tex-&gt;<span class="hljs-built_in">height</span>;
+	<span class="hljs-keyword">if</span> (x &lt; <span class="hljs-number">0</span>) x = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (x &gt;= w) x = w<span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">if</span> (y &lt; <span class="hljs-number">0</span>) y = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (y &gt;= h) y = h<span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">return</span> SPRITE(tex,x,y);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">typedef</span> <span class="hljs-title">uint32_t</span> <span class="hljs-params">(*<span class="hljs-keyword">pixel_getter_t</span>)</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">sprite_t</span>*,<span class="hljs-keyword">int</span>,<span class="hljs-keyword">int</span>)</span></span>;
+
+__attribute__((hot))
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">sprite_interpolate_bilinear</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">sprite_t</span> * tex, <span class="hljs-keyword">double</span> u, <span class="hljs-keyword">double</span> v, <span class="hljs-keyword">pixel_getter_t</span> pixel_getter)</span> </span>{
+	<span class="hljs-keyword">int</span> x = <span class="hljs-built_in">floor</span>(u);
+	<span class="hljs-keyword">int</span> y = <span class="hljs-built_in">floor</span>(v);
+	<span class="hljs-keyword">uint32_t</span> ul = pixel_getter(tex,x,y);
+	<span class="hljs-keyword">uint32_t</span> ur = pixel_getter(tex,x+<span class="hljs-number">1</span>,y);
+	<span class="hljs-keyword">uint32_t</span> ll = pixel_getter(tex,x,y+<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">uint32_t</span> lr = pixel_getter(tex,x+<span class="hljs-number">1</span>,y+<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> ((ul | ur | ll | lr) == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint8_t</span> u_ratio = (u - x) * <span class="hljs-number">0xFF</span>;
+	<span class="hljs-keyword">uint8_t</span> v_ratio = (v - y) * <span class="hljs-number">0xFF</span>;
+	<span class="hljs-keyword">uint32_t</span> top = linear_interp(ul,ur,u_ratio);
+	<span class="hljs-keyword">uint32_t</span> bot = linear_interp(ll,lr,u_ratio);
+	<span class="hljs-keyword">return</span> linear_interp(top,bot,v_ratio);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">sprite_interpolate_nearest</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">sprite_t</span> * tex, <span class="hljs-keyword">double</span> u, <span class="hljs-keyword">double</span> v, <span class="hljs-keyword">pixel_getter_t</span> pixel_getter)</span> </span>{
+	<span class="hljs-keyword">int</span> x = <span class="hljs-built_in">floor</span>(u);
+	<span class="hljs-keyword">int</span> y = <span class="hljs-built_in">floor</span>(v);
+	<span class="hljs-keyword">return</span> pixel_getter(tex,x,y);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">typedef</span> <span class="hljs-title">uint32_t</span> <span class="hljs-params">(*<span class="hljs-keyword">sprite_interp_t</span>)</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">sprite_t</span> *, <span class="hljs-keyword">double</span>, <span class="hljs-keyword">double</span>, <span class="hljs-keyword">pixel_getter_t</span>)</span></span>;
+
+__attribute__((hot))
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">void</span> <span class="hljs-title">paint_scanline_sprite</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">int</span> y, <span class="hljs-keyword">const</span> struct TT_Shape * shape, <span class="hljs-keyword">float</span> * subsamples, <span class="hljs-keyword">sprite_t</span> * sprite, <span class="hljs-keyword">double</span> u, <span class="hljs-keyword">double</span> v, <span class="hljs-keyword">double</span> filter_dxx, <span class="hljs-keyword">double</span> filter_dxy, <span class="hljs-keyword">sprite_interp_t</span> sprite_interp, <span class="hljs-keyword">pixel_getter_t</span> pixel_getter)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = shape-&gt;startX &lt; <span class="hljs-number">0</span> ? <span class="hljs-number">0</span> : shape-&gt;startX; x &lt; shape-&gt;lastX &amp;&amp; x &lt; ctx-&gt;<span class="hljs-built_in">width</span>; ++x) {
+		<span class="hljs-keyword">uint16_t</span> na = (<span class="hljs-keyword">int</span>)(<span class="hljs-number">255</span> * subsamples[x - shape-&gt;startX]) &gt;&gt; <span class="hljs-number">2</span>;
+		<span class="hljs-keyword">uint32_t</span> color = sprite_interp(sprite, u, v, pixel_getter);
+		<span class="hljs-keyword">uint32_t</span> nc = tt_apply_alpha(color, na);
+		GFX(ctx, x, y) = tt_alpha_blend_rgba(GFX(ctx, x, y), nc);
+		subsamples[x-shape-&gt;startX] = <span class="hljs-number">0</span>;
+		u += filter_dxx;
+		v += filter_dxy;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">void</span> <span class="hljs-title">tt_path_paint_sprite_internal</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">const</span> struct TT_Shape * shape, <span class="hljs-keyword">sprite_t</span> * sprite, <span class="hljs-keyword">gfx_matrix_t</span> matrix, <span class="hljs-keyword">sprite_interp_t</span> sprite_interp, <span class="hljs-keyword">pixel_getter_t</span> pixel_getter)</span> </span>{
+	<span class="hljs-keyword">gfx_matrix_t</span> inverse;
+	gfx_matrix_invert(matrix,inverse);
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = shape-&gt;edgeCount;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Intersection</span> * <span class="hljs-title">crosses</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">TT_Intersection</span>) * <span class="hljs-title">size</span>);</span>
+
+	<span class="hljs-keyword">size_t</span> subsample_width = shape-&gt;lastX - shape-&gt;startX;
+	<span class="hljs-keyword">float</span> * subsamples = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">float</span>) * subsample_width);
+	<span class="hljs-built_in">memset</span>(subsamples, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">float</span>) * subsample_width);
+
+	<span class="hljs-keyword">int</span> startY = shape-&gt;startY &lt; <span class="hljs-number">0</span> ? <span class="hljs-number">0</span> : shape-&gt;startY;
+	<span class="hljs-keyword">int</span> endY = shape-&gt;lastY &lt;= ctx-&gt;<span class="hljs-built_in">height</span> ? shape-&gt;lastY : ctx-&gt;<span class="hljs-built_in">height</span>;
+
+	<span class="hljs-keyword">double</span> filter_x, filter_y, filter_dxx, filter_dxy, filter_dyx, filter_dyy;
+	<span class="hljs-keyword">int</span> _left = shape-&gt;startX &lt; <span class="hljs-number">0</span> ? <span class="hljs-number">0</span> : shape-&gt;startX;
+	gfx_apply_matrix(_left, startY, inverse, &amp;filter_x, &amp;filter_y);
+	gfx_apply_matrix(_left+<span class="hljs-number">1</span>, startY, inverse, &amp;filter_dxx, &amp;filter_dxy);
+	filter_dxx -= filter_x;
+	filter_dxy -= filter_y;
+	gfx_apply_matrix(_left, startY+<span class="hljs-number">1</span>, inverse, &amp;filter_dyx, &amp;filter_dyy);
+	filter_dyx -= filter_x;
+	filter_dyy -= filter_y;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> y = startY; y &lt; endY; ++y) {
+		<span class="hljs-keyword">float</span> u = filter_x;
+		<span class="hljs-keyword">float</span> v = filter_y;
+		filter_x += filter_dyx;
+		filter_y += filter_dyy;
+		<span class="hljs-keyword">if</span> (!_is_in_clip(ctx,y)) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">float</span> _y = y + <span class="hljs-number">0.0001</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> l = <span class="hljs-number">0</span>; l &lt; <span class="hljs-number">4</span>; ++l) {
+			<span class="hljs-keyword">size_t</span> cnt;
+			<span class="hljs-keyword">if</span> ((cnt = prune_edges(<span class="hljs-built_in">size</span>, _y, shape-&gt;edges, crosses))) {
+				sort_intersections(cnt, crosses);
+				process_scanline(_y, shape, subsample_width, subsamples, cnt, crosses);
+			}
+			_y += <span class="hljs-number">1.0</span>/<span class="hljs-number">4.0</span>;
+		}
+		paint_scanline_sprite(ctx, y, shape, subsamples, sprite, u, v, filter_dxx, filter_dxy, sprite_interp, pixel_getter);
+	}
+
+	<span class="hljs-built_in">free</span>(subsamples);
+	<span class="hljs-built_in">free</span>(crosses);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">tt_path_paint_sprite</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">const</span> struct TT_Shape * shape, <span class="hljs-keyword">sprite_t</span> * sprite, <span class="hljs-keyword">gfx_matrix_t</span> matrix)</span> </span>{
+	tt_path_paint_sprite_internal(ctx,shape,sprite,matrix,sprite_interpolate_bilinear,sprite_pixel_repeat);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">tt_path_paint_sprite_options</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">const</span> struct TT_Shape * shape, <span class="hljs-keyword">sprite_t</span> * sprite, <span class="hljs-keyword">gfx_matrix_t</span> matrix, <span class="hljs-keyword">int</span> filter, <span class="hljs-keyword">int</span> wrap)</span> </span>{
+	<span class="hljs-keyword">sprite_interp_t</span> sprite_interp = sprite_interpolate_bilinear;
+	<span class="hljs-keyword">pixel_getter_t</span> pixel_getter = sprite_pixel_repeat;
+
+	<span class="hljs-keyword">switch</span> (filter) {
+		<span class="hljs-keyword">case</span> TT_PATH_FILTER_BILINEAR:
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> TT_PATH_FILTER_NEAREST:
+			sprite_interp = sprite_interpolate_nearest;
+			<span class="hljs-keyword">break</span>;
+	}
+
+	<span class="hljs-keyword">switch</span> (wrap) {
+		<span class="hljs-keyword">case</span> TT_PATH_WRAP_REPEAT:
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> TT_PATH_WRAP_NONE:
+			pixel_getter = sprite_pixel_no_repeat;
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> TT_PATH_WRAP_PAD:
+			pixel_getter = sprite_pixel_pad;
+			<span class="hljs-keyword">break</span>;
+	}
+
+	tt_path_paint_sprite_internal(ctx,shape,sprite,matrix,sprite_interp,pixel_getter);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">char</span> * <span class="hljs-title">tt_ellipsify</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * input, <span class="hljs-keyword">int</span> font_size, struct TT_Font * font, <span class="hljs-keyword">int</span> max_width, <span class="hljs-keyword">int</span> * out_width)</span> </span>{
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">width</span>;
+	<span class="hljs-keyword">int</span> len = <span class="hljs-built_in">strlen</span>(input);
+	<span class="hljs-keyword">char</span> * out = <span class="hljs-built_in">malloc</span>(len + <span class="hljs-number">4</span>);
+
+	<span class="hljs-keyword">if</span> (max_width &lt;= <span class="hljs-number">0</span>) {
+		out[<span class="hljs-number">0</span>] = <span class="hljs-string">'\0'</span>;
+		<span class="hljs-built_in">width</span> = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">goto</span> _finish;
+	}
+
+	<span class="hljs-built_in">memcpy</span>(out, input, len + <span class="hljs-number">1</span>);
+	tt_set_size(font, font_size);
+	<span class="hljs-keyword">while</span> ((<span class="hljs-built_in">width</span> = tt_string_width(font, out)) &gt; max_width) {
+		len--;
+		<span class="hljs-keyword">if</span> (len+<span class="hljs-number">0</span>&gt;=<span class="hljs-number">0</span>) out[len+<span class="hljs-number">0</span>] = <span class="hljs-string">'.'</span>;
+		<span class="hljs-keyword">if</span> (len+<span class="hljs-number">1</span>&gt;=<span class="hljs-number">0</span>) out[len+<span class="hljs-number">1</span>] = <span class="hljs-string">'.'</span>;
+		<span class="hljs-keyword">if</span> (len+<span class="hljs-number">2</span>&gt;=<span class="hljs-number">0</span>) out[len+<span class="hljs-number">2</span>] = <span class="hljs-string">'.'</span>;
+		out[len+<span class="hljs-number">3</span>] = <span class="hljs-string">'\0'</span>;
+	}
+
+_finish:
+	<span class="hljs-keyword">if</span> (out_width) *out_width = <span class="hljs-built_in">width</span>;
+	<span class="hljs-keyword">return</span> out;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

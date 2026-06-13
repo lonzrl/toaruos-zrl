@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>rpi.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kernel\\arch\\aarch64\\rpi.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>rpi.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/gzip.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/aarch64/rpi.h&gt;</span></span>
+
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">char</span> <span class="hljs-built_in">end</span>[];
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">rpi_load_ramdisk</span><span class="hljs-params">(struct rpitag * tag, <span class="hljs-keyword">uintptr_t</span> * ramdisk_phys_base, <span class="hljs-keyword">size_t</span> * ramdisk_size)</span> </span>{
+	dprintf(<span class="hljs-string">"rpi: compressed ramdisk is at %#x \n"</span>, tag-&gt;ramdisk_start);
+	dprintf(<span class="hljs-string">"rpi: end of ramdisk is at %#x \n"</span>, tag-&gt;ramdisk_end);
+	dprintf(<span class="hljs-string">"rpi: uncompress ramdisk to %#zx \n"</span>, (<span class="hljs-keyword">uintptr_t</span>)&amp;<span class="hljs-built_in">end</span>);
+	<span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">size</span>;
+	<span class="hljs-built_in">memcpy</span>(&amp;<span class="hljs-built_in">size</span>, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)(tag-&gt;ramdisk_end - <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>)), <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>));
+	dprintf(<span class="hljs-string">"rpi: size of uncompressed ramdisk is %#x\n"</span>, <span class="hljs-built_in">size</span>);
+
+	gzip_inputPtr  = (<span class="hljs-keyword">uint8_t</span>*)(<span class="hljs-keyword">uintptr_t</span>)tag-&gt;ramdisk_start;
+	gzip_outputPtr = (<span class="hljs-keyword">uint8_t</span>*)&amp;<span class="hljs-built_in">end</span>;
+
+	<span class="hljs-keyword">if</span> (gzip_decompress()) {
+		dprintf(<span class="hljs-string">"rpi: gzip failure, not mounting ramdisk\n"</span>);
+		<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>);
+	}
+
+	dprintf(<span class="hljs-string">"rpi: ramdisk decompressed\n"</span>);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">size</span>; i += <span class="hljs-number">64</span>) {
+		<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc cvac, %0\n"</span> :: <span class="hljs-string">"r"</span>((<span class="hljs-keyword">uintptr_t</span>)&amp;<span class="hljs-built_in">end</span> + i) : <span class="hljs-string">"memory"</span>)</span></span>;
+	}
+
+	*ramdisk_phys_base = mmu_map_to_physical(<span class="hljs-literal">NULL</span>, (<span class="hljs-keyword">uintptr_t</span>)&amp;<span class="hljs-built_in">end</span>);
+	*ramdisk_size = <span class="hljs-built_in">size</span>;
+
+	dprintf(<span class="hljs-string">"rpi: ramdisk_phys_base set to %#zx\n"</span>, *ramdisk_phys_base);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">rpi_set_cmdline</span><span class="hljs-params">(<span class="hljs-keyword">char</span> ** args_out)</span> </span>{
+	*args_out = (<span class="hljs-keyword">char</span> *)<span class="hljs-string">"vid=preset start=live-session migrate root=/dev/ram0"</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

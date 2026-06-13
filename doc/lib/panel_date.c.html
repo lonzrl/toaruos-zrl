@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>panel_date.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "lib\\panel_date.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>panel_date.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/yutani.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/menu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/text.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/panel.h&gt;</span></span>
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">calmenu</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> date_widget_width = <span class="hljs-number">48</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CALENDAR_LINE_HEIGHT 22</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CALENDAR_BASE_HEIGHT 45</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CALENDAR_PAD_HEIGHT  2</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">days_in_month</span><span class="hljs-params">(struct tm * timeinfo)</span> </span>{
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> days_in_months[] = {
+		<span class="hljs-number">31</span>, <span class="hljs-number">0</span>, <span class="hljs-number">31</span>, <span class="hljs-number">30</span>, <span class="hljs-number">31</span>, <span class="hljs-number">30</span>, <span class="hljs-number">31</span>,
+		<span class="hljs-number">31</span>, <span class="hljs-number">30</span>, <span class="hljs-number">31</span>, <span class="hljs-number">30</span>, <span class="hljs-number">31</span>,
+	};
+	<span class="hljs-keyword">if</span> (timeinfo-&gt;tm_mon != <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> days_in_months[timeinfo-&gt;tm_mon];
+	<span class="hljs-comment">/* How many days in February? */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tm</span> <span class="hljs-title">tmp</span>;</span>
+	<span class="hljs-built_in">memcpy</span>(&amp;tmp, timeinfo, <span class="hljs-keyword">sizeof</span>(struct tm));
+	tmp.tm_mday = <span class="hljs-number">29</span>;
+	tmp.tm_hour = <span class="hljs-number">12</span>;
+	<span class="hljs-keyword">time_t</span> tmp3 = mktime(&amp;tmp);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tm</span> * <span class="hljs-title">tmp2</span> = <span class="hljs-title">localtime</span>(&amp;<span class="hljs-title">tmp3</span>);</span>
+	<span class="hljs-keyword">return</span> tmp2-&gt;tm_mday == <span class="hljs-number">29</span> ? <span class="hljs-number">29</span> : <span class="hljs-number">28</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">weeks_in_month</span><span class="hljs-params">(struct tm * timeinfo)</span> </span>{
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">line</span> = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> wday = (<span class="hljs-number">36</span> + timeinfo-&gt;tm_wday - timeinfo-&gt;tm_mday) % <span class="hljs-number">7</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> day = <span class="hljs-number">1</span>; day &lt;= days_in_month(timeinfo); day++, (wday = (wday + <span class="hljs-number">1</span>) % <span class="hljs-number">7</span>)) {
+		<span class="hljs-keyword">if</span> (wday == <span class="hljs-number">6</span>) {
+			<span class="hljs-built_in">line</span>++;
+		}
+	}
+	<span class="hljs-keyword">return</span> (wday ? <span class="hljs-built_in">line</span> + <span class="hljs-number">1</span> : <span class="hljs-built_in">line</span>);
+}
+
+<span class="hljs-keyword">void</span> _menu_draw_MenuEntry_Calendar(<span class="hljs-keyword">gfx_context_t</span> * ctx, struct MenuEntry * self, <span class="hljs-keyword">int</span> offset) {
+	self-&gt;offset = offset;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timeval</span> <span class="hljs-title">now</span>;</span>
+	gettimeofday(&amp;now, <span class="hljs-literal">NULL</span>);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tm</span> <span class="hljs-title">actual</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tm</span> * <span class="hljs-title">timeinfo</span>;</span>
+	timeinfo = localtime((<span class="hljs-keyword">time_t</span> *)&amp;now.tv_sec);
+	<span class="hljs-built_in">memcpy</span>(&amp;actual, timeinfo, <span class="hljs-keyword">sizeof</span>(struct tm));
+	timeinfo = &amp;actual;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Font</span> * <span class="hljs-title">font</span> = ((<span class="hljs-title">struct</span> <span class="hljs-title">PanelWidget</span>*)<span class="hljs-title">self</span>-&gt;_<span class="hljs-title">private</span>)-&gt;<span class="hljs-title">pctx</span>-&gt;<span class="hljs-title">font</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Font</span> * <span class="hljs-title">font_bold</span> = ((<span class="hljs-title">struct</span> <span class="hljs-title">PanelWidget</span>*)<span class="hljs-title">self</span>-&gt;_<span class="hljs-title">private</span>)-&gt;<span class="hljs-title">pctx</span>-&gt;<span class="hljs-title">font_bold</span>;</span>
+
+	<span class="hljs-comment">/* Render heading with Month Year */</span>
+	{
+		<span class="hljs-keyword">char</span> month[<span class="hljs-number">20</span>];
+		strftime(month, <span class="hljs-number">20</span>, <span class="hljs-string">"%B %Y"</span>, timeinfo);
+
+		tt_set_size(font_bold, <span class="hljs-number">16</span>);
+		tt_draw_string(ctx, font_bold, (self-&gt;<span class="hljs-built_in">width</span> - tt_string_width(font_bold, month)) / <span class="hljs-number">2</span>, self-&gt;offset + <span class="hljs-number">16</span>, month, rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+	}
+
+	<span class="hljs-comment">/* Get ready to draw a table... */</span>
+	<span class="hljs-keyword">int</span> cell_size = self-&gt;<span class="hljs-built_in">width</span> / <span class="hljs-number">7</span>;
+	<span class="hljs-keyword">int</span> base_left = (self-&gt;<span class="hljs-built_in">width</span> - cell_size * <span class="hljs-number">7</span>) / <span class="hljs-number">2</span>;
+
+	<span class="hljs-comment">/* Render weekday abbreviations */</span>
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * weekdays[] = {<span class="hljs-string">"Su"</span>,<span class="hljs-string">"Mo"</span>,<span class="hljs-string">"Tu"</span>,<span class="hljs-string">"We"</span>,<span class="hljs-string">"Th"</span>,<span class="hljs-string">"Fr"</span>,<span class="hljs-string">"Sa"</span>,<span class="hljs-literal">NULL</span>};
+	<span class="hljs-keyword">int</span> left = base_left;
+	tt_set_size(font, <span class="hljs-number">11</span>);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> ** w = weekdays; *w; w++) {
+		tt_draw_string(ctx, font, left + (cell_size - tt_string_width(font,*w)) / <span class="hljs-number">2</span>,
+			self-&gt;offset + <span class="hljs-number">22</span> + <span class="hljs-number">13</span>, *w, rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+		left += cell_size;
+	}
+
+	<span class="hljs-keyword">int</span> weeks = weeks_in_month(timeinfo);
+	self-&gt;<span class="hljs-built_in">height</span> = CALENDAR_LINE_HEIGHT * weeks + CALENDAR_BASE_HEIGHT + CALENDAR_PAD_HEIGHT;
+
+	<span class="hljs-comment">/* The 1st was a... */</span>
+	<span class="hljs-keyword">int</span> wday = (<span class="hljs-number">36</span> + timeinfo-&gt;tm_wday - timeinfo-&gt;tm_mday) % <span class="hljs-number">7</span>;
+
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">line</span> = <span class="hljs-number">0</span>;
+	left = base_left + cell_size * wday;
+	tt_set_size(font, <span class="hljs-number">13</span>);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> day = <span class="hljs-number">1</span>; day &lt;= days_in_month(timeinfo); day++, (wday = (wday + <span class="hljs-number">1</span>) % <span class="hljs-number">7</span>)) {
+		<span class="hljs-keyword">char</span> date[<span class="hljs-number">12</span>];
+		<span class="hljs-built_in">snprintf</span>(date, <span class="hljs-number">11</span>, <span class="hljs-string">"%d"</span>, day);
+		<span class="hljs-comment">/* Is this the cell for today? */</span>
+		<span class="hljs-keyword">if</span> (day == timeinfo-&gt;tm_mday) {
+			draw_rounded_rectangle(ctx, left - <span class="hljs-number">1</span>, self-&gt;offset + CALENDAR_BASE_HEIGHT + <span class="hljs-built_in">line</span> * CALENDAR_LINE_HEIGHT - <span class="hljs-number">2</span>, cell_size + <span class="hljs-number">2</span>, CALENDAR_LINE_HEIGHT, <span class="hljs-number">12</span>, ((struct PanelWidget*)self-&gt;_private)-&gt;pctx-&gt;color_special);
+			tt_draw_string(ctx, font, left + (cell_size - tt_string_width(font, date)) / <span class="hljs-number">2</span>,
+				self-&gt;offset + CALENDAR_BASE_HEIGHT + <span class="hljs-number">13</span> + <span class="hljs-built_in">line</span> * CALENDAR_LINE_HEIGHT, date, rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>));
+		} <span class="hljs-keyword">else</span> {
+			tt_draw_string(ctx, font, left + (cell_size - tt_string_width(font, date)) / <span class="hljs-number">2</span>,
+				self-&gt;offset + CALENDAR_BASE_HEIGHT + <span class="hljs-number">13</span> + <span class="hljs-built_in">line</span> * CALENDAR_LINE_HEIGHT, date, (wday == <span class="hljs-number">0</span> || wday == <span class="hljs-number">6</span>) ? rgba(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">120</span>) : rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+		}
+		<span class="hljs-keyword">if</span> (wday == <span class="hljs-number">6</span>) {
+			left = base_left;
+			<span class="hljs-built_in">line</span>++;
+		} <span class="hljs-keyword">else</span> {
+			left += cell_size;
+		}
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntryVTable</span> <span class="hljs-title">calendar_vtable</span> = {</span>
+	.methods = <span class="hljs-number">3</span>,
+	.renderer = _menu_draw_MenuEntry_Calendar,
+};
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Special menu entry to display a calendar</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function">struct MenuEntry * <span class="hljs-title">menu_create_calendar</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry</span> * <span class="hljs-title">out</span> = <span class="hljs-title">menu_create_separator</span>();</span> <span class="hljs-comment">/* Steal some defaults */</span>
+
+	out-&gt;_type = <span class="hljs-number">-1</span>; <span class="hljs-comment">/* Special */</span>
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timeval</span> <span class="hljs-title">now</span>;</span>
+	gettimeofday(&amp;now, <span class="hljs-literal">NULL</span>);
+	out-&gt;<span class="hljs-built_in">height</span> = CALENDAR_LINE_HEIGHT * weeks_in_month(localtime((<span class="hljs-keyword">time_t</span> *)&amp;now.tv_sec)) + CALENDAR_BASE_HEIGHT + CALENDAR_PAD_HEIGHT;
+
+	out-&gt;rwidth = <span class="hljs-number">200</span>;
+	out-&gt;vtable = &amp;calendar_vtable;
+	out-&gt;_private = <span class="hljs-keyword">this</span>;
+	<span class="hljs-keyword">return</span> out;
+}
+
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> weekday_width, date_width;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> weekday[<span class="hljs-number">80</span>], date[<span class="hljs-number">80</span>];
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">update_date_widget</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timeval</span> <span class="hljs-title">now</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tm</span> * <span class="hljs-title">timeinfo</span>;</span>
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Font</span> * <span class="hljs-title">font</span> = <span class="hljs-title">this</span>-&gt;<span class="hljs-title">pctx</span>-&gt;<span class="hljs-title">font</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Font</span> * <span class="hljs-title">font_bold</span> = <span class="hljs-title">this</span>-&gt;<span class="hljs-title">pctx</span>-&gt;<span class="hljs-title">font_bold</span>;</span>
+
+	<span class="hljs-comment">/* Get the current time for the clock */</span>
+	gettimeofday(&amp;now, <span class="hljs-literal">NULL</span>);
+	timeinfo = localtime((<span class="hljs-keyword">time_t</span> *)&amp;now.tv_sec);
+
+	strftime(weekday, <span class="hljs-number">80</span>, <span class="hljs-string">"%A"</span>, timeinfo);
+	strftime(date, <span class="hljs-number">80</span>, <span class="hljs-string">"%B %e"</span>, timeinfo);
+
+	tt_set_size(font, <span class="hljs-number">11</span>);
+	tt_set_size(font_bold, <span class="hljs-number">11</span>);
+
+	<span class="hljs-comment">/* Update date_widget_width */</span>
+	weekday_width = tt_string_width(font, weekday);
+	date_width = tt_string_width(font_bold, date);
+
+	<span class="hljs-comment">/* Uh, we need to calculate this elsewhere */</span>
+	date_widget_width = (weekday_width &gt; date_width ? weekday_width : date_width) + <span class="hljs-number">24</span>; <span class="hljs-comment">/* A bit of padding... */</span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">widget_draw_date</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">gfx_context_t</span> * ctx)</span> </span>{
+	update_date_widget(<span class="hljs-keyword">this</span>);
+
+	panel_highlight_widget(<span class="hljs-keyword">this</span>,ctx,!!calmenu-&gt;window);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Font</span> * <span class="hljs-title">font</span> = <span class="hljs-title">this</span>-&gt;<span class="hljs-title">pctx</span>-&gt;<span class="hljs-title">font</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Font</span> * <span class="hljs-title">font_bold</span> = <span class="hljs-title">this</span>-&gt;<span class="hljs-title">pctx</span>-&gt;<span class="hljs-title">font_bold</span>;</span>
+
+	<span class="hljs-comment">/* Day-of-week */</span>
+	<span class="hljs-keyword">int</span> t = (<span class="hljs-keyword">this</span>-&gt;<span class="hljs-built_in">width</span> - weekday_width) / <span class="hljs-number">2</span>;
+	tt_draw_string(ctx, font, t, <span class="hljs-number">13</span>, weekday,  calmenu-&gt;window ? <span class="hljs-keyword">this</span>-&gt;pctx-&gt;color_text_hilighted : <span class="hljs-keyword">this</span>-&gt;pctx-&gt;color_text_normal);
+
+	<span class="hljs-comment">/* Month Day */</span>
+	t = (<span class="hljs-keyword">this</span>-&gt;<span class="hljs-built_in">width</span> - date_width) / <span class="hljs-number">2</span>;
+	tt_draw_string(ctx, font_bold, t, <span class="hljs-number">23</span>, date,  calmenu-&gt;window ? <span class="hljs-keyword">this</span>-&gt;pctx-&gt;color_text_hilighted : <span class="hljs-keyword">this</span>-&gt;pctx-&gt;color_text_normal);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">widget_click_date</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, struct yutani_msg_window_mouse_event * evt)</span> </span>{
+	<span class="hljs-keyword">if</span> (!calmenu-&gt;window) {
+		panel_menu_show(<span class="hljs-keyword">this</span>,calmenu);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">widget_update_date</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">int</span> * force_updates)</span> </span>{
+	<span class="hljs-keyword">int</span> width_before = date_widget_width;
+	update_date_widget(<span class="hljs-keyword">this</span>);
+	<span class="hljs-keyword">this</span>-&gt;<span class="hljs-built_in">width</span> = date_widget_width;
+	<span class="hljs-keyword">return</span> width_before != date_widget_width;
+}
+
+<span class="hljs-function">struct PanelWidget * <span class="hljs-title">widget_init_date</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">PanelWidget</span> * <span class="hljs-title">widget</span> = <span class="hljs-title">widget_new</span>();</span>
+
+	calmenu = menu_create();
+	calmenu-&gt;flags |= MENU_FLAG_BUBBLE_CENTER;
+	menu_insert(calmenu, menu_create_calendar(widget));
+
+	widget-&gt;<span class="hljs-built_in">width</span> = <span class="hljs-number">92</span>; <span class="hljs-comment">/* TODO calculate correct width */</span>
+	widget-&gt;draw = widget_draw_date;
+	widget-&gt;<span class="hljs-built_in">click</span> = widget_click_date;
+	widget-&gt;update = widget_update_date;
+	list_insert(widgets_enabled, widget);
+	<span class="hljs-keyword">return</span> widget;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

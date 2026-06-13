@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>panel_volume.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "lib\\panel_volume.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>panel_volume.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mod/sound.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/yutani.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/menu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/text.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/panel.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VOLUME_DEVICE_ID 0</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VOLUME_KNOB_ID   0</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">sprite_t</span> * sprite_volume_mute;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">sprite_t</span> * sprite_volume_low;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">sprite_t</span> * sprite_volume_med;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">sprite_t</span> * sprite_volume_high;
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">volume_menu</span>;</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> volume_level = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> mixer = <span class="hljs-number">-1</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">widget_update_volume</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">int</span> * force_updates)</span> </span>{
+	<span class="hljs-keyword">if</span> (mixer == <span class="hljs-number">-1</span>) {
+		mixer = <span class="hljs-built_in">open</span>(<span class="hljs-string">"/dev/mixer"</span>, O_RDONLY | O_CLOEXEC);
+	}
+
+	<span class="hljs-keyword">snd_knob_value_t</span> value = {<span class="hljs-number">0</span>};
+	value.device = VOLUME_DEVICE_ID; <span class="hljs-comment">/* TODO configure this somewhere */</span>
+	value.id     = VOLUME_KNOB_ID;   <span class="hljs-comment">/* TODO this too */</span>
+
+	ioctl(mixer, SND_MIXER_READ_KNOB, &amp;value);
+	volume_level = value.val;
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">set_volume</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">snd_knob_value_t</span> value = {<span class="hljs-number">0</span>};
+	value.device = VOLUME_DEVICE_ID; <span class="hljs-comment">/* TODO configure this somewhere */</span>
+	value.id     = VOLUME_KNOB_ID;   <span class="hljs-comment">/* TODO this too */</span>
+	value.val    = volume_level;
+
+	ioctl(mixer, SND_MIXER_WRITE_KNOB, &amp;value);
+	redraw();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">volume_raise</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	volume_level += <span class="hljs-number">0x10000000</span>;
+	<span class="hljs-keyword">if</span> (volume_level &gt; <span class="hljs-number">0xF0000000</span>) volume_level = <span class="hljs-number">0xFC000000</span>;
+	set_volume();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">volume_lower</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	volume_level -= <span class="hljs-number">0x10000000</span>;
+	<span class="hljs-keyword">if</span> (volume_level &lt; <span class="hljs-number">0x0</span>) volume_level = <span class="hljs-number">0x0</span>;
+	set_volume();
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VOLUME_SLIDER_LEFT_PAD  38</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VOLUME_SLIDER_RIGHT_PAD  14</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VOLUME_SLIDER_PAD (VOLUME_SLIDER_LEFT_PAD + VOLUME_SLIDER_RIGHT_PAD)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VOLUME_SLIDER_VERT_PAD   10</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VOLUME_SLIDER_BALL_RADIUS 8</span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">SliderStuff</span> {</span>
+	<span class="hljs-keyword">int</span> level;
+	<span class="hljs-keyword">uint32_t</span> on;
+	<span class="hljs-keyword">uint32_t</span> off;
+};
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">volume_pattern</span><span class="hljs-params">(<span class="hljs-keyword">int32_t</span> x, <span class="hljs-keyword">int32_t</span> y, <span class="hljs-keyword">double</span> alpha, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">SliderStuff</span> * <span class="hljs-title">stuff</span> = <span class="hljs-title">extra</span>;</span>
+	<span class="hljs-keyword">if</span> (alpha &gt; <span class="hljs-number">1.0</span>) alpha = <span class="hljs-number">1.0</span>;
+	<span class="hljs-keyword">if</span> (alpha &lt; <span class="hljs-number">0.0</span>) alpha = <span class="hljs-number">0.0</span>;
+	<span class="hljs-keyword">uint32_t</span> color = stuff-&gt;off;
+	<span class="hljs-keyword">if</span> (x &lt; stuff-&gt;level + VOLUME_SLIDER_LEFT_PAD) {
+		color = stuff-&gt;on;
+	}
+	color |= rgba(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,alpha*<span class="hljs-number">255</span>);
+	<span class="hljs-keyword">return</span> premultiply(color);
+}
+
+<span class="hljs-keyword">void</span> _menu_draw_MenuEntry_Slider(<span class="hljs-keyword">gfx_context_t</span> * ctx, struct MenuEntry * self, <span class="hljs-keyword">int</span> offset) {
+	self-&gt;offset = offset;
+
+	draw_sprite_alpha_paint(ctx, sprite_volume_high, <span class="hljs-number">4</span>, offset, <span class="hljs-number">1.0</span>, rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">SliderStuff</span> <span class="hljs-title">stuff</span>;</span>
+	stuff.level = (ctx-&gt;<span class="hljs-built_in">width</span> - VOLUME_SLIDER_PAD) * (<span class="hljs-keyword">float</span>)volume_level / (<span class="hljs-keyword">float</span>)<span class="hljs-number">0xFC000000</span>;
+	stuff.on  = rgba(<span class="hljs-number">0</span>,<span class="hljs-number">120</span>,<span class="hljs-number">220</span>,<span class="hljs-number">0</span>);
+	stuff.off = rgba(<span class="hljs-number">140</span>,<span class="hljs-number">140</span>,<span class="hljs-number">140</span>,<span class="hljs-number">0</span>);
+	draw_rounded_rectangle_pattern(ctx,
+		<span class="hljs-comment">/* x */</span> VOLUME_SLIDER_LEFT_PAD - <span class="hljs-number">4</span>,
+		<span class="hljs-comment">/* y */</span> offset + VOLUME_SLIDER_VERT_PAD - <span class="hljs-number">1</span>,
+		<span class="hljs-comment">/* w */</span> ctx-&gt;<span class="hljs-built_in">width</span> - VOLUME_SLIDER_PAD + <span class="hljs-number">8</span>,
+		<span class="hljs-comment">/* h */</span> self-&gt;<span class="hljs-built_in">height</span> - <span class="hljs-number">2</span> * VOLUME_SLIDER_VERT_PAD + <span class="hljs-number">2</span>, <span class="hljs-number">6</span>, volume_pattern, &amp;stuff);
+	stuff.on  = rgba(<span class="hljs-number">40</span>,<span class="hljs-number">160</span>,<span class="hljs-number">255</span>,<span class="hljs-number">0</span>);
+	stuff.off = rgba(<span class="hljs-number">200</span>,<span class="hljs-number">200</span>,<span class="hljs-number">200</span>,<span class="hljs-number">0</span>);
+	draw_rounded_rectangle_pattern(ctx,
+		<span class="hljs-comment">/* x */</span> VOLUME_SLIDER_LEFT_PAD - <span class="hljs-number">3</span>,
+		<span class="hljs-comment">/* y */</span> offset + VOLUME_SLIDER_VERT_PAD,
+		<span class="hljs-comment">/* w */</span> ctx-&gt;<span class="hljs-built_in">width</span> - VOLUME_SLIDER_PAD + <span class="hljs-number">6</span>,
+		<span class="hljs-comment">/* h */</span> self-&gt;<span class="hljs-built_in">height</span> - <span class="hljs-number">2</span> * VOLUME_SLIDER_VERT_PAD, <span class="hljs-number">5</span>, volume_pattern, &amp;stuff);
+
+	draw_rounded_rectangle(ctx,
+		<span class="hljs-comment">/* x */</span> stuff.level - VOLUME_SLIDER_BALL_RADIUS + VOLUME_SLIDER_LEFT_PAD,
+		<span class="hljs-comment">/* y */</span> offset + <span class="hljs-number">12</span> - VOLUME_SLIDER_BALL_RADIUS,
+		<span class="hljs-comment">/* w */</span> VOLUME_SLIDER_BALL_RADIUS * <span class="hljs-number">2</span>,
+		<span class="hljs-comment">/* h */</span> VOLUME_SLIDER_BALL_RADIUS * <span class="hljs-number">2</span>, VOLUME_SLIDER_BALL_RADIUS, rgb(<span class="hljs-number">140</span>,<span class="hljs-number">140</span>,<span class="hljs-number">140</span>));
+	draw_rounded_rectangle(ctx,
+		<span class="hljs-comment">/* x */</span> stuff.level - VOLUME_SLIDER_BALL_RADIUS + <span class="hljs-number">1</span> + VOLUME_SLIDER_LEFT_PAD,
+		<span class="hljs-comment">/* y */</span> offset + <span class="hljs-number">12</span> - VOLUME_SLIDER_BALL_RADIUS + <span class="hljs-number">1</span>,
+		<span class="hljs-comment">/* w */</span> VOLUME_SLIDER_BALL_RADIUS * <span class="hljs-number">2</span> - <span class="hljs-number">2</span>,
+		<span class="hljs-comment">/* h */</span> VOLUME_SLIDER_BALL_RADIUS * <span class="hljs-number">2</span> - <span class="hljs-number">2</span>, VOLUME_SLIDER_BALL_RADIUS - <span class="hljs-number">1</span>, rgb(<span class="hljs-number">220</span>,<span class="hljs-number">220</span>,<span class="hljs-number">220</span>));
+}
+
+<span class="hljs-keyword">int</span> _menu_mouse_MenuEntry_Slider(struct MenuEntry * self, struct yutani_msg_window_mouse_event * event) {
+	<span class="hljs-keyword">if</span> (event-&gt;buttons &amp; YUTANI_MOUSE_BUTTON_LEFT) {
+		<span class="hljs-comment">/* Figure out where it is */</span>
+		<span class="hljs-keyword">float</span> level = (<span class="hljs-keyword">float</span>)(event-&gt;new_x - VOLUME_SLIDER_LEFT_PAD) / (<span class="hljs-keyword">float</span>)(self-&gt;<span class="hljs-built_in">width</span> - VOLUME_SLIDER_PAD);
+		<span class="hljs-keyword">if</span> (level &gt;= <span class="hljs-number">1.0</span>) level = <span class="hljs-number">1.0</span>;
+		<span class="hljs-keyword">if</span> (level &lt;= <span class="hljs-number">0.0</span>) level = <span class="hljs-number">0.0</span>;
+		<span class="hljs-keyword">if</span> (volume_level != level * <span class="hljs-number">0xFC000000</span>) {
+			volume_level = level * <span class="hljs-number">0xFC000000</span>;
+			set_volume();
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntryVTable</span> <span class="hljs-title">slider_vtable</span> = {</span>
+	.methods = <span class="hljs-number">4</span>,
+	.renderer = _menu_draw_MenuEntry_Slider,
+	.mouse_event = _menu_mouse_MenuEntry_Slider,
+};
+
+<span class="hljs-function">struct MenuEntry * <span class="hljs-title">menu_create_slider</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry</span> * <span class="hljs-title">out</span> = <span class="hljs-title">menu_create_separator</span>();</span> <span class="hljs-comment">/* Steal some defaults */</span>
+	out-&gt;_type = <span class="hljs-number">-1</span>; <span class="hljs-comment">/* Special */</span>
+	out-&gt;<span class="hljs-built_in">height</span> = <span class="hljs-number">24</span>;
+	out-&gt;rwidth = <span class="hljs-number">200</span>;
+	out-&gt;vtable = &amp;slider_vtable;
+	<span class="hljs-keyword">return</span> out;
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">widget_click_volume</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, struct yutani_msg_window_mouse_event * evt)</span> </span>{
+	<span class="hljs-keyword">if</span> (!volume_menu) {
+		volume_menu = menu_create();
+		volume_menu-&gt;flags |= MENU_FLAG_BUBBLE_LEFT;
+	}
+
+	<span class="hljs-comment">/* Clear the menu */</span>
+	<span class="hljs-keyword">while</span> (volume_menu-&gt;entries-&gt;length) {
+		<span class="hljs-keyword">node_t</span> * node = list_pop(volume_menu-&gt;entries);
+		menu_free_entry((struct MenuEntry *)node-&gt;value);
+		<span class="hljs-built_in">free</span>(node);
+	}
+
+	menu_insert(volume_menu, menu_create_slider());
+
+	<span class="hljs-comment">/* TODO Our mixer supports multiple knobs and we could show all of them. */</span>
+	<span class="hljs-comment">/* TODO We could also show a nice slider... if we had one... */</span>
+
+	<span class="hljs-keyword">if</span> (!volume_menu-&gt;window) {
+		panel_menu_show(<span class="hljs-keyword">this</span>, volume_menu);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">widget_draw_volume</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">gfx_context_t</span> * ctx)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> color = (volume_menu &amp;&amp; volume_menu-&gt;window) ? <span class="hljs-keyword">this</span>-&gt;pctx-&gt;color_text_hilighted : <span class="hljs-keyword">this</span>-&gt;pctx-&gt;color_icon_normal;
+
+	panel_highlight_widget(<span class="hljs-keyword">this</span>,ctx,(volume_menu &amp;&amp; volume_menu-&gt;window));
+
+	<span class="hljs-keyword">if</span> (volume_level &lt; <span class="hljs-number">10</span>) {
+		draw_sprite_alpha_paint(ctx, sprite_volume_mute, (ctx-&gt;<span class="hljs-built_in">width</span> - sprite_volume_mute-&gt;<span class="hljs-built_in">width</span>) / <span class="hljs-number">2</span>, <span class="hljs-number">1</span>, <span class="hljs-number">1.0</span>, color);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (volume_level &lt; <span class="hljs-number">0x547ae147</span>) {
+		draw_sprite_alpha_paint(ctx, sprite_volume_low,  (ctx-&gt;<span class="hljs-built_in">width</span> - sprite_volume_low-&gt;<span class="hljs-built_in">width</span>) / <span class="hljs-number">2</span>, <span class="hljs-number">1</span>, <span class="hljs-number">1.0</span>, color);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (volume_level &lt; <span class="hljs-number">0xa8f5c28e</span>) {
+		draw_sprite_alpha_paint(ctx, sprite_volume_med,  (ctx-&gt;<span class="hljs-built_in">width</span> - sprite_volume_med-&gt;<span class="hljs-built_in">width</span>) / <span class="hljs-number">2</span>, <span class="hljs-number">1</span>, <span class="hljs-number">1.0</span>, color);
+	} <span class="hljs-keyword">else</span> {
+		draw_sprite_alpha_paint(ctx, sprite_volume_high, (ctx-&gt;<span class="hljs-built_in">width</span> - sprite_volume_high-&gt;<span class="hljs-built_in">width</span>) / <span class="hljs-number">2</span>, <span class="hljs-number">1</span>, <span class="hljs-number">1.0</span>, color);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-comment">/* For dumb legacy reasons, scroll wheel movement shows up here... */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">widget_move_volume</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, struct yutani_msg_window_mouse_event * evt)</span> </span>{
+	<span class="hljs-keyword">int</span> scroll_direction = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (evt-&gt;buttons &amp; YUTANI_MOUSE_SCROLL_UP) scroll_direction = <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (evt-&gt;buttons &amp; YUTANI_MOUSE_SCROLL_DOWN) scroll_direction = <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">if</span> (scroll_direction == <span class="hljs-number">1</span>) {
+		volume_lower();
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (scroll_direction == <span class="hljs-number">-1</span>) {
+		volume_raise();
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function">struct PanelWidget * <span class="hljs-title">widget_init_volume</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	sprite_volume_mute = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">sprite_t</span>));
+	sprite_volume_low  = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">sprite_t</span>));
+	sprite_volume_med  = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">sprite_t</span>));
+	sprite_volume_high = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">sprite_t</span>));
+	load_sprite(sprite_volume_mute, <span class="hljs-string">"/usr/share/icons/24/volume-mute.png"</span>);
+	load_sprite(sprite_volume_low,  <span class="hljs-string">"/usr/share/icons/24/volume-low.png"</span>);
+	load_sprite(sprite_volume_med,  <span class="hljs-string">"/usr/share/icons/24/volume-medium.png"</span>);
+	load_sprite(sprite_volume_high, <span class="hljs-string">"/usr/share/icons/24/volume-full.png"</span>);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">PanelWidget</span> * <span class="hljs-title">widget</span> = <span class="hljs-title">widget_new</span>();</span>
+	widget-&gt;<span class="hljs-built_in">width</span> = sprite_volume_high-&gt;<span class="hljs-built_in">width</span> + widget-&gt;pctx-&gt;extra_widget_spacing;
+	widget-&gt;draw = widget_draw_volume;
+	widget-&gt;<span class="hljs-built_in">click</span> = widget_click_volume;
+	widget-&gt;<span class="hljs-built_in">move</span>  = widget_move_volume;
+	widget-&gt;update = widget_update_volume;
+	list_insert(widgets_enabled, widget);
+	<span class="hljs-keyword">return</span> widget;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

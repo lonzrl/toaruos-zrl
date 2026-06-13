@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>serial.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kernel\\arch\\x86_64\\serial.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>serial.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pipe.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/args.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pty.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/regs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/ports.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/irq.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SERIAL_PORT_A 0x3F8</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SERIAL_PORT_B 0x2F8</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SERIAL_PORT_C 0x3E8</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SERIAL_PORT_D 0x2E8</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SERIAL_IRQ_AC 4</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SERIAL_IRQ_BD 3</span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">serial_port_map</span> {</span>
+	<span class="hljs-keyword">int</span> port;
+	<span class="hljs-keyword">pty_t</span> * pty;
+	<span class="hljs-keyword">int</span> index;
+
+	<span class="hljs-keyword">tcflag_t</span> cflags;
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">serial_port_map</span> <span class="hljs-title">serial_ports</span>[4] = {</span>
+	{ SERIAL_PORT_A, <span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span> },
+	{ SERIAL_PORT_B, <span class="hljs-literal">NULL</span>, <span class="hljs-number">1</span>, <span class="hljs-number">0</span> },
+	{ SERIAL_PORT_C, <span class="hljs-literal">NULL</span>, <span class="hljs-number">2</span>, <span class="hljs-number">0</span> },
+	{ SERIAL_PORT_D, <span class="hljs-literal">NULL</span>, <span class="hljs-number">3</span>, <span class="hljs-number">0</span> },
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> struct serial_port_map * <span class="hljs-title">map_entry_for_port</span><span class="hljs-params">(<span class="hljs-keyword">int</span> port)</span> </span>{
+	<span class="hljs-keyword">switch</span> (port) {
+		<span class="hljs-keyword">case</span> SERIAL_PORT_A: <span class="hljs-keyword">return</span> &amp;serial_ports[<span class="hljs-number">0</span>];
+		<span class="hljs-keyword">case</span> SERIAL_PORT_B: <span class="hljs-keyword">return</span> &amp;serial_ports[<span class="hljs-number">1</span>];
+		<span class="hljs-keyword">case</span> SERIAL_PORT_C: <span class="hljs-keyword">return</span> &amp;serial_ports[<span class="hljs-number">2</span>];
+		<span class="hljs-keyword">case</span> SERIAL_PORT_D: <span class="hljs-keyword">return</span> &amp;serial_ports[<span class="hljs-number">3</span>];
+	}
+	__builtin_unreachable();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">pty_t</span> ** <span class="hljs-title">pty_for_port</span><span class="hljs-params">(<span class="hljs-keyword">int</span> port)</span> </span>{
+	<span class="hljs-keyword">return</span> &amp;map_entry_for_port(port)-&gt;pty;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">serial_rcvd</span><span class="hljs-params">(<span class="hljs-keyword">int</span> device)</span> </span>{
+	<span class="hljs-keyword">return</span> inportb(device + <span class="hljs-number">5</span>) &amp; <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> <span class="hljs-title">serial_recv</span><span class="hljs-params">(<span class="hljs-keyword">int</span> device)</span> </span>{
+	<span class="hljs-keyword">while</span> (serial_rcvd(device) == <span class="hljs-number">0</span>) switch_task(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">return</span> inportb(device);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">serial_transmit_empty</span><span class="hljs-params">(<span class="hljs-keyword">int</span> device)</span> </span>{
+	<span class="hljs-keyword">return</span> inportb(device + <span class="hljs-number">5</span>) &amp; <span class="hljs-number">0x20</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">serial_send</span><span class="hljs-params">(<span class="hljs-keyword">int</span> device, <span class="hljs-keyword">char</span> out)</span> </span>{
+	<span class="hljs-keyword">while</span> (serial_transmit_empty(device) == <span class="hljs-number">0</span>) switch_task(<span class="hljs-number">1</span>);
+	outportb(device, out);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">process_t</span> * serial_ac_handler = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">process_t</span> * serial_bd_handler = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">process_serial</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * argp)</span> </span>{
+	<span class="hljs-keyword">int</span> portBase = (<span class="hljs-keyword">uintptr_t</span>)argp;
+	<span class="hljs-keyword">int</span> _did_something;
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> s, ss;
+		relative_time(<span class="hljs-number">1</span>, <span class="hljs-number">0</span>, &amp;s, &amp;ss);
+		sleep_until((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, s, ss);
+		switch_task(<span class="hljs-number">0</span>);
+		_did_something = <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">while</span> (_did_something) {
+			_did_something = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">int</span> port_a_status = inportb(portBase + <span class="hljs-number">5</span>);
+			<span class="hljs-keyword">int</span> port_c_status = inportb(portBase - <span class="hljs-number">0x10</span> + <span class="hljs-number">5</span>);
+
+			<span class="hljs-keyword">if</span> (port_a_status != <span class="hljs-number">0xFF</span> &amp;&amp; (port_a_status &amp; <span class="hljs-number">1</span>)) {
+				<span class="hljs-keyword">char</span> ch = inportb(portBase);
+				<span class="hljs-keyword">pty_t</span> * pty = *pty_for_port(portBase);
+				tty_input_process(pty, ch);
+				_did_something = <span class="hljs-number">1</span>;
+			}
+
+			<span class="hljs-keyword">if</span> (port_c_status != <span class="hljs-number">0xFF</span> &amp;&amp; (port_c_status &amp; <span class="hljs-number">1</span>)) {
+				<span class="hljs-keyword">char</span> ch = inportb(portBase - <span class="hljs-number">0x10</span>);
+				<span class="hljs-keyword">pty_t</span> * pty = *pty_for_port(portBase - <span class="hljs-number">0x10</span>);
+				tty_input_process(pty, ch);
+				_did_something = <span class="hljs-number">1</span>;
+			}
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">serial_handler_ac</span><span class="hljs-params">(struct regs *r)</span> </span>{
+	irq_ack(SERIAL_IRQ_AC);
+	make_process_ready(serial_ac_handler);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">serial_handler_bd</span><span class="hljs-params">(struct regs *r)</span> </span>{
+	irq_ack(SERIAL_IRQ_BD);
+	make_process_ready(serial_bd_handler);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BASE 115200</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> D(n) { B ## n, BASE / n }</span>
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">divisor</span> {</span>
+	<span class="hljs-keyword">speed_t</span> baud;
+	<span class="hljs-keyword">uint16_t</span> div;
+} divisors[] = {
+	{ B0,  <span class="hljs-number">0</span> },
+	D(<span class="hljs-number">50</span>), D(<span class="hljs-number">75</span>), D(<span class="hljs-number">110</span>),
+	{ B134, BASE * <span class="hljs-number">10</span> / <span class="hljs-number">1345</span> },
+	D(<span class="hljs-number">150</span>), D(<span class="hljs-number">200</span>), D(<span class="hljs-number">300</span>), D(<span class="hljs-number">600</span>), D(<span class="hljs-number">1200</span>),
+	D(<span class="hljs-number">1800</span>), D(<span class="hljs-number">2400</span>), D(<span class="hljs-number">4800</span>), D(<span class="hljs-number">9600</span>), D(<span class="hljs-number">19200</span>),
+	D(<span class="hljs-number">38400</span>), D(<span class="hljs-number">57600</span>), D(<span class="hljs-number">115200</span>),
+};
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> D</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">serial_enable</span><span class="hljs-params">(<span class="hljs-keyword">int</span> port, <span class="hljs-keyword">tcflag_t</span> cflags)</span> </span>{
+	outportb(port + <span class="hljs-number">1</span>, <span class="hljs-number">0x00</span>); <span class="hljs-comment">/* Disable interrupts */</span>
+	outportb(port + <span class="hljs-number">3</span>, <span class="hljs-number">0x80</span>); <span class="hljs-comment">/* Enable divisor mode */</span>
+
+	<span class="hljs-keyword">uint16_t</span> divisor = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-keyword">sizeof</span>(divisors) / <span class="hljs-keyword">sizeof</span>(*divisors); ++i) {
+		<span class="hljs-keyword">if</span> ((cflags &amp; CBAUD) == divisors[i].baud) {
+			divisor = divisors[i].div;
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	outportb(port + <span class="hljs-number">0</span>, divisor &amp; <span class="hljs-number">0xFF</span>); <span class="hljs-comment">/* Div Low */</span>
+	outportb(port + <span class="hljs-number">1</span>, divisor &gt;&gt; <span class="hljs-number">8</span>);   <span class="hljs-comment">/* Div High */</span>
+
+	<span class="hljs-keyword">uint8_t</span> line_ctl = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (cflags &amp; PARENB) {
+		line_ctl |= (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">3</span>); <span class="hljs-comment">/* Enable parity */</span>
+		<span class="hljs-keyword">if</span> (!(cflags &amp; PARODD)) line_ctl |= (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">4</span>); <span class="hljs-comment">/* Even parity */</span>
+	}
+
+	<span class="hljs-comment">/* Size */</span>
+	<span class="hljs-keyword">switch</span> (cflags &amp; CSIZE) {
+		<span class="hljs-keyword">case</span> CS5: line_ctl |= <span class="hljs-number">0</span>; <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> CS6: line_ctl |= <span class="hljs-number">1</span>; <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> CS7: line_ctl |= <span class="hljs-number">2</span>; <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> CS8: line_ctl |= <span class="hljs-number">3</span>; <span class="hljs-keyword">break</span>;
+	}
+
+	outportb(port + <span class="hljs-number">3</span>, line_ctl); <span class="hljs-comment">/* set line mode */</span>
+	outportb(port + <span class="hljs-number">2</span>, <span class="hljs-number">0xC7</span>); <span class="hljs-comment">/* Enable FIFO and clear */</span>
+	outportb(port + <span class="hljs-number">4</span>, <span class="hljs-number">0x0B</span>); <span class="hljs-comment">/* Enable interrupts */</span>
+	outportb(port + <span class="hljs-number">1</span>, <span class="hljs-number">0x01</span>); <span class="hljs-comment">/* Enable interrupts */</span>
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> have_installed_ac = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> have_installed_bd = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">serial_write_out</span><span class="hljs-params">(<span class="hljs-keyword">pty_t</span> * pty, <span class="hljs-keyword">uint8_t</span> c)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">serial_port_map</span> * <span class="hljs-title">me</span> = <span class="hljs-title">pty</span>-&gt;_<span class="hljs-title">private</span>;</span>
+	<span class="hljs-keyword">if</span> (pty-&gt;tios.c_cflag != me-&gt;cflags) {
+		me-&gt;cflags = pty-&gt;tios.c_cflag;
+		serial_enable(me-&gt;port, pty-&gt;tios.c_cflag);
+	}
+	serial_send(me-&gt;port, c);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DEV_PATH <span class="hljs-meta-string">"/dev/ttyS"</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">serial_fill_name</span><span class="hljs-params">(<span class="hljs-keyword">pty_t</span> * pty, <span class="hljs-keyword">size_t</span> len, <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">snprintf</span>(name, len, DEV_PATH <span class="hljs-string">"%d"</span>, ((struct serial_port_map *)pty-&gt;_private)-&gt;index);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">serial_device_create</span><span class="hljs-params">(<span class="hljs-keyword">int</span> port)</span> </span>{
+	<span class="hljs-keyword">pty_t</span> * pty = pty_new(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>);
+
+	map_entry_for_port(port)-&gt;pty = pty;
+	pty-&gt;_private = map_entry_for_port(port);
+
+	pty-&gt;write_out = serial_write_out;
+	pty-&gt;fill_name = serial_fill_name;
+
+	serial_enable(port, pty-&gt;tios.c_cflag);
+
+	<span class="hljs-keyword">if</span> (port == SERIAL_PORT_A || port == SERIAL_PORT_C) {
+		<span class="hljs-keyword">if</span> (!have_installed_ac) {
+			irq_install_handler(SERIAL_IRQ_AC, serial_handler_ac, <span class="hljs-string">"serial ac"</span>);
+			have_installed_ac = <span class="hljs-number">1</span>;
+		}
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">if</span> (!have_installed_bd) {
+			irq_install_handler(SERIAL_IRQ_BD, serial_handler_bd, <span class="hljs-string">"serial bd"</span>);
+			have_installed_bd = <span class="hljs-number">1</span>;
+		}
+	}
+
+	pty-&gt;slave-&gt;gid = <span class="hljs-number">2</span>; <span class="hljs-comment">/* dialout group */</span>
+	pty-&gt;slave-&gt;mask = <span class="hljs-number">0660</span>;
+
+	<span class="hljs-keyword">return</span> pty-&gt;slave;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">serial_initialize</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	serial_ac_handler = spawn_worker_thread(process_serial, <span class="hljs-string">"[serial ac]"</span>, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)SERIAL_PORT_A);
+	serial_bd_handler = spawn_worker_thread(process_serial, <span class="hljs-string">"[serial bd]"</span>, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)SERIAL_PORT_B);
+
+	<span class="hljs-keyword">fs_node_t</span> * ttyS0 = serial_device_create(SERIAL_PORT_A); vfs_mount(DEV_PATH <span class="hljs-string">"0"</span>, ttyS0, <span class="hljs-string">"pc-serial"</span>, <span class="hljs-string">"a"</span>);
+	<span class="hljs-keyword">fs_node_t</span> * ttyS1 = serial_device_create(SERIAL_PORT_B); vfs_mount(DEV_PATH <span class="hljs-string">"1"</span>, ttyS1, <span class="hljs-string">"pc-serial"</span>, <span class="hljs-string">"b"</span>);
+	<span class="hljs-keyword">fs_node_t</span> * ttyS2 = serial_device_create(SERIAL_PORT_C); vfs_mount(DEV_PATH <span class="hljs-string">"2"</span>, ttyS2, <span class="hljs-string">"pc-serial"</span>, <span class="hljs-string">"c"</span>);
+	<span class="hljs-keyword">fs_node_t</span> * ttyS3 = serial_device_create(SERIAL_PORT_D); vfs_mount(DEV_PATH <span class="hljs-string">"3"</span>, ttyS3, <span class="hljs-string">"pc-serial"</span>, <span class="hljs-string">"d"</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>gzip.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\misc\\gzip.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>gzip.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stddef.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint8_t</span> bit_buffer = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> buffer_size = <span class="hljs-number">0</span>;
+
+<span class="hljs-keyword">uint8_t</span> * gzip_inputPtr = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">uint8_t</span> * gzip_outputPtr = <span class="hljs-literal">NULL</span>;
+
+__attribute__((always_inline))
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint8_t</span> <span class="hljs-title">read_byte</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> *gzip_inputPtr++;
+}
+
+__attribute__((always_inline))
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">void</span> _write(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> sym) {
+	*gzip_outputPtr++ = sym;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Decoded Huffman table</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">huff</span> {</span>
+	<span class="hljs-keyword">uint16_t</span> counts[<span class="hljs-number">16</span>];   <span class="hljs-comment">/* Number of symbols of each length */</span>
+	<span class="hljs-keyword">uint16_t</span> symbols[<span class="hljs-number">288</span>]; <span class="hljs-comment">/* Ordered symbols */</span>
+};
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Fixed Huffman code tables, generated later.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">huff</span> <span class="hljs-title">fixed_lengths</span>;</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">huff</span> <span class="hljs-title">fixed_dists</span>;</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Read a little-endian short from the input.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint16_t</span> <span class="hljs-title">read_16le</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">uint16_t</span> a, b;
+	a = read_byte();
+	b = read_byte();
+	<span class="hljs-keyword">return</span> (a &lt;&lt; <span class="hljs-number">0</span>) | (b &lt;&lt; <span class="hljs-number">8</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Read a single bit from the source.
+Fills the byte buffer with one byte when it runs out.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-built_in">_Bool</span> <span class="hljs-title">read_bit</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+
+	<span class="hljs-comment">/* When we run out of bits... */</span>
+	<span class="hljs-keyword">if</span> (buffer_size == <span class="hljs-number">0</span>) {
+		<span class="hljs-comment">/* Refill from the next input byte */</span>
+		bit_buffer = read_byte();
+		<span class="hljs-comment">/* And restore bit buffer size to 8 bits */</span>
+		buffer_size = <span class="hljs-number">8</span>;
+	}
+
+	<span class="hljs-comment">/* Get the next available bit */</span>
+	<span class="hljs-keyword">int</span> out = bit_buffer &amp; <span class="hljs-number">1</span>;
+
+	<span class="hljs-comment">/* Shift the bit buffer forward */</span>
+	bit_buffer &gt;&gt;= <span class="hljs-number">1</span>;
+
+	<span class="hljs-comment">/* There is now one less bit available */</span>
+	buffer_size--;
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Read multible bits, in bit order, from the source.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">read_bits</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> count)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> out = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> <span class="hljs-built_in">bit</span> = <span class="hljs-number">0</span>; <span class="hljs-built_in">bit</span> &lt; count; <span class="hljs-built_in">bit</span>++) {
+		<span class="hljs-comment">/* Read one bit at a time, from least to most significant */</span>
+		out |= (read_bit() &lt;&lt; <span class="hljs-built_in">bit</span>);
+	}
+	<span class="hljs-keyword">return</span> out;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Build a Huffman table from an array of lengths.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">build_huffman</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">uint8_t</span> * lengths, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, struct huff * out)</span> </span>{
+
+	<span class="hljs-keyword">uint16_t</span> offsets[<span class="hljs-number">16</span>];
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> count = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Zero symbol counts */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">16</span>; ++i) out-&gt;counts[i] = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Count symbols */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">size</span>; ++i) out-&gt;counts[lengths[i]]++;
+
+	<span class="hljs-comment">/* Special case... */</span>
+	out-&gt;counts[<span class="hljs-number">0</span>] = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Figure out offsets */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">16</span>; ++i) {
+		offsets[i] = count;
+		count += out-&gt;counts[i];
+	}
+
+	<span class="hljs-comment">/* Build symbol ordering */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">size</span>; ++i) {
+		<span class="hljs-keyword">if</span> (lengths[i]) out-&gt;symbols[offsets[lengths[i]]++] = i;
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Build the fixed Huffman tables</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">build_fixed</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>From 3.2.6:
+Lit Value    Bits        Codes</p>
+<hr>
+<p>0 - 143     8          00110000 through
+10111111
+144 - 255     9          110010000 through
+111111111
+256 - 279     7          0000000 through
+0010111
+280 - 287     8          11000000 through
+11000111</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">uint8_t</span> lengths[<span class="hljs-number">288</span>];
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">144</span>; ++i)   lengths[i] = <span class="hljs-number">8</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">144</span>; i &lt; <span class="hljs-number">256</span>; ++i) lengths[i] = <span class="hljs-number">9</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">256</span>; i &lt; <span class="hljs-number">280</span>; ++i) lengths[i] = <span class="hljs-number">7</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">280</span>; i &lt; <span class="hljs-number">288</span>; ++i) lengths[i] = <span class="hljs-number">8</span>;
+	build_huffman(lengths, <span class="hljs-number">288</span>, &amp;fixed_lengths);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Continued from 3.2.6:
+Distance codes 0-31 are represented by (fixed-length) 5-bit
+codes, with possible additional bits as shown in the table
+shown in Paragraph 3.2.5, above.  Note that distance codes 30-
+31 will never actually occur in the compressed data.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">30</span>; ++i) lengths[i] = <span class="hljs-number">5</span>;
+	build_huffman(lengths, <span class="hljs-number">30</span>, &amp;fixed_dists);
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-11" id="section-11"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Decode a symbol from the source using a Huffman table.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">decode</span><span class="hljs-params">(<span class="hljs-keyword">const</span> struct huff * huff)</span> </span>{
+	<span class="hljs-keyword">int</span> count = <span class="hljs-number">0</span>, cur = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; cur &gt;= <span class="hljs-number">0</span>; i++) {
+		cur = (cur &lt;&lt; <span class="hljs-number">1</span>) | read_bit(); <span class="hljs-comment">/* Shift */</span>
+		count += huff-&gt;counts[i];
+		cur -= huff-&gt;counts[i];
+	}
+	<span class="hljs-keyword">return</span> huff-&gt;symbols[count + cur];
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">huff_ring</span> {</span>
+	<span class="hljs-keyword">size_t</span> pointer;
+	<span class="hljs-keyword">uint8_t</span> data[<span class="hljs-number">32768</span>];
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">huff_ring</span> <span class="hljs-title">data</span> = {</span><span class="hljs-number">0</span>, {<span class="hljs-number">0</span>}};
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-12" id="section-12"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Emit one byte to the output, maintaining the ringbuffer.
+The ringbuffer ensures we can always look back 32K bytes
+while keeping output streaming.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">emit</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> <span class="hljs-keyword">byte</span>)</span> </span>{
+	data.data[data.pointer++] = <span class="hljs-keyword">byte</span>;
+	data.pointer &amp;= <span class="hljs-number">0x7FFF</span>;
+	_write(<span class="hljs-keyword">byte</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-13" id="section-13"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Look backwards in the output ring buffer.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">peek</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> offset)</span> </span>{
+	data.data[data.pointer] = data.data[(data.pointer + <span class="hljs-number">0x8000</span> - offset) &amp; <span class="hljs-number">0x7FFF</span>];
+	_write(data.data[data.pointer++]);
+	data.pointer &amp;= <span class="hljs-number">0x7FFF</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-14" id="section-14"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Decompress a block of Huffman-encoded data.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">inflate</span><span class="hljs-params">(<span class="hljs-keyword">const</span> struct huff * huff_len, <span class="hljs-keyword">const</span> struct huff * huff_dist)</span> </span>{
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-15" id="section-15"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>These are the extra bits for lengths from the tables in section 3.2.5
+Extra               Extra               Extra
+Code Bits Length(s) Code Bits Lengths   Code Bits Length(s)
+---- ---- ------     ---- ---- -------   ---- ---- -------
+257   0     3       267   1   15,16     277   4   67-82
+258   0     4       268   1   17,18     278   4   83-98
+259   0     5       269   2   19-22     279   4   99-114
+260   0     6       270   2   23-26     280   4  115-130
+261   0     7       271   2   27-30     281   5  131-162
+262   0     8       272   2   31-34     282   5  163-194
+263   0     9       273   3   35-42     283   5  195-226
+264   0    10       274   3   43-50     284   5  227-257
+265   1  11,12      275   3   51-58     285   0    258
+266   1  13,14      276   3   59-66</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">uint16_t</span> lens[] = {
+		<span class="hljs-number">3</span>, <span class="hljs-number">4</span>, <span class="hljs-number">5</span>, <span class="hljs-number">6</span>, <span class="hljs-number">7</span>, <span class="hljs-number">8</span>, <span class="hljs-number">9</span>, <span class="hljs-number">10</span>, <span class="hljs-number">11</span>, <span class="hljs-number">13</span>, <span class="hljs-number">15</span>, <span class="hljs-number">17</span>, <span class="hljs-number">19</span>, <span class="hljs-number">23</span>, <span class="hljs-number">27</span>, <span class="hljs-number">31</span>, <span class="hljs-number">35</span>, <span class="hljs-number">43</span>, <span class="hljs-number">51</span>,
+		<span class="hljs-number">59</span>, <span class="hljs-number">67</span>, <span class="hljs-number">83</span>, <span class="hljs-number">99</span>, <span class="hljs-number">115</span>, <span class="hljs-number">131</span>, <span class="hljs-number">163</span>, <span class="hljs-number">195</span>, <span class="hljs-number">227</span>, <span class="hljs-number">258</span>
+	};
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">uint16_t</span> lext[] = {
+		<span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">1</span>, <span class="hljs-number">1</span>, <span class="hljs-number">1</span>, <span class="hljs-number">1</span>, <span class="hljs-number">2</span>, <span class="hljs-number">2</span>, <span class="hljs-number">2</span>, <span class="hljs-number">2</span>, <span class="hljs-number">3</span>, <span class="hljs-number">3</span>, <span class="hljs-number">3</span>, <span class="hljs-number">3</span>, <span class="hljs-number">4</span>, <span class="hljs-number">4</span>, <span class="hljs-number">4</span>,
+		<span class="hljs-number">4</span>, <span class="hljs-number">5</span>, <span class="hljs-number">5</span>, <span class="hljs-number">5</span>, <span class="hljs-number">5</span>, <span class="hljs-number">0</span>
+	};
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-16" id="section-16"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Extra bits for distances....
+Extra           Extra               Extra
+Code Bits Dist  Code Bits   Dist     Code Bits Distance
+---- ---- ----  ---- ----  ------    ---- ---- --------
+0   0    1     10   4     33-48    20    9   1025-1536
+1   0    2     11   4     49-64    21    9   1537-2048
+2   0    3     12   5     65-96    22   10   2049-3072
+3   0    4     13   5     97-128   23   10   3073-4096
+4   1   5,6    14   6    129-192   24   11   4097-6144
+5   1   7,8    15   6    193-256   25   11   6145-8192
+6   2   9-12   16   7    257-384   26   12  8193-12288
+7   2  13-16   17   7    385-512   27   12 12289-16384
+8   3  17-24   18   8    513-768   28   13 16385-24576
+9   3  25-32   19   8   769-1024   29   13 24577-32768</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">uint16_t</span> dists[] = {
+		<span class="hljs-number">1</span>, <span class="hljs-number">2</span>, <span class="hljs-number">3</span>, <span class="hljs-number">4</span>, <span class="hljs-number">5</span>, <span class="hljs-number">7</span>, <span class="hljs-number">9</span>, <span class="hljs-number">13</span>, <span class="hljs-number">17</span>, <span class="hljs-number">25</span>, <span class="hljs-number">33</span>, <span class="hljs-number">49</span>, <span class="hljs-number">65</span>, <span class="hljs-number">97</span>, <span class="hljs-number">129</span>, <span class="hljs-number">193</span>, <span class="hljs-number">257</span>, <span class="hljs-number">385</span>,
+		<span class="hljs-number">513</span>, <span class="hljs-number">769</span>, <span class="hljs-number">1025</span>, <span class="hljs-number">1537</span>, <span class="hljs-number">2049</span>, <span class="hljs-number">3073</span>, <span class="hljs-number">4097</span>, <span class="hljs-number">6145</span>, <span class="hljs-number">8193</span>, <span class="hljs-number">12289</span>, <span class="hljs-number">16385</span>, <span class="hljs-number">24577</span>
+	};
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">uint16_t</span> dext[] = {
+		<span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">1</span>, <span class="hljs-number">1</span>, <span class="hljs-number">2</span>, <span class="hljs-number">2</span>, <span class="hljs-number">3</span>, <span class="hljs-number">3</span>, <span class="hljs-number">4</span>, <span class="hljs-number">4</span>, <span class="hljs-number">5</span>, <span class="hljs-number">5</span>, <span class="hljs-number">6</span>, <span class="hljs-number">6</span>, <span class="hljs-number">7</span>, <span class="hljs-number">7</span>, <span class="hljs-number">8</span>, <span class="hljs-number">8</span>, <span class="hljs-number">9</span>, <span class="hljs-number">9</span>, <span class="hljs-number">10</span>,
+		<span class="hljs-number">10</span>, <span class="hljs-number">11</span>, <span class="hljs-number">11</span>, <span class="hljs-number">12</span>, <span class="hljs-number">12</span>, <span class="hljs-number">13</span>, <span class="hljs-number">13</span>
+	};
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> symbol = decode(huff_len);
+		<span class="hljs-keyword">if</span> (symbol &lt; <span class="hljs-number">256</span>) {
+			emit(symbol);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (symbol == <span class="hljs-number">256</span>) {
+			<span class="hljs-comment">/* "The literal/length symbol 256 (end of data), ..." */</span>
+			<span class="hljs-keyword">break</span>;
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> length, distance, offset;
+			symbol -= <span class="hljs-number">257</span>;
+			length = read_bits(lext[symbol]) + lens[symbol];
+			distance = decode(huff_dist);
+			offset = read_bits(dext[distance]) + dists[distance];
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; length; ++i) {
+				<span class="hljs-built_in">peek</span>(offset);
+			}
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-17" id="section-17"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Decode a dynamic Huffman block.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">decode_huffman</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-18" id="section-18"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Ordering of code length codes:
+(HCLEN + 4) x 3 bits: code lengths for the code length
+alphabet given just above, in the order: ...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">uint8_t</span> clens[] = {
+		<span class="hljs-number">16</span>, <span class="hljs-number">17</span>, <span class="hljs-number">18</span>, <span class="hljs-number">0</span>, <span class="hljs-number">8</span>, <span class="hljs-number">7</span>, <span class="hljs-number">9</span>, <span class="hljs-number">6</span>, <span class="hljs-number">10</span>, <span class="hljs-number">5</span>, <span class="hljs-number">11</span>, <span class="hljs-number">4</span>, <span class="hljs-number">12</span>, <span class="hljs-number">3</span>, <span class="hljs-number">13</span>, <span class="hljs-number">2</span>, <span class="hljs-number">14</span>, <span class="hljs-number">1</span>, <span class="hljs-number">15</span>
+	};
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> literals, distances, clengths;
+	<span class="hljs-keyword">uint8_t</span> lengths[<span class="hljs-number">320</span>] = {<span class="hljs-number">0</span>};
+
+	literals  = <span class="hljs-number">257</span> + read_bits(<span class="hljs-number">5</span>); <span class="hljs-comment">/* 5 Bits: HLIT ... 257 */</span>
+	distances = <span class="hljs-number">1</span> + read_bits(<span class="hljs-number">5</span>);   <span class="hljs-comment">/* 5 Bits: HDIST ... 1 */</span>
+	clengths  = <span class="hljs-number">4</span> + read_bits(<span class="hljs-number">4</span>);   <span class="hljs-comment">/* 4 Bits: HCLEN ... 4 */</span>
+
+	<span class="hljs-comment">/* (HCLEN + 4) x 3 bits... */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; clengths; ++i) {
+		lengths[clens[i]] = read_bits(<span class="hljs-number">3</span>);
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">huff</span> <span class="hljs-title">codes</span>;</span>
+	build_huffman(lengths, <span class="hljs-number">19</span>, &amp;codes);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-19" id="section-19"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Decode symbols:
+HLIT + 257 code lengths for the literal/length alphabet...
+HDIST + 1 code lengths for the distance alphabet...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> count = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (count &lt; literals + distances) {
+		<span class="hljs-keyword">int</span> symbol = decode(&amp;codes);
+		<span class="hljs-keyword">int</span> rep = <span class="hljs-number">0</span>, length;
+		<span class="hljs-keyword">switch</span> (symbol) {
+			<span class="hljs-keyword">case</span> <span class="hljs-number">16</span>:
+				<span class="hljs-comment">/* 16: Copy the previous code length 3-6 times */</span>
+				rep = lengths[count<span class="hljs-number">-1</span>];
+				length = read_bits(<span class="hljs-number">2</span>) + <span class="hljs-number">3</span>; <span class="hljs-comment">/* The next 2 bits indicate repeat length */</span>
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">17</span>:
+				<span class="hljs-comment">/* Repeat a code length of 0 for 3 - 10 times */</span>
+				length = read_bits(<span class="hljs-number">3</span>) + <span class="hljs-number">3</span>; <span class="hljs-comment">/* 3 bits of length */</span>
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">18</span>:
+				<span class="hljs-comment">/* Repeat a code length of 0 for 11 - 138 times */</span>
+				length = read_bits(<span class="hljs-number">7</span>) + <span class="hljs-number">11</span>; <span class="hljs-comment">/* 7 bits of length */</span>
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">default</span>:
+				length = <span class="hljs-number">1</span>;
+				rep = symbol;
+				<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">while</span> (length--) {
+			lengths[count++] = rep;
+		}
+	}
+
+	<span class="hljs-comment">/* Build tables from lenghts decoded above */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">huff</span> <span class="hljs-title">huff_len</span>;</span>
+	build_huffman(lengths, literals, &amp;huff_len);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">huff</span> <span class="hljs-title">huff_dist</span>;</span>
+	build_huffman(lengths + literals, distances, &amp;huff_dist);
+
+	inflate(&amp;huff_len, &amp;huff_dist);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-20" id="section-20"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Decode an uncompressed block.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">uncompressed</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-comment">/* Reset byte alignment */</span>
+	bit_buffer = <span class="hljs-number">0</span>;
+	buffer_size = <span class="hljs-number">0</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-21" id="section-21"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>&quot;The rest of the block consists of the following information:&quot;
+0   1   2   3   4...
++---+---+---+---+================================+
+|  LEN  | NLEN  |... LEN bytes of literal data...|
++---+---+---+---+================================+</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">uint16_t</span> len = read_16le(); <span class="hljs-comment">/* "the number of data bytes in the block" */</span>
+	<span class="hljs-keyword">uint16_t</span> nlen = read_16le(); <span class="hljs-comment">/* "the one's complement of LEN */</span>
+
+	<span class="hljs-comment">/* Sanity check - does the ones-complement length actually match? */</span>
+	<span class="hljs-keyword">if</span> ((nlen &amp; <span class="hljs-number">0xFFFF</span>) != (~len &amp; <span class="hljs-number">0xFFFF</span>)) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* Emit LEN bytes from the source to the output */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; len; ++i) {
+		emit(read_byte());
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-22" id="section-22"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Decompress DEFLATE-compressed data.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">__attribute__((optimize(<span class="hljs-string">"O2"</span>)))
+__attribute__((hot))
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">deflate_decompress</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	bit_buffer = <span class="hljs-number">0</span>;
+	buffer_size = <span class="hljs-number">0</span>;
+
+	build_fixed();
+
+	<span class="hljs-comment">/* read compressed data */</span>
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-comment">/* Read bit */</span>
+
+		<span class="hljs-keyword">int</span> is_final = read_bit();
+		<span class="hljs-keyword">int</span> type = read_bits(<span class="hljs-number">2</span>);
+
+		<span class="hljs-keyword">switch</span> (type) {
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x00</span>: <span class="hljs-comment">/* BTYPE=00 Non-compressed blocks */</span>
+				uncompressed();
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x01</span>: <span class="hljs-comment">/* BYTPE=01 Compressed with fixed Huffman codes */</span>
+				inflate(&amp;fixed_lengths, &amp;fixed_dists);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x02</span>: <span class="hljs-comment">/* BTYPE=02 Compression with dynamic Huffman codes */</span>
+				decode_huffman();
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x03</span>:
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">default</span>:
+				__builtin_unreachable();
+				<span class="hljs-keyword">break</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (is_final) {
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> GZIP_FLAG_TEXT (1 &lt;&lt; 0)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> GZIP_FLAG_HCRC (1 &lt;&lt; 1)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> GZIP_FLAG_EXTR (1 &lt;&lt; 2)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> GZIP_FLAG_NAME (1 &lt;&lt; 3)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> GZIP_FLAG_COMM (1 &lt;&lt; 4)</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> <span class="hljs-title">read_32le</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> a, b, c, d;
+	a = read_byte();
+	b = read_byte();
+	c = read_byte();
+	d = read_byte();
+
+	<span class="hljs-keyword">return</span> (d &lt;&lt; <span class="hljs-number">24</span>) | (c &lt;&lt; <span class="hljs-number">16</span>) | (b &lt;&lt; <span class="hljs-number">8</span>) | (a &lt;&lt; <span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">gzip_decompress</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+
+	<span class="hljs-comment">/* Read gzip headers */</span>
+	<span class="hljs-keyword">if</span> (read_byte() != <span class="hljs-number">0x1F</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (read_byte() != <span class="hljs-number">0x8B</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> cm = read_byte();
+	<span class="hljs-keyword">if</span> (cm != <span class="hljs-number">8</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> flags = read_byte();
+
+	<span class="hljs-comment">/* Read mtime */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> mtime = read_32le();
+	(<span class="hljs-keyword">void</span>)mtime;
+
+	<span class="hljs-comment">/* Read extra flags */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> xflags = read_byte();
+	(<span class="hljs-keyword">void</span>)xflags;
+
+	<span class="hljs-comment">/* Read and discord OS flag */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> os = read_byte();
+	(<span class="hljs-keyword">void</span>)os;
+
+	<span class="hljs-comment">/* Extra bytes */</span>
+	<span class="hljs-keyword">if</span> (flags &amp; GZIP_FLAG_EXTR) {
+		<span class="hljs-keyword">unsigned</span> short <span class="hljs-built_in">size</span> = read_16le();
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">size</span>; ++i) read_byte();
+	}
+
+	<span class="hljs-keyword">if</span> (flags &amp; GZIP_FLAG_NAME) {
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> c;
+		<span class="hljs-keyword">while</span> ((c = read_byte()) != <span class="hljs-number">0</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (flags &amp; GZIP_FLAG_COMM) {
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> c;
+		<span class="hljs-keyword">while</span> ((c = read_byte()) != <span class="hljs-number">0</span>);
+	}
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> crc16 = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (flags &amp; GZIP_FLAG_HCRC) {
+		crc16 = read_16le();
+	}
+	(<span class="hljs-keyword">void</span>)crc16;
+
+	<span class="hljs-keyword">int</span> status = deflate_decompress();
+
+	<span class="hljs-comment">/* Read CRC and decompressed size from end of input */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> crc32 = read_32le();
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> dsize = read_32le();
+
+	(<span class="hljs-keyword">void</span>)crc32;
+	(<span class="hljs-keyword">void</span>)dsize;
+
+	<span class="hljs-keyword">return</span> status;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

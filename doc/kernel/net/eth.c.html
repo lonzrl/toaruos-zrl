@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>eth.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\net\\eth.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>eth.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pipe.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/spinlock.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/net/netif.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/net/eth.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/net/ipv4.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/socket.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> MISAKA_DEBUG_NET</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> printf(...)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">spin_lock_t</span> net_raw_sockets_lock;
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">list_t</span> * net_raw_sockets_list;
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">net_ipv4_handle</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * packet, <span class="hljs-keyword">fs_node_t</span> * nic, <span class="hljs-keyword">size_t</span>)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">net_arp_handle</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * packet, <span class="hljs-keyword">fs_node_t</span> * nic)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">net_eth_handle</span><span class="hljs-params">(struct ethernet_packet * frame, <span class="hljs-keyword">fs_node_t</span> * nic, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">EthernetDevice</span> * <span class="hljs-title">nic_eth</span> = <span class="hljs-title">nic</span>-&gt;<span class="hljs-title">device</span>;</span>
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &lt; <span class="hljs-keyword">sizeof</span>(struct ethernet_packet)) {
+		dprintf(<span class="hljs-string">"eth: %s: invalid ethernet frame (too small)\n"</span>,
+			nic_eth-&gt;if_name);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	spin_lock(net_raw_sockets_lock);
+	foreach(node, net_raw_sockets_list) {
+		<span class="hljs-keyword">sock_t</span> * sock = node-&gt;value;
+		<span class="hljs-keyword">if</span> (!sock-&gt;_fnode.device || sock-&gt;_fnode.device == nic) {
+			net_sock_add(sock, frame, <span class="hljs-built_in">size</span>);
+		}
+	}
+	spin_unlock(net_raw_sockets_lock);
+
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">memcmp</span>(frame-&gt;destination, nic_eth-&gt;mac, <span class="hljs-number">6</span>) || !<span class="hljs-built_in">memcmp</span>(frame-&gt;destination, ETHERNET_BROADCAST_MAC, <span class="hljs-number">6</span>)) {
+		<span class="hljs-comment">/* Now pass the frame to the appropriate handler... */</span>
+		<span class="hljs-keyword">switch</span> (ntohs(frame-&gt;type)) {
+			<span class="hljs-keyword">case</span> ETHERNET_TYPE_ARP:
+				net_arp_handle(&amp;frame-&gt;payload, nic);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> ETHERNET_TYPE_IPV4: {
+				<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ipv4_packet</span> * <span class="hljs-title">packet</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">ipv4_packet</span>*)&amp;<span class="hljs-title">frame</span>-&gt;<span class="hljs-title">payload</span>;</span>
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"net: eth: %s: rx ipv4 packet\n"</span>, nic-&gt;name);
+				<span class="hljs-keyword">if</span> (packet-&gt;source != <span class="hljs-number">0xFFFFFFFF</span>) {
+					net_arp_cache_add(nic-&gt;device, packet-&gt;source, frame-&gt;source, <span class="hljs-number">0</span>);
+				}
+				net_ipv4_handle(packet, nic, <span class="hljs-built_in">size</span> - <span class="hljs-keyword">sizeof</span>(struct ethernet_packet));
+				<span class="hljs-keyword">break</span>;
+			}
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">net_eth_send</span><span class="hljs-params">(struct EthernetDevice * nic, <span class="hljs-keyword">size_t</span> len, <span class="hljs-keyword">void</span>* data, <span class="hljs-keyword">uint16_t</span> type, <span class="hljs-keyword">uint8_t</span> * dest)</span> </span>{
+	<span class="hljs-keyword">size_t</span> total_size = <span class="hljs-keyword">sizeof</span>(struct ethernet_packet) + len;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ethernet_packet</span> * <span class="hljs-title">packet</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">total_size</span>);</span>
+	<span class="hljs-built_in">memcpy</span>(packet-&gt;payload, data, len);
+	<span class="hljs-built_in">memcpy</span>(packet-&gt;destination, dest, <span class="hljs-number">6</span>);
+	<span class="hljs-built_in">memcpy</span>(packet-&gt;source, nic-&gt;mac, <span class="hljs-number">6</span>);
+	packet-&gt;type = htons(type);
+	write_fs(nic-&gt;device_node, <span class="hljs-number">0</span>, total_size, (<span class="hljs-keyword">uint8_t</span>*)packet);
+	<span class="hljs-built_in">free</span>(packet);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

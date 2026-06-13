@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>stty.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\stty.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>stty.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;ctype.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;termios.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> hide_defaults = <span class="hljs-number">1</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> printed = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> use_fd = STDIN_FILENO;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">print_cc</span><span class="hljs-params">(struct termios * t, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * lbl, <span class="hljs-keyword">int</span> val, <span class="hljs-keyword">int</span> def)</span> </span>{
+	<span class="hljs-keyword">int</span> c = t-&gt;c_cc[val];
+	<span class="hljs-keyword">if</span> (hide_defaults &amp;&amp; c == def) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">if</span> (!c) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%s = &lt;undef&gt;; "</span>, lbl);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (c &lt; <span class="hljs-number">32</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%s = ^%c; "</span>, lbl, <span class="hljs-string">'@'</span> + c);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (c == <span class="hljs-number">0x7F</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%s = ^?; "</span>, lbl);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%s = %c; "</span>, lbl, c);
+	}
+	printed = <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">print_</span><span class="hljs-params">(<span class="hljs-keyword">int</span> flags, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * lbl, <span class="hljs-keyword">int</span> val, <span class="hljs-keyword">int</span> def)</span> </span>{
+	<span class="hljs-keyword">int</span> c = !!(flags &amp; val);
+	<span class="hljs-keyword">if</span> (!hide_defaults || c != def) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%s%s "</span>, c ? <span class="hljs-string">""</span> : <span class="hljs-string">"-"</span>, lbl);
+		printed = <span class="hljs-number">1</span>;
+	}
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> print_cflag(lbl,val,def) print_(t.c_cflag, lbl, val, def)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> print_iflag(lbl,val,def) print_(t.c_iflag, lbl, val, def)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> print_oflag(lbl,val,def) print_(t.c_oflag, lbl, val, def)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> print_lflag(lbl,val,def) print_(t.c_lflag, lbl, val, def)</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">set_char_</span><span class="hljs-params">(struct termios *t, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * lbl, <span class="hljs-keyword">int</span> val, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * cmp, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * arg, <span class="hljs-keyword">int</span> * i)</span> </span>{
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(cmp, lbl)) {
+		<span class="hljs-keyword">if</span> (!arg) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: expected argument\n"</span>, lbl);
+			<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+		}
+		<span class="hljs-comment">/* Parse arg */</span>
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strlen</span>(arg) == <span class="hljs-number">1</span>) {
+			<span class="hljs-comment">/* Assume raw character */</span>
+			t-&gt;c_cc[val] = *arg;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (*arg == <span class="hljs-string">'^'</span>) { <span class="hljs-comment">/* ^c, etc. */</span>
+			<span class="hljs-keyword">int</span> v = <span class="hljs-built_in">toupper</span>(arg[<span class="hljs-number">1</span>]);
+			<span class="hljs-keyword">if</span> (v == <span class="hljs-string">'?'</span>) { <span class="hljs-comment">/* special case */</span>
+				t-&gt;c_cc[val] = <span class="hljs-number">0x7F</span>;
+			} <span class="hljs-keyword">else</span> {
+				t-&gt;c_cc[val] = v - <span class="hljs-string">'@'</span>;
+			}
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-comment">/* Assume decimal for now */</span>
+			<span class="hljs-keyword">int</span> v = atoi(arg);
+			t-&gt;c_cc[val] = v;
+		}
+		(*i)++;
+
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> set_char(lbl,val) <span class="hljs-meta-keyword">if</span> (set_char_(&amp;t, lbl, val, argv[i], argv[i+1], &amp;i)) { i += 2; continue; }</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">setunset_flag</span><span class="hljs-params">(<span class="hljs-keyword">tcflag_t</span> * flag, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * lbl, <span class="hljs-keyword">int</span> val, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * cmp)</span> </span>{
+	<span class="hljs-keyword">if</span> (*cmp == <span class="hljs-string">'-'</span>) {
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(cmp+<span class="hljs-number">1</span>, lbl)) {
+			(*flag) = (*flag) &amp; (~val);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(cmp, lbl)) {
+			(*flag) = (*flag) | (val);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> set_cflag(lbl,val) <span class="hljs-meta-keyword">if</span> (setunset_flag(&amp;(t.c_cflag), lbl, val, argv[i])) { i++; continue; }</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> set_iflag(lbl,val) <span class="hljs-meta-keyword">if</span> (setunset_flag(&amp;(t.c_iflag), lbl, val, argv[i])) { i++; continue; }</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> set_oflag(lbl,val) <span class="hljs-meta-keyword">if</span> (setunset_flag(&amp;(t.c_oflag), lbl, val, argv[i])) { i++; continue; }</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> set_lflag(lbl,val) <span class="hljs-meta-keyword">if</span> (setunset_flag(&amp;(t.c_lflag), lbl, val, argv[i])) { i++; continue; }</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">set_toggle_</span><span class="hljs-params">(<span class="hljs-keyword">tcflag_t</span> * flag, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * lbl, <span class="hljs-keyword">int</span> base, <span class="hljs-keyword">int</span> val, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * cmp)</span> </span>{
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(cmp, lbl)) {
+		(*flag) = (*flag) &amp; ~(base);
+		(*flag) = (*flag) | (val);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> set_ctoggle(lbl,base,val) <span class="hljs-meta-keyword">if</span> (set_toggle_(&amp;(t.c_cflag), lbl, base, val, argv[i])) { i++; continue; }</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> set_otoggle(lbl,base,val) <span class="hljs-meta-keyword">if</span> (set_toggle_(&amp;(t.c_oflag), lbl, base, val, argv[i])) { i++; continue; }</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">baud_table</span> {</span>
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * as_str;
+	<span class="hljs-keyword">speed_t</span> as_baud;
+} baud_rates[] = {
+	{      <span class="hljs-string">"0"</span>, B0      },
+	{     <span class="hljs-string">"50"</span>, B50     },
+	{     <span class="hljs-string">"75"</span>, B75     },
+	{    <span class="hljs-string">"110"</span>, B110    },
+	{    <span class="hljs-string">"134"</span>, B134    },
+	{  <span class="hljs-string">"134.5"</span>, B134    },
+	{    <span class="hljs-string">"150"</span>, B150    },
+	{    <span class="hljs-string">"200"</span>, B200    },
+	{    <span class="hljs-string">"300"</span>, B300    },
+	{    <span class="hljs-string">"600"</span>, B600    },
+	{   <span class="hljs-string">"1200"</span>, B1200   },
+	{   <span class="hljs-string">"1800"</span>, B1800   },
+	{   <span class="hljs-string">"2400"</span>, B2400   },
+	{   <span class="hljs-string">"4800"</span>, B4800   },
+	{   <span class="hljs-string">"9600"</span>, B9600   },
+	{  <span class="hljs-string">"19200"</span>, B19200  },
+	{  <span class="hljs-string">"38400"</span>, B38400  },
+	{  <span class="hljs-string">"57600"</span>, B57600  },
+	{ <span class="hljs-string">"115200"</span>, B115200 },
+	{ <span class="hljs-string">"230400"</span>, B230400 },
+	{ <span class="hljs-string">"460800"</span>, B460800 },
+	{ <span class="hljs-string">"921600"</span>, B921600 },
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">set_baud_rate</span><span class="hljs-params">(struct termios * t, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * arg)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-keyword">sizeof</span>(baud_rates) / <span class="hljs-keyword">sizeof</span>(*baud_rates); ++j) {
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(arg, baud_rates[j].as_str)) {
+			cfsetospeed(t, baud_rates[j].as_baud);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">print_baud_rate</span><span class="hljs-params">(struct termios * t)</span> </span>{
+	<span class="hljs-keyword">speed_t</span> ospeed = cfgetospeed(t);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-keyword">sizeof</span>(baud_rates) / <span class="hljs-keyword">sizeof</span>(*baud_rates); ++j) {
+		<span class="hljs-keyword">if</span> (ospeed == baud_rates[j].as_baud) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"speed %s baud; "</span>, baud_rates[j].as_str);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">show_settings</span><span class="hljs-params">(<span class="hljs-keyword">int</span> all)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">termios</span> <span class="hljs-title">t</span>;</span>
+	tcgetattr(use_fd, &amp;t);
+	print_baud_rate(&amp;t);
+
+	<span class="hljs-comment">/* Baud rate */</span>
+	<span class="hljs-comment">/* Size */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">winsize</span> <span class="hljs-title">w</span>;</span>
+	ioctl(use_fd, TIOCGWINSZ, &amp;w);
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"rows %d; columns %d;"</span>, w.ws_row, w.ws_col);
+	<span class="hljs-keyword">if</span> (w.ws_ypixel != <span class="hljs-number">0</span> || w.ws_xpixel != <span class="hljs-number">0</span>) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">" ypixels %d; xpixels %d;\n"</span>, w.ws_ypixel, w.ws_xpixel);
+	<span class="hljs-keyword">else</span> <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"\n"</span>);
+	printed = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Keys */</span>
+	print_cc(&amp;t, <span class="hljs-string">"intr"</span>,  VINTR,  <span class="hljs-number">3</span>);
+	print_cc(&amp;t, <span class="hljs-string">"quit"</span>,  VQUIT,  <span class="hljs-number">28</span>);
+	print_cc(&amp;t, <span class="hljs-string">"erase"</span>, VERASE, <span class="hljs-number">0x7F</span>);
+	print_cc(&amp;t, <span class="hljs-string">"kill"</span>,  VKILL,  <span class="hljs-number">21</span>);
+	print_cc(&amp;t, <span class="hljs-string">"eof"</span>,   VEOF,   <span class="hljs-number">4</span>);
+	print_cc(&amp;t, <span class="hljs-string">"eol"</span>,   VEOL,   <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">if</span> (printed) { <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"\n"</span>); printed = <span class="hljs-number">0</span>; }
+
+	print_cc(&amp;t, <span class="hljs-string">"start"</span>, VSTART, <span class="hljs-number">17</span>);
+	print_cc(&amp;t, <span class="hljs-string">"stop"</span>,  VSTOP,  <span class="hljs-number">19</span>);
+	print_cc(&amp;t, <span class="hljs-string">"susp"</span>,  VSUSP,  <span class="hljs-number">26</span>);
+	print_cc(&amp;t, <span class="hljs-string">"lnext"</span>, VLNEXT, <span class="hljs-number">22</span>);
+	print_cc(&amp;t, <span class="hljs-string">"werase"</span>,VWERASE, <span class="hljs-number">23</span>);
+
+	<span class="hljs-comment">/* MIN, TIME */</span>
+	<span class="hljs-keyword">if</span> (!hide_defaults || t.c_cc[VMIN]  != <span class="hljs-number">1</span>) { <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"min = %d; "</span>,  t.c_cc[VMIN]);  printed = <span class="hljs-number">1</span>; }
+	<span class="hljs-keyword">if</span> (!hide_defaults || t.c_cc[VTIME] != <span class="hljs-number">0</span>) { <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"time = %d; "</span>, t.c_cc[VTIME]); printed = <span class="hljs-number">1</span>; }
+	<span class="hljs-keyword">if</span> (printed) { <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"\n"</span>); printed = <span class="hljs-number">0</span>; }
+
+	<span class="hljs-keyword">switch</span> ((t.c_cflag &amp; CSIZE)) {
+		<span class="hljs-keyword">case</span> CS5: <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"cs5 "</span>); printed = <span class="hljs-number">1</span>; <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> CS6: <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"cs6 "</span>); printed = <span class="hljs-number">1</span>; <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> CS7: <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"cs7 "</span>); printed = <span class="hljs-number">1</span>; <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> CS8: <span class="hljs-keyword">if</span> (!hide_defaults) { <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"cs8 "</span>); printed = <span class="hljs-number">1</span>; } <span class="hljs-keyword">break</span>;
+	}
+
+	print_cflag(<span class="hljs-string">"cstopb"</span>, CSTOPB, <span class="hljs-number">0</span>);
+	print_cflag(<span class="hljs-string">"cread"</span>,  CREAD,  <span class="hljs-number">1</span>);
+	print_cflag(<span class="hljs-string">"parenb"</span>, PARENB, <span class="hljs-number">0</span>);
+	print_cflag(<span class="hljs-string">"parodd"</span>, PARODD, <span class="hljs-number">0</span>);
+	print_cflag(<span class="hljs-string">"hupcl"</span>,  HUPCL,  <span class="hljs-number">0</span>);
+	print_cflag(<span class="hljs-string">"clocal"</span>, CLOCAL, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">if</span> (printed) { <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"\n"</span>); printed = <span class="hljs-number">0</span>; }
+
+	print_iflag(<span class="hljs-string">"brkint"</span>, BRKINT, <span class="hljs-number">1</span>);
+	print_iflag(<span class="hljs-string">"icrnl"</span>,  ICRNL,  <span class="hljs-number">1</span>);
+	print_iflag(<span class="hljs-string">"ignbrk"</span>, IGNBRK, <span class="hljs-number">0</span>);
+	print_iflag(<span class="hljs-string">"igncr"</span>,  IGNCR,  <span class="hljs-number">0</span>);
+	print_iflag(<span class="hljs-string">"ignpar"</span>, IGNPAR, <span class="hljs-number">0</span>);
+	print_iflag(<span class="hljs-string">"inlcr"</span>,  INLCR,  <span class="hljs-number">0</span>);
+	print_iflag(<span class="hljs-string">"inpck"</span>,  INPCK,  <span class="hljs-number">0</span>);
+	print_iflag(<span class="hljs-string">"istrip"</span>, ISTRIP, <span class="hljs-number">0</span>);
+	print_iflag(<span class="hljs-string">"ixany"</span>,  IXANY,  <span class="hljs-number">0</span>);
+	print_iflag(<span class="hljs-string">"ixoff"</span>,  IXOFF,  <span class="hljs-number">0</span>);
+	print_iflag(<span class="hljs-string">"ixon"</span>,   IXON,   <span class="hljs-number">0</span>);
+	print_iflag(<span class="hljs-string">"iuclc"</span>,  IUCLC,  <span class="hljs-number">0</span>);
+	print_iflag(<span class="hljs-string">"parmrk"</span>, PARMRK, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">if</span> (printed) { <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"\n"</span>); printed = <span class="hljs-number">0</span>; }
+
+	print_oflag(<span class="hljs-string">"opost"</span>,  OPOST,  <span class="hljs-number">1</span>);
+	print_oflag(<span class="hljs-string">"olcuc"</span>,  OLCUC,  <span class="hljs-number">0</span>);
+	print_oflag(<span class="hljs-string">"onlcr"</span>,  ONLCR,  <span class="hljs-number">1</span>);
+	print_oflag(<span class="hljs-string">"ocrnl"</span>,  OCRNL,  <span class="hljs-number">0</span>);
+	print_oflag(<span class="hljs-string">"onocr"</span>,  ONOCR,  <span class="hljs-number">0</span>);
+	print_oflag(<span class="hljs-string">"onlret"</span>, ONLRET, <span class="hljs-number">0</span>);
+	print_oflag(<span class="hljs-string">"ofill"</span>,  OFILL,  <span class="hljs-number">0</span>);
+	print_oflag(<span class="hljs-string">"ofdel"</span>,  OFDEL,  <span class="hljs-number">0</span>);
+
+	<span class="hljs-keyword">switch</span> ((t.c_oflag &amp; CRDLY)) {
+		<span class="hljs-keyword">case</span> CR0: <span class="hljs-keyword">if</span> (!hide_defaults) { <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"cr0 "</span>); printed = <span class="hljs-number">1</span>; } <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> CR1: <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"cr1 "</span>); printed = <span class="hljs-number">1</span>; <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> CR2: <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"cr2 "</span>); printed = <span class="hljs-number">1</span>; <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> CR3: <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"cr3 "</span>); printed = <span class="hljs-number">1</span>; <span class="hljs-keyword">break</span>;
+	}
+
+	<span class="hljs-keyword">switch</span> ((t.c_oflag &amp; NLDLY)) {
+		<span class="hljs-keyword">case</span> NL0: <span class="hljs-keyword">if</span> (!hide_defaults) { <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"nl0 "</span>); printed = <span class="hljs-number">1</span>; } <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> NL1: <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"nl1 "</span>); printed = <span class="hljs-number">1</span>; <span class="hljs-keyword">break</span>;
+	}
+
+	<span class="hljs-keyword">switch</span> ((t.c_oflag &amp; TABDLY)) {
+		<span class="hljs-keyword">case</span> TAB0: <span class="hljs-keyword">if</span> (!hide_defaults) { <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"tab0 "</span>); printed = <span class="hljs-number">1</span>; } <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> TAB1: <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"tab1 "</span>); printed = <span class="hljs-number">1</span>; <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> TAB2: <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"tab2 "</span>); printed = <span class="hljs-number">1</span>; <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> TAB3: <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"tab3 "</span>); printed = <span class="hljs-number">1</span>; <span class="hljs-keyword">break</span>;
+	}
+
+	<span class="hljs-keyword">switch</span> ((t.c_oflag &amp; BSDLY)) {
+		<span class="hljs-keyword">case</span> BS0: <span class="hljs-keyword">if</span> (!hide_defaults) { <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"bs0 "</span>); printed = <span class="hljs-number">1</span>; } <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> BS1: <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"bs1 "</span>); printed = <span class="hljs-number">1</span>; <span class="hljs-keyword">break</span>;
+	}
+
+	<span class="hljs-keyword">switch</span> ((t.c_oflag &amp; FFDLY)) {
+		<span class="hljs-keyword">case</span> FF0: <span class="hljs-keyword">if</span> (!hide_defaults) { <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"ff0 "</span>); printed = <span class="hljs-number">1</span>; } <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> FF1: <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"ff1 "</span>); printed = <span class="hljs-number">1</span>; <span class="hljs-keyword">break</span>;
+	}
+
+	<span class="hljs-keyword">switch</span> ((t.c_oflag &amp; VTDLY)) {
+		<span class="hljs-keyword">case</span> VT0: <span class="hljs-keyword">if</span> (!hide_defaults) { <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"vt0"</span>); printed = <span class="hljs-number">1</span>; } <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> VT1: <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"vt1"</span>); printed = <span class="hljs-number">1</span>; <span class="hljs-keyword">break</span>;
+	}
+	<span class="hljs-keyword">if</span> (printed) { <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"\n"</span>); printed = <span class="hljs-number">0</span>; }
+
+	print_lflag(<span class="hljs-string">"isig"</span>,   ISIG,   <span class="hljs-number">1</span>);
+	print_lflag(<span class="hljs-string">"icanon"</span>, ICANON, <span class="hljs-number">1</span>);
+	print_lflag(<span class="hljs-string">"xcase"</span>,  XCASE,  <span class="hljs-number">0</span>);
+	print_lflag(<span class="hljs-string">"echo"</span>,   ECHO,   <span class="hljs-number">1</span>);
+	print_lflag(<span class="hljs-string">"echoe"</span>,  ECHOE,  <span class="hljs-number">1</span>);
+	print_lflag(<span class="hljs-string">"echok"</span>,  ECHOK,  <span class="hljs-number">1</span>);
+	print_lflag(<span class="hljs-string">"echonl"</span>, ECHONL, <span class="hljs-number">0</span>);
+	print_lflag(<span class="hljs-string">"echoctl"</span>,ECHOCTL,<span class="hljs-number">1</span>);
+	print_lflag(<span class="hljs-string">"noflsh"</span>, NOFLSH, <span class="hljs-number">0</span>);
+	print_lflag(<span class="hljs-string">"tostop"</span>, TOSTOP, <span class="hljs-number">0</span>);
+	print_lflag(<span class="hljs-string">"iexten"</span>, IEXTEN, <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (printed) { <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"\n"</span>); printed = <span class="hljs-number">0</span>; }
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">show_size</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">winsize</span> <span class="hljs-title">w</span>;</span>
+	ioctl(use_fd, TIOCGWINSZ, &amp;w);
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%d %d\n"</span>, w.ws_row, w.ws_col);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+
+	<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">if</span> (i &lt; argc &amp;&amp; !<span class="hljs-built_in">strcmp</span>(argv[i], <span class="hljs-string">"-a"</span>)) {
+		hide_defaults = <span class="hljs-number">0</span>;
+		i++;
+	}
+
+	<span class="hljs-keyword">if</span> (i &lt; argc &amp;&amp; !<span class="hljs-built_in">strcmp</span>(argv[i], <span class="hljs-string">"-f"</span>)) {
+		<span class="hljs-keyword">if</span> (i + <span class="hljs-number">1</span> == argc) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: -f expects an argument\n"</span>, argv[<span class="hljs-number">0</span>]);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+
+		use_fd = <span class="hljs-built_in">open</span>(argv[i+<span class="hljs-number">1</span>],O_RDONLY);
+		<span class="hljs-keyword">if</span> (use_fd &lt; <span class="hljs-number">0</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], argv[i+<span class="hljs-number">1</span>], strerror(errno));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+
+		i += <span class="hljs-number">2</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (i == argc) {
+		<span class="hljs-keyword">return</span> show_settings(<span class="hljs-number">0</span>);
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">termios</span> <span class="hljs-title">t</span>;</span>
+	tcgetattr(use_fd, &amp;t);
+
+	<span class="hljs-keyword">while</span> (i &lt; argc) {
+
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[i], <span class="hljs-string">"sane"</span>)) {
+			t.c_iflag = ICRNL | BRKINT;
+			t.c_oflag = ONLCR | OPOST;
+			t.c_lflag = ECHO | ECHOE | ECHOK | ICANON | ISIG | IEXTEN | ECHOCTL;
+			t.c_cflag |= CREAD;
+			t.c_cc[VEOF]   =  <span class="hljs-number">4</span>; <span class="hljs-comment">/* ^D */</span>
+			t.c_cc[VEOL]   =  <span class="hljs-number">0</span>; <span class="hljs-comment">/* Not set */</span>
+			t.c_cc[VERASE] = <span class="hljs-number">0x7F</span>; <span class="hljs-comment">/* ^? */</span>
+			t.c_cc[VINTR]  =  <span class="hljs-number">3</span>; <span class="hljs-comment">/* ^C */</span>
+			t.c_cc[VKILL]  = <span class="hljs-number">21</span>; <span class="hljs-comment">/* ^U */</span>
+			t.c_cc[VMIN]   =  <span class="hljs-number">1</span>;
+			t.c_cc[VQUIT]  = <span class="hljs-number">28</span>; <span class="hljs-comment">/* ^\ */</span>
+			t.c_cc[VSTART] = <span class="hljs-number">17</span>; <span class="hljs-comment">/* ^Q */</span>
+			t.c_cc[VSTOP]  = <span class="hljs-number">19</span>; <span class="hljs-comment">/* ^S */</span>
+			t.c_cc[VSUSP] = <span class="hljs-number">26</span>; <span class="hljs-comment">/* ^Z */</span>
+			t.c_cc[VTIME]  =  <span class="hljs-number">0</span>;
+			t.c_cc[VLNEXT] = <span class="hljs-number">22</span>; <span class="hljs-comment">/* ^V */</span>
+			t.c_cc[VWERASE] = <span class="hljs-number">23</span>; <span class="hljs-comment">/* ^W */</span>
+
+			i++;
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[i], <span class="hljs-string">"raw"</span>)) {
+			t.c_iflag = <span class="hljs-number">0</span>;       <span class="hljs-comment">/* no input processing */</span>
+			t.c_oflag &amp;= ~OPOST; <span class="hljs-comment">/* no postprocessing of output */</span>
+			t.c_lflag &amp;= ~(ISIG | ICANON | XCASE);
+			i++;
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[i], <span class="hljs-string">"cooked"</span>)) {
+			t.c_iflag |= ICRNL | BRKINT;
+			t.c_oflag |= OPOST;
+			t.c_lflag |= ISIG | ICANON;
+			i++;
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[i], <span class="hljs-string">"size"</span>)) {
+			show_size();
+
+			i++;
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (*argv[i] &gt;= <span class="hljs-string">'0'</span> &amp;&amp; *argv[i] &lt;= <span class="hljs-string">'9'</span>) {
+			<span class="hljs-keyword">if</span> (set_baud_rate(&amp;t, argv[i])) {
+				i++;
+				<span class="hljs-keyword">continue</span>;
+			}
+		}
+
+		set_char(<span class="hljs-string">"eof"</span>,   VEOF);
+		set_char(<span class="hljs-string">"eol"</span>,   VEOL);
+		set_char(<span class="hljs-string">"erase"</span>, VERASE);
+		set_char(<span class="hljs-string">"intr"</span>,  VINTR);
+		set_char(<span class="hljs-string">"kill"</span>,  VKILL);
+		set_char(<span class="hljs-string">"quit"</span>,  VQUIT);
+		set_char(<span class="hljs-string">"start"</span>, VSTART);
+		set_char(<span class="hljs-string">"stop"</span>,  VSTOP);
+		set_char(<span class="hljs-string">"susp"</span>,  VSUSP);
+		set_char(<span class="hljs-string">"lnext"</span>, VLNEXT);
+		set_char(<span class="hljs-string">"vwerase"</span>,VWERASE);
+
+		set_cflag(<span class="hljs-string">"parenb"</span>, PARENB);
+		set_cflag(<span class="hljs-string">"parodd"</span>, PARODD);
+		set_cflag(<span class="hljs-string">"hupcl"</span>,  HUPCL);
+		set_cflag(<span class="hljs-string">"hup"</span>,    HUPCL); <span class="hljs-comment">/* alias */</span>
+		set_cflag(<span class="hljs-string">"cstopb"</span>, CSTOPB);
+		set_cflag(<span class="hljs-string">"cread"</span>,  CREAD);
+		set_cflag(<span class="hljs-string">"clocal"</span>, CLOCAL);
+
+		set_ctoggle(<span class="hljs-string">"cs5"</span>, CSIZE, CS5);
+		set_ctoggle(<span class="hljs-string">"cs6"</span>, CSIZE, CS6);
+		set_ctoggle(<span class="hljs-string">"cs7"</span>, CSIZE, CS7);
+		set_ctoggle(<span class="hljs-string">"cs8"</span>, CSIZE, CS8);
+
+		set_iflag(<span class="hljs-string">"ignbrk"</span>, IGNBRK);
+		set_iflag(<span class="hljs-string">"brkint"</span>, BRKINT);
+		set_iflag(<span class="hljs-string">"ignpar"</span>, IGNPAR);
+		set_iflag(<span class="hljs-string">"parmrk"</span>, PARMRK);
+		set_iflag(<span class="hljs-string">"inpck"</span>,  INPCK);
+		set_iflag(<span class="hljs-string">"istrip"</span>, ISTRIP);
+		set_iflag(<span class="hljs-string">"inlcr"</span>,  INLCR);
+		set_iflag(<span class="hljs-string">"igncr"</span>,  IGNCR);
+		set_iflag(<span class="hljs-string">"icrnl"</span>,  ICRNL);
+		set_iflag(<span class="hljs-string">"ixon"</span>,   IXON);
+		set_iflag(<span class="hljs-string">"ixany"</span>,  IXANY);
+		set_iflag(<span class="hljs-string">"ixoff"</span>,  IXOFF);
+		set_iflag(<span class="hljs-string">"iuclc"</span>,  IUCLC);
+
+		set_oflag(<span class="hljs-string">"olcuc"</span>,  OLCUC);
+		set_oflag(<span class="hljs-string">"opost"</span>,  OPOST);
+		set_oflag(<span class="hljs-string">"onlcr"</span>,  ONLCR);
+		set_oflag(<span class="hljs-string">"ocrnl"</span>,  OCRNL);
+		set_oflag(<span class="hljs-string">"onocr"</span>,  ONOCR);
+		set_oflag(<span class="hljs-string">"onlret"</span>, ONLRET);
+		set_oflag(<span class="hljs-string">"ofill"</span>,  OFILL);
+		set_oflag(<span class="hljs-string">"ofdel"</span>,  OFDEL);
+
+		set_otoggle(<span class="hljs-string">"cr0"</span>, CRDLY, CR0);
+		set_otoggle(<span class="hljs-string">"cr1"</span>, CRDLY, CR1);
+		set_otoggle(<span class="hljs-string">"cr2"</span>, CRDLY, CR2);
+		set_otoggle(<span class="hljs-string">"cr3"</span>, CRDLY, CR3);
+
+		set_otoggle(<span class="hljs-string">"nl0"</span>, NLDLY, NL0);
+		set_otoggle(<span class="hljs-string">"nl1"</span>, NLDLY, NL1);
+
+		set_otoggle(<span class="hljs-string">"tab0"</span>, TABDLY, TAB0);
+		set_otoggle(<span class="hljs-string">"tab1"</span>, TABDLY, TAB1);
+		set_otoggle(<span class="hljs-string">"tab2"</span>, TABDLY, TAB2);
+		set_otoggle(<span class="hljs-string">"tab3"</span>, TABDLY, TAB3);
+
+		set_otoggle(<span class="hljs-string">"bs0"</span>, BSDLY, BS0);
+		set_otoggle(<span class="hljs-string">"bs1"</span>, BSDLY, BS1);
+
+		set_otoggle(<span class="hljs-string">"ff0"</span>, FFDLY, FF0);
+		set_otoggle(<span class="hljs-string">"ff1"</span>, FFDLY, FF1);
+
+		set_otoggle(<span class="hljs-string">"vt0"</span>, VTDLY, VT0);
+		set_otoggle(<span class="hljs-string">"vt1"</span>, VTDLY, VT1);
+
+		set_lflag(<span class="hljs-string">"isig"</span>,   ISIG);
+		set_lflag(<span class="hljs-string">"icanon"</span>, ICANON);
+		set_lflag(<span class="hljs-string">"iexten"</span>, IEXTEN);
+		set_lflag(<span class="hljs-string">"echo"</span>,   ECHO);
+		set_lflag(<span class="hljs-string">"echoe"</span>,  ECHOE);
+		set_lflag(<span class="hljs-string">"echok"</span>,  ECHOK);
+		set_lflag(<span class="hljs-string">"echonl"</span>, ECHONL);
+		set_lflag(<span class="hljs-string">"echoctl"</span>,ECHOCTL);
+		set_lflag(<span class="hljs-string">"noflsh"</span>, NOFLSH);
+		set_lflag(<span class="hljs-string">"tostop"</span>, TOSTOP);
+
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: invalid argument '%s'\n"</span>, argv[<span class="hljs-number">0</span>], argv[i]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	tcsetattr(use_fd, TCSADRAIN, &amp;t);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

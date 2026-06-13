@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>virtio.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kernel\\arch\\aarch64\\virtio.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>virtio.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pci.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pipe.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/video.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mouse.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/time.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/aarch64/gic.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * mouse_pipe;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * vmmouse_pipe;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * keyboard_pipe;
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_device_cfg</span> {</span>
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span> select;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span> subsel;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span> <span class="hljs-built_in">size</span>;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span> pad[<span class="hljs-number">5</span>];
+	<span class="hljs-keyword">union</span> {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+			<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">min</span>;
+			<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">max</span>;
+			<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> fuzz;
+			<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> flat;
+			<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> res;
+		} tablet_data;
+		<span class="hljs-keyword">uint8_t</span> str[<span class="hljs-number">128</span>];
+	} data;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_common_cfg</span> {</span>
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> dev_feature_select;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> dev_feature;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> guest_feature_select;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> guest_feature;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span> msix;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span> queues;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span>  device_status;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span>  config_generation;
+
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span> queue_select;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span> queue_size;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span> queue_msix_vector;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span> queue_enable;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span> queue_notify_off;
+	<span class="hljs-comment">/* queue stuff */</span>
+
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint64_t</span> queue_desc;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint64_t</span> queue_avail;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint64_t</span> queue_used;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_buffer</span> {</span>
+	<span class="hljs-keyword">uint64_t</span>  addr;
+	<span class="hljs-keyword">uint32_t</span>  length;
+	<span class="hljs-keyword">uint16_t</span>  flags;
+	<span class="hljs-keyword">uint16_t</span>  next;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_avail</span> {</span>
+	<span class="hljs-keyword">uint16_t</span> flags;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span> index;
+	<span class="hljs-keyword">uint16_t</span> ring[<span class="hljs-number">64</span>];
+	<span class="hljs-keyword">uint16_t</span> int_index;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_ring</span> {</span>
+	<span class="hljs-keyword">uint32_t</span> index;
+	<span class="hljs-keyword">uint32_t</span> length;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_used</span> {</span>
+	<span class="hljs-keyword">uint16_t</span> flags;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span> index;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_ring</span> <span class="hljs-title">ring</span>[64];</span>
+	<span class="hljs-keyword">uint16_t</span> int_index;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_queue</span> {</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_buffer</span> <span class="hljs-title">buffers</span>[64];</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_avail</span>  <span class="hljs-title">available</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_used</span>   <span class="hljs-title">used</span>;</span>
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_input_event</span> {</span>
+	<span class="hljs-keyword">uint16_t</span> type;
+	<span class="hljs-keyword">uint16_t</span> code;
+	<span class="hljs-keyword">uint32_t</span> value;
+};
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">virtio_tablet_responder</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">int</span> irq, <span class="hljs-keyword">void</span> * data)</span> </span>{
+	<span class="hljs-keyword">uint8_t</span> cause = *(<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span> *)data;
+	<span class="hljs-keyword">if</span> (cause == <span class="hljs-number">1</span>) {
+		make_process_ready(<span class="hljs-keyword">this</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">virtio_keyboard_responder</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">int</span> irq, <span class="hljs-keyword">void</span> * data)</span> </span>{
+	<span class="hljs-keyword">uint8_t</span> cause = *(<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span> *)data;
+	<span class="hljs-keyword">if</span> (cause == <span class="hljs-number">1</span>) {
+		make_process_ready(<span class="hljs-keyword">this</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">try_to_get_boot_processor</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>We would prefer these virtio startup processes run on the boot CPU, but
+it's not the end of the world if they don't. If we're not on the boot
+CPU, yield for a bit to try to get on it...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">uint64_t</span> expire = arch_perf_timer() + <span class="hljs-number">100000U</span>L * arch_cpu_mhz();
+	<span class="hljs-keyword">while</span> (this_core-&gt;cpu_id != <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">if</span> (arch_perf_timer() &gt;= expire) <span class="hljs-keyword">break</span>;
+		switch_task(<span class="hljs-number">1</span>);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">virtio_tablet_thread</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * data)</span> </span>{
+	try_to_get_boot_processor();
+
+	<span class="hljs-keyword">uint32_t</span> device = (<span class="hljs-keyword">uintptr_t</span>)data;
+	<span class="hljs-keyword">uintptr_t</span> t = <span class="hljs-number">0x12000000</span>;
+	pci_write_field(device, PCI_BAR4, <span class="hljs-number">4</span>, t|<span class="hljs-number">8</span>);
+	pci_write_field(device, PCI_COMMAND, <span class="hljs-number">2</span>, <span class="hljs-number">4</span>|<span class="hljs-number">2</span>|<span class="hljs-number">1</span>);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_device_cfg</span> * <span class="hljs-title">cfg</span> = (<span class="hljs-title">void</span>*)((<span class="hljs-title">char</span>*)<span class="hljs-title">mmu_map_mmio_region</span>(<span class="hljs-title">t</span> + 0<span class="hljs-title">x2000</span>, 0<span class="hljs-title">x1000</span>));</span>
+	cfg-&gt;select = <span class="hljs-number">1</span>; <span class="hljs-comment">/* ask for name */</span>
+	cfg-&gt;subsel = <span class="hljs-number">0</span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+	<span class="hljs-keyword">void</span> * irq_region = mmu_map_mmio_region(t + <span class="hljs-number">0x1000</span>, <span class="hljs-number">0x1000</span>);
+	<span class="hljs-keyword">int</span> irq;
+	gic_map_pci_interrupt(<span class="hljs-string">"virtio-tablet"</span>, device, &amp;irq, virtio_tablet_responder, irq_region);
+
+	<span class="hljs-comment">/* figure out range values */</span>
+	cfg-&gt;select = <span class="hljs-number">0x12</span>;
+	cfg-&gt;subsel = <span class="hljs-number">0</span>; <span class="hljs-comment">/* X */</span>
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+	<span class="hljs-keyword">uint32_t</span> max_x = cfg-&gt;data.tablet_data.<span class="hljs-built_in">max</span>;
+	cfg-&gt;select = <span class="hljs-number">0x12</span>;
+	cfg-&gt;subsel = <span class="hljs-number">1</span>; <span class="hljs-comment">/* X */</span>
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+	<span class="hljs-keyword">uint32_t</span> max_y = cfg-&gt;data.tablet_data.<span class="hljs-built_in">max</span>;
+
+	cfg-&gt;select = <span class="hljs-number">0</span>;
+	cfg-&gt;subsel = <span class="hljs-number">0</span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_common_cfg</span> * <span class="hljs-title">common</span> = (<span class="hljs-title">void</span>*)((<span class="hljs-title">char</span>*)<span class="hljs-title">mmu_map_mmio_region</span>(<span class="hljs-title">t</span>, 0<span class="hljs-title">x1000</span>));</span>
+
+	common-&gt;device_status = <span class="hljs-number">0</span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+	<span class="hljs-keyword">int</span> queue_size = common-&gt;queue_size;
+
+	<span class="hljs-comment">/* get us one page */</span>
+	<span class="hljs-keyword">size_t</span> queue_phys = mmu_allocate_a_frame() &lt;&lt; <span class="hljs-number">12</span>;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_queue</span> * <span class="hljs-title">queue</span> = <span class="hljs-title">mmu_map_mmio_region</span>(<span class="hljs-title">queue_phys</span>, 4096);</span>
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+	<span class="hljs-built_in">memset</span>(<span class="hljs-built_in">queue</span>, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(struct virtio_queue));
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+	common-&gt;queue_select = <span class="hljs-number">0</span>;
+	common-&gt;queue_desc = queue_phys;
+	common-&gt;queue_avail = (queue_phys) + offsetof(struct virtio_queue, <span class="hljs-built_in">available</span>);
+	common-&gt;queue_used = (queue_phys) + offsetof(struct virtio_queue, used);
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+	<span class="hljs-keyword">size_t</span> buffers_base = mmu_allocate_a_frame() &lt;&lt; <span class="hljs-number">12</span>;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_input_event</span> * <span class="hljs-title">buffers</span> = <span class="hljs-title">mmu_map_mmio_region</span>(<span class="hljs-title">buffers_base</span>, 4096);</span>
+	mmu_get_page((<span class="hljs-keyword">uintptr_t</span>)buffers, <span class="hljs-number">0</span>)-&gt;bits.attrindx = <span class="hljs-number">2</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; queue_size; ++i) {
+		<span class="hljs-built_in">queue</span>-&gt;buffers[i].addr = buffers_base + i * <span class="hljs-keyword">sizeof</span>(struct virtio_input_event);
+		<span class="hljs-built_in">queue</span>-&gt;buffers[i].length = <span class="hljs-keyword">sizeof</span>(struct virtio_input_event);
+		<span class="hljs-built_in">queue</span>-&gt;buffers[i].flags = <span class="hljs-number">2</span>;
+		<span class="hljs-built_in">queue</span>-&gt;buffers[i].next = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">queue</span>-&gt;<span class="hljs-built_in">available</span>.ring[i] = i;
+	}
+
+	<span class="hljs-built_in">queue</span>-&gt;<span class="hljs-built_in">available</span>.index = <span class="hljs-number">0</span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+	common-&gt;queue_enable = <span class="hljs-number">1</span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+	common-&gt;device_status = <span class="hljs-number">4</span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+	<span class="hljs-keyword">uint16_t</span> index = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">uint32_t</span> x = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint32_t</span> y = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> button_left = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> button_right = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> button_middle = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> button_scroll_down = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> button_scroll_up = <span class="hljs-number">0</span>;
+
+	<span class="hljs-built_in">queue</span>-&gt;<span class="hljs-built_in">available</span>.index = queue_size<span class="hljs-number">-1</span>;
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-comment">/* Inform the device we have room */</span>
+		<span class="hljs-keyword">while</span> (<span class="hljs-built_in">queue</span>-&gt;used.index == index) {
+			switch_task(<span class="hljs-number">0</span>);
+			<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc ivac, %0\ndsb sy"</span> :: <span class="hljs-string">"r"</span>(&amp;<span class="hljs-built_in">queue</span>-&gt;used) : <span class="hljs-string">"memory"</span>)</span></span>;
+		}
+
+		<span class="hljs-keyword">uint16_t</span> them = <span class="hljs-built_in">queue</span>-&gt;used.index;
+
+		<span class="hljs-keyword">for</span> (; index != them; index++) {
+			<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc ivac, %0\ndsb sy"</span> :: <span class="hljs-string">"r"</span>(&amp;buffers[index%queue_size]) : <span class="hljs-string">"memory"</span>)</span></span>;
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_input_event</span> <span class="hljs-title">evt</span> = <span class="hljs-title">buffers</span>[<span class="hljs-title">index</span>%<span class="hljs-title">queue_size</span>];</span>
+			<span class="hljs-keyword">while</span> (evt.type == <span class="hljs-number">0xFF</span>) {
+				evt = buffers[index%queue_size];
+				dprintf(<span class="hljs-string">"virtio-tablet: bad packet %d (them=%d)\n"</span>, index, them);
+			}
+			buffers[index%queue_size].type = <span class="hljs-number">0xFF</span>;
+			<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb\ndsb sy"</span> :: <span class="hljs-string">"r"</span>(buffers) : <span class="hljs-string">"memory"</span>)</span></span>;
+			<span class="hljs-keyword">if</span> (evt.type == <span class="hljs-number">3</span>) {
+				<span class="hljs-comment">/* movement */</span>
+				<span class="hljs-keyword">if</span> (evt.code == <span class="hljs-number">0</span>) {
+					x = (evt.value * lfb_resolution_x) / max_x;
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (evt.code == <span class="hljs-number">1</span>) {
+					y = (evt.value * lfb_resolution_y) / max_y;
+				}
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (evt.type == <span class="hljs-number">1</span>) {
+				<span class="hljs-comment">/* button */</span>
+				<span class="hljs-keyword">if</span> (evt.code == <span class="hljs-number">0x110</span>) {
+					button_left = evt.value;
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (evt.code == <span class="hljs-number">0x111</span>) {
+					button_right = evt.value;
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (evt.code == <span class="hljs-number">0x112</span>) {
+					button_middle = evt.value;
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (evt.code == <span class="hljs-number">0x150</span>) {
+					button_scroll_down = <span class="hljs-number">1</span>;
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (evt.code == <span class="hljs-number">0x151</span>) {
+					button_scroll_up = <span class="hljs-number">1</span>;
+				}
+
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (evt.type == <span class="hljs-number">0</span>) {
+#define DISCARD_POINT <span class="hljs-number">32</span>
+				<span class="hljs-keyword">mouse_device_packet_t</span> packet;
+				packet.magic = MOUSE_MAGIC;
+				packet.x_difference = x;
+				packet.y_difference = y;
+				packet.buttons =
+					(button_left ? LEFT_CLICK : <span class="hljs-number">0</span>) |
+					(button_right ? RIGHT_CLICK : <span class="hljs-number">0</span>) |
+					(button_middle ? MIDDLE_CLICK : <span class="hljs-number">0</span>) |
+					(button_scroll_down ? MOUSE_SCROLL_DOWN : <span class="hljs-number">0</span>) |
+					(button_scroll_up ? MOUSE_SCROLL_UP : <span class="hljs-number">0</span>);
+
+				button_scroll_down = <span class="hljs-number">0</span>;
+				button_scroll_up = <span class="hljs-number">0</span>;
+
+				<span class="hljs-keyword">mouse_device_packet_t</span> bitbucket;
+				<span class="hljs-keyword">while</span> (pipe_size(vmmouse_pipe) &gt; (<span class="hljs-keyword">int</span>)(DISCARD_POINT * <span class="hljs-keyword">sizeof</span>(packet))) {
+					read_fs(vmmouse_pipe, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(packet), (<span class="hljs-keyword">uint8_t</span> *)&amp;bitbucket);
+				}
+				write_fs(vmmouse_pipe, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(packet), (<span class="hljs-keyword">uint8_t</span> *)&amp;packet);
+			}
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<p>buffers[index%queue_size].type = 0xFF;</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+			<span class="hljs-built_in">queue</span>-&gt;<span class="hljs-built_in">available</span>.index++;
+		}
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">uint8_t</span> ext_key_map[<span class="hljs-number">256</span>] = {
+	[<span class="hljs-number">0x63</span>] = <span class="hljs-number">0x37</span>, <span class="hljs-comment">/* print screen */</span>
+	[<span class="hljs-number">0x66</span>] = <span class="hljs-number">0x47</span>, <span class="hljs-comment">/* home */</span>
+	[<span class="hljs-number">0x67</span>] = <span class="hljs-number">0x48</span>, <span class="hljs-comment">/* UP */</span>
+	[<span class="hljs-number">0x68</span>] = <span class="hljs-number">0x49</span>, <span class="hljs-comment">/* page up */</span>
+	[<span class="hljs-number">0x6c</span>] = <span class="hljs-number">0x50</span>, <span class="hljs-comment">/* DOWN */</span>
+	[<span class="hljs-number">0x69</span>] = <span class="hljs-number">0x4B</span>, <span class="hljs-comment">/* LEFT */</span>
+	[<span class="hljs-number">0x6a</span>] = <span class="hljs-number">0x4D</span>, <span class="hljs-comment">/* RIGHT */</span>
+	[<span class="hljs-number">0x6b</span>] = <span class="hljs-number">0x4F</span>, <span class="hljs-comment">/* end */</span>
+	[<span class="hljs-number">0x6d</span>] = <span class="hljs-number">0x51</span>, <span class="hljs-comment">/* page down */</span>
+	[<span class="hljs-number">0x7d</span>] = <span class="hljs-number">0x5b</span>, <span class="hljs-comment">/* left super */</span>
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">virtio_keyboard_thread</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * data)</span> </span>{
+	try_to_get_boot_processor();
+
+	<span class="hljs-keyword">uint32_t</span> device = (<span class="hljs-keyword">uintptr_t</span>)data;
+	<span class="hljs-keyword">uintptr_t</span> t = <span class="hljs-number">0x12100000</span>;
+	pci_write_field(device, PCI_BAR4, <span class="hljs-number">4</span>, t|<span class="hljs-number">8</span>);
+	pci_write_field(device, PCI_COMMAND, <span class="hljs-number">2</span>, <span class="hljs-number">4</span>|<span class="hljs-number">2</span>|<span class="hljs-number">1</span>);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_device_cfg</span> * <span class="hljs-title">cfg</span> = (<span class="hljs-title">void</span>*)((<span class="hljs-title">char</span>*)<span class="hljs-title">mmu_map_mmio_region</span>(<span class="hljs-title">t</span> + 0<span class="hljs-title">x2000</span>, 0<span class="hljs-title">x1000</span>));</span>
+	cfg-&gt;select = <span class="hljs-number">1</span>; <span class="hljs-comment">/* ask for name */</span>
+	cfg-&gt;subsel = <span class="hljs-number">0</span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+	<span class="hljs-keyword">void</span> * irq_region = mmu_map_mmio_region(t + <span class="hljs-number">0x1000</span>, <span class="hljs-number">0x1000</span>);
+	<span class="hljs-keyword">int</span> irq;
+	gic_map_pci_interrupt(<span class="hljs-string">"virtio-keyboard"</span>, device, &amp;irq, virtio_keyboard_responder, irq_region);
+
+	cfg-&gt;select = <span class="hljs-number">0</span>;
+	cfg-&gt;subsel = <span class="hljs-number">0</span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_common_cfg</span> * <span class="hljs-title">common</span> = (<span class="hljs-title">void</span>*)((<span class="hljs-title">char</span>*)<span class="hljs-title">mmu_map_mmio_region</span>(<span class="hljs-title">t</span>, 0<span class="hljs-title">x1000</span>));</span>
+
+	common-&gt;device_status = <span class="hljs-number">0</span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+	<span class="hljs-keyword">int</span> queue_size = common-&gt;queue_size;
+
+	<span class="hljs-comment">/* get us one page */</span>
+	<span class="hljs-keyword">size_t</span> queue_phys = mmu_allocate_a_frame() &lt;&lt; <span class="hljs-number">12</span>;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_queue</span> * <span class="hljs-title">queue</span> = <span class="hljs-title">mmu_map_mmio_region</span>(<span class="hljs-title">queue_phys</span>, 4096);</span>
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+	<span class="hljs-built_in">memset</span>(<span class="hljs-built_in">queue</span>, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(struct virtio_queue));
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+	common-&gt;queue_select = <span class="hljs-number">0</span>;
+	common-&gt;queue_desc = queue_phys;
+	common-&gt;queue_avail = (queue_phys) + offsetof(struct virtio_queue, <span class="hljs-built_in">available</span>);
+	common-&gt;queue_used = (queue_phys) + offsetof(struct virtio_queue, used);
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+	<span class="hljs-keyword">size_t</span> buffers_base = mmu_allocate_a_frame() &lt;&lt; <span class="hljs-number">12</span>;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_input_event</span> * <span class="hljs-title">buffers</span> = <span class="hljs-title">mmu_map_mmio_region</span>(<span class="hljs-title">buffers_base</span>, 4096);</span>
+	mmu_get_page((<span class="hljs-keyword">uintptr_t</span>)buffers, <span class="hljs-number">0</span>)-&gt;bits.attrindx = <span class="hljs-number">2</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; queue_size; ++i) {
+		<span class="hljs-built_in">queue</span>-&gt;buffers[i].addr = buffers_base + i * <span class="hljs-keyword">sizeof</span>(struct virtio_input_event);
+		<span class="hljs-built_in">queue</span>-&gt;buffers[i].length = <span class="hljs-keyword">sizeof</span>(struct virtio_input_event);
+		<span class="hljs-built_in">queue</span>-&gt;buffers[i].flags = <span class="hljs-number">2</span>;
+		<span class="hljs-built_in">queue</span>-&gt;buffers[i].next = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">queue</span>-&gt;<span class="hljs-built_in">available</span>.ring[i] = i;
+	}
+
+	<span class="hljs-built_in">queue</span>-&gt;<span class="hljs-built_in">available</span>.index = <span class="hljs-number">0</span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+	common-&gt;queue_enable = <span class="hljs-number">1</span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+	common-&gt;device_status = <span class="hljs-number">4</span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+	<span class="hljs-keyword">uint16_t</span> index = <span class="hljs-number">0</span>;
+
+	<span class="hljs-built_in">queue</span>-&gt;<span class="hljs-built_in">available</span>.index = queue_size<span class="hljs-number">-1</span>;
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-comment">/* Inform the device we have room */</span>
+		<span class="hljs-keyword">while</span> (<span class="hljs-built_in">queue</span>-&gt;used.index == index) {
+			switch_task(<span class="hljs-number">0</span>);
+			<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc ivac, %0\ndsb sy"</span> :: <span class="hljs-string">"r"</span>(&amp;<span class="hljs-built_in">queue</span>-&gt;used) : <span class="hljs-string">"memory"</span>)</span></span>;
+		}
+
+		<span class="hljs-keyword">uint16_t</span> them = <span class="hljs-built_in">queue</span>-&gt;used.index;
+
+		<span class="hljs-keyword">for</span> (; index != them; index++) {
+			<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc ivac, %0\ndsb sy"</span> :: <span class="hljs-string">"r"</span>(&amp;buffers[index%queue_size]) : <span class="hljs-string">"memory"</span>)</span></span>;
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">virtio_input_event</span> <span class="hljs-title">evt</span> = <span class="hljs-title">buffers</span>[<span class="hljs-title">index</span>%<span class="hljs-title">queue_size</span>];</span>
+			<span class="hljs-keyword">while</span> (evt.type == <span class="hljs-number">0xFF</span>) {
+				evt = buffers[index%queue_size];
+				dprintf(<span class="hljs-string">"virtio-tablet: bad packet %d (them=%d)\n"</span>, index, them);
+			}
+			buffers[index%queue_size].type = <span class="hljs-number">0xFF</span>;
+			<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb\ndsb sy"</span> :: <span class="hljs-string">"r"</span>(buffers) : <span class="hljs-string">"memory"</span>)</span></span>;
+			<span class="hljs-keyword">if</span> (evt.type == <span class="hljs-number">1</span>) {
+				<span class="hljs-comment">/* need to back-convert which is a pain in the ass */</span>
+				<span class="hljs-keyword">if</span> (evt.code &lt; <span class="hljs-number">0x49</span>) {
+					<span class="hljs-keyword">uint8_t</span> scancode = evt.code;
+					<span class="hljs-keyword">if</span> (evt.value == <span class="hljs-number">0</span>) {
+						scancode |= <span class="hljs-number">0x80</span>;
+					}
+					<span class="hljs-keyword">uint8_t</span> bitbucket;
+					<span class="hljs-keyword">while</span> (pipe_size(keyboard_pipe) &gt; (<span class="hljs-keyword">int</span>)(DISCARD_POINT)) {
+						read_fs(keyboard_pipe, <span class="hljs-number">0</span>, <span class="hljs-number">1</span>, (<span class="hljs-keyword">uint8_t</span> *)&amp;bitbucket);
+					}
+					write_fs(keyboard_pipe, <span class="hljs-number">0</span>, <span class="hljs-number">1</span>, (<span class="hljs-keyword">uint8_t</span> *)&amp;scancode);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ext_key_map[evt.code]) {
+					<span class="hljs-keyword">uint8_t</span> data[] = {<span class="hljs-number">0xE0</span>, <span class="hljs-number">0</span>};
+					data[<span class="hljs-number">1</span>] = ext_key_map[evt.code] | ((evt.value == <span class="hljs-number">0</span>) ? <span class="hljs-number">0x80</span> : <span class="hljs-number">0</span>);
+					<span class="hljs-keyword">uint8_t</span> bitbucket;
+					<span class="hljs-keyword">while</span> (pipe_size(keyboard_pipe) &gt; (<span class="hljs-keyword">int</span>)(DISCARD_POINT)) {
+						read_fs(keyboard_pipe, <span class="hljs-number">0</span>, <span class="hljs-number">1</span>, (<span class="hljs-keyword">uint8_t</span> *)&amp;bitbucket);
+					}
+					write_fs(keyboard_pipe, <span class="hljs-number">0</span>, <span class="hljs-number">2</span>, (<span class="hljs-keyword">uint8_t</span> *)data);
+				} <span class="hljs-keyword">else</span> {
+					dprintf(<span class="hljs-string">"virtio: unmapped keycode %d\n"</span>, evt.code);
+				}
+			}
+			<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+			<span class="hljs-built_in">queue</span>-&gt;<span class="hljs-built_in">available</span>.index++;
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">virtio_input_maybe</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> device, <span class="hljs-keyword">uint16_t</span> v, <span class="hljs-keyword">uint16_t</span> d, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-keyword">if</span> (v == <span class="hljs-number">0x1af4</span> &amp;&amp; d == <span class="hljs-number">0x1052</span>) {
+		<span class="hljs-keyword">if</span> (pci_find_type(device) == <span class="hljs-number">0x0900</span>) {
+			dprintf(<span class="hljs-string">"virtio: found keyboard\n"</span>);
+			spawn_worker_thread(virtio_keyboard_thread, <span class="hljs-string">"[virtio-keyboard]"</span>, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)device);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (pci_find_type(device) == <span class="hljs-number">0x0980</span>) {
+			dprintf(<span class="hljs-string">"virtio: found tablet\n"</span>);
+			spawn_worker_thread(virtio_tablet_thread, <span class="hljs-string">"[virtio-tablet]"</span>, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)device);
+		}
+	}
+
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">null_input</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	mouse_pipe = make_pipe(<span class="hljs-number">128</span>);
+	mouse_pipe-&gt;flags = FS_CHARDEVICE;
+	vfs_mount(<span class="hljs-string">"/dev/mouse"</span>, mouse_pipe, <span class="hljs-string">"virtio-mouse"</span>, <span class="hljs-string">""</span>);
+
+	vmmouse_pipe = make_pipe(<span class="hljs-number">4096</span>);
+	vmmouse_pipe-&gt;flags = FS_CHARDEVICE;
+	vfs_mount(<span class="hljs-string">"/dev/vmmouse"</span>, vmmouse_pipe, <span class="hljs-string">"virtio-tablet"</span>, <span class="hljs-string">""</span>);
+
+	keyboard_pipe = make_pipe(<span class="hljs-number">128</span>);
+	keyboard_pipe-&gt;flags = FS_CHARDEVICE;
+	vfs_mount(<span class="hljs-string">"/dev/kbd"</span>, keyboard_pipe, <span class="hljs-string">"virtio-kbd"</span>, <span class="hljs-string">""</span>);
+
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">virtio_input</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	null_input(); <span class="hljs-comment">/* setup pipes */</span>
+	pci_scan(virtio_input_maybe, <span class="hljs-number">-1</span>, <span class="hljs-literal">NULL</span>);
+}
+
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

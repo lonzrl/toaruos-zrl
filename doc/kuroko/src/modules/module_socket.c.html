@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>module_socket.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kuroko\\src\\modules\\module_socket.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>module_socket.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> _WIN32</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;winsock2.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;ws2tcpip.h&gt;</span></span>
+<span class="hljs-comment">/* AF_UNIX is defined but Unix socket support is generally missing in our mingw toolchain  */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> AF_UNIX</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/socket.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;arpa/inet.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;netdb.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> AF_UNIX</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/un.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> KrkClass * SocketError = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> KrkClass * SocketClass = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">socket</span> {</span>
+	KrkInstance inst;
+
+	<span class="hljs-keyword">int</span> sockfd;
+	<span class="hljs-keyword">int</span> family;
+	<span class="hljs-keyword">int</span> type;
+	<span class="hljs-keyword">int</span> proto;
+};
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> IS_socket(o) (krk_isInstanceOf(o,SocketClass))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AS_socket(o) ((struct socket*)AS_OBJECT(o))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE struct socket *</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_NAME  self</span>
+
+KRK_Method(socket,__init__) {
+	METHOD_TAKES_AT_MOST(<span class="hljs-number">3</span>);
+
+	<span class="hljs-keyword">int</span> family = AF_INET;
+	<span class="hljs-keyword">int</span> type = SOCK_STREAM;
+	<span class="hljs-keyword">int</span> proto = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">".|iii:socket"</span>,
+		(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *[]){<span class="hljs-string">"family"</span>,<span class="hljs-string">"type"</span>,<span class="hljs-string">"proto"</span>},
+		&amp;family, &amp;type, &amp;proto)) {
+		<span class="hljs-keyword">return</span> NONE_VAL();
+	}
+
+	<span class="hljs-keyword">int</span> result = socket(family,type,proto);
+
+	<span class="hljs-keyword">if</span> (result &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(SocketError, <span class="hljs-string">"Socket error: %s"</span>, strerror(errno));
+	}
+
+	self-&gt;sockfd = result;
+	self-&gt;family = family;
+	self-&gt;type   = type;
+	self-&gt;proto  = proto;
+
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * _af_name(<span class="hljs-keyword">int</span> afval) {
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> tmp[<span class="hljs-number">30</span>];
+	<span class="hljs-keyword">switch</span> (afval) {
+		<span class="hljs-keyword">case</span> AF_INET: <span class="hljs-keyword">return</span> <span class="hljs-string">"AF_INET"</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> AF_INET6</span>
+		<span class="hljs-keyword">case</span> AF_INET6: <span class="hljs-keyword">return</span> <span class="hljs-string">"AF_INET6"</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> AF_UNIX</span>
+		<span class="hljs-keyword">case</span> AF_UNIX: <span class="hljs-keyword">return</span> <span class="hljs-string">"AF_UNIX"</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-built_in">snprintf</span>(tmp,<span class="hljs-number">30</span>,<span class="hljs-string">"%d"</span>,afval);
+			<span class="hljs-keyword">return</span> tmp;
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * _sock_type(<span class="hljs-keyword">int</span> type) {
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> tmp[<span class="hljs-number">30</span>];
+	<span class="hljs-keyword">switch</span> (type) {
+		<span class="hljs-keyword">case</span> SOCK_STREAM: <span class="hljs-keyword">return</span> <span class="hljs-string">"SOCK_STREAM"</span>;
+		<span class="hljs-keyword">case</span> SOCK_DGRAM: <span class="hljs-keyword">return</span> <span class="hljs-string">"SOCK_DGRAM"</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> SOCK_RAW</span>
+		<span class="hljs-keyword">case</span> SOCK_RAW: <span class="hljs-keyword">return</span> <span class="hljs-string">"SOCK_RAW"</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-built_in">snprintf</span>(tmp,<span class="hljs-number">30</span>,<span class="hljs-string">"%d"</span>,type);
+			<span class="hljs-keyword">return</span> tmp;
+	}
+}
+
+KRK_Method(socket,__repr__) {
+	<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">4096</span>];
+	<span class="hljs-keyword">size_t</span> len = <span class="hljs-built_in">snprintf</span>(tmp, <span class="hljs-number">4096</span>, <span class="hljs-string">"&lt;socket.socket fd=%d, family=%s, type=%s, proto=%d&gt;"</span>,
+		self-&gt;sockfd, _af_name(self-&gt;family), _sock_type(self-&gt;type), self-&gt;proto);
+	<span class="hljs-keyword">return</span> OBJECT_VAL(krk_copyString(tmp,len));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">socket_parse_address</span><span class="hljs-params">(struct socket * self, KrkValue address, struct sockaddr_storage *sock_addr, <span class="hljs-keyword">socklen_t</span> *sock_size)</span> </span>{
+	<span class="hljs-keyword">if</span> (self-&gt;family == AF_INET) {
+		<span class="hljs-comment">/* Should be 2-tuple */</span>
+		<span class="hljs-keyword">if</span> (!IS_tuple(address)) {
+			krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"Expected 2-tuple, not '%T'"</span>, address);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		KrkTuple * addr = AS_TUPLE(address);
+		<span class="hljs-keyword">if</span> (addr-&gt;values.count != <span class="hljs-number">2</span>) {
+			krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"Expected 2-tuple, not '%T'"</span>, address);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		<span class="hljs-keyword">if</span> (!IS_str(addr-&gt;values.values[<span class="hljs-number">0</span>])) {
+			krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"Address should be str, not '%T'"</span>, addr-&gt;values.values[<span class="hljs-number">0</span>]);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		<span class="hljs-keyword">if</span> (!IS_int(addr-&gt;values.values[<span class="hljs-number">1</span>])) {
+			krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"Port should be int, not '%T'"</span>, addr-&gt;values.values[<span class="hljs-number">1</span>]);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (!AS_STRING(addr-&gt;values.values[<span class="hljs-number">0</span>])-&gt;length) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_in</span> * <span class="hljs-title">sin</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">sockaddr_in</span>*)<span class="hljs-title">sock_addr</span>;</span>
+			*sock_size = <span class="hljs-keyword">sizeof</span>(struct sockaddr_in);
+			<span class="hljs-built_in">sin</span>-&gt;sin_family = AF_INET;
+			<span class="hljs-built_in">sin</span>-&gt;sin_port = htons(AS_int(addr-&gt;values.values[<span class="hljs-number">1</span>]));
+			<span class="hljs-built_in">sin</span>-&gt;sin_addr.s_addr = INADDR_ANY;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		} <span class="hljs-keyword">else</span> {
+			struct addrinfo *result;
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">addrinfo</span> *<span class="hljs-title">res</span>;</span>
+			<span class="hljs-keyword">int</span> error = getaddrinfo(AS_CSTRING(addr-&gt;values.values[<span class="hljs-number">0</span>]), <span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>, &amp;result);
+			<span class="hljs-keyword">if</span> (error != <span class="hljs-number">0</span>) {
+				krk_runtimeError(SocketError, <span class="hljs-string">"getaddrinfo() returned error: %d"</span>, error);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			}
+
+			<span class="hljs-keyword">int</span> found = <span class="hljs-number">0</span>;
+			res = result;
+			<span class="hljs-keyword">while</span> (res) {
+				<span class="hljs-keyword">if</span> (res-&gt;ai_family == AF_INET) {
+					found = <span class="hljs-number">1</span>;
+					*sock_size = res-&gt;ai_addrlen;
+					<span class="hljs-built_in">memcpy</span>(sock_addr, res-&gt;ai_addr, *sock_size);
+					<span class="hljs-keyword">break</span>;
+				}
+				res = res-&gt;ai_next;
+			}
+
+			freeaddrinfo(result);
+
+			<span class="hljs-keyword">if</span> (!found) {
+				krk_runtimeError(SocketError, <span class="hljs-string">"no suitable address"</span>);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			}
+
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_in</span> * <span class="hljs-title">sin</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">sockaddr_in</span>*)<span class="hljs-title">sock_addr</span>;</span>
+			<span class="hljs-built_in">sin</span>-&gt;sin_family = AF_INET;
+			<span class="hljs-built_in">sin</span>-&gt;sin_port = htons(AS_int(addr-&gt;values.values[<span class="hljs-number">1</span>]));
+
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> AF_INET6</span>
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (self-&gt;family == AF_INET6) {
+		<span class="hljs-comment">/* Should be 2-tuple */</span>
+		<span class="hljs-keyword">if</span> (!IS_tuple(address)) {
+			krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"Expected 2-tuple, not '%T'"</span>, address);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		KrkTuple * addr = AS_TUPLE(address);
+		<span class="hljs-keyword">if</span> (addr-&gt;values.count != <span class="hljs-number">2</span>) {
+			krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"Expected 2-tuple, not '%T'"</span>, address);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		<span class="hljs-keyword">if</span> (!IS_str(addr-&gt;values.values[<span class="hljs-number">0</span>])) {
+			krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"Address should be str, not '%T'"</span>, addr-&gt;values.values[<span class="hljs-number">0</span>]);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		<span class="hljs-keyword">if</span> (!IS_int(addr-&gt;values.values[<span class="hljs-number">1</span>])) {
+			krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"Port should be int, not '%T'"</span>, addr-&gt;values.values[<span class="hljs-number">1</span>]);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (!AS_STRING(addr-&gt;values.values[<span class="hljs-number">0</span>])-&gt;length) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_in6</span> * <span class="hljs-title">sin</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">sockaddr_in6</span>*)<span class="hljs-title">sock_addr</span>;</span>
+			*sock_size = <span class="hljs-keyword">sizeof</span>(struct sockaddr_in6);
+			<span class="hljs-built_in">sin</span>-&gt;sin6_family = AF_INET6;
+			<span class="hljs-built_in">sin</span>-&gt;sin6_port = htons(AS_int(addr-&gt;values.values[<span class="hljs-number">1</span>]));
+			<span class="hljs-built_in">sin</span>-&gt;sin6_addr = in6addr_any;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		} <span class="hljs-keyword">else</span> {
+			struct addrinfo *result;
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">addrinfo</span> *<span class="hljs-title">res</span>;</span>
+			<span class="hljs-keyword">int</span> error = getaddrinfo(AS_CSTRING(addr-&gt;values.values[<span class="hljs-number">0</span>]), <span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>, &amp;result);
+			<span class="hljs-keyword">if</span> (error != <span class="hljs-number">0</span>) {
+				krk_runtimeError(SocketError, <span class="hljs-string">"getaddrinfo() returned error: %d"</span>, error);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			}
+
+			<span class="hljs-keyword">int</span> found = <span class="hljs-number">0</span>;
+			res = result;
+			<span class="hljs-keyword">while</span> (res) {
+				<span class="hljs-keyword">if</span> (res-&gt;ai_family == AF_INET6) {
+					found = <span class="hljs-number">1</span>;
+					*sock_size = res-&gt;ai_addrlen;
+					<span class="hljs-built_in">memcpy</span>(sock_addr, res-&gt;ai_addr, *sock_size);
+					<span class="hljs-keyword">break</span>;
+				}
+				res = res-&gt;ai_next;
+			}
+
+			freeaddrinfo(result);
+
+			<span class="hljs-keyword">if</span> (!found) {
+				krk_runtimeError(SocketError, <span class="hljs-string">"no suitable address"</span>);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			}
+
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_in6</span> * <span class="hljs-title">sin</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">sockaddr_in6</span>*)<span class="hljs-title">sock_addr</span>;</span>
+			<span class="hljs-built_in">sin</span>-&gt;sin6_family = AF_INET6;
+			<span class="hljs-built_in">sin</span>-&gt;sin6_port = htons(AS_int(addr-&gt;values.values[<span class="hljs-number">1</span>]));
+
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> AF_UNIX</span>
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (self-&gt;family == AF_UNIX) {
+		<span class="hljs-keyword">if</span> (!IS_str(address)) {
+			krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"Address should be str, not '%T'"</span>, address);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (AS_STRING(address)-&gt;length &gt; <span class="hljs-number">107</span>) {
+			krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-string">"Address is too long"</span>);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_un</span> * <span class="hljs-title">sun</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">sockaddr_un</span>*)<span class="hljs-title">sock_addr</span>;</span>
+		*sock_size = <span class="hljs-keyword">sizeof</span>(struct sockaddr_un);
+		sun-&gt;sun_family = AF_UNIX;
+		<span class="hljs-built_in">memcpy</span>(sun-&gt;sun_path, AS_CSTRING(address), AS_STRING(address)-&gt;length + <span class="hljs-number">1</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	} <span class="hljs-keyword">else</span> {
+		krk_runtimeError(vm.exceptions-&gt;notImplementedError, <span class="hljs-string">"Not implemented."</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+KRK_Method(socket,<span class="hljs-built_in">connect</span>) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_storage</span> <span class="hljs-title">sock_addr</span>;</span>
+	<span class="hljs-keyword">socklen_t</span> sock_size = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* What do we take? I guess a tuple for AF_INET */</span>
+	<span class="hljs-keyword">int</span> parseResult = socket_parse_address(self, argv[<span class="hljs-number">1</span>], &amp;sock_addr, &amp;sock_size);
+	<span class="hljs-keyword">if</span> (parseResult) {
+		<span class="hljs-keyword">if</span> (!(krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION))
+			<span class="hljs-keyword">return</span> krk_runtimeError(SocketError, <span class="hljs-string">"Unspecified error."</span>);
+		<span class="hljs-keyword">return</span> NONE_VAL();
+	}
+
+	<span class="hljs-keyword">int</span> result = <span class="hljs-built_in">connect</span>(self-&gt;sockfd, (struct sockaddr*)&amp;sock_addr, sock_size);
+
+	<span class="hljs-keyword">if</span> (result &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(SocketError, <span class="hljs-string">"Socket error: %s"</span>, strerror(errno));
+	}
+
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(socket,bind) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_storage</span> <span class="hljs-title">sock_addr</span>;</span>
+	<span class="hljs-keyword">socklen_t</span> sock_size = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* What do we take? I guess a tuple for AF_INET */</span>
+	<span class="hljs-keyword">int</span> parseResult = socket_parse_address(self, argv[<span class="hljs-number">1</span>], &amp;sock_addr, &amp;sock_size);
+	<span class="hljs-keyword">if</span> (parseResult) {
+		<span class="hljs-keyword">if</span> (!(krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION))
+			<span class="hljs-keyword">return</span> krk_runtimeError(SocketError, <span class="hljs-string">"Unspecified error."</span>);
+		<span class="hljs-keyword">return</span> NONE_VAL();
+	}
+
+	<span class="hljs-keyword">int</span> result = bind(self-&gt;sockfd, (struct sockaddr*)&amp;sock_addr, sock_size);
+
+	<span class="hljs-keyword">if</span> (result &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(SocketError, <span class="hljs-string">"Socket error: %s"</span>, strerror(errno));
+	}
+
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(socket,<span class="hljs-built_in">listen</span>) {
+	METHOD_TAKES_AT_MOST(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">int</span> backlog = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) {
+		CHECK_ARG(<span class="hljs-number">1</span>,<span class="hljs-keyword">int</span>,krk_integer_type,val);
+		backlog = val &gt;= <span class="hljs-number">0</span> ? val : <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">int</span> result = <span class="hljs-built_in">listen</span>(self-&gt;sockfd, backlog);
+	<span class="hljs-keyword">if</span> (result &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(SocketError, <span class="hljs-string">"Socket error: %s"</span>, strerror(errno));
+	}
+
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sock_push_addr_tuple</span><span class="hljs-params">(struct socket * self, struct sockaddr_storage addr, <span class="hljs-keyword">socklen_t</span> addrlen)</span> </span>{
+	<span class="hljs-keyword">if</span> (self-&gt;family == AF_INET) {
+		KrkTuple * addrTuple = krk_newTuple(<span class="hljs-number">2</span>); <span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> Other formats */</span>
+		krk_push(OBJECT_VAL(addrTuple));
+
+		<span class="hljs-keyword">char</span> hostname[NI_MAXHOST] = <span class="hljs-string">""</span>;
+		getnameinfo((struct sockaddr*)&amp;addr, addrlen, hostname, NI_MAXHOST, <span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, NI_NUMERICHOST);
+
+		addrTuple-&gt;values.values[<span class="hljs-number">0</span>] = OBJECT_VAL(krk_copyString(hostname,<span class="hljs-built_in">strlen</span>(hostname)));
+		addrTuple-&gt;values.count = <span class="hljs-number">1</span>;
+		addrTuple-&gt;values.values[<span class="hljs-number">1</span>] = INTEGER_VAL(htons(((struct sockaddr_in*)&amp;addr)-&gt;sin_port));
+		addrTuple-&gt;values.count = <span class="hljs-number">2</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> AF_INET6</span>
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (self-&gt;family == AF_INET6) {
+		KrkTuple * addrTuple = krk_newTuple(<span class="hljs-number">2</span>); <span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> Other formats */</span>
+		krk_push(OBJECT_VAL(addrTuple));
+
+		<span class="hljs-keyword">char</span> hostname[NI_MAXHOST] = <span class="hljs-string">""</span>;
+		getnameinfo((struct sockaddr*)&amp;addr, addrlen, hostname, NI_MAXHOST, <span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, NI_NUMERICHOST);
+
+		addrTuple-&gt;values.values[<span class="hljs-number">0</span>] = OBJECT_VAL(krk_copyString(hostname,<span class="hljs-built_in">strlen</span>(hostname)));
+		addrTuple-&gt;values.count = <span class="hljs-number">1</span>;
+		addrTuple-&gt;values.values[<span class="hljs-number">1</span>] = INTEGER_VAL(htons(((struct sockaddr_in6*)&amp;addr)-&gt;sin6_port));
+		addrTuple-&gt;values.count = <span class="hljs-number">2</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> AF_UNIX</span>
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (self-&gt;family == AF_UNIX) {
+		<span class="hljs-comment">/* ignore remote path because it's meaningless? */</span>
+		krk_push(OBJECT_VAL(S(<span class="hljs-string">""</span>)));
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	} <span class="hljs-keyword">else</span> {
+		krk_push(NONE_VAL());
+	}
+}
+
+
+KRK_Method(socket,getsockname) {
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_storage</span> <span class="hljs-title">addr</span>;</span>
+	<span class="hljs-keyword">socklen_t</span> addrlen = <span class="hljs-keyword">sizeof</span>(struct sockaddr_storage);
+
+	<span class="hljs-keyword">int</span> result = getsockname(self-&gt;sockfd, (struct sockaddr*)&amp;addr, &amp;addrlen);
+
+	<span class="hljs-keyword">if</span> (result &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(SocketError, <span class="hljs-string">"Socket error: %s"</span>, strerror(errno));
+	}
+
+	sock_push_addr_tuple(self, addr, addrlen);
+
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+
+KRK_Method(socket,accept) {
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_storage</span> <span class="hljs-title">addr</span>;</span>
+	<span class="hljs-keyword">socklen_t</span> addrlen = <span class="hljs-keyword">sizeof</span>(struct sockaddr_storage);
+
+	<span class="hljs-keyword">int</span> result = accept(self-&gt;sockfd, (struct sockaddr*)&amp;addr, &amp;addrlen);
+
+	<span class="hljs-keyword">if</span> (result &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(SocketError, <span class="hljs-string">"Socket error: %s"</span>, strerror(errno));
+	}
+
+	KrkTuple * outTuple = krk_newTuple(<span class="hljs-number">2</span>);
+	krk_push(OBJECT_VAL(outTuple));
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">socket</span> * <span class="hljs-title">out</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">socket</span>*)<span class="hljs-title">krk_newInstance</span>(<span class="hljs-title">SocketClass</span>);</span>
+	krk_push(OBJECT_VAL(out));
+
+	out-&gt;sockfd = result;
+	out-&gt;family = self-&gt;family;
+	out-&gt;type   = self-&gt;type;
+	out-&gt;proto  = self-&gt;proto;
+
+	outTuple-&gt;values.values[<span class="hljs-number">0</span>] = krk_peek(<span class="hljs-number">0</span>);
+	outTuple-&gt;values.count = <span class="hljs-number">1</span>;
+	krk_pop();
+
+	sock_push_addr_tuple(self, addr, addrlen);
+
+	outTuple-&gt;values.values[<span class="hljs-number">1</span>] = krk_peek(<span class="hljs-number">0</span>);
+	outTuple-&gt;values.count = <span class="hljs-number">2</span>;
+	krk_pop();
+
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+
+KRK_Method(socket,<span class="hljs-built_in">shutdown</span>) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,<span class="hljs-keyword">int</span>,krk_integer_type,how);
+
+	<span class="hljs-keyword">int</span> result = <span class="hljs-built_in">shutdown</span>(self-&gt;sockfd, how);
+
+	<span class="hljs-keyword">if</span> (result &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(SocketError, <span class="hljs-string">"Socket error: %s"</span>, strerror(errno));
+	}
+
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(socket,recv) {
+	METHOD_TAKES_AT_LEAST(<span class="hljs-number">1</span>);
+	METHOD_TAKES_AT_MOST(<span class="hljs-number">2</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,<span class="hljs-keyword">int</span>,krk_integer_type,bufsize);
+	<span class="hljs-keyword">int</span> flags = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">2</span>) {
+		CHECK_ARG(<span class="hljs-number">2</span>,<span class="hljs-keyword">int</span>,krk_integer_type,_flags);
+		flags = _flags;
+	}
+
+	<span class="hljs-keyword">void</span> * buf = <span class="hljs-built_in">malloc</span>(bufsize);
+	<span class="hljs-keyword">ssize_t</span> result = recv(self-&gt;sockfd, buf, bufsize, flags);
+	<span class="hljs-keyword">if</span> (result &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">free</span>(buf);
+		<span class="hljs-keyword">return</span> krk_runtimeError(SocketError, <span class="hljs-string">"Socket error: %s"</span>, strerror(errno));
+	}
+
+	KrkBytes * out = krk_newBytes(result,buf);
+	<span class="hljs-built_in">free</span>(buf);
+	<span class="hljs-keyword">return</span> OBJECT_VAL(out);
+}
+
+KRK_Method(socket,send) {
+	METHOD_TAKES_AT_LEAST(<span class="hljs-number">1</span>);
+	METHOD_TAKES_AT_MOST(<span class="hljs-number">2</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,bytes,KrkBytes*,buf);
+	<span class="hljs-keyword">int</span> flags = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">2</span>) {
+		CHECK_ARG(<span class="hljs-number">2</span>,<span class="hljs-keyword">int</span>,krk_integer_type,_flags);
+		flags = _flags;
+	}
+
+	<span class="hljs-keyword">ssize_t</span> result = send(self-&gt;sockfd, (<span class="hljs-keyword">void</span>*)buf-&gt;bytes, buf-&gt;length, flags);
+	<span class="hljs-keyword">if</span> (result &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(SocketError, <span class="hljs-string">"Socket error: %s"</span>, strerror(errno));
+	}
+
+	<span class="hljs-keyword">return</span> INTEGER_VAL(result);
+}
+
+KRK_Method(socket,sendto) {
+	METHOD_TAKES_AT_LEAST(<span class="hljs-number">1</span>);
+	METHOD_TAKES_AT_MOST(<span class="hljs-number">3</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,bytes,KrkBytes*,buf);
+	<span class="hljs-keyword">int</span> flags = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">3</span>) {
+		CHECK_ARG(<span class="hljs-number">2</span>,<span class="hljs-keyword">int</span>,krk_integer_type,_flags);
+		flags = _flags;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_storage</span> <span class="hljs-title">sock_addr</span>;</span>
+	<span class="hljs-keyword">socklen_t</span> sock_size = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* What do we take? I guess a tuple for AF_INET */</span>
+	<span class="hljs-keyword">int</span> parseResult = socket_parse_address(self, argv[argc<span class="hljs-number">-1</span>], &amp;sock_addr, &amp;sock_size);
+	<span class="hljs-keyword">if</span> (parseResult) {
+		<span class="hljs-keyword">if</span> (!(krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION))
+			<span class="hljs-keyword">return</span> krk_runtimeError(SocketError, <span class="hljs-string">"Unspecified error."</span>);
+		<span class="hljs-keyword">return</span> NONE_VAL();
+	}
+
+	<span class="hljs-keyword">ssize_t</span> result = sendto(self-&gt;sockfd, (<span class="hljs-keyword">void</span>*)buf-&gt;bytes, buf-&gt;length, flags, (struct sockaddr*)&amp;sock_addr, sock_size);
+	<span class="hljs-keyword">if</span> (result &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(SocketError, <span class="hljs-string">"Socket error: %s"</span>, strerror(errno));
+	}
+
+	<span class="hljs-keyword">return</span> INTEGER_VAL(result);
+}
+
+
+KRK_Method(socket,fileno) {
+	<span class="hljs-keyword">return</span> INTEGER_VAL(self-&gt;sockfd);
+}
+
+KRK_Method(socket,setsockopt) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">3</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,<span class="hljs-keyword">int</span>,krk_integer_type,level);
+	CHECK_ARG(<span class="hljs-number">2</span>,<span class="hljs-keyword">int</span>,krk_integer_type,optname);
+
+	<span class="hljs-keyword">int</span> result;
+
+	<span class="hljs-keyword">if</span> (IS_INTEGER(argv[<span class="hljs-number">3</span>])) {
+		<span class="hljs-keyword">int</span> val = AS_INTEGER(argv[<span class="hljs-number">3</span>]);
+		result = setsockopt(self-&gt;sockfd, level, optname, (<span class="hljs-keyword">void</span>*)&amp;val, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>));
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_BYTES(argv[<span class="hljs-number">3</span>])) {
+		result = setsockopt(self-&gt;sockfd, level, optname, (<span class="hljs-keyword">void</span>*)AS_BYTES(argv[<span class="hljs-number">3</span>])-&gt;bytes, AS_BYTES(argv[<span class="hljs-number">3</span>])-&gt;length);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">return</span> TYPE_ERROR(<span class="hljs-keyword">int</span> <span class="hljs-keyword">or</span> bytes,argv[<span class="hljs-number">3</span>]);
+	}
+
+	<span class="hljs-keyword">if</span> (result &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(SocketError, <span class="hljs-string">"Socket error: %s"</span>, strerror(errno));
+	}
+
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Function(htons) {
+	FUNCTION_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	CHECK_ARG(<span class="hljs-number">0</span>,<span class="hljs-keyword">int</span>,krk_integer_type,value);
+	<span class="hljs-keyword">return</span> INTEGER_VAL(htons(value));
+}
+
+KRK_Method(socket,family) {
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;attributeError, <span class="hljs-string">"readonly attribute"</span>);
+	<span class="hljs-keyword">return</span> INTEGER_VAL(self-&gt;family);
+}
+
+KRK_Method(socket,type) {
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;attributeError, <span class="hljs-string">"readonly attribute"</span>);
+	<span class="hljs-keyword">return</span> INTEGER_VAL(self-&gt;type);
+}
+
+KRK_Method(socket,proto) {
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;attributeError, <span class="hljs-string">"readonly attribute"</span>);
+	<span class="hljs-keyword">return</span> INTEGER_VAL(self-&gt;proto);
+}
+
+KRK_Module(socket) {
+	KRK_DOC(<span class="hljs-keyword">module</span>, <span class="hljs-string">"Lightweight wrapper around the standard Berkeley sockets interface."</span>);
+
+	KrkClass * socket = krk_makeClass(<span class="hljs-keyword">module</span>, &amp;SocketClass, <span class="hljs-string">"socket"</span>, vm.baseClasses-&gt;objectClass);
+	SocketClass-&gt;allocSize = <span class="hljs-keyword">sizeof</span>(struct socket);
+	KRK_DOC(BIND_METHOD(socket,__init__),
+		<span class="hljs-string">"@brief Create a socket object.\n"</span>
+		<span class="hljs-string">"@arguments family=AF_INET,type=SOCK_STREAM,proto=0\n\n"</span>
+		<span class="hljs-string">"Creates a new socket object for the given address family and type."</span>);
+	BIND_METHOD(socket,__repr__);
+	KRK_DOC(BIND_METHOD(socket,bind),
+		<span class="hljs-string">"@brief Bind a socket to an address.\n"</span>
+		<span class="hljs-string">"@arguments address\n\n"</span>
+		<span class="hljs-string">"The format of @p address varies by address family. For @c AF_INET, @p address should be a "</span>
+		<span class="hljs-string">"two-tuple of a string domain name and integer port number."</span>);
+	KRK_DOC(BIND_METHOD(socket,<span class="hljs-built_in">listen</span>),
+		<span class="hljs-string">"@brief Set a bound socket to listen.\n"</span>
+		<span class="hljs-string">"@arguments backlog=0\n\n"</span>
+		<span class="hljs-string">"Begin listening on a bound socket, keeping @p backlog connections in a queue."</span>);
+	KRK_DOC(BIND_METHOD(socket,accept),
+		<span class="hljs-string">"@brief Accept a connection on a listening socket.\n\n"</span>
+		<span class="hljs-string">"Accepts one connection and returns a two-tuple with a new socket object and "</span>
+		<span class="hljs-string">"the address of the remote host."</span>);
+	KRK_DOC(BIND_METHOD(socket,<span class="hljs-built_in">connect</span>),
+		<span class="hljs-string">"@brief Connect a socket to a remote endpoint.\n"</span>
+		<span class="hljs-string">"@arguments address\n\n"</span>
+		<span class="hljs-string">"As with @ref socket_bind, the format of @p address varies."</span>);
+	KRK_DOC(BIND_METHOD(socket,<span class="hljs-built_in">shutdown</span>),
+		<span class="hljs-string">"@brief Shut down an active socket.\n"</span>
+		<span class="hljs-string">"@arguments how\n\n"</span>
+		<span class="hljs-string">"Gracefully closes an open socket."</span>);
+	KRK_DOC(BIND_METHOD(socket,recv),
+		<span class="hljs-string">"@brief Receive data from a connected socket.\n"</span>
+		<span class="hljs-string">"@arguments bufsize,[flags]\n\n"</span>
+		<span class="hljs-string">"Receive up to @p bufsize bytes of data, which is returned as a @ref bytes object."</span>);
+	KRK_DOC(BIND_METHOD(socket,send),
+		<span class="hljs-string">"@brief Send data to a connected socket.\n"</span>
+		<span class="hljs-string">"@arguments buf,[flags]\n\n"</span>
+		<span class="hljs-string">"Send the data in the @ref bytes object @p buf to the socket. Returns the number "</span>
+		<span class="hljs-string">"of bytes written to the socket."</span>);
+	KRK_DOC(BIND_METHOD(socket,sendto),
+		<span class="hljs-string">"@brief Send data to an socket with a particular destination.\n"</span>
+		<span class="hljs-string">"@arguments buf,[flags],addr\n\n"</span>
+		<span class="hljs-string">"Send the data in the @ref bytes object @p buf to the socket. Returns the number "</span>
+		<span class="hljs-string">"of bytes written to the socket."</span>);
+	KRK_DOC(BIND_METHOD(socket,fileno),
+		<span class="hljs-string">"@brief Get the file descriptor number for the underlying socket."</span>);
+	KRK_DOC(BIND_METHOD(socket,setsockopt),
+		<span class="hljs-string">"@brief Set socket options.\n"</span>
+		<span class="hljs-string">"@arguments level,optname,value\n\n"</span>
+		<span class="hljs-string">"@p level and @p optname should be integer values defined by @c SOL and @c SO options. "</span>
+		<span class="hljs-string">"@p value must be either an @ref int or a @ref bytes object."</span>);
+	KRK_DOC(BIND_METHOD(socket,getsockname),
+		<span class="hljs-string">"@brief Get address bound to socket\n"</span>);
+
+	BIND_PROP(socket,family);
+	BIND_PROP(socket,type);
+	BIND_PROP(socket,proto);
+
+	krk_finalizeClass(SocketClass);
+
+	BIND_FUNC(<span class="hljs-keyword">module</span>, htons);
+
+	<span class="hljs-comment">/* Constants */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SOCK_CONST(o) krk_attachNamedValue(&amp;module-&gt;fields, #o, INTEGER_VAL(o));</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>AF_ constants
+Taken from the manpages for Linux, and all shoved behind ifdefs, so this
+should build fine on most anything even if most of these aren't widely
+supported by other platforms.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	SOCK_CONST(AF_INET);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> AF_INET6</span>
+	SOCK_CONST(AF_INET6);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> AF_UNIX</span>
+	SOCK_CONST(AF_UNIX);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	<span class="hljs-comment">/* SOCK_ constants, similarly */</span>
+	SOCK_CONST(SOCK_STREAM);
+	SOCK_CONST(SOCK_DGRAM);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> SOCK_RAW</span>
+	SOCK_CONST(SOCK_RAW);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	<span class="hljs-comment">/* These are OR'd together with the above on Linux */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> SOCK_NONBLOCK</span>
+	SOCK_CONST(SOCK_NONBLOCK);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> SOCK_CLOEXEC</span>
+	SOCK_CONST(SOCK_CLOEXEC);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> SHUT_RD</span>
+	SOCK_CONST(SHUT_RD);
+	SOCK_CONST(SHUT_WR);
+	SOCK_CONST(SHUT_RDWR);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	SOCK_CONST(SOL_SOCKET);
+
+	SOCK_CONST(SO_REUSEADDR);
+
+	krk_makeClass(<span class="hljs-keyword">module</span>, &amp;SocketError, <span class="hljs-string">"SocketError"</span>, vm.exceptions-&gt;baseException);
+	KRK_DOC(SocketError, <span class="hljs-string">"Raised on faults from socket functions."</span>);
+	krk_finalizeClass(SocketError);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

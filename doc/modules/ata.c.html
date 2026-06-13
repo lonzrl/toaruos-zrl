@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ata.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "modules\\ata.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>ata.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/module.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pci.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/misc.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mutex.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/ports.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/irq.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_SR_BSY     0x80</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_SR_DRDY    0x40</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_SR_DF      0x20</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_SR_DSC     0x10</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_SR_DRQ     0x08</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_SR_CORR    0x04</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_SR_IDX     0x02</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_SR_ERR     0x01</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_ER_BBK      0x80</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_ER_UNC      0x40</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_ER_MC       0x20</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_ER_IDNF     0x10</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_ER_MCR      0x08</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_ER_ABRT     0x04</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_ER_TK0NF    0x02</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_ER_AMNF     0x01</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_CMD_READ_PIO          0x20</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_CMD_READ_PIO_EXT      0x24</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_CMD_READ_DMA          0xC8</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_CMD_READ_DMA_EXT      0x25</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_CMD_WRITE_PIO         0x30</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_CMD_WRITE_PIO_EXT     0x34</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_CMD_WRITE_DMA         0xCA</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_CMD_WRITE_DMA_EXT     0x35</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_CMD_CACHE_FLUSH       0xE7</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_CMD_CACHE_FLUSH_EXT   0xEA</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_CMD_PACKET            0xA0</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_CMD_IDENTIFY_PACKET   0xA1</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_CMD_IDENTIFY          0xEC</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATAPI_CMD_READ       0xA8</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATAPI_CMD_EJECT      0x1B</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_IDENT_DEVICETYPE   0</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_IDENT_CYLINDERS    2</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_IDENT_HEADS        6</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_IDENT_SECTORS      12</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_IDENT_SERIAL       20</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_IDENT_MODEL        54</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_IDENT_CAPABILITIES 98</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_IDENT_FIELDVALID   106</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_IDENT_MAX_LBA      120</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_IDENT_COMMANDSETS  164</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_IDENT_MAX_LBA_EXT  200</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> IDE_ATA        0x00</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> IDE_ATAPI      0x01</span>
+ 
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_MASTER     0x00</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_SLAVE      0x01</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_REG_DATA       0x00</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_REG_ERROR      0x01</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_REG_FEATURES   0x01</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_REG_SECCOUNT0  0x02</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_REG_LBA0       0x03</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_REG_LBA1       0x04</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_REG_LBA2       0x05</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_REG_HDDEVSEL   0x06</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_REG_COMMAND    0x07</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_REG_STATUS     0x07</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_REG_SECCOUNT1  0x08</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_REG_LBA3       0x09</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_REG_LBA4       0x0A</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_REG_LBA5       0x0B</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_REG_CONTROL    0x0C</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_REG_ALTSTATUS  0x0C</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_REG_DEVADDRESS 0x0D</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<p>Channels:</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_PRIMARY      0x00</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_SECONDARY    0x01</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<p>Directions:</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_READ      0x00</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_WRITE     0x01</span>
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+	<span class="hljs-keyword">uint16_t</span> base;
+	<span class="hljs-keyword">uint16_t</span> ctrl;
+	<span class="hljs-keyword">uint16_t</span> bmide;
+	<span class="hljs-keyword">uint16_t</span> nien;
+} <span class="hljs-keyword">ide_channel_regs_t</span>;
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+	<span class="hljs-keyword">uint8_t</span>  reserved;
+	<span class="hljs-keyword">uint8_t</span>  channel;
+	<span class="hljs-keyword">uint8_t</span>  drive;
+	<span class="hljs-keyword">uint16_t</span> type;
+	<span class="hljs-keyword">uint16_t</span> signature;
+	<span class="hljs-keyword">uint16_t</span> capabilities;
+	<span class="hljs-keyword">uint32_t</span> command_sets;
+	<span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">size</span>;
+	<span class="hljs-keyword">uint8_t</span>  model[<span class="hljs-number">41</span>];
+} <span class="hljs-keyword">ide_device_t</span>;
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+	<span class="hljs-keyword">uint16_t</span> flags;
+	<span class="hljs-keyword">uint16_t</span> unused1[<span class="hljs-number">9</span>];
+	<span class="hljs-keyword">char</span>     serial[<span class="hljs-number">20</span>];
+	<span class="hljs-keyword">uint16_t</span> unused2[<span class="hljs-number">3</span>];
+	<span class="hljs-keyword">char</span>     firmware[<span class="hljs-number">8</span>];
+	<span class="hljs-keyword">char</span>     model[<span class="hljs-number">40</span>];
+	<span class="hljs-keyword">uint16_t</span> sectors_per_int;
+	<span class="hljs-keyword">uint16_t</span> unused3;
+	<span class="hljs-keyword">uint16_t</span> capabilities[<span class="hljs-number">2</span>];
+	<span class="hljs-keyword">uint16_t</span> unused4[<span class="hljs-number">2</span>];
+	<span class="hljs-keyword">uint16_t</span> valid_ext_data;
+	<span class="hljs-keyword">uint16_t</span> unused5[<span class="hljs-number">5</span>];
+	<span class="hljs-keyword">uint16_t</span> size_of_rw_mult;
+	<span class="hljs-keyword">uint32_t</span> sectors_28;
+	<span class="hljs-keyword">uint16_t</span> unused6[<span class="hljs-number">38</span>];
+	<span class="hljs-keyword">uint64_t</span> sectors_48;
+	<span class="hljs-keyword">uint16_t</span> unused7[<span class="hljs-number">152</span>];
+} __attribute__((packed)) <span class="hljs-keyword">ata_identify_t</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> ata_drive_char = <span class="hljs-string">'a'</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span>  cdrom_number = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> ata_pci = <span class="hljs-number">0x00000000</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">list_t</span> * atapi_waiter;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span>  found_something = <span class="hljs-number">0</span>;
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-keyword">union</span> {
+	<span class="hljs-keyword">uint8_t</span> command_bytes[<span class="hljs-number">12</span>];
+	<span class="hljs-keyword">uint16_t</span> command_words[<span class="hljs-number">6</span>];
+} <span class="hljs-keyword">atapi_command_t</span>;
+
+<span class="hljs-comment">/* 8086:7010 */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">find_ata_pci</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> device, <span class="hljs-keyword">uint16_t</span> vendorid, <span class="hljs-keyword">uint16_t</span> deviceid, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-keyword">if</span> ((vendorid == <span class="hljs-number">0x8086</span>) &amp;&amp; (deviceid == <span class="hljs-number">0x7010</span> || deviceid == <span class="hljs-number">0x7111</span>)) {
+		*((<span class="hljs-keyword">uint32_t</span> *)extra) = device;
+	}
+}
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+	<span class="hljs-keyword">uintptr_t</span> offset;
+	<span class="hljs-keyword">uint16_t</span> bytes;
+	<span class="hljs-keyword">uint16_t</span> last;
+} <span class="hljs-keyword">prdt_t</span>;
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ata_device</span> {</span>
+	<span class="hljs-keyword">int</span> io_base;
+	<span class="hljs-keyword">int</span> control;
+	<span class="hljs-keyword">int</span> slave;
+	<span class="hljs-keyword">int</span> is_atapi;
+	<span class="hljs-keyword">ata_identify_t</span> identity;
+	<span class="hljs-keyword">prdt_t</span> * dma_prdt;
+	<span class="hljs-keyword">uintptr_t</span> dma_prdt_phys;
+	<span class="hljs-keyword">uint8_t</span> * dma_start;
+	<span class="hljs-keyword">uintptr_t</span> dma_start_phys;
+	<span class="hljs-keyword">uint32_t</span> bar4;
+	<span class="hljs-keyword">uint32_t</span> atapi_lba;
+	<span class="hljs-keyword">uint32_t</span> atapi_sector_size;
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ata_device</span> <span class="hljs-title">ata_primary_master</span>   = {</span>.io_base = <span class="hljs-number">0x1F0</span>, .control = <span class="hljs-number">0x3F6</span>, .slave = <span class="hljs-number">0</span>};
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ata_device</span> <span class="hljs-title">ata_primary_slave</span>    = {</span>.io_base = <span class="hljs-number">0x1F0</span>, .control = <span class="hljs-number">0x3F6</span>, .slave = <span class="hljs-number">1</span>};
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ata_device</span> <span class="hljs-title">ata_secondary_master</span> = {</span>.io_base = <span class="hljs-number">0x170</span>, .control = <span class="hljs-number">0x376</span>, .slave = <span class="hljs-number">0</span>};
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ata_device</span> <span class="hljs-title">ata_secondary_slave</span>  = {</span>.io_base = <span class="hljs-number">0x170</span>, .control = <span class="hljs-number">0x376</span>, .slave = <span class="hljs-number">1</span>};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> atapi_cmd_lock = { <span class="hljs-number">0</span> };
+
+<span class="hljs-comment">/* TODO support other sector sizes */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_SECTOR_SIZE 512</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ATA_CACHE_SIZE  4096</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SECTORS_PER_CACHE_BLOCK 8</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ata_device_read_sector</span><span class="hljs-params">(struct ata_device * dev, <span class="hljs-keyword">uint64_t</span> lba, <span class="hljs-keyword">uint8_t</span> * buf)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ata_device_read_sector_atapi</span><span class="hljs-params">(struct ata_device * dev, <span class="hljs-keyword">uint64_t</span> lba, <span class="hljs-keyword">uint8_t</span> * buf)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ata_device_write_sector</span><span class="hljs-params">(struct ata_device * dev, <span class="hljs-keyword">uint64_t</span> lba, <span class="hljs-keyword">uint8_t</span> * buf)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ata_device_write_sector_actual</span><span class="hljs-params">(struct ata_device * dev, <span class="hljs-keyword">uint64_t</span> lba)</span></span>;
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">CacheEntry</span> {</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ata_device</span> * <span class="hljs-title">dev</span>;</span>
+	<span class="hljs-keyword">uint64_t</span> lba;
+	<span class="hljs-keyword">uint64_t</span> last_use;
+	<span class="hljs-keyword">uint64_t</span> flags;
+};
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CACHE_COUNT 4096</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint64_t</span> hit_count = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint64_t</span> miss_count = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint64_t</span> eviction_count = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint64_t</span> write_count = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">sched_mutex_t</span> * ata_mutex = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">CacheEntry</span> * <span class="hljs-title">cache_entries</span> = <span class="hljs-title">NULL</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * cache_blocks = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint64_t</span> counter = <span class="hljs-number">1</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">off_t</span> <span class="hljs-title">ata_max_offset</span><span class="hljs-params">(struct ata_device * dev)</span> </span>{
+	<span class="hljs-keyword">uint64_t</span> sectors = dev-&gt;identity.sectors_48;
+	
+	<span class="hljs-keyword">if</span> (!sectors) {
+		<span class="hljs-comment">/* Fall back to sectors_28 */</span>
+		sectors = dev-&gt;identity.sectors_28;
+	}
+
+	<span class="hljs-keyword">return</span> sectors * ATA_SECTOR_SIZE;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">off_t</span> <span class="hljs-title">atapi_max_offset</span><span class="hljs-params">(struct ata_device * dev)</span> </span>{
+	<span class="hljs-keyword">uint64_t</span> max_sector = dev-&gt;atapi_lba;
+
+	<span class="hljs-keyword">if</span> (!max_sector) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">return</span> (max_sector + <span class="hljs-number">1</span>) * dev-&gt;atapi_sector_size;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">read_ata</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ata_device</span> * <span class="hljs-title">dev</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">ata_device</span> *)<span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> start_block = offset / ATA_CACHE_SIZE;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> end_block = (offset + <span class="hljs-built_in">size</span> - <span class="hljs-number">1</span>) / ATA_CACHE_SIZE;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> x_offset = <span class="hljs-number">0</span>;
+
+
+	<span class="hljs-keyword">if</span> (offset &gt; ata_max_offset(dev)) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (offset + (<span class="hljs-keyword">ssize_t</span>)<span class="hljs-built_in">size</span> &gt; ata_max_offset(dev)) {
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = ata_max_offset(dev) - offset;
+		<span class="hljs-built_in">size</span> = i;
+	}
+
+	<span class="hljs-keyword">if</span> (offset % ATA_CACHE_SIZE || <span class="hljs-built_in">size</span> &lt; ATA_CACHE_SIZE) {
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> prefix_size = (ATA_CACHE_SIZE - (offset % ATA_CACHE_SIZE));
+		<span class="hljs-keyword">if</span> (prefix_size &gt; <span class="hljs-built_in">size</span>) prefix_size = <span class="hljs-built_in">size</span>;
+		<span class="hljs-keyword">char</span> * tmp = <span class="hljs-built_in">malloc</span>(ATA_CACHE_SIZE);
+		ata_device_read_sector(dev, start_block, (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		<span class="hljs-built_in">memcpy</span>(<span class="hljs-built_in">buffer</span>, (<span class="hljs-keyword">void</span> *)((<span class="hljs-keyword">uintptr_t</span>)tmp + ((<span class="hljs-keyword">uintptr_t</span>)offset % ATA_CACHE_SIZE)), prefix_size);
+
+		<span class="hljs-built_in">free</span>(tmp);
+
+		x_offset += prefix_size;
+		start_block++;
+	}
+
+	<span class="hljs-keyword">if</span> ((offset + <span class="hljs-built_in">size</span>)  % ATA_CACHE_SIZE &amp;&amp; start_block &lt;= end_block) {
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> postfix_size = (offset + <span class="hljs-built_in">size</span>) % ATA_CACHE_SIZE;
+		<span class="hljs-keyword">char</span> * tmp = <span class="hljs-built_in">malloc</span>(ATA_CACHE_SIZE);
+		ata_device_read_sector(dev, end_block, (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		<span class="hljs-built_in">memcpy</span>((<span class="hljs-keyword">void</span> *)((<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-built_in">buffer</span> + <span class="hljs-built_in">size</span> - postfix_size), tmp, postfix_size);
+
+		<span class="hljs-built_in">free</span>(tmp);
+
+		end_block--;
+	}
+
+	<span class="hljs-keyword">while</span> (start_block &lt;= end_block) {
+		ata_device_read_sector(dev, start_block, (<span class="hljs-keyword">uint8_t</span> *)((<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-built_in">buffer</span> + x_offset));
+		x_offset += ATA_CACHE_SIZE;
+		start_block++;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">size</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">read_atapi</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ata_device</span> * <span class="hljs-title">dev</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">ata_device</span> *)<span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> start_block = offset / dev-&gt;atapi_sector_size;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> end_block = (offset + <span class="hljs-built_in">size</span> - <span class="hljs-number">1</span>) / dev-&gt;atapi_sector_size;
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> x_offset = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (offset &gt; atapi_max_offset(dev)) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (offset + (<span class="hljs-keyword">ssize_t</span>)<span class="hljs-built_in">size</span> &gt; atapi_max_offset(dev)) {
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = atapi_max_offset(dev) - offset;
+		<span class="hljs-built_in">size</span> = i;
+	}
+
+	<span class="hljs-keyword">if</span> (offset % dev-&gt;atapi_sector_size || <span class="hljs-built_in">size</span> &lt; dev-&gt;atapi_sector_size) {
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> prefix_size = (dev-&gt;atapi_sector_size - (offset % dev-&gt;atapi_sector_size));
+		<span class="hljs-keyword">if</span> (prefix_size &gt; <span class="hljs-built_in">size</span>) prefix_size = <span class="hljs-built_in">size</span>;
+		<span class="hljs-keyword">char</span> * tmp = <span class="hljs-built_in">malloc</span>(dev-&gt;atapi_sector_size);
+		ata_device_read_sector_atapi(dev, start_block, (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		<span class="hljs-built_in">memcpy</span>(<span class="hljs-built_in">buffer</span>, (<span class="hljs-keyword">void</span> *)((<span class="hljs-keyword">uintptr_t</span>)tmp + ((<span class="hljs-keyword">uintptr_t</span>)offset % dev-&gt;atapi_sector_size)), prefix_size);
+
+		<span class="hljs-built_in">free</span>(tmp);
+
+		x_offset += prefix_size;
+		start_block++;
+	}
+
+	<span class="hljs-keyword">if</span> ((offset + <span class="hljs-built_in">size</span>)  % dev-&gt;atapi_sector_size &amp;&amp; start_block &lt;= end_block) {
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> postfix_size = (offset + <span class="hljs-built_in">size</span>) % dev-&gt;atapi_sector_size;
+		<span class="hljs-keyword">char</span> * tmp = <span class="hljs-built_in">malloc</span>(dev-&gt;atapi_sector_size);
+		ata_device_read_sector_atapi(dev, end_block, (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		<span class="hljs-built_in">memcpy</span>((<span class="hljs-keyword">void</span> *)((<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-built_in">buffer</span> + <span class="hljs-built_in">size</span> - postfix_size), tmp, postfix_size);
+
+		<span class="hljs-built_in">free</span>(tmp);
+
+		end_block--;
+	}
+
+	<span class="hljs-keyword">while</span> (start_block &lt;= end_block) {
+		ata_device_read_sector_atapi(dev, start_block, (<span class="hljs-keyword">uint8_t</span> *)((<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-built_in">buffer</span> + x_offset));
+		x_offset += dev-&gt;atapi_sector_size;
+		start_block++;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">size</span>;
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">write_ata</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ata_device</span> * <span class="hljs-title">dev</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">ata_device</span> *)<span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> start_block = offset / ATA_CACHE_SIZE;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> end_block = (offset + <span class="hljs-built_in">size</span> - <span class="hljs-number">1</span>) / ATA_CACHE_SIZE;
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> x_offset = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (offset &gt; ata_max_offset(dev)) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (offset + (<span class="hljs-keyword">ssize_t</span>)<span class="hljs-built_in">size</span> &gt; ata_max_offset(dev)) {
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = ata_max_offset(dev) - offset;
+		<span class="hljs-built_in">size</span> = i;
+	}
+
+	<span class="hljs-keyword">if</span> (offset % ATA_CACHE_SIZE) {
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> prefix_size = (ATA_CACHE_SIZE - (offset % ATA_CACHE_SIZE));
+
+		<span class="hljs-keyword">char</span> * tmp = <span class="hljs-built_in">malloc</span>(ATA_CACHE_SIZE);
+		ata_device_read_sector(dev, start_block, (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		<span class="hljs-built_in">memcpy</span>((<span class="hljs-keyword">void</span> *)((<span class="hljs-keyword">uintptr_t</span>)tmp + ((<span class="hljs-keyword">uintptr_t</span>)offset % ATA_CACHE_SIZE)), <span class="hljs-built_in">buffer</span>, prefix_size);
+		ata_device_write_sector(dev, start_block, (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		<span class="hljs-built_in">free</span>(tmp);
+		x_offset += prefix_size;
+		start_block++;
+	}
+
+	<span class="hljs-keyword">if</span> ((offset + <span class="hljs-built_in">size</span>)  % ATA_CACHE_SIZE &amp;&amp; start_block &lt;= end_block) {
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> postfix_size = (offset + <span class="hljs-built_in">size</span>) % ATA_CACHE_SIZE;
+
+		<span class="hljs-keyword">char</span> * tmp = <span class="hljs-built_in">malloc</span>(ATA_CACHE_SIZE);
+		ata_device_read_sector(dev, end_block, (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		<span class="hljs-built_in">memcpy</span>(tmp, (<span class="hljs-keyword">void</span> *)((<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-built_in">buffer</span> + <span class="hljs-built_in">size</span> - postfix_size), postfix_size);
+
+		ata_device_write_sector(dev, end_block, (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		<span class="hljs-built_in">free</span>(tmp);
+		end_block--;
+	}
+
+	<span class="hljs-keyword">while</span> (start_block &lt;= end_block) {
+		ata_device_write_sector(dev, start_block, (<span class="hljs-keyword">uint8_t</span> *)((<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-built_in">buffer</span> + x_offset));
+		x_offset += ATA_CACHE_SIZE;
+		start_block++;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">size</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">open_ata</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">return</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">close_ata</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node)</span> </span>{
+	<span class="hljs-keyword">return</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ioctl_ata</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> request, <span class="hljs-keyword">void</span> * argp)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ata_device</span> * <span class="hljs-title">dev</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">ata_device</span> *)<span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+
+	<span class="hljs-keyword">switch</span> (request) {
+		<span class="hljs-keyword">case</span> IOCTLSYNC: {
+			mutex_acquire(ata_mutex);
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; CACHE_COUNT; ++i) {
+				<span class="hljs-keyword">if</span> (cache_entries[i].dev == dev &amp;&amp; cache_entries[i].flags &amp; <span class="hljs-number">1</span>) {
+					eviction_count++;
+					<span class="hljs-built_in">memcpy</span>(cache_entries[i].dev-&gt;dma_start, cache_blocks + i * ATA_CACHE_SIZE, ATA_CACHE_SIZE);
+					ata_device_write_sector_actual(cache_entries[i].dev, cache_entries[i].lba);
+					cache_entries[i].flags = <span class="hljs-number">0</span>;
+				}
+			}
+			mutex_release(ata_mutex);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+
+		<span class="hljs-keyword">case</span> <span class="hljs-number">0x2A01234</span>UL: {
+			<span class="hljs-keyword">uint64_t</span> * args = argp;
+			<span class="hljs-built_in">memcpy</span>(&amp;args[<span class="hljs-number">0</span>], &amp;hit_count, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint64_t</span>));
+			<span class="hljs-built_in">memcpy</span>(&amp;args[<span class="hljs-number">1</span>], &amp;miss_count, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint64_t</span>));
+			<span class="hljs-built_in">memcpy</span>(&amp;args[<span class="hljs-number">2</span>], &amp;eviction_count, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint64_t</span>));
+			<span class="hljs-built_in">memcpy</span>(&amp;args[<span class="hljs-number">3</span>], &amp;write_count, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint64_t</span>));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> -ENOTTY;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">atapi_device_create</span><span class="hljs-params">(struct ata_device * device)</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> * fnode = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">memset</span>(fnode, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	fnode-&gt;inode = <span class="hljs-number">0</span>;
+	<span class="hljs-built_in">snprintf</span>(fnode-&gt;name, <span class="hljs-number">20</span>, <span class="hljs-string">"cdrom%d"</span>, cdrom_number);
+	fnode-&gt;device  = device;
+	fnode-&gt;uid = <span class="hljs-number">0</span>;
+	fnode-&gt;gid = <span class="hljs-number">0</span>;
+	fnode-&gt;mask    = <span class="hljs-number">0664</span>;
+	fnode-&gt;length  = atapi_max_offset(device);
+	fnode-&gt;flags   = FS_BLOCKDEVICE;
+	fnode-&gt;<span class="hljs-built_in">read</span>    = read_atapi;
+	fnode-&gt;<span class="hljs-built_in">write</span>   = <span class="hljs-literal">NULL</span>; <span class="hljs-comment">/* no write support */</span>
+	fnode-&gt;<span class="hljs-built_in">open</span>    = open_ata;
+	fnode-&gt;<span class="hljs-built_in">close</span>   = close_ata;
+	fnode-&gt;readdir = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;finddir = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;ioctl   = <span class="hljs-literal">NULL</span>; <span class="hljs-comment">/* TODO, identify, etc? */</span>
+	<span class="hljs-keyword">return</span> fnode;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">ata_device_create</span><span class="hljs-params">(struct ata_device * device)</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> * fnode = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">memset</span>(fnode, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	fnode-&gt;inode = <span class="hljs-number">0</span>;
+	<span class="hljs-built_in">snprintf</span>(fnode-&gt;name, <span class="hljs-number">10</span>, <span class="hljs-string">"atadev%d"</span>, ata_drive_char - <span class="hljs-string">'a'</span>);
+	fnode-&gt;device  = device;
+	fnode-&gt;uid = <span class="hljs-number">0</span>;
+	fnode-&gt;gid = <span class="hljs-number">0</span>;
+	fnode-&gt;mask    = <span class="hljs-number">0660</span>;
+	fnode-&gt;length  = ata_max_offset(device); <span class="hljs-comment">/* TODO */</span>
+	fnode-&gt;flags   = FS_BLOCKDEVICE;
+	fnode-&gt;<span class="hljs-built_in">read</span>    = read_ata;
+	fnode-&gt;<span class="hljs-built_in">write</span>   = write_ata;
+	fnode-&gt;<span class="hljs-built_in">open</span>    = open_ata;
+	fnode-&gt;<span class="hljs-built_in">close</span>   = close_ata;
+	fnode-&gt;readdir = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;finddir = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;ioctl   = ioctl_ata; <span class="hljs-comment">/* TODO, identify, etc? */</span>
+	<span class="hljs-keyword">return</span> fnode;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ata_io_wait</span><span class="hljs-params">(struct ata_device * dev)</span> </span>{
+	inportb(dev-&gt;io_base + ATA_REG_ALTSTATUS);
+	inportb(dev-&gt;io_base + ATA_REG_ALTSTATUS);
+	inportb(dev-&gt;io_base + ATA_REG_ALTSTATUS);
+	inportb(dev-&gt;io_base + ATA_REG_ALTSTATUS);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ata_status_wait</span><span class="hljs-params">(struct ata_device * dev, <span class="hljs-keyword">int</span> timeout)</span> </span>{
+	<span class="hljs-keyword">int</span> status;
+	<span class="hljs-keyword">if</span> (timeout &gt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">while</span> ((status = inportb(dev-&gt;io_base + ATA_REG_STATUS)) &amp; ATA_SR_BSY &amp;&amp; (i &lt; timeout)) i++;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">while</span> ((status = inportb(dev-&gt;io_base + ATA_REG_STATUS)) &amp; ATA_SR_BSY);
+	}
+	<span class="hljs-keyword">return</span> status;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ata_wait</span><span class="hljs-params">(struct ata_device * dev, <span class="hljs-keyword">int</span> advanced)</span> </span>{
+	<span class="hljs-keyword">uint8_t</span> status = <span class="hljs-number">0</span>;
+
+	ata_io_wait(dev);
+
+	status = ata_status_wait(dev, <span class="hljs-number">-1</span>);
+
+	<span class="hljs-keyword">if</span> (advanced) {
+		status = inportb(dev-&gt;io_base + ATA_REG_STATUS);
+		<span class="hljs-keyword">if</span> (status   &amp; ATA_SR_ERR)  <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">if</span> (status   &amp; ATA_SR_DF)   <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">if</span> (!(status &amp; ATA_SR_DRQ)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ata_soft_reset</span><span class="hljs-params">(struct ata_device * dev)</span> </span>{
+	outportb(dev-&gt;control, <span class="hljs-number">0x04</span>);
+	ata_io_wait(dev);
+	outportb(dev-&gt;control, <span class="hljs-number">0x00</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ata_irq_handler</span><span class="hljs-params">(struct regs *r)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ata_device</span> * <span class="hljs-title">dev</span> = <span class="hljs-title">r</span>-&gt;<span class="hljs-title">int_no</span> == 14 ? &amp;<span class="hljs-title">ata_primary_master</span> :</span> &amp;ata_secondary_master;
+	inportb(dev-&gt;io_base + ATA_REG_STATUS);
+
+	spin_lock(atapi_cmd_lock);
+	wakeup_queue(atapi_waiter);
+	spin_unlock(atapi_cmd_lock);
+	irq_ack(r-&gt;int_no);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> * <span class="hljs-title">kvmalloc_p</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uintptr_t</span> * outphys)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> index = mmu_allocate_n_frames(<span class="hljs-built_in">size</span> / <span class="hljs-number">0x1000</span>) &lt;&lt; <span class="hljs-number">12</span>;
+	*outphys = index;
+	<span class="hljs-keyword">return</span> mmu_map_from_physical(index);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ata_device_init</span><span class="hljs-params">(struct ata_device * dev)</span> </span>{
+	outportb(dev-&gt;io_base + <span class="hljs-number">1</span>, <span class="hljs-number">1</span>);
+	outportb(dev-&gt;control, <span class="hljs-number">0</span>);
+
+	outportb(dev-&gt;io_base + ATA_REG_HDDEVSEL, <span class="hljs-number">0xA0</span> | dev-&gt;slave &lt;&lt; <span class="hljs-number">4</span>);
+	ata_io_wait(dev);
+
+	outportb(dev-&gt;io_base + ATA_REG_COMMAND, ATA_CMD_IDENTIFY);
+	ata_io_wait(dev);
+
+	inportb(dev-&gt;io_base + ATA_REG_COMMAND);
+
+	ata_wait(dev, <span class="hljs-number">0</span>);
+
+	<span class="hljs-keyword">uint16_t</span> * buf = (<span class="hljs-keyword">uint16_t</span> *)&amp;dev-&gt;identity;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">256</span>; ++i) {
+		buf[i] = inports(dev-&gt;io_base);
+	}
+
+	<span class="hljs-keyword">uint8_t</span> * ptr = (<span class="hljs-keyword">uint8_t</span> *)&amp;dev-&gt;identity.model;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">39</span>; i+=<span class="hljs-number">2</span>) {
+		<span class="hljs-keyword">uint8_t</span> tmp = ptr[i+<span class="hljs-number">1</span>];
+		ptr[i+<span class="hljs-number">1</span>] = ptr[i];
+		ptr[i] = tmp;
+	}
+
+	dev-&gt;is_atapi = <span class="hljs-number">0</span>;
+	dev-&gt;dma_prdt  = (<span class="hljs-keyword">void</span> *)kvmalloc_p(<span class="hljs-number">4096</span>, &amp;dev-&gt;dma_prdt_phys);
+	dev-&gt;dma_start = (<span class="hljs-keyword">void</span> *)kvmalloc_p(<span class="hljs-number">4096</span>, &amp;dev-&gt;dma_start_phys);
+	dev-&gt;dma_prdt[<span class="hljs-number">0</span>].offset = dev-&gt;dma_start_phys;
+	dev-&gt;dma_prdt[<span class="hljs-number">0</span>].bytes = ATA_CACHE_SIZE;
+	dev-&gt;dma_prdt[<span class="hljs-number">0</span>].last = <span class="hljs-number">0x8000</span>;
+
+	<span class="hljs-keyword">uint16_t</span> command_reg = pci_read_field(ata_pci, PCI_COMMAND, <span class="hljs-number">4</span>);
+	<span class="hljs-keyword">if</span> (!(command_reg &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">2</span>))) {
+		command_reg |= (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">2</span>); <span class="hljs-comment">/* bit 2 */</span>
+		pci_write_field(ata_pci, PCI_COMMAND, <span class="hljs-number">4</span>, command_reg);
+		command_reg = pci_read_field(ata_pci, PCI_COMMAND, <span class="hljs-number">4</span>);
+	}
+
+	dev-&gt;bar4 = pci_read_field(ata_pci, PCI_BAR4, <span class="hljs-number">4</span>);
+
+	<span class="hljs-keyword">if</span> (dev-&gt;bar4 &amp; <span class="hljs-number">0x00000001</span>) {
+		dev-&gt;bar4 = dev-&gt;bar4 &amp; <span class="hljs-number">0xFFFFFFFC</span>;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">return</span>; <span class="hljs-comment">/* No DMA because we're not sure what to do here */</span>
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">atapi_device_init</span><span class="hljs-params">(struct ata_device * dev)</span> </span>{
+
+	dev-&gt;is_atapi = <span class="hljs-number">1</span>;
+
+	outportb(dev-&gt;io_base + <span class="hljs-number">1</span>, <span class="hljs-number">1</span>);
+	outportb(dev-&gt;control, <span class="hljs-number">0</span>);
+
+	outportb(dev-&gt;io_base + ATA_REG_HDDEVSEL, <span class="hljs-number">0xA0</span> | dev-&gt;slave &lt;&lt; <span class="hljs-number">4</span>);
+	ata_io_wait(dev);
+
+	outportb(dev-&gt;io_base + ATA_REG_COMMAND, ATA_CMD_IDENTIFY_PACKET);
+	ata_io_wait(dev);
+
+	inportb(dev-&gt;io_base + ATA_REG_COMMAND);
+
+	ata_wait(dev, <span class="hljs-number">0</span>);
+
+	<span class="hljs-keyword">uint16_t</span> * buf = (<span class="hljs-keyword">uint16_t</span> *)&amp;dev-&gt;identity;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">256</span>; ++i) {
+		buf[i] = inports(dev-&gt;io_base);
+	}
+
+	<span class="hljs-keyword">uint8_t</span> * ptr = (<span class="hljs-keyword">uint8_t</span> *)&amp;dev-&gt;identity.model;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">39</span>; i+=<span class="hljs-number">2</span>) {
+		<span class="hljs-keyword">uint8_t</span> tmp = ptr[i+<span class="hljs-number">1</span>];
+		ptr[i+<span class="hljs-number">1</span>] = ptr[i];
+		ptr[i] = tmp;
+	}
+
+	<span class="hljs-comment">/* Detect medium */</span>
+	<span class="hljs-keyword">atapi_command_t</span> command;
+	command.command_bytes[<span class="hljs-number">0</span>] = <span class="hljs-number">0x25</span>;
+	command.command_bytes[<span class="hljs-number">1</span>] = <span class="hljs-number">0</span>;
+	command.command_bytes[<span class="hljs-number">2</span>] = <span class="hljs-number">0</span>;
+	command.command_bytes[<span class="hljs-number">3</span>] = <span class="hljs-number">0</span>;
+	command.command_bytes[<span class="hljs-number">4</span>] = <span class="hljs-number">0</span>;
+	command.command_bytes[<span class="hljs-number">5</span>] = <span class="hljs-number">0</span>;
+	command.command_bytes[<span class="hljs-number">6</span>] = <span class="hljs-number">0</span>;
+	command.command_bytes[<span class="hljs-number">7</span>] = <span class="hljs-number">0</span>;
+	command.command_bytes[<span class="hljs-number">8</span>] = <span class="hljs-number">0</span>; <span class="hljs-comment">/* bit 0 = PMI (0, last sector) */</span>
+	command.command_bytes[<span class="hljs-number">9</span>] = <span class="hljs-number">0</span>; <span class="hljs-comment">/* control */</span>
+	command.command_bytes[<span class="hljs-number">10</span>] = <span class="hljs-number">0</span>;
+	command.command_bytes[<span class="hljs-number">11</span>] = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">uint16_t</span> bus = dev-&gt;io_base;
+
+	outportb(bus + ATA_REG_FEATURES, <span class="hljs-number">0x00</span>);
+	outportb(bus + ATA_REG_LBA1, <span class="hljs-number">0x08</span>);
+	outportb(bus + ATA_REG_LBA2, <span class="hljs-number">0x08</span>);
+	outportb(bus + ATA_REG_COMMAND, ATA_CMD_PACKET);
+
+	<span class="hljs-comment">/* poll */</span>
+	<span class="hljs-keyword">int</span> timeout = <span class="hljs-number">100</span>;
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">uint8_t</span> status = inportb(dev-&gt;io_base + ATA_REG_STATUS);
+		<span class="hljs-keyword">if</span> ((status &amp; ATA_SR_ERR)) <span class="hljs-keyword">goto</span> atapi_error;
+		<span class="hljs-keyword">if</span> (timeout-- &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">goto</span> atapi_timeout;
+		<span class="hljs-keyword">if</span> (!(status &amp; ATA_SR_BSY) &amp;&amp; (status &amp; ATA_SR_DRDY)) <span class="hljs-keyword">break</span>;
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">6</span>; ++i) {
+		outports(bus, command.command_words[i]);
+	}
+
+	<span class="hljs-comment">/* poll */</span>
+	timeout = <span class="hljs-number">100</span>;
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">uint8_t</span> status = inportb(dev-&gt;io_base + ATA_REG_STATUS);
+		<span class="hljs-keyword">if</span> ((status &amp; ATA_SR_ERR)) <span class="hljs-keyword">goto</span> atapi_error_read;
+		<span class="hljs-keyword">if</span> (timeout-- &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">goto</span> atapi_timeout;
+		<span class="hljs-keyword">if</span> (!(status &amp; ATA_SR_BSY) &amp;&amp; (status &amp; ATA_SR_DRDY)) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">if</span> ((status &amp; ATA_SR_DRQ)) <span class="hljs-keyword">break</span>;
+	}
+
+	<span class="hljs-keyword">uint16_t</span> data[<span class="hljs-number">4</span>];
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">4</span>; ++i) {
+		data[i] = inports(bus);
+	}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> htonl(l)  ( (((l) &amp; 0xFF) <span class="hljs-meta-string">&lt;&lt; 24) | (((l) &amp; 0xFF00) &lt;&lt; 8) | (((l) &amp; 0xFF0000) &gt;&gt; 8) | (((l) &amp; 0xFF000000) &gt;&gt; 24))</span></span>
+	<span class="hljs-keyword">uint32_t</span> lba, blocks;;
+	<span class="hljs-built_in">memcpy</span>(&amp;lba, &amp;data[<span class="hljs-number">0</span>], <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>));
+	lba = htonl(lba);
+	<span class="hljs-built_in">memcpy</span>(&amp;blocks, &amp;data[<span class="hljs-number">2</span>], <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>));
+	blocks = htonl(blocks);
+
+	dev-&gt;atapi_lba = lba;
+	dev-&gt;atapi_sector_size = blocks;
+
+	<span class="hljs-keyword">if</span> (!lba) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+atapi_error_read:
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+
+atapi_error:
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+
+atapi_timeout:
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ata_device_detect</span><span class="hljs-params">(struct ata_device * dev)</span> </span>{
+	ata_soft_reset(dev);
+	ata_io_wait(dev);
+	outportb(dev-&gt;io_base + ATA_REG_HDDEVSEL, <span class="hljs-number">0xA0</span> | dev-&gt;slave &lt;&lt; <span class="hljs-number">4</span>);
+	ata_io_wait(dev);
+	ata_status_wait(dev, <span class="hljs-number">10000</span>);
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> cl = inportb(dev-&gt;io_base + ATA_REG_LBA1); <span class="hljs-comment">/* CYL_LO */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> ch = inportb(dev-&gt;io_base + ATA_REG_LBA2); <span class="hljs-comment">/* CYL_HI */</span>
+
+	<span class="hljs-keyword">if</span> (cl == <span class="hljs-number">0xFF</span> &amp;&amp; ch == <span class="hljs-number">0xFF</span>) {
+		<span class="hljs-comment">/* Nothing here */</span>
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">if</span> ((cl == <span class="hljs-number">0x00</span> &amp;&amp; ch == <span class="hljs-number">0x00</span>) ||
+	    (cl == <span class="hljs-number">0x3C</span> &amp;&amp; ch == <span class="hljs-number">0xC3</span>)) {
+		<span class="hljs-comment">/* Parallel ATA device, or emulated SATA */</span>
+		ata_device_init(dev);
+
+		<span class="hljs-keyword">off_t</span> sectors = ata_max_offset(dev);
+		<span class="hljs-keyword">if</span> (sectors == <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+
+		<span class="hljs-keyword">char</span> devname[<span class="hljs-number">64</span>];
+		<span class="hljs-built_in">snprintf</span>((<span class="hljs-keyword">char</span> *)&amp;devname, <span class="hljs-number">20</span>, <span class="hljs-string">"/dev/hd%c"</span>, ata_drive_char);
+		<span class="hljs-keyword">fs_node_t</span> * node = ata_device_create(dev);
+		<span class="hljs-keyword">char</span> options[<span class="hljs-number">21</span>];
+		<span class="hljs-built_in">snprintf</span>(options, <span class="hljs-number">20</span>, <span class="hljs-string">"%c"</span>, ata_drive_char);
+		vfs_mount(devname, node, <span class="hljs-string">"ata-hd"</span>, options);
+		node-&gt;length  = sectors;
+
+		ata_drive_char++;
+		found_something = <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> ((cl == <span class="hljs-number">0x14</span> &amp;&amp; ch == <span class="hljs-number">0xEB</span>) ||
+	           (cl == <span class="hljs-number">0x69</span> &amp;&amp; ch == <span class="hljs-number">0x96</span>)) {
+
+		<span class="hljs-keyword">char</span> devname[<span class="hljs-number">64</span>];
+		<span class="hljs-built_in">snprintf</span>((<span class="hljs-keyword">char</span> *)&amp;devname, <span class="hljs-number">20</span>, <span class="hljs-string">"/dev/cdrom%d"</span>, cdrom_number);
+
+		<span class="hljs-keyword">if</span> (atapi_device_init(dev)) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+		<span class="hljs-keyword">fs_node_t</span> * node = atapi_device_create(dev);
+		<span class="hljs-keyword">char</span> options[<span class="hljs-number">21</span>];
+		<span class="hljs-built_in">snprintf</span>(options, <span class="hljs-number">20</span>, <span class="hljs-string">"%d"</span>, cdrom_number);
+		vfs_mount(devname, node, <span class="hljs-string">"atapi-cdrom"</span>, options);
+
+		cdrom_number++;
+		found_something = <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+	}
+
+	<span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> ATAPI, SATA, SATAPI */</span>
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ata_device_read_sector_actual</span><span class="hljs-params">(struct ata_device * dev, <span class="hljs-keyword">uint64_t</span> lba)</span> </span>{
+	<span class="hljs-keyword">uint16_t</span> bus = dev-&gt;io_base;
+	<span class="hljs-keyword">uint8_t</span> slave = dev-&gt;slave;
+
+	<span class="hljs-keyword">if</span> (dev-&gt;is_atapi) <span class="hljs-keyword">return</span>;
+
+	ata_wait(dev, <span class="hljs-number">0</span>);
+
+	<span class="hljs-comment">/* Stop */</span>
+	outportb(dev-&gt;bar4, <span class="hljs-number">0x00</span>);
+
+	<span class="hljs-comment">/* Set the PRDT */</span>
+	outportl(dev-&gt;bar4 + <span class="hljs-number">0x04</span>, dev-&gt;dma_prdt_phys);
+
+	<span class="hljs-comment">/* Enable error, irq status */</span>
+	outportb(dev-&gt;bar4 + <span class="hljs-number">0x2</span>, inportb(dev-&gt;bar4 + <span class="hljs-number">0x02</span>) | <span class="hljs-number">0x04</span> | <span class="hljs-number">0x02</span>);
+
+	<span class="hljs-comment">/* set read */</span>
+	outportb(dev-&gt;bar4, <span class="hljs-number">0x08</span>);
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">uint8_t</span> status = inportb(dev-&gt;io_base + ATA_REG_STATUS);
+		<span class="hljs-keyword">if</span> (!(status &amp; ATA_SR_BSY)) <span class="hljs-keyword">break</span>;
+	}
+
+	outportb(bus + ATA_REG_CONTROL, <span class="hljs-number">0x00</span>);
+	outportb(bus + ATA_REG_HDDEVSEL, <span class="hljs-number">0xe0</span> | slave &lt;&lt; <span class="hljs-number">4</span>);
+	ata_io_wait(dev);
+	outportb(bus + ATA_REG_FEATURES, <span class="hljs-number">0x00</span>);
+
+	outportb(bus + ATA_REG_SECCOUNT0, <span class="hljs-number">0</span>);
+	outportb(bus + ATA_REG_LBA0, (lba &amp; <span class="hljs-number">0xff000000</span>) &gt;&gt; <span class="hljs-number">24</span>);
+	outportb(bus + ATA_REG_LBA1, (lba &amp; <span class="hljs-number">0xff00000000</span>) &gt;&gt; <span class="hljs-number">32</span>);
+	outportb(bus + ATA_REG_LBA2, (lba &amp; <span class="hljs-number">0xff0000000000</span>) &gt;&gt; <span class="hljs-number">40</span>);
+
+	outportb(bus + ATA_REG_SECCOUNT0, SECTORS_PER_CACHE_BLOCK);
+	outportb(bus + ATA_REG_LBA0, (lba &amp; <span class="hljs-number">0x000000ff</span>) &gt;&gt;  <span class="hljs-number">0</span>);
+	outportb(bus + ATA_REG_LBA1, (lba &amp; <span class="hljs-number">0x0000ff00</span>) &gt;&gt;  <span class="hljs-number">8</span>);
+	outportb(bus + ATA_REG_LBA2, (lba &amp; <span class="hljs-number">0x00ff0000</span>) &gt;&gt; <span class="hljs-number">16</span>);
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">uint8_t</span> status = inportb(dev-&gt;io_base + ATA_REG_STATUS);
+		<span class="hljs-keyword">if</span> (!(status &amp; ATA_SR_BSY) &amp;&amp; (status &amp; ATA_SR_DRDY)) <span class="hljs-keyword">break</span>;
+	}
+	spin_lock(atapi_cmd_lock);
+	outportb(bus + ATA_REG_COMMAND, ATA_CMD_READ_DMA_EXT);
+
+	ata_io_wait(dev);
+
+	outportb(dev-&gt;bar4, <span class="hljs-number">0x08</span> | <span class="hljs-number">0x01</span>);
+	sleep_on_unlocking(atapi_waiter, &amp;atapi_cmd_lock);
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">int</span> status = inportb(dev-&gt;bar4 + <span class="hljs-number">0x02</span>);
+		<span class="hljs-keyword">int</span> dstatus = inportb(dev-&gt;io_base + ATA_REG_STATUS);
+		<span class="hljs-keyword">if</span> (!(status &amp; <span class="hljs-number">0x04</span>)) {
+			<span class="hljs-keyword">continue</span>;
+		}
+		<span class="hljs-keyword">if</span> (!(dstatus &amp; ATA_SR_BSY)) {
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-comment">/* Inform device we are done. */</span>
+	outportb(dev-&gt;bar4 + <span class="hljs-number">0x2</span>, inportb(dev-&gt;bar4 + <span class="hljs-number">0x02</span>) | <span class="hljs-number">0x04</span> | <span class="hljs-number">0x02</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ata_device_read_sector_atapi_actual</span><span class="hljs-params">(struct ata_device * dev, <span class="hljs-keyword">uint64_t</span> lba, <span class="hljs-keyword">uint8_t</span> * buf)</span> </span>{
+
+	<span class="hljs-keyword">if</span> (!dev-&gt;is_atapi) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-keyword">uint16_t</span> bus = dev-&gt;io_base;
+
+	outportb(dev-&gt;io_base + ATA_REG_HDDEVSEL, <span class="hljs-number">0xA0</span> | dev-&gt;slave &lt;&lt; <span class="hljs-number">4</span>);
+	ata_io_wait(dev);
+
+	outportb(bus + ATA_REG_FEATURES, <span class="hljs-number">0x00</span>);
+	outportb(bus + ATA_REG_LBA1, dev-&gt;atapi_sector_size &amp; <span class="hljs-number">0xFF</span>);
+	outportb(bus + ATA_REG_LBA2, dev-&gt;atapi_sector_size &gt;&gt; <span class="hljs-number">8</span>);
+	outportb(bus + ATA_REG_COMMAND, ATA_CMD_PACKET);
+
+	<span class="hljs-comment">/* poll */</span>
+	<span class="hljs-keyword">int</span> timeout = <span class="hljs-number">100</span>;
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">uint8_t</span> status = inportb(dev-&gt;io_base + ATA_REG_STATUS);
+		<span class="hljs-keyword">if</span> ((status &amp; ATA_SR_ERR)) <span class="hljs-keyword">goto</span> atapi_error_on_read_setup;
+		<span class="hljs-keyword">if</span> (timeout-- &lt; <span class="hljs-number">0</span>) { dprintf(<span class="hljs-string">"atapi: timeout while waiting for controller to be ready\n"</span>); <span class="hljs-keyword">goto</span> atapi_timeout; }
+		<span class="hljs-keyword">if</span> (!(status &amp; ATA_SR_BSY) &amp;&amp; (status &amp; ATA_SR_DRQ)) <span class="hljs-keyword">break</span>;
+	}
+
+	<span class="hljs-keyword">atapi_command_t</span> command;
+	command.command_bytes[<span class="hljs-number">0</span>] = <span class="hljs-number">0xA8</span>;
+	command.command_bytes[<span class="hljs-number">1</span>] = <span class="hljs-number">0</span>;
+	command.command_bytes[<span class="hljs-number">2</span>] = (lba &gt;&gt; <span class="hljs-number">0x18</span>) &amp; <span class="hljs-number">0xFF</span>;
+	command.command_bytes[<span class="hljs-number">3</span>] = (lba &gt;&gt; <span class="hljs-number">0x10</span>) &amp; <span class="hljs-number">0xFF</span>;
+	command.command_bytes[<span class="hljs-number">4</span>] = (lba &gt;&gt; <span class="hljs-number">0x08</span>) &amp; <span class="hljs-number">0xFF</span>;
+	command.command_bytes[<span class="hljs-number">5</span>] = (lba &gt;&gt; <span class="hljs-number">0x00</span>) &amp; <span class="hljs-number">0xFF</span>;
+	command.command_bytes[<span class="hljs-number">6</span>] = <span class="hljs-number">0</span>;
+	command.command_bytes[<span class="hljs-number">7</span>] = <span class="hljs-number">0</span>;
+	command.command_bytes[<span class="hljs-number">8</span>] = <span class="hljs-number">0</span>; <span class="hljs-comment">/* bit 0 = PMI (0, last sector) */</span>
+	command.command_bytes[<span class="hljs-number">9</span>] = <span class="hljs-number">1</span>; <span class="hljs-comment">/* control */</span>
+	command.command_bytes[<span class="hljs-number">10</span>] = <span class="hljs-number">0</span>;
+	command.command_bytes[<span class="hljs-number">11</span>] = <span class="hljs-number">0</span>;
+
+	spin_lock(atapi_cmd_lock);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">6</span>; ++i) {
+		outports(bus, command.command_words[i]);
+	}
+
+	sleep_on_unlocking(atapi_waiter, &amp;atapi_cmd_lock);
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">uint8_t</span> status = inportb(dev-&gt;io_base + ATA_REG_STATUS);
+		<span class="hljs-keyword">if</span> ((status &amp; ATA_SR_ERR)) <span class="hljs-keyword">goto</span> atapi_error_on_read_setup;
+		<span class="hljs-keyword">if</span> (!(status &amp; ATA_SR_BSY) &amp;&amp; (status &amp; ATA_SR_DRQ)) <span class="hljs-keyword">break</span>;
+	}
+
+	<span class="hljs-keyword">uint16_t</span> size_to_read = inportb(bus + ATA_REG_LBA2) &lt;&lt; <span class="hljs-number">8</span>;
+	size_to_read = size_to_read | inportb(bus + ATA_REG_LBA1);
+
+	inportsm(bus,buf,size_to_read/<span class="hljs-number">2</span>);
+
+	timeout = <span class="hljs-number">1000</span>;
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">uint8_t</span> status = inportb(dev-&gt;io_base + ATA_REG_STATUS);
+		<span class="hljs-keyword">if</span> ((status &amp; ATA_SR_ERR)) <span class="hljs-keyword">goto</span> atapi_error_on_read_setup;
+		<span class="hljs-keyword">if</span> (timeout-- &lt; <span class="hljs-number">0</span>) { dprintf(<span class="hljs-string">"atapi: timeout while waiting for controller to be ready after transaction\n"</span>); <span class="hljs-keyword">goto</span> atapi_timeout; }
+		<span class="hljs-keyword">if</span> (!(status &amp; ATA_SR_BSY) &amp;&amp; (status &amp; ATA_SR_DRDY)) <span class="hljs-keyword">break</span>;
+	}
+
+atapi_error_on_read_setup:
+	<span class="hljs-keyword">return</span>;
+
+atapi_timeout:
+	<span class="hljs-keyword">return</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ata_device_write_sector_actual</span><span class="hljs-params">(struct ata_device * dev, <span class="hljs-keyword">uint64_t</span> lba)</span> </span>{
+	<span class="hljs-keyword">uint16_t</span> bus = dev-&gt;io_base;
+	<span class="hljs-keyword">uint8_t</span> slave = dev-&gt;slave;
+
+	ata_wait(dev, <span class="hljs-number">0</span>);
+	outportb(dev-&gt;bar4, <span class="hljs-number">0x00</span>);
+	outportl(dev-&gt;bar4 + <span class="hljs-number">0x04</span>, dev-&gt;dma_prdt_phys);
+	outportb(dev-&gt;bar4 + <span class="hljs-number">0x2</span>, inportb(dev-&gt;bar4 + <span class="hljs-number">0x02</span>) | <span class="hljs-number">0x04</span> | <span class="hljs-number">0x02</span>);
+
+	<span class="hljs-comment">/* set write */</span>
+	outportb(dev-&gt;bar4, <span class="hljs-number">0x00</span>);
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">uint8_t</span> status = inportb(dev-&gt;io_base + ATA_REG_STATUS);
+		<span class="hljs-keyword">if</span> (!(status &amp; ATA_SR_BSY)) <span class="hljs-keyword">break</span>;
+	}
+
+	outportb(bus + ATA_REG_CONTROL, <span class="hljs-number">0x02</span>);
+	outportb(bus + ATA_REG_HDDEVSEL, <span class="hljs-number">0xe0</span> | slave &lt;&lt; <span class="hljs-number">4</span>);
+	ata_wait(dev, <span class="hljs-number">0</span>);
+	outportb(bus + ATA_REG_FEATURES, <span class="hljs-number">0x00</span>);
+
+	outportb(bus + ATA_REG_SECCOUNT0, <span class="hljs-number">0</span>);
+	outportb(bus + ATA_REG_LBA0, (lba &amp; <span class="hljs-number">0xff000000</span>) &gt;&gt; <span class="hljs-number">24</span>);
+	outportb(bus + ATA_REG_LBA1, (lba &amp; <span class="hljs-number">0xff00000000</span>) &gt;&gt; <span class="hljs-number">32</span>);
+	outportb(bus + ATA_REG_LBA2, (lba &amp; <span class="hljs-number">0xff0000000000</span>) &gt;&gt; <span class="hljs-number">40</span>);
+
+	outportb(bus + ATA_REG_SECCOUNT0, SECTORS_PER_CACHE_BLOCK);
+	outportb(bus + ATA_REG_LBA0, (lba &amp; <span class="hljs-number">0x000000ff</span>) &gt;&gt;  <span class="hljs-number">0</span>);
+	outportb(bus + ATA_REG_LBA1, (lba &amp; <span class="hljs-number">0x0000ff00</span>) &gt;&gt;  <span class="hljs-number">8</span>);
+	outportb(bus + ATA_REG_LBA2, (lba &amp; <span class="hljs-number">0x00ff0000</span>) &gt;&gt; <span class="hljs-number">16</span>);
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">uint8_t</span> status = inportb(dev-&gt;io_base + ATA_REG_STATUS);
+		<span class="hljs-keyword">if</span> (!(status &amp; ATA_SR_BSY) &amp;&amp; (status &amp; ATA_SR_DRDY)) <span class="hljs-keyword">break</span>;
+	}
+	spin_lock(atapi_cmd_lock);
+	outportb(bus + ATA_REG_COMMAND, ATA_CMD_WRITE_DMA_EXT);
+
+	ata_io_wait(dev);
+
+	outportb(dev-&gt;bar4, <span class="hljs-number">0x00</span> | <span class="hljs-number">0x01</span>);
+	sleep_on_unlocking(atapi_waiter, &amp;atapi_cmd_lock);
+
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+	ata_wait(dev, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">size</span> = ATA_SECTOR_SIZE / <span class="hljs-number">2</span>;
+	outportsm(bus,buf,<span class="hljs-built_in">size</span>);
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	outportb(dev-&gt;bar4 + <span class="hljs-number">0x2</span>, inportb(dev-&gt;bar4 + <span class="hljs-number">0x02</span>) | <span class="hljs-number">0x04</span> | <span class="hljs-number">0x02</span>);
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+	outportb(bus + <span class="hljs-number">0x07</span>, ATA_CMD_CACHE_FLUSH);
+	ata_wait(dev, <span class="hljs-number">0</span>);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ata_device_read_sector</span><span class="hljs-params">(struct ata_device * dev, <span class="hljs-keyword">uint64_t</span> lba, <span class="hljs-keyword">uint8_t</span> * buf)</span> </span>{
+	lba *= SECTORS_PER_CACHE_BLOCK;
+	<span class="hljs-comment">/* Is it in the cache? */</span>
+	mutex_acquire(ata_mutex);
+	<span class="hljs-keyword">int</span> found = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> oldest = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint64_t</span> lu = <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; CACHE_COUNT; ++i) {
+		<span class="hljs-keyword">if</span> (cache_entries[i].dev == dev &amp;&amp; cache_entries[i].lba == lba) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<p>dprintf(&quot;ata: cache hit\n&quot;);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			hit_count++;
+			oldest = i;
+			found = <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">break</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (cache_entries[i].dev == <span class="hljs-literal">NULL</span>) {
+			oldest = i;
+			<span class="hljs-keyword">break</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (cache_entries[i].last_use &lt; lu) {
+			oldest = i;
+			lu = cache_entries[oldest].last_use;
+		}
+	}
+	<span class="hljs-keyword">if</span> (!found) {
+		miss_count++;
+		<span class="hljs-keyword">if</span> (cache_entries[oldest].dev &amp;&amp; cache_entries[oldest].flags &amp; <span class="hljs-number">1</span>) {
+			eviction_count++;
+			<span class="hljs-built_in">memcpy</span>(cache_entries[oldest].dev-&gt;dma_start, cache_blocks + oldest * ATA_CACHE_SIZE, ATA_CACHE_SIZE);
+			ata_device_write_sector_actual(cache_entries[oldest].dev, cache_entries[oldest].lba);
+		}
+		ata_device_read_sector_actual(dev, lba);
+		cache_entries[oldest].dev = dev;
+		cache_entries[oldest].lba = lba;
+		cache_entries[oldest].flags = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">memcpy</span>(cache_blocks + oldest * ATA_CACHE_SIZE, dev-&gt;dma_start, ATA_CACHE_SIZE);
+	}
+	cache_entries[oldest].last_use = counter++;
+	<span class="hljs-built_in">memcpy</span>(buf, cache_blocks + ATA_CACHE_SIZE * oldest, ATA_CACHE_SIZE);
+	mutex_release(ata_mutex);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ata_device_write_sector</span><span class="hljs-params">(struct ata_device * dev, <span class="hljs-keyword">uint64_t</span> lba, <span class="hljs-keyword">uint8_t</span> * buf)</span> </span>{
+	lba *= SECTORS_PER_CACHE_BLOCK;
+	mutex_acquire(ata_mutex);
+	<span class="hljs-keyword">int</span> found = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> oldest = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint64_t</span> lu = <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; CACHE_COUNT; ++i) {
+		<span class="hljs-keyword">if</span> (cache_entries[i].dev == dev &amp;&amp; cache_entries[i].lba == lba) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<p>dprintf(&quot;ata: cache hit\n&quot;);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			hit_count++;
+			oldest = i;
+			found = <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">break</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (cache_entries[i].dev == <span class="hljs-literal">NULL</span>) {
+			oldest = i;
+			<span class="hljs-keyword">break</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (cache_entries[i].last_use &lt; lu) {
+			oldest = i;
+			lu = cache_entries[oldest].last_use;
+		}
+	}
+	<span class="hljs-keyword">if</span> (!found) {
+		miss_count++;
+		<span class="hljs-keyword">if</span> (cache_entries[oldest].dev &amp;&amp; cache_entries[oldest].flags &amp; <span class="hljs-number">1</span>) {
+			eviction_count++;
+			<span class="hljs-built_in">memcpy</span>(cache_entries[oldest].dev-&gt;dma_start, cache_blocks + oldest * ATA_CACHE_SIZE, ATA_CACHE_SIZE);
+			ata_device_write_sector_actual(cache_entries[oldest].dev, cache_entries[oldest].lba);
+		}
+		cache_entries[oldest].dev = dev;
+		cache_entries[oldest].lba = lba;
+	}
+	write_count++;
+	cache_entries[oldest].last_use = counter++;
+	<span class="hljs-built_in">memcpy</span>(cache_blocks + oldest * ATA_CACHE_SIZE, buf, ATA_CACHE_SIZE);
+	cache_entries[oldest].flags = <span class="hljs-number">1</span>;
+	mutex_release(ata_mutex);
+}
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ata_device_read_sector_atapi</span><span class="hljs-params">(struct ata_device * dev, <span class="hljs-keyword">uint64_t</span> lba, <span class="hljs-keyword">uint8_t</span> * buf)</span> </span>{
+	mutex_acquire(ata_mutex);
+	ata_device_read_sector_atapi_actual(dev, lba, buf);
+	mutex_release(ata_mutex);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ata_initialize</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-comment">/* Detect drives and mount them */</span>
+
+	<span class="hljs-comment">/* Locate ATA device via PCI */</span>
+	pci_scan(&amp;find_ata_pci, <span class="hljs-number">-1</span>, &amp;ata_pci);
+
+	irq_install_handler(<span class="hljs-number">14</span>, ata_irq_handler, <span class="hljs-string">"ide master"</span>);
+	irq_install_handler(<span class="hljs-number">15</span>, ata_irq_handler, <span class="hljs-string">"ide slave"</span>);
+
+	atapi_waiter = list_create(<span class="hljs-string">"atapi waiter"</span>, <span class="hljs-literal">NULL</span>);
+
+	cache_entries = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(struct CacheEntry) * CACHE_COUNT);
+	<span class="hljs-built_in">memset</span>(cache_entries, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(struct CacheEntry) * CACHE_COUNT);
+	cache_blocks  = mmu_map_module(CACHE_COUNT * ATA_CACHE_SIZE);
+	ata_mutex = mutex_init(<span class="hljs-string">"ata lock"</span>);
+
+	ata_device_detect(&amp;ata_primary_master);
+	ata_device_detect(&amp;ata_primary_slave);
+	ata_device_detect(&amp;ata_secondary_master);
+	ata_device_detect(&amp;ata_secondary_slave);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ata_finalize</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Module</span> <span class="hljs-title">metadata</span> = {</span>
+	.name = <span class="hljs-string">"ata"</span>,
+	.init = ata_initialize,
+	.fini = ata_finalize,
+};
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

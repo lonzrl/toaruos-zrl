@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>login.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\login.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>login.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;termios.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;pwd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/wait.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/utsname.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/auth.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> LINE_LEN 1024</span>
+
+<span class="hljs-keyword">uint32_t</span> child = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">sig_pass</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sig)</span> </span>{
+	<span class="hljs-comment">/* Pass onto the shell */</span>
+	<span class="hljs-keyword">if</span> (child) {
+		kill(child, sig);
+	}
+	<span class="hljs-comment">/* Else, ignore */</span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">sig_segv</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sig)</span> </span>{
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Segmentation fault.\n"</span>);
+	<span class="hljs-built_in">exit</span>(<span class="hljs-number">127</span> + sig);
+	<span class="hljs-comment">/* no return */</span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> ** argv)</span> </span>{
+
+	<span class="hljs-keyword">char</span> * user = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">int</span> uid, gid;
+	<span class="hljs-keyword">pid_t</span> pid, f;
+
+	<span class="hljs-keyword">int</span> opt;
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"f:"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>:
+				user = optarg;
+				<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (user) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">passwd</span> * <span class="hljs-title">pw</span> = <span class="hljs-title">getpwnam</span>(<span class="hljs-title">user</span>);</span>
+		<span class="hljs-keyword">if</span> (pw) {
+			uid = pw-&gt;pw_uid;
+			gid = pw-&gt;pw_gid;
+			<span class="hljs-keyword">goto</span> do_fork;
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: no such user\n"</span>, argv[<span class="hljs-number">0</span>]);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+
+	signal(SIGINT, sig_pass);
+	signal(SIGWINCH, sig_pass);
+	signal(SIGSEGV, sig_segv);
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+
+		<span class="hljs-keyword">char</span> username[<span class="hljs-number">1024</span>] = {<span class="hljs-number">0</span>};
+		<span class="hljs-keyword">char</span> password[<span class="hljs-number">1024</span>] = {<span class="hljs-number">0</span>};
+
+		<span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> gethostname() */</span>
+		<span class="hljs-keyword">char</span> _hostname[<span class="hljs-number">256</span>];
+		gethostname(_hostname, <span class="hljs-number">255</span>);
+
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%s login: "</span>, _hostname);
+		fflush(<span class="hljs-built_in">stdout</span>);
+		<span class="hljs-keyword">char</span> * r = fgets(username, <span class="hljs-number">1024</span>, <span class="hljs-built_in">stdin</span>);
+		<span class="hljs-keyword">if</span> (!r) {
+			clearerr(<span class="hljs-built_in">stdin</span>);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"\n"</span>);
+			sleep(<span class="hljs-number">2</span>);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"\nLogin failed.\n"</span>);
+			<span class="hljs-keyword">continue</span>;
+		}
+		username[<span class="hljs-built_in">strlen</span>(username)<span class="hljs-number">-1</span>] = <span class="hljs-string">'\0'</span>;
+
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(username, <span class="hljs-string">"reboot"</span>)) {
+			<span class="hljs-comment">/* Quick hack so vga text mode login can exit */</span>
+			system(<span class="hljs-string">"reboot"</span>);
+		}
+
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(username, <span class="hljs-string">"disconnect"</span>)) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+		}
+
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"password: "</span>);
+		fflush(<span class="hljs-built_in">stdout</span>);
+
+		<span class="hljs-comment">/* Disable echo */</span>
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">termios</span> <span class="hljs-title">old</span>, <span class="hljs-title">new</span>;</span>
+		tcgetattr(fileno(<span class="hljs-built_in">stdin</span>), &amp;old);
+		<span class="hljs-keyword">new</span> = old;
+		<span class="hljs-keyword">new</span>.c_lflag &amp;= (~ECHO);
+		tcsetattr(fileno(<span class="hljs-built_in">stdin</span>), TCSAFLUSH, &amp;<span class="hljs-keyword">new</span>);
+
+		r = fgets(password, <span class="hljs-number">1024</span>, <span class="hljs-built_in">stdin</span>);
+		<span class="hljs-keyword">if</span> (!r) {
+			clearerr(<span class="hljs-built_in">stdin</span>);
+			tcsetattr(fileno(<span class="hljs-built_in">stdin</span>), TCSAFLUSH, &amp;old);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"\n"</span>);
+			sleep(<span class="hljs-number">2</span>);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"\nLogin failed.\n"</span>);
+			<span class="hljs-keyword">continue</span>;
+		}
+		password[<span class="hljs-built_in">strlen</span>(password)<span class="hljs-number">-1</span>] = <span class="hljs-string">'\0'</span>;
+		tcsetattr(fileno(<span class="hljs-built_in">stdin</span>), TCSAFLUSH, &amp;old);
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"\n"</span>);
+
+		uid = toaru_auth_check_pass(username, password);
+
+		<span class="hljs-keyword">if</span> (uid &lt; <span class="hljs-number">0</span>) {
+			sleep(<span class="hljs-number">2</span>);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"\nLogin failed.\n"</span>);
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		gid = toaru_auth_get_default_group(uid);
+		<span class="hljs-keyword">break</span>;
+	}
+
+	system(<span class="hljs-string">"cat /etc/motd"</span>);
+
+do_fork:
+	pid = getpid();
+	f = fork();
+	<span class="hljs-keyword">if</span> (getpid() != pid) {
+		ioctl(STDIN_FILENO, IOCTLTTYLOGIN, &amp;uid);
+		setsid();
+		ioctl(STDIN_FILENO, TIOCSCTTY, &amp;(<span class="hljs-keyword">int</span>){<span class="hljs-number">1</span>});
+		tcsetpgrp(STDIN_FILENO, getpid());
+		toaru_set_credentials(uid,gid);
+		toaru_auth_exec_shell(<span class="hljs-number">1</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> {
+		child = f;
+		<span class="hljs-keyword">int</span> result;
+		<span class="hljs-keyword">do</span> {
+			result = waitpid(f, <span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>);
+		} <span class="hljs-keyword">while</span> (result &lt; <span class="hljs-number">0</span>);
+	}
+	child = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

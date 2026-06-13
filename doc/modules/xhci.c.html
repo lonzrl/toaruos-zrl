@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>xhci.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "modules\\xhci.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>xhci.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/module.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pci.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/args.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/procfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/syscall.h&gt;</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">delay_yield</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> subticks)</span> </span>{
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __aarch64__</span>
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dsb sy\nisb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> s, ss;
+	relative_time(<span class="hljs-number">0</span>, subticks, &amp;s, &amp;ss);
+	sleep_until((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, s, ss);
+	switch_task(<span class="hljs-number">0</span>);
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __aarch64__</span>
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dmb sy\n"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+}
+
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">xhci_cap_regs</span> {</span>
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> cap_caplen_version;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> cap_hcsparams1;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> cap_hcsparams2;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> cap_hcsparams3;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> cap_hccparams1;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> cap_dboff;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> cap_rtsoff;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> cap_hccparams2;
+} __attribute__((packed));
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">xhci_port_regs</span> {</span>
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> port_status;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> port_pm_status;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> port_link_info;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> port_lpm_control;
+} __attribute__((packed));
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">xhci_op_regs</span> {</span>
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> op_usbcmd;   <span class="hljs-comment">/* 0 */</span>
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> op_usbsts;   <span class="hljs-comment">// 4</span>
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> op_pagesize; <span class="hljs-comment">// 8h</span>
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> op__pad1[<span class="hljs-number">2</span>]; <span class="hljs-comment">// ch 10h</span>
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> op_dnctrl;   <span class="hljs-comment">// 14h</span>
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> op_crcr[<span class="hljs-number">2</span>];     <span class="hljs-comment">// 18h 1ch</span>
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> op__pad2[<span class="hljs-number">4</span>]; <span class="hljs-comment">// 20h 24h 28h 2ch</span>
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> op_dcbaap[<span class="hljs-number">2</span>];   <span class="hljs-comment">// 30h 34h</span>
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> op_config;   <span class="hljs-comment">// 38h</span>
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span>  op_more_padding[<span class="hljs-number">964</span>]; <span class="hljs-comment">// 3ch-400h</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">xhci_port_regs</span> <span class="hljs-title">op_portregs</span>[256];</span>
+} __attribute__((packed));
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">xhci_trb</span> {</span>
+	<span class="hljs-keyword">uint32_t</span> trb_thing_a;
+	<span class="hljs-keyword">uint32_t</span> trb_thing_b;
+	<span class="hljs-keyword">uint32_t</span> trb_status;
+	<span class="hljs-keyword">uint32_t</span> trb_control;
+} __attribute__((packed));
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">XHCIControllerData</span> {</span>
+	<span class="hljs-keyword">uintptr_t</span> mmio;
+	<span class="hljs-keyword">uint32_t</span> device;
+	<span class="hljs-keyword">uint64_t</span> pcie_offset;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">xhci_cap_regs</span> * <span class="hljs-title">cregs</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">xhci_op_regs</span> * <span class="hljs-title">oregs</span>;</span>
+	<span class="hljs-keyword">process_t</span> * thread;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">xhci_trb</span> * <span class="hljs-title">cr_trbs</span>;</span>
+	<span class="hljs-keyword">volatile</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">xhci_trb</span> * <span class="hljs-title">er_trbs</span>;</span>
+	<span class="hljs-keyword">spin_lock_t</span> command_queue;
+	<span class="hljs-keyword">uint32_t</span> command_queue_cycle;
+	<span class="hljs-keyword">int</span> command_queue_enq;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> * doorbells;
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint64_t</span> <span class="hljs-title">pci_addr_map</span><span class="hljs-params">(struct XHCIControllerData * controller, <span class="hljs-keyword">uint64_t</span> addr)</span> </span>{
+	<span class="hljs-keyword">return</span> addr + controller-&gt;pcie_offset;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uintptr_t</span> <span class="hljs-title">pci_to_cpu</span><span class="hljs-params">(struct XHCIControllerData * controller, <span class="hljs-keyword">uint64_t</span> addr)</span> </span>{
+	<span class="hljs-keyword">return</span> addr - controller-&gt;pcie_offset;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uintptr_t</span> <span class="hljs-title">allocate_page</span><span class="hljs-params">(<span class="hljs-keyword">uint64_t</span> * phys_out)</span> </span>{
+	<span class="hljs-keyword">uint64_t</span> phys = mmu_allocate_a_frame() &lt;&lt; <span class="hljs-number">12</span>;
+	<span class="hljs-keyword">uintptr_t</span> virt = (<span class="hljs-keyword">uintptr_t</span>)mmu_map_mmio_region(phys, <span class="hljs-number">4096</span>);
+	<span class="hljs-built_in">memset</span>((<span class="hljs-keyword">void</span>*)virt,<span class="hljs-number">0</span>,<span class="hljs-number">4096</span>);
+	*phys_out = phys;
+	<span class="hljs-keyword">return</span> virt;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">xhci_command</span><span class="hljs-params">(struct XHCIControllerData * controller, <span class="hljs-keyword">uint32_t</span> p1, <span class="hljs-keyword">uint32_t</span> p2, <span class="hljs-keyword">uint32_t</span> status, <span class="hljs-keyword">uint32_t</span> control)</span> </span>{
+	spin_lock(controller-&gt;command_queue);
+
+	control &amp;= ~<span class="hljs-number">1</span>;
+	control |= controller-&gt;command_queue_cycle;
+
+	controller-&gt;cr_trbs[controller-&gt;command_queue_enq].trb_thing_a = p1;
+	controller-&gt;cr_trbs[controller-&gt;command_queue_enq].trb_thing_b = p2;
+	controller-&gt;cr_trbs[controller-&gt;command_queue_enq].trb_status  = status;
+	controller-&gt;cr_trbs[controller-&gt;command_queue_enq].trb_control = control;
+
+	controller-&gt;command_queue_enq++;
+	<span class="hljs-keyword">if</span> (controller-&gt;command_queue_enq == <span class="hljs-number">63</span>) {
+		controller-&gt;cr_trbs[controller-&gt;command_queue_enq].trb_control ^= <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">if</span> (controller-&gt;cr_trbs[controller-&gt;command_queue_enq].trb_control &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">1</span>)) {
+			controller-&gt;command_queue_cycle ^= <span class="hljs-number">1</span>;
+		}
+		controller-&gt;command_queue_enq = <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-comment">/* ring doorbell */</span>
+	controller-&gt;doorbells[<span class="hljs-number">0</span>] = <span class="hljs-number">0</span>;
+
+	spin_unlock(controller-&gt;command_queue);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">xhci_write</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> * <span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">XHCIControllerData</span> * <span class="hljs-title">controller</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> != <span class="hljs-keyword">sizeof</span>(struct xhci_trb)) <span class="hljs-keyword">return</span> -EINVAL;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">xhci_trb</span> * <span class="hljs-title">data</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">buffer</span>;</span>
+
+	xhci_command(controller, data-&gt;trb_thing_a, data-&gt;trb_thing_b, data-&gt;trb_status, data-&gt;trb_control);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-keyword">sizeof</span>(struct xhci_trb);
+
+}
+
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">XHCIControllerData</span> * _<span class="hljs-title">irq_owner</span> = <span class="hljs-title">NULL</span>;</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/irq.h&gt;</span></span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">irq_handler</span><span class="hljs-params">(struct regs *r)</span> </span>{
+	<span class="hljs-keyword">int</span> irq = r-&gt;int_no - <span class="hljs-number">32</span>;
+
+	<span class="hljs-keyword">if</span> (_irq_owner) {
+		<span class="hljs-comment">/* Is it ours? */</span>
+		<span class="hljs-keyword">uint32_t</span> status = _irq_owner-&gt;oregs-&gt;op_usbsts;
+		<span class="hljs-keyword">if</span> (status &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">3</span>)) {
+			_irq_owner-&gt;oregs-&gt;op_usbsts = (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">3</span>);
+			dprintf(<span class="hljs-string">"xhci: irq\n"</span>);
+
+			<span class="hljs-keyword">uintptr_t</span> rts = (<span class="hljs-keyword">uintptr_t</span>)_irq_owner-&gt;cregs + _irq_owner-&gt;cregs-&gt;cap_rtsoff;
+			<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> * irs0_32 = (<span class="hljs-keyword">uint32_t</span>*)(rts + <span class="hljs-number">0x20</span>);
+			irs0_32[<span class="hljs-number">0</span>] |= <span class="hljs-number">1</span>;
+
+			make_process_ready(_irq_owner-&gt;thread);
+
+			irq_ack(irq);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">xhci_thread</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * arg)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">XHCIControllerData</span> * <span class="hljs-title">controller</span> = <span class="hljs-title">arg</span>;</span>
+
+	controller-&gt;thread = (<span class="hljs-keyword">process_t</span>*)this_core-&gt;current_process;
+	spin_init(controller-&gt;command_queue);
+
+	<span class="hljs-comment">/* Begin generic XHCi */</span>
+	dprintf(<span class="hljs-string">"xhci: available slots: %d\n"</span>, controller-&gt;cregs-&gt;cap_hcsparams1 &amp; <span class="hljs-number">0xFF</span>);
+	dprintf(<span class="hljs-string">"xhci: available ports: %d\n"</span>, controller-&gt;cregs-&gt;cap_hcsparams1 &gt;&gt; <span class="hljs-number">24</span>);
+	dprintf(<span class="hljs-string">"xhci: resetting controller\n"</span>);
+	dprintf(<span class="hljs-string">"xhci: waiting for controller to stop...\n"</span>);
+	<span class="hljs-keyword">uint32_t</span> cmd = controller-&gt;oregs-&gt;op_usbcmd;
+	cmd &amp;= ~(<span class="hljs-number">1</span>);
+	controller-&gt;oregs-&gt;op_usbcmd = cmd;
+	<span class="hljs-keyword">while</span> (!(controller-&gt;oregs-&gt;op_usbsts &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">0</span>)));
+
+	dprintf(<span class="hljs-string">"xhci: restarting controller...\n"</span>);
+	cmd = controller-&gt;oregs-&gt;op_usbcmd;
+	cmd |= (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">1</span>);
+	controller-&gt;oregs-&gt;op_usbcmd = cmd;
+	<span class="hljs-keyword">while</span> ((controller-&gt;oregs-&gt;op_usbcmd &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">1</span>)));
+	<span class="hljs-keyword">while</span> ((controller-&gt;oregs-&gt;op_usbsts &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">11</span>)));
+	dprintf(<span class="hljs-string">"xhci: controller is ready: %#x\n"</span>, controller-&gt;oregs-&gt;op_usbsts);
+
+	dprintf(<span class="hljs-string">"xhci: slot config %#x -&gt; %#x\n"</span>,
+		controller-&gt;oregs-&gt;op_config, controller-&gt;cregs-&gt;cap_hcsparams1 &amp; <span class="hljs-number">0xFF</span>);
+	controller-&gt;oregs-&gt;op_config = controller-&gt;cregs-&gt;cap_hcsparams1 &amp; <span class="hljs-number">0xFF</span>;
+
+	<span class="hljs-comment">/* TODO We may need to clear interrupts here by writing status back */</span>
+	<span class="hljs-keyword">uint32_t</span> sts = controller-&gt;oregs-&gt;op_usbsts;
+	(<span class="hljs-keyword">void</span>)sts;
+
+	dprintf(<span class="hljs-string">"xhci: context size is %d\n"</span>,
+		(controller-&gt;cregs-&gt;cap_hccparams1 &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">2</span>)) ? <span class="hljs-number">64</span> : <span class="hljs-number">32</span>);
+
+	<span class="hljs-keyword">uintptr_t</span> ext_off = (controller-&gt;cregs-&gt;cap_hccparams1 &gt;&gt; <span class="hljs-number">16</span>) &lt;&lt; <span class="hljs-number">2</span>;
+
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> * ext_caps = (<span class="hljs-keyword">void</span>*)((<span class="hljs-keyword">uintptr_t</span>)controller-&gt;cregs + ext_off);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Verify port configurations;
+should be port 1 is usb 2.0
+port 2, 3, 4, 5 are 3.0
+port 1 has a hub with 4 ports?</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">uint32_t</span> cap_val = *ext_caps;
+
+		dprintf(<span class="hljs-string">"xhci: ecap = %#x\n"</span>, cap_val);
+
+		<span class="hljs-comment">/* Bottom byte is type */</span>
+		<span class="hljs-keyword">if</span> ((cap_val &amp; <span class="hljs-number">0xFF</span>) == <span class="hljs-number">2</span>) {
+			<span class="hljs-keyword">uint8_t</span> rev_minor = ext_caps[<span class="hljs-number">0</span>] &gt;&gt; <span class="hljs-number">16</span>;
+			<span class="hljs-keyword">uint8_t</span> rev_major = ext_caps[<span class="hljs-number">0</span>] &gt;&gt; <span class="hljs-number">24</span>;
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<p>uint32_t name_str = ext_caps[1];</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+			<span class="hljs-keyword">uint8_t</span> port_offset = ext_caps[<span class="hljs-number">2</span>];
+			<span class="hljs-keyword">uint8_t</span> port_count  = ext_caps[<span class="hljs-number">2</span>] &gt;&gt; <span class="hljs-number">8</span>;
+			<span class="hljs-keyword">uint8_t</span> psic = ext_caps[<span class="hljs-number">2</span>] &gt;&gt; <span class="hljs-number">28</span>;
+
+			dprintf(<span class="hljs-string">"xhci:  protocol %d.%d %d port%s starting from port %d has %d speed%s\n"</span>,
+				rev_major, rev_minor,
+				port_count, &amp;<span class="hljs-string">"s"</span>[port_count==<span class="hljs-number">1</span>],
+				port_offset,
+				psic, &amp;<span class="hljs-string">"s"</span>[psic==<span class="hljs-number">1</span>]);
+		}
+
+		<span class="hljs-keyword">if</span> (cap_val == <span class="hljs-number">0xFFFFffff</span>) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">if</span> ((cap_val &amp; <span class="hljs-number">0xFF00</span>) == <span class="hljs-number">0</span>) <span class="hljs-keyword">break</span>;
+		ext_caps = (<span class="hljs-keyword">void</span>*)((<span class="hljs-keyword">uintptr_t</span>)ext_caps + ((cap_val &amp; <span class="hljs-number">0xFF00</span>) &gt;&gt; <span class="hljs-number">6</span>));
+	}
+
+	<span class="hljs-comment">/* Device Context Base Address Array */</span>
+	<span class="hljs-keyword">uint64_t</span> dcbaap;
+	<span class="hljs-keyword">uint64_t</span> * baseCtx = (<span class="hljs-keyword">void</span>*)allocate_page(&amp;dcbaap);
+
+	dprintf(<span class="hljs-string">"xhci: DCBAAP at %#zx (phys=%#zx)\n"</span>, (<span class="hljs-keyword">uintptr_t</span>)baseCtx, dcbaap);
+	controller-&gt;oregs-&gt;op_dcbaap[<span class="hljs-number">0</span>] = pci_addr_map(controller, dcbaap);
+	controller-&gt;oregs-&gt;op_dcbaap[<span class="hljs-number">1</span>] = pci_addr_map(controller, dcbaap) &gt;&gt; <span class="hljs-number">32</span>;
+
+	<span class="hljs-comment">/* Enable slots */</span>
+	<span class="hljs-keyword">uint32_t</span> cfg = controller-&gt;oregs-&gt;op_config;
+	cfg &amp;= ~<span class="hljs-number">0xFF</span>;
+	cfg |= <span class="hljs-number">32</span>;
+	dprintf(<span class="hljs-string">"xhci: set cfg = %#x\n"</span>, cfg);
+	controller-&gt;oregs-&gt;op_config = cfg;
+
+	<span class="hljs-comment">/* trbs for event ring */</span>
+	<span class="hljs-keyword">uint64_t</span> er_trbs_phys;
+	<span class="hljs-keyword">void</span> * er_trbs_virt = (<span class="hljs-keyword">void</span>*)allocate_page(&amp;er_trbs_phys);
+	dprintf(<span class="hljs-string">"xhci: er trbs = %#zx (phys=%#zx)\n"</span>,
+		(<span class="hljs-keyword">uintptr_t</span>)er_trbs_virt, er_trbs_phys);
+
+	<span class="hljs-comment">/* erst */</span>
+	<span class="hljs-keyword">uint64_t</span> er_erst_phys;
+	<span class="hljs-keyword">void</span> * er_erst_virt = (<span class="hljs-keyword">void</span>*)allocate_page(&amp;er_erst_phys);
+	dprintf(<span class="hljs-string">"xhci: er erst = %#zx (phys=%#zx)\n"</span>,
+		(<span class="hljs-keyword">uintptr_t</span>)er_erst_virt, er_erst_phys);
+
+	((<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint64_t</span>*)er_erst_virt)[<span class="hljs-number">0</span>] = pci_addr_map(controller, er_trbs_phys);
+	((<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint64_t</span>*)er_erst_virt)[<span class="hljs-number">1</span>] = <span class="hljs-number">64</span>;
+
+	dprintf(<span class="hljs-string">"xhci: rtsoff = %#x\n"</span>, controller-&gt;cregs-&gt;cap_rtsoff);
+	<span class="hljs-keyword">uintptr_t</span> rts = (<span class="hljs-keyword">uintptr_t</span>)controller-&gt;cregs + controller-&gt;cregs-&gt;cap_rtsoff;
+
+	<span class="hljs-comment">/* Interrupter points to event ring */</span>
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> * irs0_32 = (<span class="hljs-keyword">uint32_t</span>*)(rts + <span class="hljs-number">0x20</span>);
+	irs0_32[<span class="hljs-number">2</span>] = <span class="hljs-number">1</span>; <span class="hljs-comment">/* Size = 1 */</span>
+	irs0_32[<span class="hljs-number">6</span>] = pci_addr_map(controller, er_trbs_phys) | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">3</span>);
+	irs0_32[<span class="hljs-number">7</span>] = (pci_addr_map(controller, er_trbs_phys) | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">3</span>)) &gt;&gt; <span class="hljs-number">32</span>;
+	irs0_32[<span class="hljs-number">1</span>] = <span class="hljs-number">500</span>; <span class="hljs-comment">/* IMOD */</span>
+	irs0_32[<span class="hljs-number">0</span>] = <span class="hljs-number">2</span>; <span class="hljs-comment">/* enable interrupts */</span>
+	irs0_32[<span class="hljs-number">4</span>] = pci_addr_map(controller, er_erst_phys);
+	irs0_32[<span class="hljs-number">5</span>] = pci_addr_map(controller, er_erst_phys) &gt;&gt; <span class="hljs-number">32</span>;
+
+	<span class="hljs-comment">/* trbs for control ring */</span>
+	<span class="hljs-keyword">uint64_t</span> cr_trbs_phys;
+	<span class="hljs-keyword">void</span> * cr_trbs_virt = (<span class="hljs-keyword">void</span>*)allocate_page(&amp;cr_trbs_phys);
+
+	((<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint64_t</span>*)cr_trbs_virt)[<span class="hljs-number">63</span>*<span class="hljs-number">2</span>] = pci_addr_map(controller, cr_trbs_phys);
+	((<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint64_t</span>*)cr_trbs_virt)[<span class="hljs-number">63</span>*<span class="hljs-number">2</span>+<span class="hljs-number">1</span>] = ((<span class="hljs-number">0x2</span>UL | (<span class="hljs-number">6U</span>L &lt;&lt; <span class="hljs-number">10</span>)) &lt;&lt; <span class="hljs-number">32</span>);
+
+	controller-&gt;oregs-&gt;op_crcr[<span class="hljs-number">0</span>] = (pci_addr_map(controller, cr_trbs_phys) | <span class="hljs-number">1</span>);
+	controller-&gt;oregs-&gt;op_crcr[<span class="hljs-number">1</span>] = (pci_addr_map(controller, cr_trbs_phys) | <span class="hljs-number">1</span>) &gt;&gt; <span class="hljs-number">32</span>;
+
+	<span class="hljs-comment">/* Scratchpad buffers, if needed */</span>
+	<span class="hljs-keyword">uint32_t</span> hcs2 = controller-&gt;cregs-&gt;cap_hcsparams2;
+	<span class="hljs-keyword">uint32_t</span> sb_hi = (hcs2 &gt;&gt; <span class="hljs-number">21</span>) &amp; <span class="hljs-number">0x1f</span>;
+	<span class="hljs-keyword">uint32_t</span> sb_lo = (hcs2 &gt;&gt; <span class="hljs-number">27</span>) &amp; <span class="hljs-number">0x1f</span>;
+	<span class="hljs-keyword">uint32_t</span> sb_max = (sb_hi &lt;&lt; <span class="hljs-number">5</span>) | sb_lo;
+
+	<span class="hljs-comment">/* should be 31 */</span>
+	<span class="hljs-keyword">if</span> (sb_max) {
+		dprintf(<span class="hljs-string">"num scratchpad buffers = %u\n"</span>, sb_max);
+
+		<span class="hljs-comment">/* Allocate buffer for array */</span>
+		<span class="hljs-keyword">uint64_t</span> scratch_phys;
+		<span class="hljs-keyword">uint64_t</span> *scratch_virt = (<span class="hljs-keyword">uint64_t</span>*)allocate_page(&amp;scratch_phys);
+		dprintf(<span class="hljs-string">"xhci: scratch at %#zx (phys=%#zx)\n"</span>, (<span class="hljs-keyword">uintptr_t</span>)scratch_virt, scratch_phys);
+		<span class="hljs-comment">/* Our DMA mapping should be 1:1, so, uh, yolo */</span>
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; sb_max; ++i) {
+			<span class="hljs-keyword">uint64_t</span> sb_phys;
+			allocate_page(&amp;sb_phys);
+			scratch_virt[i] = pci_addr_map(controller, sb_phys);
+		}
+		baseCtx[<span class="hljs-number">0</span>] = pci_addr_map(controller, scratch_phys);
+		dprintf(<span class="hljs-string">"xhci: assigned scratchpad buffer array\n"</span>);
+	}
+
+	<span class="hljs-comment">/* TODO This irq API sucks */</span>
+	<span class="hljs-keyword">int</span> irq_number = pci_get_interrupt(controller-&gt;device);
+	irq_install_handler(irq_number, irq_handler, <span class="hljs-string">"xhci"</span>);
+	_irq_owner = controller;
+
+	dprintf(<span class="hljs-string">"xhci: Starting command ring...\n"</span>);
+	{
+		<span class="hljs-keyword">uint32_t</span> cmd = controller-&gt;oregs-&gt;op_usbcmd;
+		dprintf(<span class="hljs-string">"cmd before = %#x\n"</span>, cmd);
+		cmd |= (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">0</span>) | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">2</span>);
+		controller-&gt;oregs-&gt;op_usbcmd = cmd;
+	}
+
+	dprintf(<span class="hljs-string">"xhci: status = %#x\n"</span>, controller-&gt;oregs-&gt;op_usbsts);
+
+	delay_yield(<span class="hljs-number">50000</span>);
+
+	dprintf(<span class="hljs-string">"xhci: status = %#x\n"</span>, controller-&gt;oregs-&gt;op_usbsts);
+	<span class="hljs-keyword">if</span> (controller-&gt;oregs-&gt;op_usbsts &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">2</span>)) <span class="hljs-keyword">goto</span> _bail;
+
+
+	dprintf(<span class="hljs-string">"xhci: doorbells at %#x\n"</span>, controller-&gt;cregs-&gt;cap_dboff);
+	controller-&gt;doorbells = (<span class="hljs-keyword">void</span>*)((<span class="hljs-keyword">uintptr_t</span>)controller-&gt;cregs + controller-&gt;cregs-&gt;cap_dboff);
+
+	<span class="hljs-comment">/* Just want to enable the hub for now, see if we can id it */</span>
+	controller-&gt;cr_trbs = cr_trbs_virt;
+	controller-&gt;er_trbs = er_trbs_virt;
+
+	controller-&gt;command_queue_cycle = <span class="hljs-number">1</span>;
+	controller-&gt;command_queue_enq = <span class="hljs-number">0</span>;
+
+	dprintf(<span class="hljs-string">"xhci: status before ring = %#x\n"</span>, controller-&gt;oregs-&gt;op_usbsts);
+
+	xhci_command(controller, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, (<span class="hljs-number">23</span> &lt;&lt; <span class="hljs-number">10</span>));
+
+	<span class="hljs-keyword">char</span> devName[<span class="hljs-number">20</span>] = <span class="hljs-string">"/dev/xhciN"</span>;
+	<span class="hljs-built_in">snprintf</span>(devName, <span class="hljs-number">19</span>, <span class="hljs-string">"/dev/xhci%d"</span>, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">fs_node_t</span> * fnode = <span class="hljs-built_in">calloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>), <span class="hljs-number">1</span>);
+	<span class="hljs-built_in">snprintf</span>(fnode-&gt;name, <span class="hljs-number">100</span>, <span class="hljs-string">"xhci%d"</span>, <span class="hljs-number">0</span>);
+	fnode-&gt;flags   = FS_BLOCKDEVICE;
+	fnode-&gt;mask    = <span class="hljs-number">0660</span>; <span class="hljs-comment">/* Only accessible to root user/group */</span>
+	fnode-&gt;<span class="hljs-built_in">read</span>    = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;<span class="hljs-built_in">write</span>   = xhci_write;
+	fnode-&gt;device  = controller;
+	vfs_mount(devName, fnode, <span class="hljs-string">"xhci"</span>, fnode-&gt;name);
+
+	<span class="hljs-keyword">int</span> event_deq = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint32_t</span> event_cycle_state = <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">while</span> ((controller-&gt;er_trbs[event_deq].trb_control &amp; <span class="hljs-number">1</span>) != event_cycle_state) {
+			switch_task(<span class="hljs-number">0</span>);
+		}
+
+		<span class="hljs-keyword">uint32_t</span> thing_a = controller-&gt;er_trbs[event_deq].trb_thing_a;
+		<span class="hljs-keyword">uint32_t</span> thing_b = controller-&gt;er_trbs[event_deq].trb_thing_a;
+		<span class="hljs-keyword">uint32_t</span> status  = controller-&gt;er_trbs[event_deq].trb_status;
+		<span class="hljs-keyword">uint32_t</span> control = controller-&gt;er_trbs[event_deq].trb_control;
+
+		dprintf(<span class="hljs-string">"xhci: event %d [%#x %#x %#x %#x]\n"</span>,
+			event_deq, thing_a, thing_b, status, control);
+
+		event_deq++;
+		<span class="hljs-keyword">if</span> (event_deq == <span class="hljs-number">64</span>) {
+			event_deq = <span class="hljs-number">0</span>;
+			event_cycle_state = !event_cycle_state;
+		}
+
+		<span class="hljs-comment">/* Write new event dequeue pointer */</span>
+		<span class="hljs-keyword">uint64_t</span> new_deq_phys = pci_addr_map(controller, er_trbs_phys + <span class="hljs-keyword">sizeof</span>(struct xhci_trb) * event_deq) | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">3</span>);
+		irs0_32[<span class="hljs-number">6</span>] = new_deq_phys;
+		irs0_32[<span class="hljs-number">7</span>] = new_deq_phys &gt;&gt; <span class="hljs-number">32</span>;
+	}
+
+_bail:
+	task_exit(<span class="hljs-number">1</span>);
+	__builtin_unreachable();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">find_xhci</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> device, <span class="hljs-keyword">uint16_t</span> v, <span class="hljs-keyword">uint16_t</span> d, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-keyword">if</span> (pci_find_type(device) != <span class="hljs-number">0x0C03</span>) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">if</span> (pci_read_field(device, PCI_PROG_IF, <span class="hljs-number">1</span>) != <span class="hljs-number">0x30</span>) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">fs_node_t</span> * <span class="hljs-built_in">stderr</span> = extra;
+
+	<span class="hljs-keyword">uint16_t</span> command_reg = pci_read_field(device, PCI_COMMAND, <span class="hljs-number">2</span>);
+	command_reg |= (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">2</span>);
+	command_reg |= (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">1</span>);
+	pci_write_field(device, PCI_COMMAND, <span class="hljs-number">2</span>, command_reg);
+
+	<span class="hljs-comment">/* The mmio address is 64 bits and combines BAR0 and BAR1... */</span>
+	<span class="hljs-keyword">uint64_t</span> addr_low  = pci_read_field(device, PCI_BAR0, <span class="hljs-number">4</span>) &amp; <span class="hljs-number">0xFFFFFFF0</span>;
+	<span class="hljs-keyword">uint64_t</span> addr_high = pci_read_field(device, PCI_BAR1, <span class="hljs-number">4</span>) &amp; <span class="hljs-number">0xFFFFFFFF</span>; <span class="hljs-comment">/* I think this is right? */</span>
+	<span class="hljs-keyword">uint64_t</span> mmio_addr = (addr_high &lt;&lt; <span class="hljs-number">32</span>) | addr_low;
+
+	<span class="hljs-keyword">if</span> (mmio_addr == <span class="hljs-number">0</span>) {
+		<span class="hljs-comment">/* Need to map... */</span>
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"xhci: Device is unmapped. TODO: Check if this is behind a PCI bridge...\n"</span>);
+		<span class="hljs-keyword">return</span>;
+		<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+		mmio_addr = mmu_allocate_n_frames(<span class="hljs-number">2</span>) &lt;&lt; <span class="hljs-number">12</span>;
+		pci_write_field(device, PCI_BAR0, <span class="hljs-number">4</span>, (mmio_addr &amp; <span class="hljs-number">0xFFFFFFF0</span>) | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">2</span>));
+		pci_write_field(device, PCI_BAR1, <span class="hljs-number">4</span>, (mmio_addr &gt;&gt; <span class="hljs-number">32</span>));
+		<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	}
+
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"xhci: controller found\n"</span>);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">XHCIControllerData</span> * <span class="hljs-title">controller</span> = <span class="hljs-title">calloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">XHCIControllerData</span>), 1);</span>
+	controller-&gt;device = device;
+
+	<span class="hljs-comment">/* Map mmio space... */</span>
+	<span class="hljs-keyword">uintptr_t</span> xhci_regs = (<span class="hljs-keyword">uintptr_t</span>)mmu_map_mmio_region(mmio_addr, <span class="hljs-number">0x1000</span> * <span class="hljs-number">4</span>); <span class="hljs-comment">/* I don't know. */</span>
+	controller-&gt;mmio  = mmio_addr;
+	controller-&gt;cregs = (struct xhci_cap_regs*)xhci_regs;
+	controller-&gt;oregs = (struct xhci_op_regs*)(xhci_regs + (controller-&gt;cregs-&gt;cap_caplen_version &amp; <span class="hljs-number">0xFF</span>));
+	controller-&gt;pcie_offset = <span class="hljs-number">0</span>;
+
+	spawn_worker_thread(xhci_thread, <span class="hljs-string">"[xhci]"</span>, controller);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">init</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> * node = FD_ENTRY(<span class="hljs-number">1</span>); <span class="hljs-comment">/* Get the stdout for the process that loaded the module */</span>
+	pci_scan(find_xhci, <span class="hljs-number">-1</span>, node);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">fini</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Module</span> <span class="hljs-title">metadata</span> = {</span>
+	.name = <span class="hljs-string">"xhci"</span>,
+	.init = init,
+	.fini = fini,
+};
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

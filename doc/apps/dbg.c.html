@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>dbg.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\dbg.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>dbg.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;getopt.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;ctype.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ptrace.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/wait.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/signal_defs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/utsname.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/rline.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/hashmap.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/elf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/uregs.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * last_command = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * binary_path = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> FILE * binary_obj = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">pid_t</span>  binary_pid = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span>    binary_is_child = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">dump_regs</span><span class="hljs-params">(struct URegs * r)</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, UREGS_FMT, UREGS_ARGS(r));
+
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">data_read_bytes</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> addr, <span class="hljs-keyword">char</span> * buf, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">size</span>; ++i) {
+		<span class="hljs-keyword">if</span> (ptrace(PTRACE_PEEKDATA, pid, (<span class="hljs-keyword">void</span>*)addr++, &amp;buf[i])) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">data_read_int</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> addr)</span> </span>{
+	<span class="hljs-keyword">int</span> x;
+	data_read_bytes(pid, addr, (<span class="hljs-keyword">char</span>*)&amp;x, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>));
+	<span class="hljs-keyword">return</span> x;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uintptr_t</span> <span class="hljs-title">data_read_ptr</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> addr)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> x;
+	data_read_bytes(pid, addr, (<span class="hljs-keyword">char</span>*)&amp;x, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uintptr_t</span>));
+	<span class="hljs-keyword">return</span> x;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">string_arg</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> ptr, <span class="hljs-keyword">size_t</span> maxsize)</span> </span>{
+	FILE * logfile = <span class="hljs-built_in">stdout</span>;
+
+	<span class="hljs-keyword">if</span> (ptr == <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"NULL"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"\""</span>);
+
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint8_t</span> buf = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">do</span> {
+		<span class="hljs-keyword">long</span> result = ptrace(PTRACE_PEEKDATA, pid, (<span class="hljs-keyword">void</span>*)ptr, &amp;buf);
+		<span class="hljs-keyword">if</span> (result != <span class="hljs-number">0</span>) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">if</span> (!buf) {
+			<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"\""</span>);
+			<span class="hljs-keyword">return</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (buf == <span class="hljs-string">'\\'</span>) <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"\\\\"</span>);
+		<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (buf == <span class="hljs-string">'"'</span>) <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"\\\""</span>);
+		<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (buf &gt;= <span class="hljs-string">' '</span> &amp;&amp; buf &lt; <span class="hljs-string">'~'</span>) <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"%c"</span>, buf);
+		<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (buf == <span class="hljs-string">'\r'</span>) <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"\\r"</span>);
+		<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (buf == <span class="hljs-string">'\n'</span>) <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"\\n"</span>);
+		<span class="hljs-keyword">else</span> <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"\\x%02x"</span>, buf);
+
+		ptr++;
+		<span class="hljs-built_in">size</span>++;
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &gt; maxsize) <span class="hljs-keyword">break</span>;
+	} <span class="hljs-keyword">while</span> (buf);
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"\"..."</span>);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">read_string</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> ptr)</span> </span>{
+	<span class="hljs-keyword">if</span> (!ptr) <span class="hljs-keyword">return</span> strdup(<span class="hljs-string">"(null)"</span>);
+	<span class="hljs-keyword">size_t</span> len = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint8_t</span> buf = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> ((data_read_bytes(pid, ptr + len, (<span class="hljs-keyword">char</span>*)&amp;buf, <span class="hljs-number">1</span>), buf)) len++;
+
+	<span class="hljs-keyword">char</span> * out = <span class="hljs-built_in">malloc</span>(len + <span class="hljs-number">1</span>);
+	data_read_bytes(pid, ptr, out, len+<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">return</span> out;
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">find_symbol</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> addr_in, <span class="hljs-keyword">char</span> ** name, <span class="hljs-keyword">uintptr_t</span> *addr_out, <span class="hljs-keyword">char</span> ** objname)</span> </span>{
+
+	<span class="hljs-keyword">intptr_t</span>  current_max = INTPTR_MAX;
+	<span class="hljs-keyword">uintptr_t</span> current_addr = (<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-literal">NULL</span>;
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<p>uintptr_t current_xname = (uintptr_t)NULL;</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">char</span> * current_name = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">char</span> * current_obj = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">uintptr_t</span> best_base = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Can we cheat and peek at ld.so? */</span>
+	<span class="hljs-keyword">if</span> (addr_in &lt; <span class="hljs-number">0x40000000</span>) {
+		current_obj = strdup(<span class="hljs-string">"libc.so"</span>);
+		best_base = <span class="hljs-number">0x10000000</span>;
+	}
+
+	<span class="hljs-comment">/* Figure out where this object is in the objects map */</span>
+	FILE * f = binary_obj;
+	<span class="hljs-keyword">if</span> (current_obj) {
+		<span class="hljs-comment">/* Try to open that */</span>
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">stat_buf</span>;</span>
+		<span class="hljs-keyword">char</span> path[<span class="hljs-number">1024</span>];
+		<span class="hljs-built_in">sprintf</span>(path, <span class="hljs-string">"/lib/%s"</span>, current_obj);
+		<span class="hljs-keyword">if</span> (stat(path, &amp;stat_buf)) {
+			<span class="hljs-built_in">sprintf</span>(path, <span class="hljs-string">"/usr/lib/%s"</span>, current_obj);
+			<span class="hljs-keyword">if</span> (stat(path, &amp;stat_buf)) <span class="hljs-keyword">goto</span> _bail;
+		}
+
+		f = fopen(path, <span class="hljs-string">"r"</span>);
+	} <span class="hljs-keyword">else</span> {
+_bail:
+		current_obj = strdup(binary_path);
+		best_base = <span class="hljs-number">0</span>;
+	}
+
+	fseek(f, <span class="hljs-number">0</span>, SEEK_SET);
+	Elf64_Header header;
+	fread(&amp;header, <span class="hljs-keyword">sizeof</span>(Elf64_Header), <span class="hljs-number">1</span>, f);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; header.e_shnum; ++i) {
+		fseek(f, header.e_shoff + header.e_shentsize * i, SEEK_SET);
+		Elf64_Shdr sectionHeader;
+		fread(&amp;sectionHeader, <span class="hljs-keyword">sizeof</span>(Elf64_Shdr), <span class="hljs-number">1</span>, f);
+		<span class="hljs-keyword">switch</span> (sectionHeader.sh_type) {
+			<span class="hljs-keyword">case</span> SHT_SYMTAB:
+			<span class="hljs-keyword">case</span> SHT_DYNSYM: {
+				<span class="hljs-comment">/* Try to get the actual one if possible */</span>
+				Elf64_Sym * symtab = <span class="hljs-built_in">malloc</span>(sectionHeader.sh_size);
+
+				<span class="hljs-keyword">if</span> (sectionHeader.sh_addr &gt; <span class="hljs-number">0x40000000</span>) {
+					data_read_bytes(pid, sectionHeader.sh_addr, (<span class="hljs-keyword">char</span>*)symtab, sectionHeader.sh_size);
+				} <span class="hljs-keyword">else</span> {
+					fseek(f, sectionHeader.sh_offset, SEEK_SET);
+					fread(symtab, sectionHeader.sh_size, <span class="hljs-number">1</span>, f);
+				}
+
+				Elf64_Shdr shdr_strtab;
+				fseek(f, header.e_shoff + header.e_shentsize * sectionHeader.sh_link, SEEK_SET);
+				fread(&amp;shdr_strtab, <span class="hljs-keyword">sizeof</span>(Elf64_Shdr), <span class="hljs-number">1</span>, f);
+				<span class="hljs-keyword">char</span> * strtab = <span class="hljs-built_in">malloc</span>(shdr_strtab.sh_size);
+				fseek(f, shdr_strtab.sh_offset, SEEK_SET);
+				fread(strtab, shdr_strtab.sh_size, <span class="hljs-number">1</span>, f);
+
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; sectionHeader.sh_size / <span class="hljs-keyword">sizeof</span>(Elf64_Sym); ++i) {
+					<span class="hljs-keyword">if</span> (!symtab[i].st_value) <span class="hljs-keyword">continue</span>;
+					<span class="hljs-keyword">if</span> ((symtab[i].st_info &amp; <span class="hljs-number">0xF</span>) == STT_SECTION) <span class="hljs-keyword">continue</span>;
+					<span class="hljs-keyword">if</span> ((symtab[i].st_info &amp; <span class="hljs-number">0xF</span>) == STT_NOTYPE) <span class="hljs-keyword">continue</span>;
+					<span class="hljs-keyword">if</span> (addr_in &gt;= ((<span class="hljs-keyword">uintptr_t</span>)symtab[i].st_value + best_base)) {
+						<span class="hljs-keyword">intptr_t</span> x = addr_in - ((<span class="hljs-keyword">uintptr_t</span>)symtab[i].st_value + best_base);
+						<span class="hljs-keyword">if</span> (x &lt; current_max) {
+							<span class="hljs-keyword">if</span> (current_name) <span class="hljs-built_in">free</span>(current_name);
+							current_max = x;
+							current_addr = symtab[i].st_value + best_base;
+							current_name = strdup(strtab + symtab[i].st_name);
+						}
+					}
+				}
+
+				<span class="hljs-built_in">free</span>(strtab);
+				<span class="hljs-built_in">free</span>(symtab);
+			}
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	*addr_out = current_addr;
+	*name = current_name;
+	*objname = current_obj;
+
+	<span class="hljs-keyword">if</span> (current_name) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (f != binary_obj) fclose(f);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">show_libs</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid)</span> </span>{
+	<span class="hljs-comment">/* TODO */</span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">attempt_backtrace</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, struct URegs * regs)</span> </span>{
+
+	<span class="hljs-comment">/* We already printed the top, now let's try to dig down */</span>
+	<span class="hljs-keyword">uintptr_t</span> ip = uregs_ip(regs);
+	<span class="hljs-keyword">uintptr_t</span> bp = uregs_bp(regs);
+	<span class="hljs-keyword">int</span> depth = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> max_depth = <span class="hljs-number">20</span>;
+
+	<span class="hljs-keyword">while</span> (bp &amp;&amp; ip &amp;&amp; depth &lt; max_depth &amp;&amp; ip &lt; <span class="hljs-number">0xFFFfff0000000000</span>UL) {
+		<span class="hljs-keyword">char</span> * name = <span class="hljs-literal">NULL</span>;
+		<span class="hljs-keyword">char</span> * objname = <span class="hljs-literal">NULL</span>;
+		<span class="hljs-keyword">uintptr_t</span> addr = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (find_symbol(pid, ip - <span class="hljs-number">1</span>, &amp;name, &amp;addr, &amp;objname)) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"&lt;0x%016zx&gt; %s+%#zx in %s\n"</span>,
+				ip,
+				name, ip - addr, objname);
+			<span class="hljs-built_in">free</span>(name);
+			<span class="hljs-built_in">free</span>(objname);
+		}
+
+		ip = data_read_ptr(pid, bp + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uintptr_t</span>));
+		bp = data_read_ptr(pid, bp);
+		depth++;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">show_commandline</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">int</span> status, struct URegs * regs)</span> </span>{
+
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"[Process %d, ip=%#zx]\n"</span>,
+		pid, uregs_ip(regs));
+
+	<span class="hljs-comment">/* Try to figure out what symbol that is */</span>
+	<span class="hljs-keyword">char</span> * name = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">char</span> * objname = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">uintptr_t</span> addr = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (find_symbol(pid, uregs_ip(regs), &amp;name, &amp;addr, &amp;objname)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"     %s+%zx in %s\n"</span>,
+			name, uregs_ip(regs) - addr, objname);
+		<span class="hljs-built_in">free</span>(name);
+		<span class="hljs-built_in">free</span>(objname);
+	}
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">char</span> buf[<span class="hljs-number">4096</span>] = {<span class="hljs-number">0</span>};
+		rline_exit_string = <span class="hljs-string">""</span>;
+		rline_exp_set_prompts(<span class="hljs-string">"(dbg) "</span>, <span class="hljs-string">""</span>, <span class="hljs-number">6</span>, <span class="hljs-number">0</span>);
+		rline_exp_set_syntax(<span class="hljs-string">"dbg"</span>);
+		rline_exp_set_tab_complete_func(<span class="hljs-literal">NULL</span>); <span class="hljs-comment">/* TODO */</span>
+		<span class="hljs-keyword">if</span> (rline(buf, <span class="hljs-number">4096</span>) == <span class="hljs-number">0</span>) <span class="hljs-keyword">goto</span> _exitDebugger;
+
+		<span class="hljs-keyword">char</span> *nl = <span class="hljs-built_in">strstr</span>(buf, <span class="hljs-string">"\n"</span>);
+		<span class="hljs-keyword">if</span> (nl) *nl = <span class="hljs-string">'\0'</span>;
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strlen</span>(buf)) {
+			<span class="hljs-keyword">if</span> (last_command) {
+				<span class="hljs-built_in">strcpy</span>(buf, last_command);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">continue</span>;
+			}
+		} <span class="hljs-keyword">else</span> {
+			rline_history_insert(strdup(buf));
+			rline_scroll = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">if</span> (last_command) <span class="hljs-built_in">free</span>(last_command);
+			last_command = strdup(buf);
+		}
+
+		<span class="hljs-comment">/* Tokenize just the first command */</span>
+		<span class="hljs-keyword">char</span> * arg = <span class="hljs-literal">NULL</span>;
+		<span class="hljs-keyword">char</span> * sp = <span class="hljs-built_in">strstr</span>(buf, <span class="hljs-string">" "</span>);
+		<span class="hljs-keyword">if</span> (sp) {
+			*sp = <span class="hljs-string">'\0'</span>;
+			arg = sp + <span class="hljs-number">1</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"show"</span>)) {
+			<span class="hljs-keyword">if</span> (!arg) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Things that can be shown:\n"</span>);
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"   regs\n"</span>);
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"   libs\n"</span>);
+				<span class="hljs-keyword">continue</span>;
+			}
+
+			<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(arg, <span class="hljs-string">"regs"</span>)) {
+				dump_regs(regs);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(arg, <span class="hljs-string">"libs"</span>)) {
+				show_libs(pid);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Don't know how to show '%s'\n"</span>, arg);
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"bt"</span>) || !<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"backtrace"</span>)) {
+			attempt_backtrace(pid, regs);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"continue"</span>) || !<span class="hljs-built_in">strcmp</span>(buf,<span class="hljs-string">"c"</span>)) {
+			<span class="hljs-keyword">int</span> signum = WSTOPSIG(status);
+			<span class="hljs-keyword">if</span> (signum == SIGINT) signum = <span class="hljs-number">0</span>;
+			ptrace(PTRACE_CONT, pid, <span class="hljs-literal">NULL</span>, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)signum);
+			<span class="hljs-keyword">return</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"signal"</span>)) {
+			<span class="hljs-keyword">if</span> (!arg) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"'signal' needs an argument\n"</span>);
+				<span class="hljs-keyword">continue</span>;
+			}
+			<span class="hljs-keyword">int</span> signum;
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">char</span> *s = arg; *s; ++s) {
+				*s = <span class="hljs-built_in">toupper</span>(*s);
+			}
+			<span class="hljs-keyword">if</span> (str2sig(arg, &amp;signum)) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"'%s' is not a recognized signal\n"</span>, arg);
+				<span class="hljs-keyword">continue</span>;
+			}
+			ptrace(PTRACE_CONT, pid, <span class="hljs-literal">NULL</span>, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)signum);
+			<span class="hljs-keyword">return</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"step"</span>) || !<span class="hljs-built_in">strcmp</span>(buf,<span class="hljs-string">"s"</span>)) {
+			<span class="hljs-keyword">int</span> signum = WSTOPSIG(status);
+			<span class="hljs-keyword">if</span> (signum == SIGINT) signum = <span class="hljs-number">0</span>;
+			ptrace(PTRACE_SINGLESTEP, pid, <span class="hljs-literal">NULL</span>, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)signum);
+			<span class="hljs-keyword">return</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"poke"</span>)) {
+			<span class="hljs-keyword">char</span> * addr = arg;
+			<span class="hljs-keyword">char</span> * data = <span class="hljs-built_in">strstr</span>(addr, <span class="hljs-string">" "</span>);
+			<span class="hljs-keyword">if</span> (!data) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"usage: poke addr byte\n"</span>);
+				<span class="hljs-keyword">continue</span>;
+			}
+			*data = <span class="hljs-string">'\0'</span>; data++;
+
+			<span class="hljs-keyword">uintptr_t</span> addr_ = strtoul(addr, <span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>);
+			<span class="hljs-keyword">uintptr_t</span> data_ = strtoul(data, <span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>);
+
+			<span class="hljs-keyword">if</span> (ptrace(PTRACE_POKEDATA, pid, (<span class="hljs-keyword">void</span>*)addr_, (<span class="hljs-keyword">void</span>*)&amp;data_) != <span class="hljs-number">0</span>) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"poke: %s\n"</span>, strerror(errno));
+				<span class="hljs-keyword">continue</span>;
+			}
+
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"print"</span>) || !<span class="hljs-built_in">strcmp</span>(buf,<span class="hljs-string">"p"</span>)) {
+			<span class="hljs-keyword">char</span> * fmt = arg;
+			<span class="hljs-keyword">char</span> * sp = <span class="hljs-built_in">strstr</span>(arg, <span class="hljs-string">" "</span>);
+			<span class="hljs-keyword">if</span> (!sp) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"usage: print fmt addr\n"</span>);
+				<span class="hljs-keyword">continue</span>;
+			}
+			*sp = <span class="hljs-string">'\0'</span>; sp++;
+
+			<span class="hljs-keyword">uintptr_t</span> addr = strtoul(sp,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+
+			<span class="hljs-comment">/* Parse any leading numbers */</span>
+			<span class="hljs-keyword">int</span> count = <span class="hljs-number">1</span>;
+
+			<span class="hljs-keyword">if</span> (*fmt &gt;= <span class="hljs-string">'1'</span> &amp;&amp; *fmt &lt;= <span class="hljs-string">'9'</span>) {
+				count = (*fmt - <span class="hljs-string">'0'</span>);
+				fmt++;
+				<span class="hljs-keyword">while</span> (*fmt &gt;= <span class="hljs-string">'0'</span> &amp;&amp; *fmt &lt;= <span class="hljs-string">'9'</span>) {
+					count *= <span class="hljs-number">10</span>;
+					count += (*fmt - <span class="hljs-string">'0'</span>);
+					fmt++;
+				}
+			}
+
+			<span class="hljs-comment">/* Parse the format */</span>
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(fmt, <span class="hljs-string">"x"</span>)) {
+					<span class="hljs-keyword">uint8_t</span> buf[<span class="hljs-number">1</span>];
+					data_read_bytes(pid, addr, (<span class="hljs-keyword">char</span>*)buf, <span class="hljs-number">1</span>);
+					<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%02x"</span>, buf[<span class="hljs-number">0</span>]);
+					addr += <span class="hljs-number">1</span>;
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(fmt, <span class="hljs-string">"i"</span>)) {
+					<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%d"</span>, data_read_int(pid,addr));
+					addr += <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(fmt, <span class="hljs-string">"l"</span>)) {
+					<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%ld"</span>, (<span class="hljs-keyword">intptr_t</span>)data_read_ptr(pid,addr));
+					addr += <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">long</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(fmt, <span class="hljs-string">"p"</span>)) {
+					<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%#zx"</span>, data_read_ptr(pid,addr));
+					addr += <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uintptr_t</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(fmt, <span class="hljs-string">"s"</span>)) {
+					string_arg(pid,addr,count == <span class="hljs-number">1</span> ? <span class="hljs-number">30</span> : count);
+					<span class="hljs-keyword">break</span>;
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-built_in">printf</span>(<span class="hljs-string">"print: invalid format string"</span>);
+					<span class="hljs-keyword">break</span>;
+				}
+				<span class="hljs-keyword">if</span> (i + <span class="hljs-number">1</span> &lt; count) {
+					<span class="hljs-built_in">printf</span>(<span class="hljs-string">" "</span>);
+				}
+			}
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\n"</span>);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf, <span class="hljs-string">"help"</span>)) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"commands:\n"</span>
+				<span class="hljs-string">"  show (regs, libs)\n"</span>
+				<span class="hljs-string">"  backtrace\n"</span>
+				<span class="hljs-string">"  continue\n"</span>
+				<span class="hljs-string">"  signal signum\n"</span>
+				<span class="hljs-string">"  step\n"</span>
+				<span class="hljs-string">"  poke addr byte\n"</span>
+				<span class="hljs-string">"  print fmt addr\n"</span>);
+			<span class="hljs-keyword">continue</span>;
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"dbg: unrecognized command '%s'\n"</span>, buf);
+			<span class="hljs-keyword">continue</span>;
+		}
+	}
+
+_exitDebugger:
+	<span class="hljs-keyword">if</span> (binary_is_child) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Terminating child process '%d'.\n"</span>, pid);
+		ptrace(PTRACE_DETACH, pid, <span class="hljs-literal">NULL</span>, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)SIGKILL);
+	}
+	<span class="hljs-built_in">exit</span>(<span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> T_I <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> T_O <span class="hljs-meta-string">"\033[0m"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"usage: %s command...\n"</span>
+			<span class="hljs-string">"  -h         "</span> T_I <span class="hljs-string">"Show this help text."</span> T_O <span class="hljs-string">"\n"</span>,
+			argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DEFAULT_PATH <span class="hljs-meta-string">"/bin:/usr/bin"</span></span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">find_binary</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * file)</span> </span>{
+	<span class="hljs-keyword">if</span> (file &amp;&amp; (!<span class="hljs-built_in">strstr</span>(file, <span class="hljs-string">"/"</span>))) {
+		<span class="hljs-keyword">char</span> * path = getenv(<span class="hljs-string">"PATH"</span>);
+		<span class="hljs-keyword">if</span> (!path) {
+			path = DEFAULT_PATH;
+		}
+		<span class="hljs-keyword">char</span> * xpath = strdup(path);
+		<span class="hljs-keyword">char</span> * p, * last;
+		<span class="hljs-keyword">for</span> ((p = strtok_r(xpath, <span class="hljs-string">":"</span>, &amp;last)); p; p = strtok_r(<span class="hljs-literal">NULL</span>, <span class="hljs-string">":"</span>, &amp;last)) {
+			<span class="hljs-keyword">int</span> r;
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">stat_buf</span>;</span>
+			<span class="hljs-keyword">char</span> * exe = <span class="hljs-built_in">malloc</span>(<span class="hljs-built_in">strlen</span>(p) + <span class="hljs-built_in">strlen</span>(file) + <span class="hljs-number">2</span>);
+			<span class="hljs-built_in">strcpy</span>(exe, p);
+			<span class="hljs-built_in">strcat</span>(exe, <span class="hljs-string">"/"</span>);
+			<span class="hljs-built_in">strcat</span>(exe, file);
+			r = stat(exe, &amp;stat_buf);
+			<span class="hljs-keyword">if</span> (r != <span class="hljs-number">0</span>) {
+				<span class="hljs-keyword">continue</span>;
+			}
+			<span class="hljs-keyword">if</span> (!(stat_buf.st_mode &amp; <span class="hljs-number">0111</span>)) {
+				<span class="hljs-keyword">continue</span>;
+			}
+			<span class="hljs-built_in">free</span>(xpath);
+			<span class="hljs-keyword">return</span> exe;
+		}
+		<span class="hljs-built_in">free</span>(xpath);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (file) {
+		<span class="hljs-keyword">return</span> strdup(file);
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">pass_sig</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sig)</span> </span>{
+	kill(binary_pid, sig);
+	signal(SIGINT, pass_sig);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">pid_t</span> target_pid = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> opt;
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"+o:p:h"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'p'</span>:
+				target_pid = atoi(optarg);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'h'</span>:
+				<span class="hljs-keyword">return</span> (usage(argv), <span class="hljs-number">0</span>);
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> usage(argv);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (optind == argc) {
+		<span class="hljs-keyword">return</span> usage(argv);
+	}
+
+	<span class="hljs-comment">/* TODO find argv[optind] */</span>
+	<span class="hljs-comment">/* TODO load symbols from it, and from its dependencies... with offsets... from ld.so... */</span>
+
+	binary_path = find_binary(argv[optind]);
+
+	<span class="hljs-keyword">if</span> (!binary_path) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: No such file or not an executable.\n"</span>,
+			argv[<span class="hljs-number">0</span>], argv[optind]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	binary_obj = fopen(binary_path, <span class="hljs-string">"r"</span>);
+
+	<span class="hljs-keyword">if</span> (!binary_obj) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>,
+			argv[<span class="hljs-number">0</span>], argv[optind], strerror(errno));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* Catch one potential mistake early... */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">stat_buf</span>;</span>
+	fstat(fileno(binary_obj), &amp;stat_buf);
+	<span class="hljs-keyword">if</span> (stat_buf.st_mode &amp; S_IFDIR) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: Is a directory\n"</span>, argv[<span class="hljs-number">0</span>], binary_path);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* Attempt to load symbol information... */</span>
+
+	<span class="hljs-keyword">if</span> (target_pid) {
+		binary_pid = target_pid;
+		<span class="hljs-keyword">if</span> (ptrace(PTRACE_ATTACH, binary_pid, <span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>) &lt; <span class="hljs-number">0</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: ptrace: %s\n"</span>, argv[<span class="hljs-number">0</span>], strerror(errno));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		signal(SIGINT, pass_sig);
+	} <span class="hljs-keyword">else</span> {
+		binary_is_child = <span class="hljs-number">1</span>;
+		binary_pid = fork();
+		<span class="hljs-keyword">if</span> (!binary_pid) {
+			<span class="hljs-keyword">if</span> (ptrace(PTRACE_TRACEME, <span class="hljs-number">0</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>) &lt; <span class="hljs-number">0</span>) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: ptrace: %s\n"</span>, argv[<span class="hljs-number">0</span>], strerror(errno));
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			}
+			execv(binary_path, &amp;argv[optind]);
+			<span class="hljs-comment">/* If we got to this point at all... */</span>
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: execv: %s\n"</span>, argv[<span class="hljs-number">0</span>], binary_path, strerror(errno));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+
+		signal(SIGINT, SIG_IGN);
+	}
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">int</span> status = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">pid_t</span> res = waitpid(binary_pid, &amp;status, WSTOPPED);
+
+		<span class="hljs-keyword">if</span> (res == <span class="hljs-number">0</span>) <span class="hljs-keyword">continue</span>;
+
+		<span class="hljs-keyword">if</span> (res &lt; <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">if</span> (errno == EINTR) <span class="hljs-keyword">continue</span>;
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: waitpid: %s\n"</span>, argv[<span class="hljs-number">0</span>], strerror(errno));
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">if</span> (WIFSTOPPED(status)) {
+				<span class="hljs-keyword">if</span> (WSTOPSIG(status) == SIGTRAP) {
+					<span class="hljs-comment">/* Don't care about TRAP right now */</span>
+					<span class="hljs-keyword">int</span> event = (status &gt;&gt; <span class="hljs-number">16</span>) &amp; <span class="hljs-number">0xFF</span>;
+					<span class="hljs-keyword">switch</span> (event) {
+						<span class="hljs-keyword">case</span> PTRACE_EVENT_SINGLESTEP: {
+								<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">URegs</span> <span class="hljs-title">regs</span>;</span>
+								ptrace(PTRACE_GETREGS, res, <span class="hljs-literal">NULL</span>, &amp;regs);
+								show_commandline(res, status, &amp;regs);
+							}
+							<span class="hljs-keyword">break</span>;
+						<span class="hljs-keyword">default</span>:
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<p>ptrace(PTRACE_SIGNALS_ONLY_PLZ, p, NULL, NULL);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">							ptrace(PTRACE_CONT, res, <span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>);
+							<span class="hljs-keyword">break</span>;
+					}
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-keyword">char</span> signame[SIG2STR_MAX+<span class="hljs-number">3</span>] = {<span class="hljs-string">'S'</span>,<span class="hljs-string">'I'</span>,<span class="hljs-string">'G'</span>,<span class="hljs-number">0</span>};
+					<span class="hljs-keyword">if</span> (sig2str(WSTOPSIG(status), signame+<span class="hljs-number">3</span>)) {
+						<span class="hljs-built_in">sprintf</span>(signame, <span class="hljs-string">"%d"</span>, WSTOPSIG(status));
+					}
+
+					<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Program received signal %s.\n"</span>, signame);
+
+					<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">URegs</span> <span class="hljs-title">regs</span>;</span>
+					ptrace(PTRACE_GETREGS, res, <span class="hljs-literal">NULL</span>, &amp;regs);
+
+					show_commandline(res, status, &amp;regs);
+				}
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (WIFSIGNALED(status)) {
+					<span class="hljs-keyword">char</span> signame[SIG2STR_MAX+<span class="hljs-number">3</span>] = {<span class="hljs-string">'S'</span>,<span class="hljs-string">'I'</span>,<span class="hljs-string">'G'</span>,<span class="hljs-number">0</span>};
+					<span class="hljs-keyword">if</span> (sig2str(WTERMSIG(status), signame+<span class="hljs-number">3</span>)) {
+						<span class="hljs-built_in">sprintf</span>(signame, <span class="hljs-string">"%d"</span>, WTERMSIG(status));
+					}
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Process %d was killed by %s.\n"</span>, res, signame);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (WIFEXITED(status)) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Process %d exited normally with status %d.\n"</span>, res, WEXITSTATUS(status));
+				<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Unknown state?\n"</span>);
+			}
+		}
+	}
+	
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

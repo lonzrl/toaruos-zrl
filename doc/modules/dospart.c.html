@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>dospart.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "modules\\dospart.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>dospart.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/module.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/tokenize.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SECTORSIZE      512</span>
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+	<span class="hljs-keyword">uint8_t</span>  status;
+	<span class="hljs-keyword">uint8_t</span>  chs_first_sector[<span class="hljs-number">3</span>];
+	<span class="hljs-keyword">uint8_t</span>  type;
+	<span class="hljs-keyword">uint8_t</span>  chs_last_sector[<span class="hljs-number">3</span>];
+	<span class="hljs-keyword">uint32_t</span> lba_first_sector;
+	<span class="hljs-keyword">uint32_t</span> sector_count;
+} <span class="hljs-keyword">partition_t</span>;
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+	<span class="hljs-keyword">uint8_t</span>     boostrap[<span class="hljs-number">446</span>];
+	<span class="hljs-keyword">partition_t</span> partitions[<span class="hljs-number">4</span>];
+	<span class="hljs-keyword">uint8_t</span>     signature[<span class="hljs-number">2</span>];
+} __attribute__((packed)) <span class="hljs-keyword">mbr_t</span>;
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dos_partition_entry</span> {</span>
+	<span class="hljs-keyword">fs_node_t</span> * device;
+	<span class="hljs-keyword">partition_t</span> partition;
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">read_part</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dos_partition_entry</span> * <span class="hljs-title">device</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">dos_partition_entry</span> *)<span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+
+	<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">size_t</span>)offset &gt; device-&gt;partition.sector_count * SECTORSIZE) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (offset + <span class="hljs-built_in">size</span> &gt; device-&gt;partition.sector_count * SECTORSIZE) {
+		<span class="hljs-built_in">size</span> = device-&gt;partition.sector_count * SECTORSIZE - offset;
+	}
+
+	<span class="hljs-keyword">return</span> read_fs(device-&gt;device, offset + device-&gt;partition.lba_first_sector * SECTORSIZE, <span class="hljs-built_in">size</span>, <span class="hljs-built_in">buffer</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">write_part</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dos_partition_entry</span> * <span class="hljs-title">device</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">dos_partition_entry</span> *)<span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+
+	<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">size_t</span>)offset &gt; device-&gt;partition.sector_count * SECTORSIZE) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (offset + <span class="hljs-built_in">size</span> &gt; device-&gt;partition.sector_count * SECTORSIZE) {
+		<span class="hljs-built_in">size</span> = device-&gt;partition.sector_count * SECTORSIZE - offset;
+	}
+
+	<span class="hljs-keyword">return</span> write_fs(device-&gt;device, offset + device-&gt;partition.lba_first_sector * SECTORSIZE, <span class="hljs-built_in">size</span>, <span class="hljs-built_in">buffer</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">open_part</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">return</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">close_part</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node)</span> </span>{
+	<span class="hljs-keyword">return</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">dospart_device_create</span><span class="hljs-params">(<span class="hljs-keyword">int</span> i, <span class="hljs-keyword">fs_node_t</span> * dev, <span class="hljs-keyword">mbr_t</span> * mbr, <span class="hljs-keyword">int</span> id)</span> </span>{
+
+	vfs_lock(dev);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dos_partition_entry</span> * <span class="hljs-title">device</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">dos_partition_entry</span>));</span>
+	<span class="hljs-built_in">memcpy</span>(&amp;device-&gt;partition, &amp;mbr-&gt;partitions[id], <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">partition_t</span>));
+	device-&gt;device = dev;
+
+	<span class="hljs-keyword">fs_node_t</span> * fnode = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">memset</span>(fnode, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	fnode-&gt;inode = <span class="hljs-number">0</span>;
+	<span class="hljs-built_in">snprintf</span>(fnode-&gt;name, <span class="hljs-number">20</span>, <span class="hljs-string">"dospart%d"</span>, i);
+	fnode-&gt;device  = device;
+	fnode-&gt;uid = <span class="hljs-number">0</span>;
+	fnode-&gt;gid = <span class="hljs-number">0</span>;
+	fnode-&gt;mask    = <span class="hljs-number">0660</span>;
+	fnode-&gt;length  = device-&gt;partition.sector_count * SECTORSIZE; <span class="hljs-comment">/* TODO */</span>
+	fnode-&gt;flags   = FS_BLOCKDEVICE;
+	fnode-&gt;<span class="hljs-built_in">read</span>    = read_part;
+	fnode-&gt;<span class="hljs-built_in">write</span>   = write_part;
+	fnode-&gt;<span class="hljs-built_in">open</span>    = open_part;
+	fnode-&gt;<span class="hljs-built_in">close</span>   = close_part;
+	fnode-&gt;readdir = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;finddir = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;ioctl   = <span class="hljs-literal">NULL</span>; <span class="hljs-comment">/* TODO, identify, etc? */</span>
+	<span class="hljs-keyword">return</span> fnode;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">dospart_map</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * device, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * mount_path)</span> </span>{
+	<span class="hljs-keyword">char</span> * arg = strdup(device);
+	<span class="hljs-keyword">char</span> * argv[<span class="hljs-number">10</span>];
+	tokenize(arg, <span class="hljs-string">","</span>, argv);
+
+	<span class="hljs-keyword">fs_node_t</span> * dev = kopen(argv[<span class="hljs-number">0</span>], <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">if</span> (!dev) {
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">mbr_t</span> mbr;
+	read_fs(dev, <span class="hljs-number">0</span>, SECTORSIZE, (<span class="hljs-keyword">uint8_t</span> *)&amp;mbr);
+
+	<span class="hljs-keyword">if</span> (mbr.signature[<span class="hljs-number">0</span>] == <span class="hljs-number">0x55</span> &amp;&amp; mbr.signature[<span class="hljs-number">1</span>] == <span class="hljs-number">0xAA</span>) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">4</span>; ++i) {
+			<span class="hljs-keyword">if</span> (mbr.partitions[i].status &amp; <span class="hljs-number">0x80</span>) {
+				<span class="hljs-keyword">fs_node_t</span> * node = dospart_device_create(i, dev, &amp;mbr, i);
+				<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">64</span>];
+				<span class="hljs-built_in">snprintf</span>(tmp, <span class="hljs-number">20</span>, <span class="hljs-string">"%s%d"</span>, device, i);
+				vfs_mount(tmp, node, <span class="hljs-string">"dospart"</span>, tmp);
+			}
+		}
+	}
+
+	<span class="hljs-comment">/* VFS_MOUNT_PARTITION_MAPPER_SUCCESS? */</span>
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">fs_node_t</span>*)<span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">dospart_initialize</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	vfs_register(<span class="hljs-string">"mbr"</span>, dospart_map);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">dospart_finalize</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Module</span> <span class="hljs-title">metadata</span> = {</span>
+	.name = <span class="hljs-string">"dospart"</span>,
+	.init = dospart_initialize,
+	.fini = dospart_finalize,
+};
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

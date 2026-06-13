@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>sudo.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\sudo.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>sudo.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _TOARU_SOURCE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;termios.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;pwd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;dirent.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/utsname.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/auth.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MINUTES * 60</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SUDO_TIME 5 MINUTES</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">sudo_loop</span><span class="hljs-params">(<span class="hljs-keyword">int</span> (*prompt_callback)(<span class="hljs-keyword">char</span> * username, <span class="hljs-keyword">char</span> * password, <span class="hljs-keyword">int</span> failures, <span class="hljs-keyword">char</span> * argv[]), <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+
+	<span class="hljs-keyword">int</span> fails = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (geteuid() != <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: effective uid is not 0\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">buf</span>;</span>
+	<span class="hljs-keyword">if</span> (stat(<span class="hljs-string">"/var/sudoers"</span>, &amp;buf)) {
+		<span class="hljs-built_in">mkdir</span>(<span class="hljs-string">"/var/sudoers"</span>, <span class="hljs-number">0700</span>);
+	}
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">int</span> need_password = <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">int</span> need_sudoers  = <span class="hljs-number">1</span>;
+
+		<span class="hljs-keyword">uid_t</span> me = getuid();
+		<span class="hljs-keyword">if</span> (me == <span class="hljs-number">0</span>) {
+			need_password = <span class="hljs-number">0</span>;
+			need_sudoers  = <span class="hljs-number">0</span>;
+		}
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">passwd</span> * <span class="hljs-title">p</span> = <span class="hljs-title">getpwuid</span>(<span class="hljs-title">me</span>);</span>
+		<span class="hljs-keyword">if</span> (!p) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: unable to obtain username for real uid=%d\n"</span>, argv[<span class="hljs-number">0</span>], getuid());
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		<span class="hljs-keyword">char</span> * username = strdup(p-&gt;pw_name);
+
+		<span class="hljs-keyword">char</span> token_file[<span class="hljs-number">64</span>];
+		<span class="hljs-built_in">sprintf</span>(token_file, <span class="hljs-string">"/var/sudoers/%d"</span>, me); <span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> Restrict to this session? */</span>
+
+		<span class="hljs-keyword">if</span> (need_password) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">buf</span>;</span>
+			<span class="hljs-keyword">if</span> (!stat(token_file, &amp;buf)) {
+				<span class="hljs-comment">/* check the time */</span>
+				<span class="hljs-keyword">if</span> (buf.st_mtime &gt; (SUDO_TIME) &amp;&amp; time(<span class="hljs-literal">NULL</span>) - buf.st_mtime &lt; (SUDO_TIME)) {
+					need_password = <span class="hljs-number">0</span>;
+				}
+			}
+		}
+
+		<span class="hljs-keyword">if</span> (need_password) {
+			<span class="hljs-keyword">char</span> * password = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1024</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span>));
+
+			<span class="hljs-keyword">if</span> (prompt_callback(username, password, fails, argv)) {
+				<span class="hljs-built_in">free</span>(username);
+				<span class="hljs-built_in">free</span>(password);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			}
+
+			<span class="hljs-keyword">int</span> uid = toaru_auth_check_pass(username, password);
+
+			<span class="hljs-built_in">free</span>(password);
+
+			<span class="hljs-keyword">if</span> (uid &lt; <span class="hljs-number">0</span>) {
+				<span class="hljs-built_in">free</span>(username);
+				fails++;
+				<span class="hljs-keyword">if</span> (fails == <span class="hljs-number">3</span>) {
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %d incorrect password attempts\n"</span>, argv[<span class="hljs-number">0</span>], fails);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+				}
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Sorry, try again.\n"</span>);
+				<span class="hljs-keyword">continue</span>;
+			}
+		}
+
+		<span class="hljs-comment">/* Determine if this user is in the sudoers file */</span>
+		<span class="hljs-keyword">if</span> (need_sudoers) {
+			FILE * sudoers = fopen(<span class="hljs-string">"/etc/sudoers"</span>,<span class="hljs-string">"r"</span>);
+			<span class="hljs-keyword">if</span> (!sudoers) {
+				<span class="hljs-built_in">free</span>(username);
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: /etc/sudoers is not available\n"</span>, argv[<span class="hljs-number">0</span>]);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			}
+
+			<span class="hljs-comment">/* Read each line */</span>
+			<span class="hljs-keyword">int</span> in_sudoers = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">while</span> (!feof(sudoers)) {
+				<span class="hljs-keyword">char</span> <span class="hljs-built_in">line</span>[<span class="hljs-number">1024</span>];
+				fgets(<span class="hljs-built_in">line</span>, <span class="hljs-number">1024</span>, sudoers);
+				<span class="hljs-keyword">char</span> * nl = <span class="hljs-built_in">strchr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">'\n'</span>);
+				<span class="hljs-keyword">if</span> (nl) {
+					*nl = <span class="hljs-string">'\0'</span>;
+				}
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strncmp</span>(<span class="hljs-built_in">line</span>,username,<span class="hljs-number">1024</span>)) {
+					in_sudoers = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">break</span>;
+				}
+			}
+			fclose(sudoers);
+
+			<span class="hljs-keyword">if</span> (!in_sudoers) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s is not in sudoers file.\n"</span>, username);
+				<span class="hljs-built_in">free</span>(username);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			}
+		}
+
+		<span class="hljs-built_in">free</span>(username);
+
+		<span class="hljs-comment">/* Write a timestamp file */</span>
+		FILE * f = fopen(token_file, <span class="hljs-string">"w"</span>);
+		<span class="hljs-keyword">if</span> (!f) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: (warning) failed to create token file\n"</span>, argv[<span class="hljs-number">0</span>]);
+		}
+		fclose(f);
+
+		<span class="hljs-comment">/* Set username to root */</span>
+		putenv(<span class="hljs-string">"USER=root"</span>);
+
+		<span class="hljs-comment">/* Actually become root, so real user id = 0 */</span>
+		setgid(<span class="hljs-number">0</span>);
+		setuid(<span class="hljs-number">0</span>);
+		setgroups(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>);
+
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">1</span>], <span class="hljs-string">"-s"</span>)) {
+			argv[<span class="hljs-number">1</span>] = getenv(<span class="hljs-string">"SHELL"</span>);
+		}
+
+		<span class="hljs-keyword">char</span> ** args = &amp;argv[<span class="hljs-number">1</span>];
+		execvp(args[<span class="hljs-number">0</span>], args);
+
+		<span class="hljs-comment">/* <span class="hljs-doctag">XXX:</span> There are other things that can cause an exec to fail. */</span>
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: command not found\n"</span>, argv[<span class="hljs-number">0</span>], args[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">basic_callback</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * username, <span class="hljs-keyword">char</span> * password, <span class="hljs-keyword">int</span> fails, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"[%s] password for %s: "</span>, argv[<span class="hljs-number">0</span>], username);
+	fflush(<span class="hljs-built_in">stderr</span>);
+
+	<span class="hljs-comment">/* Disable echo */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">termios</span> <span class="hljs-title">old</span>, <span class="hljs-title">new</span>;</span>
+	tcgetattr(fileno(<span class="hljs-built_in">stdin</span>), &amp;old);
+	<span class="hljs-keyword">new</span> = old;
+	<span class="hljs-keyword">new</span>.c_lflag &amp;= (~ECHO);
+	tcsetattr(fileno(<span class="hljs-built_in">stdin</span>), TCSAFLUSH, &amp;<span class="hljs-keyword">new</span>);
+
+	fgets(password, <span class="hljs-number">1024</span>, <span class="hljs-built_in">stdin</span>);
+	<span class="hljs-keyword">if</span> (feof(<span class="hljs-built_in">stdin</span>)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+
+	password[<span class="hljs-built_in">strlen</span>(password)<span class="hljs-number">-1</span>] = <span class="hljs-string">'\0'</span>;
+	tcsetattr(fileno(<span class="hljs-built_in">stdin</span>), TCSAFLUSH, &amp;old);
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"\n"</span>);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"usage: %s [command]\n"</span>, argv[<span class="hljs-number">0</span>]);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> ** argv)</span> </span>{
+
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">2</span>) {
+		usage(argc, argv);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">return</span> sudo_loop(basic_callback, argv);
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>kbd.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "lib\\kbd.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>kbd.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/kbd.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DEBUG_SCANCODES 0</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_UP_MASK   0x80</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_CODE_MASK 0x7F</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_CTRL_MASK 0x40</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> norm 0x01</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> spec 0x02</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> func 0x03</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SET_UNSET(a,b,c) (a) = (c) ? ((a) | (b)) : ((a) &amp; ~(b))</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> key_method[] = {
+	<span class="hljs-comment">/* 00 */</span> <span class="hljs-number">0</span>,    spec, norm, norm, norm, norm, norm, norm,
+	<span class="hljs-comment">/* 08 */</span> norm, norm, norm, norm, norm, norm, norm, norm,
+	<span class="hljs-comment">/* 10 */</span> norm, norm, norm, norm, norm, norm, norm, norm,
+	<span class="hljs-comment">/* 18 */</span> norm, norm, norm, norm, norm, spec, norm, norm,
+	<span class="hljs-comment">/* 20 */</span> norm, norm, norm, norm, norm, norm, norm, norm,
+	<span class="hljs-comment">/* 28 */</span> norm, norm, spec, norm, norm, norm, norm, norm,
+	<span class="hljs-comment">/* 30 */</span> norm, norm, norm, norm, norm, norm, spec, norm,
+	<span class="hljs-comment">/* 38 */</span> spec, norm, spec, func, func, func, func, func,
+	<span class="hljs-comment">/* 40 */</span> func, func, func, func, func, spec, spec, spec,
+	<span class="hljs-comment">/* 48 */</span> spec, spec, spec, spec, spec, spec, spec, spec,
+	<span class="hljs-comment">/* 50 */</span> spec, spec, spec, spec, spec, spec, spec, func,
+	<span class="hljs-comment">/* 58 */</span> func, spec, spec, spec, spec, spec, spec, spec,
+	<span class="hljs-comment">/* 60 */</span> spec, spec, spec, spec, spec, spec, spec, spec,
+	<span class="hljs-comment">/* 68 */</span> spec, spec, spec, spec, spec, spec, spec, spec,
+	<span class="hljs-comment">/* 70 */</span> spec, spec, spec, spec, spec, spec, spec, spec,
+	<span class="hljs-comment">/* 78 */</span> spec, spec, spec, spec, spec, spec, spec, spec,
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> kbd_us[<span class="hljs-number">128</span>] = {
+	<span class="hljs-number">0</span>, <span class="hljs-number">27</span>,
+	<span class="hljs-string">'1'</span>,<span class="hljs-string">'2'</span>,<span class="hljs-string">'3'</span>,<span class="hljs-string">'4'</span>,<span class="hljs-string">'5'</span>,<span class="hljs-string">'6'</span>,<span class="hljs-string">'7'</span>,<span class="hljs-string">'8'</span>,<span class="hljs-string">'9'</span>,<span class="hljs-string">'0'</span>,
+	<span class="hljs-string">'-'</span>,<span class="hljs-string">'='</span>,<span class="hljs-string">'\b'</span>,
+	<span class="hljs-string">'\t'</span>, <span class="hljs-comment">/* tab */</span>
+	<span class="hljs-string">'q'</span>,<span class="hljs-string">'w'</span>,<span class="hljs-string">'e'</span>,<span class="hljs-string">'r'</span>,<span class="hljs-string">'t'</span>,<span class="hljs-string">'y'</span>,<span class="hljs-string">'u'</span>,<span class="hljs-string">'i'</span>,<span class="hljs-string">'o'</span>,<span class="hljs-string">'p'</span>,<span class="hljs-string">'['</span>,<span class="hljs-string">']'</span>,<span class="hljs-string">'\n'</span>,
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* control */</span>
+	<span class="hljs-string">'a'</span>,<span class="hljs-string">'s'</span>,<span class="hljs-string">'d'</span>,<span class="hljs-string">'f'</span>,<span class="hljs-string">'g'</span>,<span class="hljs-string">'h'</span>,<span class="hljs-string">'j'</span>,<span class="hljs-string">'k'</span>,<span class="hljs-string">'l'</span>,<span class="hljs-string">';'</span>,<span class="hljs-string">'\''</span>, <span class="hljs-string">'`'</span>,
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* left shift */</span>
+	<span class="hljs-string">'\\'</span>,<span class="hljs-string">'z'</span>,<span class="hljs-string">'x'</span>,<span class="hljs-string">'c'</span>,<span class="hljs-string">'v'</span>,<span class="hljs-string">'b'</span>,<span class="hljs-string">'n'</span>,<span class="hljs-string">'m'</span>,<span class="hljs-string">','</span>,<span class="hljs-string">'.'</span>,<span class="hljs-string">'/'</span>,
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* right shift */</span>
+	<span class="hljs-string">'*'</span>,
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* alt */</span>
+	<span class="hljs-string">' '</span>, <span class="hljs-comment">/* space */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* caps lock */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* F1 [59] */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>,
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* ... F10 */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* 69 num lock */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* scroll lock */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* home */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* up */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* page up */</span>
+	<span class="hljs-string">'-'</span>,
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* left arrow */</span>
+	<span class="hljs-number">0</span>,
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* right arrow */</span>
+	<span class="hljs-string">'+'</span>,
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* 79 end */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* down */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* page down */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* insert */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* delete */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>,
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* F11 */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* F12 */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* everything else */</span>
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> kbd_us_l2[<span class="hljs-number">128</span>] = {
+	<span class="hljs-number">0</span>, <span class="hljs-number">27</span>,
+	<span class="hljs-string">'!'</span>,<span class="hljs-string">'@'</span>,<span class="hljs-string">'#'</span>,<span class="hljs-string">'$'</span>,<span class="hljs-string">'%'</span>,<span class="hljs-string">'^'</span>,<span class="hljs-string">'&amp;'</span>,<span class="hljs-string">'*'</span>,<span class="hljs-string">'('</span>,<span class="hljs-string">')'</span>,
+	<span class="hljs-string">'_'</span>,<span class="hljs-string">'+'</span>,<span class="hljs-string">'\b'</span>,
+	<span class="hljs-string">'\t'</span>, <span class="hljs-comment">/* tab */</span>
+	<span class="hljs-string">'Q'</span>,<span class="hljs-string">'W'</span>,<span class="hljs-string">'E'</span>,<span class="hljs-string">'R'</span>,<span class="hljs-string">'T'</span>,<span class="hljs-string">'Y'</span>,<span class="hljs-string">'U'</span>,<span class="hljs-string">'I'</span>,<span class="hljs-string">'O'</span>,<span class="hljs-string">'P'</span>,<span class="hljs-string">'{'</span>,<span class="hljs-string">'}'</span>,<span class="hljs-string">'\n'</span>,
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* control */</span>
+	<span class="hljs-string">'A'</span>,<span class="hljs-string">'S'</span>,<span class="hljs-string">'D'</span>,<span class="hljs-string">'F'</span>,<span class="hljs-string">'G'</span>,<span class="hljs-string">'H'</span>,<span class="hljs-string">'J'</span>,<span class="hljs-string">'K'</span>,<span class="hljs-string">'L'</span>,<span class="hljs-string">':'</span>,<span class="hljs-string">'"'</span>, <span class="hljs-string">'~'</span>,
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* left shift */</span>
+	<span class="hljs-string">'|'</span>,<span class="hljs-string">'Z'</span>,<span class="hljs-string">'X'</span>,<span class="hljs-string">'C'</span>,<span class="hljs-string">'V'</span>,<span class="hljs-string">'B'</span>,<span class="hljs-string">'N'</span>,<span class="hljs-string">'M'</span>,<span class="hljs-string">'&lt;'</span>,<span class="hljs-string">'&gt;'</span>,<span class="hljs-string">'?'</span>,
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* right shift */</span>
+	<span class="hljs-string">'*'</span>,
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* alt */</span>
+	<span class="hljs-string">' '</span>, <span class="hljs-comment">/* space */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* caps lock */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* F1 [59] */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>,
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* ... F10 */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* 69 num lock */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* scroll lock */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* home */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* up */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* page up */</span>
+	<span class="hljs-string">'-'</span>,
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* left arrow */</span>
+	<span class="hljs-number">0</span>,
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* right arrow */</span>
+	<span class="hljs-string">'+'</span>,
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* 79 end */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* down */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* page down */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* insert */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* delete */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>,
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* F11 */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* F12 */</span>
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* everything else */</span>
+};
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_F1  0x3b</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_F2  0x3c</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_F3  0x3d</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_F4  0x3e</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_F5  0x3f</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_F6  0x40</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_F7  0x41</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_F8  0x42</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_F9  0x43</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_F10 0x44</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_F11 0x57</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_F12 0x58</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_NUM_1  0x4f</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_NUM_2  0x50</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_NUM_3  0x51</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_NUM_4  0x4B</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_NUM_5  0x4C</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_NUM_6  0x4D</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_NUM_7  0x47</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_NUM_8  0x48</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_NUM_9  0x49</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_NUM_0  0x52</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_NUM_DOT 0x53</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_NUM_MIN 0x4a</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_NUM_ADD 0x4e</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_NUM_LK 0x45</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEY_SCANCODE_SCROLL 0x46</span>
+
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">kbd_scancode</span><span class="hljs-params">(<span class="hljs-keyword">key_event_state_t</span> * state, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> c, <span class="hljs-keyword">key_event_t</span> * event)</span> </span>{
+	<span class="hljs-comment">/* Convert scancodes to a series of keys */</span>
+
+	event-&gt;keycode   = <span class="hljs-number">0</span>;
+	event-&gt;action    = <span class="hljs-number">0</span>;
+	event-&gt;modifiers = <span class="hljs-number">0</span>;
+	event-&gt;key       = <span class="hljs-number">0</span>;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> DEBUG_SCANCODES</span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"[%d] %d\n"</span>, state-&gt;kbd_s_state, (<span class="hljs-keyword">int</span>)c);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	event-&gt;modifiers |= state-&gt;kl_ctrl  ? KEY_MOD_LEFT_CTRL   : <span class="hljs-number">0</span>;
+	event-&gt;modifiers |= state-&gt;kl_shift ? KEY_MOD_LEFT_SHIFT  : <span class="hljs-number">0</span>;
+	event-&gt;modifiers |= state-&gt;kl_alt   ? KEY_MOD_LEFT_ALT    : <span class="hljs-number">0</span>;
+	event-&gt;modifiers |= state-&gt;kl_super ? KEY_MOD_LEFT_SUPER  : <span class="hljs-number">0</span>;
+
+	event-&gt;modifiers |= state-&gt;kr_ctrl  ? KEY_MOD_RIGHT_CTRL  : <span class="hljs-number">0</span>;
+	event-&gt;modifiers |= state-&gt;kr_shift ? KEY_MOD_RIGHT_SHIFT : <span class="hljs-number">0</span>;
+	event-&gt;modifiers |= state-&gt;kr_alt   ? KEY_MOD_RIGHT_ALT   : <span class="hljs-number">0</span>;
+	event-&gt;modifiers |= state-&gt;kr_super ? KEY_MOD_RIGHT_SUPER : <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (!state-&gt;kbd_s_state) {
+		<span class="hljs-keyword">if</span> (c == <span class="hljs-number">0xE0</span>) {
+			state-&gt;kbd_s_state = <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+
+		event-&gt;action = (c &amp; KEY_UP_MASK) ? KEY_ACTION_UP : KEY_ACTION_DOWN;
+		c &amp;= <span class="hljs-number">0x7F</span>;
+		<span class="hljs-keyword">int</span> down = (event-&gt;action == KEY_ACTION_DOWN);
+
+		<span class="hljs-keyword">switch</span> (key_method[c]) {
+			<span class="hljs-keyword">case</span> norm:
+				{
+					event-&gt;keycode = kbd_us[c];
+					<span class="hljs-keyword">if</span> (state-&gt;k_ctrl) {
+						<span class="hljs-keyword">int</span> s = kbd_us[c];
+						<span class="hljs-keyword">if</span> (s &gt;= <span class="hljs-string">'a'</span> &amp;&amp; s &lt;= <span class="hljs-string">'z'</span>) s -= <span class="hljs-string">'a'</span> - <span class="hljs-string">'A'</span>;
+						<span class="hljs-keyword">if</span> (s == <span class="hljs-string">'-'</span>) s = <span class="hljs-string">'_'</span>;
+						<span class="hljs-keyword">if</span> (s == <span class="hljs-string">'`'</span>) s = <span class="hljs-string">'@'</span>;
+						<span class="hljs-keyword">int</span> out = (<span class="hljs-keyword">int</span>)(s - KEY_CTRL_MASK);
+						<span class="hljs-keyword">if</span> (out &lt; <span class="hljs-number">0</span> || out &gt; <span class="hljs-number">0x1F</span>) {
+							event-&gt;key = kbd_us[c];
+						} <span class="hljs-keyword">else</span> {
+							event-&gt;key = out;
+						}
+					} <span class="hljs-keyword">else</span> {
+						event-&gt;key = state-&gt;k_shift ? kbd_us_l2[c] : kbd_us[c];
+					}
+				}
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> spec:
+				<span class="hljs-keyword">switch</span> (c) {
+					<span class="hljs-keyword">case</span> <span class="hljs-number">0x01</span>:
+						event-&gt;key     = <span class="hljs-string">'\033'</span>;
+						event-&gt;keycode = KEY_ESCAPE;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> <span class="hljs-number">0x1D</span>:
+						state-&gt;k_ctrl   = down;
+						state-&gt;kl_ctrl  = down;
+						event-&gt;keycode  = KEY_LEFT_CTRL;
+						SET_UNSET(event-&gt;modifiers, KEY_MOD_LEFT_CTRL, down);
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> <span class="hljs-number">0x2A</span>:
+						state-&gt;k_shift  = down;
+						state-&gt;kl_shift = down;
+						event-&gt;keycode  = KEY_LEFT_SHIFT;
+						SET_UNSET(event-&gt;modifiers, KEY_MOD_LEFT_SHIFT, down);
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> <span class="hljs-number">0x36</span>:
+						state-&gt;k_shift  = down;
+						state-&gt;kr_shift = down;
+						event-&gt;keycode  = KEY_RIGHT_SHIFT;
+						SET_UNSET(event-&gt;modifiers, KEY_MOD_RIGHT_SHIFT, down);
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> <span class="hljs-number">0x38</span>:
+						state-&gt;k_alt    = down;
+						state-&gt;kl_alt   = down;
+						event-&gt;keycode  = KEY_LEFT_ALT;
+						SET_UNSET(event-&gt;modifiers, KEY_MOD_LEFT_ALT, down);
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_NUM_0:
+						event-&gt;keycode = KEY_NUM_0;
+						event-&gt;key = <span class="hljs-string">'0'</span>;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_NUM_1:
+						event-&gt;keycode = KEY_NUM_1;
+						event-&gt;key = <span class="hljs-string">'1'</span>;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_NUM_2:
+						event-&gt;keycode = KEY_NUM_2;
+						event-&gt;key = <span class="hljs-string">'2'</span>;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_NUM_3:
+						event-&gt;keycode = KEY_NUM_3;
+						event-&gt;key = <span class="hljs-string">'3'</span>;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_NUM_4:
+						event-&gt;keycode = KEY_NUM_4;
+						event-&gt;key = <span class="hljs-string">'4'</span>;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_NUM_5:
+						event-&gt;keycode = KEY_NUM_5;
+						event-&gt;key = <span class="hljs-string">'5'</span>;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_NUM_6:
+						event-&gt;keycode = KEY_NUM_6;
+						event-&gt;key = <span class="hljs-string">'6'</span>;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_NUM_7:
+						event-&gt;keycode = KEY_NUM_7;
+						event-&gt;key = <span class="hljs-string">'7'</span>;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_NUM_8:
+						event-&gt;keycode = KEY_NUM_8;
+						event-&gt;key = <span class="hljs-string">'8'</span>;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_NUM_9:
+						event-&gt;keycode = KEY_NUM_9;
+						event-&gt;key = <span class="hljs-string">'9'</span>;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_NUM_DOT:
+						event-&gt;keycode = KEY_NUM_DOT;
+						event-&gt;key = <span class="hljs-string">'.'</span>;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_NUM_MIN:
+						event-&gt;keycode = KEY_NUM_MINUS;
+						event-&gt;key = <span class="hljs-string">'-'</span>;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_NUM_ADD:
+						event-&gt;keycode = KEY_NUM_PLUS;
+						event-&gt;key = <span class="hljs-string">'+'</span>;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">default</span>:
+						<span class="hljs-keyword">break</span>;
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> func:
+				<span class="hljs-keyword">switch</span> (c) {
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_F1:
+						event-&gt;keycode = KEY_F1;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_F2:
+						event-&gt;keycode = KEY_F2;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_F3:
+						event-&gt;keycode = KEY_F3;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_F4:
+						event-&gt;keycode = KEY_F4;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_F5:
+						event-&gt;keycode = KEY_F5;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_F6:
+						event-&gt;keycode = KEY_F6;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_F7:
+						event-&gt;keycode = KEY_F7;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_F8:
+						event-&gt;keycode = KEY_F8;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_F9:
+						event-&gt;keycode = KEY_F9;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_F10:
+						event-&gt;keycode = KEY_F10;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_F11:
+						event-&gt;keycode = KEY_F11;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">case</span> KEY_SCANCODE_F12:
+						event-&gt;keycode = KEY_F12;
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">default</span>:
+				<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (state-&gt;kbd_s_state == <span class="hljs-number">1</span>) {
+		state-&gt;kbd_s_state = <span class="hljs-number">0</span>;
+		event-&gt;action = (c &amp; KEY_UP_MASK) ? KEY_ACTION_UP : KEY_ACTION_DOWN;
+		c &amp;= <span class="hljs-number">0x7F</span>;
+
+		<span class="hljs-keyword">int</span> down = (event-&gt;action == KEY_ACTION_DOWN);
+		<span class="hljs-keyword">switch</span> (c) {
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x5B</span>:
+				state-&gt;k_super  = down;
+				state-&gt;kl_super = down;
+				event-&gt;keycode  = KEY_LEFT_SUPER;
+				SET_UNSET(event-&gt;modifiers, KEY_MOD_LEFT_SUPER, down);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x5C</span>:
+				state-&gt;k_super  = down;
+				state-&gt;kr_super = down;
+				event-&gt;keycode  = KEY_RIGHT_SUPER;
+				SET_UNSET(event-&gt;modifiers, KEY_MOD_RIGHT_SUPER, down);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x1D</span>:
+				state-&gt;kr_ctrl  = down;
+				state-&gt;k_ctrl   = down;
+				event-&gt;keycode  = KEY_RIGHT_CTRL;
+				SET_UNSET(event-&gt;modifiers, KEY_MOD_RIGHT_CTRL, down);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x38</span>:
+				state-&gt;kr_alt   = down;
+				state-&gt;k_alt    = down;
+				event-&gt;keycode  = KEY_RIGHT_ALT;
+				SET_UNSET(event-&gt;modifiers, KEY_MOD_RIGHT_ALT, down);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x48</span>:
+				event-&gt;keycode = KEY_ARROW_UP;
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x4D</span>:
+				event-&gt;keycode = KEY_ARROW_RIGHT;
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x47</span>:
+				event-&gt;keycode = KEY_HOME;
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x49</span>:
+				event-&gt;keycode = KEY_PAGE_UP;
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x4B</span>:
+				event-&gt;keycode = KEY_ARROW_LEFT;
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x4F</span>:
+				event-&gt;keycode = KEY_END;
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x50</span>:
+				event-&gt;keycode = KEY_ARROW_DOWN;
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x51</span>:
+				event-&gt;keycode = KEY_PAGE_DOWN;
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x52</span>:
+				event-&gt;keycode = KEY_INSERT;
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x53</span>:
+				event-&gt;keycode = KEY_DEL;
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x35</span>:
+				event-&gt;keycode = KEY_NUM_DIV;
+				event-&gt;key = <span class="hljs-string">'/'</span>;
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x1C</span>:
+				event-&gt;keycode = KEY_NUM_ENTER;
+				event-&gt;key = <span class="hljs-string">'\n'</span>;
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x37</span>:
+				event-&gt;keycode = KEY_PRINT_SCREEN;
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0x5D</span>:
+				event-&gt;keycode = KEY_APP;
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">default</span>:
+				<span class="hljs-keyword">break</span>;
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

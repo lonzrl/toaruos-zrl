@@ -1,0 +1,3039 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>esh.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\esh.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>esh.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _XOPEN_SOURCE 500</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _POSIX_C_SOURCE 200809L</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;dirent.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;getopt.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;termios.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;ctype.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;wchar.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/wait.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/utsname.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/resource.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/hashmap.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/kbd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/rline.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/decodeutf8.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/modecalc.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> environ</span>
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">char</span> **environ;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PIPE_TOKEN <span class="hljs-meta-string">"\xFF\xFFPIPE\xFF\xFF"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> STAR_TOKEN <span class="hljs-meta-string">"\xFF\xFFSTAR\xFF\xFF"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> WRITE_TOKEN <span class="hljs-meta-string">"\xFF\xFFWRITE\xFF\xFF"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> WRITE_ERR_TOKEN <span class="hljs-meta-string">"\xFF\xFFWRITEERR\xFF\xFF"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> APPEND_TOKEN <span class="hljs-meta-string">"\xFF\xFF"</span><span class="hljs-meta-string">"APPEND\xFF"</span></span>
+
+<span class="hljs-comment">/* A shell command is like a C program */</span>
+<span class="hljs-function"><span class="hljs-keyword">typedef</span> <span class="hljs-title">uint32_t</span><span class="hljs-params">(*<span class="hljs-keyword">shell_command_t</span>)</span> <span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> ** argv)</span></span>;
+
+<span class="hljs-comment">/* We have a static array that fits a certain number of them. */</span>
+<span class="hljs-keyword">int</span> SHELL_COMMANDS = <span class="hljs-number">64</span>;
+<span class="hljs-keyword">char</span> ** shell_commands;          <span class="hljs-comment">/* Command names */</span>
+<span class="hljs-keyword">shell_command_t</span> * shell_pointers; <span class="hljs-comment">/* Command functions */</span>
+<span class="hljs-keyword">char</span> ** shell_descript;          <span class="hljs-comment">/* Command descriptions */</span>
+FILE * shell_stderr; <span class="hljs-comment">/* specifically for `time` */</span>
+
+<span class="hljs-comment">/* This is the number of actual commands installed */</span>
+<span class="hljs-keyword">int</span> shell_commands_len = <span class="hljs-number">0</span>;
+
+<span class="hljs-keyword">int</span> shell_interactive = <span class="hljs-number">1</span>;
+<span class="hljs-keyword">int</span> last_ret = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">char</span> ** shell_argv = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">int</span> shell_argc = <span class="hljs-number">0</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> current_line = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * current_file = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-keyword">int</span> pid; <span class="hljs-comment">/* Process ID of the shell */</span>
+<span class="hljs-keyword">int</span> my_pgid;
+
+<span class="hljs-keyword">int</span> is_subshell = <span class="hljs-number">0</span>;
+
+<span class="hljs-comment">/* Set options */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> esh_complete_color = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> esh_complete_hints = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> esh_syntax_color = <span class="hljs-number">1</span>;
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">semaphore</span> {</span>
+	<span class="hljs-keyword">int</span> fds[<span class="hljs-number">2</span>];
+};
+
+<span class="hljs-function">struct semaphore <span class="hljs-title">create_semaphore</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">semaphore</span> <span class="hljs-title">out</span>;</span>
+	pipe2(out.fds, O_CLOEXEC);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">raise_semaphore</span><span class="hljs-params">(struct semaphore s)</span></span>{
+	<span class="hljs-built_in">write</span>(s.fds[<span class="hljs-number">1</span>],<span class="hljs-string">"x"</span>,<span class="hljs-number">1</span>);
+	<span class="hljs-built_in">close</span>(s.fds[<span class="hljs-number">0</span>]);
+	<span class="hljs-built_in">close</span>(s.fds[<span class="hljs-number">1</span>]);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">wait_semaphore</span><span class="hljs-params">(struct semaphore s)</span> </span>{
+	<span class="hljs-built_in">close</span>(s.fds[<span class="hljs-number">1</span>]);
+	<span class="hljs-keyword">char</span> buf;
+	<span class="hljs-built_in">read</span>(s.fds[<span class="hljs-number">0</span>], &amp;buf, <span class="hljs-number">1</span>);
+	<span class="hljs-built_in">close</span>(s.fds[<span class="hljs-number">0</span>]);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">set_pgid</span><span class="hljs-params">(<span class="hljs-keyword">int</span> pgid)</span> </span>{
+	<span class="hljs-keyword">if</span> (shell_interactive == <span class="hljs-number">1</span>) {
+		setpgid(<span class="hljs-number">0</span>, pgid);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">set_pgrp</span><span class="hljs-params">(<span class="hljs-keyword">int</span> pgid)</span> </span>{
+	<span class="hljs-keyword">if</span> (shell_interactive == <span class="hljs-number">1</span> &amp;&amp; !is_subshell) {
+		<span class="hljs-keyword">sigset_t</span> ss;
+		sigfillset(&amp;ss);
+		sigprocmask(SIG_SETMASK, &amp;ss, <span class="hljs-literal">NULL</span>);
+		tcsetpgrp(STDIN_FILENO, pgid);
+		sigemptyset(&amp;ss);
+		sigprocmask(SIG_SETMASK, &amp;ss, <span class="hljs-literal">NULL</span>);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">reset_pgrp</span><span class="hljs-params">()</span> </span>{
+	set_pgrp(my_pgid);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">shell_install_command</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * name, <span class="hljs-keyword">shell_command_t</span> func, <span class="hljs-keyword">char</span> * desc)</span> </span>{
+	<span class="hljs-keyword">if</span> (shell_commands_len == SHELL_COMMANDS<span class="hljs-number">-1</span>) {
+		SHELL_COMMANDS *= <span class="hljs-number">2</span>;
+		shell_commands = <span class="hljs-built_in">realloc</span>(shell_commands, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span> *) * SHELL_COMMANDS);
+		shell_pointers = <span class="hljs-built_in">realloc</span>(shell_pointers, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">shell_command_t</span>) * SHELL_COMMANDS);
+		shell_descript = <span class="hljs-built_in">realloc</span>(shell_descript, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span> *) * SHELL_COMMANDS);
+	}
+	shell_commands[shell_commands_len] = name;
+	shell_pointers[shell_commands_len] = func;
+	shell_descript[shell_commands_len] = desc;
+	shell_commands_len++;
+	shell_commands[shell_commands_len] = <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">shell_command_t</span> <span class="hljs-title">shell_find</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * str)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; shell_commands_len; ++i) {
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(str, shell_commands[i])) {
+			<span class="hljs-keyword">return</span> shell_pointers[i];
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">install_commands</span><span class="hljs-params">()</span></span>;
+
+<span class="hljs-comment">/* Maximum command length */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> LINE_LEN 4096</span>
+
+<span class="hljs-comment">/* Current working directory */</span>
+<span class="hljs-keyword">char</span> cwd[<span class="hljs-number">1024</span>] = {<span class="hljs-string">'/'</span>,<span class="hljs-number">0</span>};
+
+<span class="hljs-comment">/* Username */</span>
+<span class="hljs-keyword">char</span> username[<span class="hljs-number">1024</span>];
+
+<span class="hljs-comment">/* Hostname for prompt */</span>
+<span class="hljs-keyword">char</span> _hostname[<span class="hljs-number">256</span>];
+
+<span class="hljs-comment">/* function to update the cached username */</span>
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">getuser</span><span class="hljs-params">()</span> </span>{
+	<span class="hljs-keyword">char</span> * tmp = getenv(<span class="hljs-string">"USER"</span>);
+	<span class="hljs-keyword">if</span> (tmp) {
+		<span class="hljs-built_in">strcpy</span>(username, tmp);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">sprintf</span>(username, <span class="hljs-string">"%d"</span>, getuid());
+	}
+}
+
+<span class="hljs-comment">/* function to update the cached hostname */</span>
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">gethost</span><span class="hljs-params">()</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">utsname</span> <span class="hljs-title">buf</span>;</span>
+
+	uname(&amp;buf);
+
+	<span class="hljs-keyword">int</span> len = <span class="hljs-built_in">strlen</span>(buf.nodename);
+	<span class="hljs-built_in">memcpy</span>(_hostname, buf.nodename, len+<span class="hljs-number">1</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">display_width_of_string</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * str)</span> </span>{
+	<span class="hljs-keyword">uint8_t</span> * s = (<span class="hljs-keyword">uint8_t</span> *)str;
+
+	<span class="hljs-keyword">int</span> out = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint32_t</span> c, state = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (*s) {
+		<span class="hljs-keyword">if</span> (!decode(&amp;state, &amp;c, *s)) {
+			out += wcwidth(c);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (state == UTF8_REJECT) {
+			state = <span class="hljs-number">0</span>;
+		}
+		s++;
+	}
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">print_extended_ps</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * format, <span class="hljs-keyword">char</span> * <span class="hljs-built_in">buffer</span>, <span class="hljs-keyword">int</span> * display_width)</span> </span>{
+	<span class="hljs-comment">/* Get the time */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tm</span> * <span class="hljs-title">timeinfo</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timeval</span> <span class="hljs-title">now</span>;</span>
+	gettimeofday(&amp;now, <span class="hljs-literal">NULL</span>); <span class="hljs-comment">//time(NULL);</span>
+	timeinfo = localtime((<span class="hljs-keyword">time_t</span> *)&amp;now.tv_sec);
+
+	<span class="hljs-comment">/* Format the date and time for prompt display */</span>
+	<span class="hljs-keyword">char</span> date_buffer[<span class="hljs-number">80</span>];
+	strftime(date_buffer, <span class="hljs-number">80</span>, <span class="hljs-string">"%m/%d"</span>, timeinfo);
+	<span class="hljs-keyword">char</span> time_buffer[<span class="hljs-number">80</span>];
+	strftime(time_buffer, <span class="hljs-number">80</span>, <span class="hljs-string">"%H:%M:%S"</span>, timeinfo);
+
+	<span class="hljs-comment">/* Collect the current working directory */</span>
+	getcwd(cwd, <span class="hljs-number">512</span>);
+	<span class="hljs-keyword">char</span> _cwd[<span class="hljs-number">512</span>];
+	<span class="hljs-built_in">strcpy</span>(_cwd, cwd);
+
+	<span class="hljs-comment">/* Collect the user's home directory and apply it to cwd */</span>
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">home</span> = getenv(<span class="hljs-string">"HOME"</span>);
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">home</span> &amp;&amp; <span class="hljs-built_in">strstr</span>(cwd, <span class="hljs-built_in">home</span>) == cwd) {
+		<span class="hljs-keyword">char</span> * c = cwd + <span class="hljs-built_in">strlen</span>(<span class="hljs-built_in">home</span>);
+		<span class="hljs-keyword">if</span> (*c == <span class="hljs-string">'/'</span> || *c == <span class="hljs-number">0</span>) {
+			<span class="hljs-built_in">sprintf</span>(_cwd, <span class="hljs-string">"~%s"</span>, c);
+		}
+	}
+
+	<span class="hljs-keyword">char</span> ret[<span class="hljs-number">80</span>] = {<span class="hljs-number">0</span>};
+	<span class="hljs-keyword">if</span> (last_ret != <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">sprintf</span>(ret, <span class="hljs-string">"%d "</span>, last_ret);
+	}
+
+	<span class="hljs-keyword">size_t</span> offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> is_visible = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">char</span> dispchars[<span class="hljs-number">1024</span>] = {<span class="hljs-number">0</span>};
+	<span class="hljs-keyword">char</span> * dispout = dispchars;
+
+	<span class="hljs-keyword">while</span> (*format) {
+		<span class="hljs-keyword">if</span> (*format == <span class="hljs-string">'\\'</span>) {
+			format++;
+			<span class="hljs-keyword">switch</span> (*format) {
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'\\'</span>:
+					<span class="hljs-built_in">buffer</span>[offset++] = *format;
+					<span class="hljs-keyword">if</span> (is_visible) *dispout++ = *format;
+					format++;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'['</span>:
+					is_visible = <span class="hljs-number">0</span>;
+					format++;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">']'</span>:
+					is_visible = <span class="hljs-number">1</span>;
+					format++;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'0'</span>:
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'1'</span>:
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'2'</span>:
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'3'</span>:
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'4'</span>:
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'5'</span>:
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'6'</span>:
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'7'</span>:
+					{
+						<span class="hljs-keyword">int</span> i = (*format) - <span class="hljs-string">'0'</span>;
+						format++;
+						<span class="hljs-keyword">if</span> (*format &gt;= <span class="hljs-string">'0'</span> &amp;&amp; *format &lt;= <span class="hljs-string">'7'</span>) {
+							i *= <span class="hljs-number">8</span>;
+							i += (*format) - <span class="hljs-string">'0'</span>;
+							format++;
+							<span class="hljs-keyword">if</span> (*format &gt;= <span class="hljs-string">'0'</span> &amp;&amp; *format &lt;= <span class="hljs-string">'7'</span>) {
+								i *= <span class="hljs-number">8</span>;
+								i += (*format) - <span class="hljs-string">'0'</span>;
+								format++;
+							}
+						}
+						<span class="hljs-built_in">buffer</span>[offset++] = i;
+						<span class="hljs-keyword">if</span> (is_visible) *dispout++ = i;
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'e'</span>:
+					<span class="hljs-built_in">buffer</span>[offset++] = <span class="hljs-string">'\033'</span>;
+					<span class="hljs-keyword">if</span> (is_visible) *dispout++ = <span class="hljs-string">'\033'</span>;
+					format++;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'d'</span>:
+					{
+						<span class="hljs-keyword">int</span> <span class="hljs-built_in">size</span> = <span class="hljs-built_in">sprintf</span>(<span class="hljs-built_in">buffer</span>+offset, <span class="hljs-string">"%s"</span>, date_buffer);
+						offset += <span class="hljs-built_in">size</span>;
+						<span class="hljs-keyword">if</span> (is_visible) { dispout += <span class="hljs-built_in">sprintf</span>(dispout, <span class="hljs-string">"%s"</span>, date_buffer); }
+					}
+					format++;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'t'</span>:
+					{
+						<span class="hljs-keyword">int</span> <span class="hljs-built_in">size</span> = <span class="hljs-built_in">sprintf</span>(<span class="hljs-built_in">buffer</span>+offset, <span class="hljs-string">"%s"</span>, time_buffer);
+						offset += <span class="hljs-built_in">size</span>;
+						<span class="hljs-keyword">if</span> (is_visible) { dispout += <span class="hljs-built_in">sprintf</span>(dispout, <span class="hljs-string">"%s"</span>, time_buffer); }
+					}
+					format++;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'h'</span>:
+					{
+						<span class="hljs-keyword">int</span> <span class="hljs-built_in">size</span> = <span class="hljs-built_in">sprintf</span>(<span class="hljs-built_in">buffer</span>+offset, <span class="hljs-string">"%s"</span>, _hostname);
+						offset += <span class="hljs-built_in">size</span>;
+						<span class="hljs-keyword">if</span> (is_visible) { dispout += <span class="hljs-built_in">sprintf</span>(dispout, <span class="hljs-string">"%s"</span>, _hostname); }
+					}
+					format++;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'u'</span>:
+					{
+						<span class="hljs-keyword">int</span> <span class="hljs-built_in">size</span> = <span class="hljs-built_in">sprintf</span>(<span class="hljs-built_in">buffer</span>+offset, <span class="hljs-string">"%s"</span>, username);
+						offset += <span class="hljs-built_in">size</span>;
+						<span class="hljs-keyword">if</span> (is_visible) { dispout += <span class="hljs-built_in">sprintf</span>(dispout, <span class="hljs-string">"%s"</span>, username); }
+					}
+					format++;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'w'</span>:
+					{
+						<span class="hljs-keyword">int</span> <span class="hljs-built_in">size</span> = <span class="hljs-built_in">sprintf</span>(<span class="hljs-built_in">buffer</span>+offset, <span class="hljs-string">"%s"</span>, _cwd);
+						offset += <span class="hljs-built_in">size</span>;
+						<span class="hljs-keyword">if</span> (is_visible) { dispout += <span class="hljs-built_in">sprintf</span>(dispout, <span class="hljs-string">"%s"</span>, _cwd); }
+					}
+					format++;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'$'</span>:
+					<span class="hljs-built_in">buffer</span>[offset++] = (getuid() == <span class="hljs-number">0</span> ? <span class="hljs-string">'#'</span> : <span class="hljs-string">'$'</span>);
+					<span class="hljs-keyword">if</span> (is_visible) *dispout++ = (getuid() == <span class="hljs-number">0</span> ? <span class="hljs-string">'#'</span> : <span class="hljs-string">'$'</span>);
+					format++;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'U'</span>: <span class="hljs-comment">/* prompt color string */</span>
+					{
+						<span class="hljs-keyword">int</span> <span class="hljs-built_in">size</span> = <span class="hljs-built_in">sprintf</span>(<span class="hljs-built_in">buffer</span>+offset, <span class="hljs-string">"%s"</span>, getuid() == <span class="hljs-number">0</span> ? <span class="hljs-string">"\033[1;38;5;196m"</span> : <span class="hljs-string">"\033[1;38;5;47m"</span>);
+						offset += <span class="hljs-built_in">size</span>;
+						<span class="hljs-comment">/* Does not affect size */</span>
+					}
+					format++;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'r'</span>:
+					{
+						<span class="hljs-keyword">int</span> <span class="hljs-built_in">size</span> = <span class="hljs-built_in">sprintf</span>(<span class="hljs-built_in">buffer</span>+offset, <span class="hljs-string">"%s"</span>, ret);
+						offset += <span class="hljs-built_in">size</span>;
+						<span class="hljs-keyword">if</span> (is_visible) { dispout += <span class="hljs-built_in">sprintf</span>(dispout, <span class="hljs-string">"%s"</span>, ret); }
+					}
+					format++;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">default</span>:
+					{
+						<span class="hljs-keyword">int</span> <span class="hljs-built_in">size</span> = <span class="hljs-built_in">sprintf</span>(<span class="hljs-built_in">buffer</span>+offset, <span class="hljs-string">"\\%c"</span>, *format);
+						offset += <span class="hljs-built_in">size</span>;
+						<span class="hljs-keyword">if</span> (is_visible) { dispout += <span class="hljs-built_in">sprintf</span>(dispout, <span class="hljs-string">"\\%c"</span>, *format); }
+					}
+					format++;
+					<span class="hljs-keyword">break</span>;
+			}
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-built_in">buffer</span>[offset++] = *format;
+			<span class="hljs-keyword">if</span> (is_visible) *dispout++ = *format;
+			format++;
+		}
+	}
+
+	*display_width = display_width_of_string(dispchars);
+
+	<span class="hljs-built_in">buffer</span>[offset] = <span class="hljs-string">'\0'</span>;
+}
+
+<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">int</span> break_while = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">pid_t</span> suspended_pgid = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">hashmap_t</span> * job_hash = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">hashmap_t</span> * desc_hash = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">sig_break_loop</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sig)</span> </span>{
+	<span class="hljs-comment">/* Interrupt handler */</span>
+	<span class="hljs-keyword">if</span> ((shell_interactive == <span class="hljs-number">1</span> &amp;&amp; !is_subshell)) {
+		break_while = sig;
+		signal(sig, sig_break_loop);
+	} <span class="hljs-keyword">else</span> {
+		signal(sig, SIG_DFL);
+		raise(sig);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">probably_mandir</span><span class="hljs-params">(<span class="hljs-keyword">const</span> struct dirent *ent)</span> </span>{
+	<span class="hljs-keyword">return</span> (!<span class="hljs-built_in">strncmp</span>(ent-&gt;d_name, <span class="hljs-string">"man"</span>, <span class="hljs-number">3</span>));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">probably_manpage</span><span class="hljs-params">(<span class="hljs-keyword">const</span> struct dirent *ent)</span> </span>{
+	<span class="hljs-keyword">if</span> (*ent-&gt;d_name == <span class="hljs-string">'.'</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">comp_completions</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> *p1, <span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> *p2)</span> </span>{
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> **c1 = (<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>**)p1;
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> **c2 = (<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>**)p2;
+
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">strcmp</span>(*c1,*c2);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">match</span>
+<span>Match string with special prefix.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">match_content</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *match)</span> </span>{
+	<span class="hljs-comment">/* Prefixed with SOH - BS (1 through 8): Color this match */</span>
+	<span class="hljs-keyword">if</span> (*match &amp;&amp; *match &lt; <span class="hljs-number">9</span>) match++;
+
+	<span class="hljs-comment">/* Tab character: Man page section, read until another tab. */</span>
+	<span class="hljs-keyword">if</span> (*match == <span class="hljs-number">9</span>) {
+		match++;
+		<span class="hljs-keyword">while</span> (*match &amp;&amp; *match != <span class="hljs-number">9</span>) match++;
+		<span class="hljs-keyword">if</span> (*match == <span class="hljs-number">9</span>) match++;
+	}
+
+	<span class="hljs-keyword">return</span> match;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">match</span>
+<span>Match string with special prefix.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">match_format</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * match)</span> </span>{
+	<span class="hljs-keyword">if</span> (*match &amp;&amp; *match &lt; <span class="hljs-number">9</span>) {
+		<span class="hljs-keyword">if</span> (esh_complete_color) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"\033[9%cm"</span>, *match + <span class="hljs-string">'0'</span>);
+		match++;
+	}
+
+	<span class="hljs-keyword">if</span> (*match == <span class="hljs-number">9</span>) {
+		match++;
+		<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * section = match;
+		<span class="hljs-keyword">while</span> (*match &amp;&amp; *match != <span class="hljs-number">9</span>) match++;
+		<span class="hljs-keyword">if</span> (*match == <span class="hljs-number">9</span>) {
+			match++;
+			<span class="hljs-keyword">if</span> (esh_complete_hints) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s\033[90m (%.*s)\033[0m"</span>, match, (<span class="hljs-keyword">int</span>)(match - section - <span class="hljs-number">1</span>), section);
+				<span class="hljs-keyword">return</span>;
+			}
+		}
+	}
+
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s"</span>, match);
+	<span class="hljs-keyword">if</span> (esh_complete_color) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"\033[0m"</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">match</span>
+<span>Match string with special prefix.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">match_display_width</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * match)</span> </span>{
+	<span class="hljs-keyword">int</span> out = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (*match &amp;&amp; *match &lt; <span class="hljs-number">9</span>) match++; <span class="hljs-comment">/* color doesn't impact display width */</span>
+
+	<span class="hljs-keyword">if</span> (*match == <span class="hljs-number">9</span>) {
+		match++;
+		<span class="hljs-comment">/* Man page section does impact display width */</span>
+		<span class="hljs-keyword">if</span> (esh_complete_hints) out = <span class="hljs-number">3</span>; <span class="hljs-comment">/* for parens and space */</span>
+		<span class="hljs-keyword">while</span> (*match &amp;&amp; *match != <span class="hljs-number">9</span>) {
+			<span class="hljs-keyword">if</span> (esh_complete_hints) out++;
+			match++;
+		}
+		<span class="hljs-keyword">if</span> (*match == <span class="hljs-number">9</span>) match++;
+	}
+
+	<span class="hljs-keyword">return</span> out + display_width_of_string(match);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">tab_complete_func</span><span class="hljs-params">(<span class="hljs-keyword">rline_context_t</span> * c)</span> </span>{
+	<span class="hljs-keyword">char</span> * dup = <span class="hljs-built_in">malloc</span>(LINE_LEN);
+	
+	<span class="hljs-built_in">memcpy</span>(dup, c-&gt;<span class="hljs-built_in">buffer</span>, LINE_LEN);
+
+	<span class="hljs-keyword">char</span> *pch, *save;
+	<span class="hljs-keyword">char</span> *argv[<span class="hljs-number">1024</span>];
+	<span class="hljs-keyword">int</span> argc = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">cursor</span> = <span class="hljs-number">0</span>;
+
+	pch = strtok_r(dup, <span class="hljs-string">" "</span>, &amp;save);
+
+	<span class="hljs-keyword">if</span> (!pch) {
+		argv[<span class="hljs-number">0</span>] = <span class="hljs-string">""</span>;
+		argc = <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">while</span> (pch != <span class="hljs-literal">NULL</span>) {
+		<span class="hljs-keyword">if</span> (pch - dup &lt;= c-&gt;offset) <span class="hljs-built_in">cursor</span> = argc;
+		argv[argc] = pch;
+		++argc;
+		pch = strtok_r(<span class="hljs-literal">NULL</span>, <span class="hljs-string">" "</span>, &amp;save);
+	}
+	argv[argc] = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">if</span> (c-&gt;offset &amp;&amp; c-&gt;<span class="hljs-built_in">buffer</span>[c-&gt;offset<span class="hljs-number">-1</span>] == <span class="hljs-string">' '</span> &amp;&amp; argc) {
+		<span class="hljs-built_in">cursor</span>++;
+	}
+
+	<span class="hljs-keyword">char</span> * <span class="hljs-keyword">word</span> = argv[<span class="hljs-built_in">cursor</span>];
+	<span class="hljs-keyword">int</span> word_offset = <span class="hljs-keyword">word</span> ? (c-&gt;offset - (argv[<span class="hljs-built_in">cursor</span>] - dup)) : <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (word_offset &lt; <span class="hljs-number">0</span>) {
+		word_offset = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">word</span> = <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">char</span> * prefix = <span class="hljs-built_in">malloc</span>(word_offset + <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (<span class="hljs-keyword">word</span>) <span class="hljs-built_in">memcpy</span>(prefix, <span class="hljs-keyword">word</span>, word_offset);
+	prefix[word_offset] = <span class="hljs-string">'\0'</span>;
+
+	<span class="hljs-comment">/* Complete file path */</span>
+	<span class="hljs-keyword">list_t</span> * matches = list_create();
+	<span class="hljs-keyword">int</span> free_matches = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> no_space_if_only = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* TODO custom auto-complete as a configuration file? */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> COMPLETE_FILE    1</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> COMPLETE_COMMAND 2</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> COMPLETE_CUSTOM  3</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> COMPLETE_VARIABLE 4</span>
+	<span class="hljs-keyword">int</span> complete_mode = COMPLETE_FILE;
+	<span class="hljs-keyword">int</span> with_dollar = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">int</span> command_adj = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> cursor_adj = <span class="hljs-built_in">cursor</span>;
+
+	<span class="hljs-keyword">while</span> (command_adj &lt; argc &amp;&amp; <span class="hljs-built_in">strstr</span>(argv[command_adj],<span class="hljs-string">"="</span>)) {
+		cursor_adj -= <span class="hljs-number">1</span>;
+		command_adj += <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* Various commands are generally prefixes */</span>
+	<span class="hljs-keyword">if</span> (command_adj &lt; argc &amp;&amp; (
+		!<span class="hljs-built_in">strcmp</span>(argv[command_adj], <span class="hljs-string">"sudo"</span>) ||
+		!<span class="hljs-built_in">strcmp</span>(argv[command_adj], <span class="hljs-string">"gsudo"</span>) ||
+		!<span class="hljs-built_in">strcmp</span>(argv[command_adj], <span class="hljs-string">"time"</span>) ||
+		<span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> Both of these may take additional arguments... */</span>
+		!<span class="hljs-built_in">strcmp</span>(argv[command_adj], <span class="hljs-string">"strace"</span>) ||
+		!<span class="hljs-built_in">strcmp</span>(argv[command_adj], <span class="hljs-string">"dbg"</span>)
+	)) {
+		cursor_adj -= <span class="hljs-number">1</span>;
+		command_adj += <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* initial tab completion should be commands, unless typing a file path */</span>
+	<span class="hljs-keyword">if</span> (cursor_adj == <span class="hljs-number">0</span> &amp;&amp; !<span class="hljs-built_in">strchr</span>(prefix,<span class="hljs-string">'/'</span>)) {
+		complete_mode = COMPLETE_COMMAND;
+	}
+
+	<span class="hljs-keyword">if</span> (cursor_adj &gt;= <span class="hljs-number">1</span> &amp;&amp; !<span class="hljs-built_in">strcmp</span>(argv[command_adj], <span class="hljs-string">"toggle-abs-mouse"</span>)) {
+		complete_mode = COMPLETE_CUSTOM;
+	}
+
+	<span class="hljs-keyword">if</span> (cursor_adj &gt;= <span class="hljs-number">1</span> &amp;&amp; !<span class="hljs-built_in">strcmp</span>(argv[command_adj], <span class="hljs-string">"msk"</span>)) {
+		complete_mode = COMPLETE_CUSTOM;
+	}
+
+	<span class="hljs-keyword">if</span> (cursor_adj &gt;= <span class="hljs-number">1</span> &amp;&amp; !<span class="hljs-built_in">strcmp</span>(argv[command_adj], <span class="hljs-string">"ifconfig"</span>)) {
+		complete_mode = COMPLETE_CUSTOM;
+	}
+
+	<span class="hljs-keyword">if</span> (cursor_adj &gt;= <span class="hljs-number">1</span> &amp;&amp; !<span class="hljs-built_in">strcmp</span>(argv[command_adj], <span class="hljs-string">"man"</span>) &amp;&amp; !<span class="hljs-built_in">strchr</span>(prefix,<span class="hljs-string">'/'</span>)) {
+		complete_mode = COMPLETE_CUSTOM;
+	}
+
+	<span class="hljs-keyword">if</span> (cursor_adj &gt;= <span class="hljs-number">1</span> &amp;&amp; !<span class="hljs-built_in">strcmp</span>(argv[command_adj], <span class="hljs-string">"unset"</span>)) {
+		complete_mode = COMPLETE_VARIABLE;
+	}
+
+	<span class="hljs-keyword">if</span> (cursor_adj &gt;= <span class="hljs-number">1</span> &amp;&amp; !<span class="hljs-built_in">strcmp</span>(argv[command_adj], <span class="hljs-string">"set"</span>)) {
+		complete_mode = COMPLETE_CUSTOM;
+	}
+
+	<span class="hljs-comment">/* complete variable names */</span>
+	<span class="hljs-keyword">if</span> (*prefix == <span class="hljs-string">'$'</span>) {
+		complete_mode = COMPLETE_VARIABLE;
+		with_dollar = <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (complete_mode == COMPLETE_COMMAND) {
+		<span class="hljs-comment">/* Complete a command name */</span>
+		free_matches = <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; shell_commands_len; ++i) {
+			<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(shell_commands[i], prefix) == shell_commands[i]) {
+				<span class="hljs-keyword">char</span> * s;
+				<span class="hljs-keyword">if</span> (shell_descript[i]) {
+					asprintf(&amp;s, <span class="hljs-string">"\t%s\t%s"</span>, <span class="hljs-string">"builtin"</span>, shell_commands[i]);
+				} <span class="hljs-keyword">else</span> {
+					s = strdup(shell_commands[i]);
+				}
+				list_insert(matches, s); <span class="hljs-comment">/* will be freed later */</span>
+			}
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (complete_mode == COMPLETE_FILE) {
+		<span class="hljs-comment">/* Complete a file path */</span>
+
+		free_matches = <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">char</span> * tmp = strdup(prefix);
+		<span class="hljs-keyword">char</span> * last_slash = <span class="hljs-built_in">strrchr</span>(tmp, <span class="hljs-string">'/'</span>);
+		DIR * dirp;
+		<span class="hljs-keyword">char</span> * compare = prefix;
+		<span class="hljs-keyword">if</span> (last_slash) {
+			*last_slash = <span class="hljs-string">'\0'</span>;
+			<span class="hljs-keyword">word</span> = <span class="hljs-keyword">word</span> + (last_slash - tmp) + <span class="hljs-number">1</span>;
+			word_offset = word_offset - (last_slash - tmp + <span class="hljs-number">1</span>);
+			compare = <span class="hljs-keyword">word</span>;
+			<span class="hljs-keyword">if</span> (last_slash == tmp) {
+				dirp = opendir(<span class="hljs-string">"/"</span>);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">char</span> * <span class="hljs-built_in">home</span>;
+				<span class="hljs-keyword">if</span> (*tmp == <span class="hljs-string">'~'</span> &amp;&amp; (<span class="hljs-built_in">home</span> = getenv(<span class="hljs-string">"HOME"</span>))) {
+					<span class="hljs-keyword">char</span> * t;
+					asprintf(&amp;t, <span class="hljs-string">"%s%s"</span>,<span class="hljs-built_in">home</span>,tmp+<span class="hljs-number">1</span>);
+					dirp = opendir(t);
+					<span class="hljs-built_in">free</span>(t);
+				} <span class="hljs-keyword">else</span> {
+					dirp = opendir(tmp);
+				}
+			}
+		} <span class="hljs-keyword">else</span> {
+			dirp = opendir(<span class="hljs-string">"."</span>);
+		}
+
+		<span class="hljs-keyword">if</span> (!dirp) {
+			<span class="hljs-built_in">free</span>(tmp);
+			<span class="hljs-keyword">goto</span> finish_tab;
+		}
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent</span> * <span class="hljs-title">ent</span> = <span class="hljs-title">readdir</span>(<span class="hljs-title">dirp</span>);</span>
+		<span class="hljs-keyword">while</span> (ent != <span class="hljs-literal">NULL</span>) {
+			<span class="hljs-keyword">if</span> (ent-&gt;d_name[<span class="hljs-number">0</span>] != <span class="hljs-string">'.'</span> || compare[<span class="hljs-number">0</span>] == <span class="hljs-string">'.'</span>) {
+				<span class="hljs-keyword">if</span> (!<span class="hljs-keyword">word</span> || <span class="hljs-built_in">strstr</span>(ent-&gt;d_name, compare) == ent-&gt;d_name) {
+					<span class="hljs-keyword">int</span> ret;
+					<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">statbuf</span>;</span>
+					<span class="hljs-comment">/* stat it */</span>
+					<span class="hljs-keyword">if</span> (last_slash) {
+						<span class="hljs-keyword">char</span> * x;
+						<span class="hljs-keyword">char</span> * <span class="hljs-built_in">home</span>;
+						<span class="hljs-keyword">if</span> (tmp[<span class="hljs-number">0</span>] == <span class="hljs-string">'~'</span> &amp;&amp; (<span class="hljs-built_in">home</span> = getenv(<span class="hljs-string">"HOME"</span>))) {
+							asprintf(&amp;x, <span class="hljs-string">"%s%s/%s"</span>, <span class="hljs-built_in">home</span>, tmp + <span class="hljs-number">1</span>, ent-&gt;d_name);
+						} <span class="hljs-keyword">else</span> {
+							asprintf(&amp;x, <span class="hljs-string">"%s/%s"</span>, tmp, ent-&gt;d_name);
+						}
+						ret = lstat(x, &amp;statbuf);
+						<span class="hljs-built_in">free</span>(x);
+					} <span class="hljs-keyword">else</span> {
+						ret = lstat(ent-&gt;d_name, &amp;statbuf);
+					}
+					<span class="hljs-keyword">char</span> * s;
+					<span class="hljs-keyword">if</span> (!ret &amp;&amp; S_ISDIR(statbuf.st_mode)) {
+						<span class="hljs-comment">/* Directories are blue, like in ls. */</span>
+						asprintf(&amp;s,<span class="hljs-string">"%c%s/"</span>, <span class="hljs-number">4</span>, ent-&gt;d_name);
+						no_space_if_only = <span class="hljs-number">1</span>;
+					} <span class="hljs-keyword">else</span> {
+						s = strdup(ent-&gt;d_name);
+					}
+					list_insert(matches, s);
+				}
+			}
+			ent = readdir(dirp);
+		}
+		closedir(dirp);
+
+		<span class="hljs-built_in">free</span>(tmp);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (complete_mode == COMPLETE_CUSTOM) {
+
+		<span class="hljs-keyword">char</span> * none[] = {<span class="hljs-literal">NULL</span>};
+		<span class="hljs-keyword">char</span> ** completions = none;
+		<span class="hljs-keyword">char</span> * toggle_abs_mouse_completions[] = {<span class="hljs-string">"relative"</span>,<span class="hljs-string">"absolute"</span>,<span class="hljs-literal">NULL</span>};
+		<span class="hljs-keyword">char</span> * msk_commands[] = {<span class="hljs-string">"update"</span>,<span class="hljs-string">"install"</span>,<span class="hljs-string">"list"</span>,<span class="hljs-string">"count"</span>,<span class="hljs-string">"--version"</span>,<span class="hljs-literal">NULL</span>};
+		<span class="hljs-keyword">char</span> * ifconfig_commands[] = {<span class="hljs-string">"inet"</span>,<span class="hljs-string">"netmask"</span>,<span class="hljs-string">"gateway"</span>,<span class="hljs-literal">NULL</span>};
+		<span class="hljs-keyword">char</span> * set_args[] = {<span class="hljs-string">"-o"</span>, <span class="hljs-literal">NULL</span>};
+		<span class="hljs-keyword">char</span> * set_o_options[] = {
+			<span class="hljs-string">"complete-color"</span>, <span class="hljs-string">"no-complete-color"</span>,
+			<span class="hljs-string">"complete-hints"</span>, <span class="hljs-string">"no-complete-hints"</span>,
+			<span class="hljs-string">"syntax-color"</span>, <span class="hljs-string">"no-syntax-color"</span>,
+			<span class="hljs-literal">NULL</span>
+		};
+
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[command_adj],<span class="hljs-string">"toggle-abs-mouse"</span>)) {
+			completions = toggle_abs_mouse_completions;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[command_adj], <span class="hljs-string">"msk"</span>)) {
+			<span class="hljs-keyword">if</span> (cursor_adj == <span class="hljs-number">1</span>) {
+				completions = msk_commands;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (cursor_adj &gt; <span class="hljs-number">1</span> &amp;&amp; !<span class="hljs-built_in">strcmp</span>(argv[command_adj+<span class="hljs-number">1</span>],<span class="hljs-string">"install"</span>)) {
+				FILE * f = fopen(<span class="hljs-string">"/var/msk/manifest"</span>,<span class="hljs-string">"r"</span>);
+				<span class="hljs-keyword">list_t</span> * packages = list_create();
+				<span class="hljs-keyword">if</span> (f) {
+					<span class="hljs-keyword">while</span> (!feof(f)) {
+						<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">4096</span>] = {<span class="hljs-number">0</span>};
+						<span class="hljs-keyword">if</span> (!fgets(tmp, <span class="hljs-number">4096</span>, f)) <span class="hljs-keyword">break</span>;
+						<span class="hljs-keyword">if</span> (tmp[<span class="hljs-number">0</span>] == <span class="hljs-string">'['</span>) {
+							<span class="hljs-keyword">char</span> * s = <span class="hljs-built_in">strstr</span>(tmp, <span class="hljs-string">"]"</span>);
+							<span class="hljs-keyword">if</span> (s) { *s = <span class="hljs-string">'\0'</span>; }
+							list_insert(packages, strdup(tmp+<span class="hljs-number">1</span>));
+						}
+					}
+
+					completions = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span> *) * (packages-&gt;length + <span class="hljs-number">1</span>));
+					free_matches = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>;
+					foreach(node, packages) {
+						completions[i++] = node-&gt;value;
+					}
+					completions[i] = <span class="hljs-literal">NULL</span>;
+					list_free(packages);
+				}
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[command_adj], <span class="hljs-string">"ifconfig"</span>)) {
+			<span class="hljs-keyword">if</span> (cursor_adj == <span class="hljs-number">1</span>) {
+				<span class="hljs-comment">/* interface names */</span>
+				DIR * d = opendir(<span class="hljs-string">"/dev/net"</span>);
+				<span class="hljs-keyword">if</span> (d) {
+					free_matches = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">list_t</span> * interfaces = list_create();
+
+					<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent</span> * <span class="hljs-title">ent</span>;</span>
+					<span class="hljs-keyword">while</span> ((ent = readdir(d))) {
+						<span class="hljs-keyword">if</span> (ent-&gt;d_name[<span class="hljs-number">0</span>] == <span class="hljs-string">'.'</span>) <span class="hljs-keyword">continue</span>;
+						list_insert(interfaces, strdup(ent-&gt;d_name));
+					}
+					closedir(d);
+
+					completions = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span>*) * (interfaces-&gt;length + <span class="hljs-number">1</span>));
+					<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>;
+					foreach(node, interfaces) {
+						completions[i++] = node-&gt;value;
+					}
+					completions[i] = <span class="hljs-literal">NULL</span>;
+					list_free(interfaces);
+				}
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (cursor_adj &gt; <span class="hljs-number">1</span>) {
+				completions = ifconfig_commands;
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[command_adj], <span class="hljs-string">"man"</span>)) {
+
+			<span class="hljs-comment">/* Get list of man directories */</span>
+			struct dirent ** entries;
+			<span class="hljs-keyword">int</span> count = scandir(<span class="hljs-string">"/usr/share/man"</span>, &amp;entries, probably_mandir, alphasort);
+
+			<span class="hljs-keyword">if</span> (count == <span class="hljs-number">0</span>) {
+				<span class="hljs-built_in">free</span>(entries);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (count &gt;= <span class="hljs-number">0</span>) {
+				struct dirent *** subdirs = <span class="hljs-built_in">calloc</span>(count, <span class="hljs-keyword">sizeof</span>(struct dirent**));
+				<span class="hljs-keyword">int</span> * counts = <span class="hljs-built_in">calloc</span>(count, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>));
+				<span class="hljs-keyword">size_t</span> total_pages = <span class="hljs-number">0</span>;
+
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+					<span class="hljs-keyword">char</span> * tmp = <span class="hljs-literal">NULL</span>;
+					asprintf(&amp;tmp, <span class="hljs-string">"/usr/share/man/%s"</span>,entries[i]-&gt;d_name);
+					<span class="hljs-keyword">int</span> subcount = scandir(tmp, &amp;subdirs[i], probably_manpage, alphasort);
+					<span class="hljs-keyword">if</span> (subcount &gt;= <span class="hljs-number">0</span>) {
+						counts[i] = subcount;
+						total_pages += subcount;
+					}
+					<span class="hljs-built_in">free</span>(tmp);
+				}
+
+				free_matches = <span class="hljs-number">1</span>;
+				completions = <span class="hljs-built_in">calloc</span>(total_pages + <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span> *));
+
+				<span class="hljs-keyword">size_t</span> n = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+					<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; counts[i]; ++j) {
+						<span class="hljs-keyword">char</span> * c = <span class="hljs-built_in">strrchr</span>(subdirs[i][j]-&gt;d_name,<span class="hljs-string">'.'</span>);
+						<span class="hljs-keyword">if</span> (c &amp;&amp; *c) {
+							*c = <span class="hljs-string">'\0'</span>;
+							<span class="hljs-comment">/* This might have been a .gz suffix. */</span>
+							<span class="hljs-keyword">if</span> (c[<span class="hljs-number">1</span>] == <span class="hljs-string">'g'</span> &amp;&amp; c[<span class="hljs-number">2</span>] == <span class="hljs-string">'z'</span>) {
+								c = <span class="hljs-built_in">strrchr</span>(subdirs[i][j]-&gt;d_name,<span class="hljs-string">'.'</span>);
+								<span class="hljs-keyword">if</span> (c &amp;&amp; *c) {
+									*c = <span class="hljs-string">'\0'</span>;
+								}
+							}
+						}
+						<span class="hljs-keyword">char</span> * s;
+						<span class="hljs-comment">/* Man page matches are formatted with with the section surrounded by tabs. */</span>
+						asprintf(&amp;s, <span class="hljs-string">"\t%s\t%s"</span>, entries[i]-&gt;d_name + <span class="hljs-number">3</span>, subdirs[i][j]-&gt;d_name);
+						completions[n++] = s;
+						<span class="hljs-built_in">free</span>(subdirs[i][j]);
+					}
+					<span class="hljs-keyword">if</span> (subdirs[i]) <span class="hljs-built_in">free</span>(subdirs[i]);
+					<span class="hljs-built_in">free</span>(entries[i]);
+				}
+				completions[n] = <span class="hljs-literal">NULL</span>;
+				<span class="hljs-built_in">free</span>(entries);
+				<span class="hljs-built_in">free</span>(counts);
+
+				<span class="hljs-comment">/* Sort completions. */</span>
+				qsort(completions, n, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span> *), comp_completions);
+
+				<span class="hljs-comment">/* Remove duplicate completions. */</span>
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> a = <span class="hljs-number">0</span>, b = <span class="hljs-number">1</span>; b &lt; n; b++) {
+					<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(completions[a], completions[b])) {
+						<span class="hljs-built_in">free</span>(completions[b]);
+					} <span class="hljs-keyword">else</span> {
+						a++;
+						completions[a] = completions[b];
+					}
+					<span class="hljs-keyword">if</span> (a != b) completions[b] = <span class="hljs-literal">NULL</span>;
+				}
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[command_adj], <span class="hljs-string">"set"</span>)) {
+			<span class="hljs-keyword">if</span> (cursor_adj == <span class="hljs-number">1</span>) {
+				completions = set_args;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (cursor_adj == <span class="hljs-number">2</span> &amp;&amp; !<span class="hljs-built_in">strcmp</span>(argv[command_adj+<span class="hljs-number">1</span>],<span class="hljs-string">"-o"</span>)) {
+				completions = set_o_options;
+			}
+		}
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">char</span> **c = completions; *c; ++c) {
+			<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(match_content(*c), prefix) == match_content(*c)) {
+				list_insert(matches, *c);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (free_matches) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>We need to make sure anything that didn't make it into matches
+still gets freed, so do that here.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				<span class="hljs-built_in">free</span>(*c);
+			}
+		}
+
+		<span class="hljs-comment">/* We're done with any allocated completions array. */</span>
+		<span class="hljs-keyword">if</span> (free_matches) <span class="hljs-built_in">free</span>(completions);
+
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (complete_mode == COMPLETE_VARIABLE) {
+
+		<span class="hljs-keyword">char</span> ** envvar = environ;
+		free_matches = <span class="hljs-number">1</span>;
+
+		<span class="hljs-keyword">while</span> (*envvar) {
+			<span class="hljs-keyword">char</span> * tmp = strdup(*envvar);
+			<span class="hljs-keyword">char</span> * c = <span class="hljs-built_in">strchr</span>(tmp, <span class="hljs-string">'='</span>);
+			*c = <span class="hljs-string">'\0'</span>;
+			<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(tmp, prefix+with_dollar) == tmp) {
+				<span class="hljs-keyword">char</span> * m;
+				asprintf(&amp;m, <span class="hljs-string">"%s%s"</span>, with_dollar ? <span class="hljs-string">"$"</span> : <span class="hljs-string">""</span>, tmp);
+				list_insert(matches, m);
+			}
+			<span class="hljs-built_in">free</span>(tmp);
+			envvar++;
+		}
+
+	}
+
+	<span class="hljs-keyword">if</span> (matches-&gt;length == <span class="hljs-number">1</span>) {
+		<span class="hljs-comment">/* Insert */</span>
+		<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * match = match_content(matches-&gt;head-&gt;value);
+		rline_insert(c, &amp;match[word_offset]);
+		<span class="hljs-keyword">if</span> (<span class="hljs-keyword">word</span> &amp;&amp; word_offset == (<span class="hljs-keyword">int</span>)<span class="hljs-built_in">strlen</span>(<span class="hljs-keyword">word</span>) &amp;&amp; !no_space_if_only) {
+			rline_insert(c, <span class="hljs-string">" "</span>);
+		}
+		rline_redraw(c);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (matches-&gt;length &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * match = match_content(matches-&gt;head-&gt;value);
+		<span class="hljs-keyword">if</span> (!c-&gt;tabbed) {
+			<span class="hljs-comment">/* see if there is a minimum subset we can fill in */</span>
+			<span class="hljs-keyword">size_t</span> j = word_offset;
+			<span class="hljs-keyword">do</span> {
+				<span class="hljs-keyword">char</span> d = match[j];
+				<span class="hljs-keyword">int</span> diff = <span class="hljs-number">0</span>;
+				foreach(node, matches) {
+					<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * match = match_content((<span class="hljs-keyword">char</span> *)node-&gt;value);
+					<span class="hljs-keyword">if</span> (match[j] != d || match[j] == <span class="hljs-string">'\0'</span>) diff = <span class="hljs-number">1</span>;
+				}
+				<span class="hljs-keyword">if</span> (diff) <span class="hljs-keyword">break</span>;
+				j++;
+			} <span class="hljs-keyword">while</span> (j &lt; (<span class="hljs-keyword">size_t</span>)c-&gt;requested);
+			<span class="hljs-keyword">if</span> (j &gt; (<span class="hljs-keyword">size_t</span>)word_offset) {
+				<span class="hljs-keyword">char</span> * tmp = strdup(match);
+				tmp[j] = <span class="hljs-string">'\0'</span>;
+				rline_insert(c, &amp;tmp[word_offset]);
+				rline_redraw(c);
+				<span class="hljs-built_in">free</span>(tmp);
+			} <span class="hljs-keyword">else</span> {
+				c-&gt;tabbed = <span class="hljs-number">1</span>;
+			}
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">char</span> ** match_array = <span class="hljs-built_in">calloc</span>(matches-&gt;length, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span>*));
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>First figure out maximum length, and turn the matches list
+back into an array so that we can do column/row lookups</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			<span class="hljs-keyword">int</span> ent_max_len = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">size_t</span> j = <span class="hljs-number">0</span>;
+			foreach(node, matches) {
+				<span class="hljs-keyword">char</span> * match = (<span class="hljs-keyword">char</span> *)node-&gt;value;
+				<span class="hljs-keyword">int</span> <span class="hljs-built_in">width</span> = match_display_width(match);
+				<span class="hljs-keyword">if</span> (<span class="hljs-built_in">width</span> &gt; ent_max_len) ent_max_len = <span class="hljs-built_in">width</span>;
+				match_array[j++] = match;
+			}
+
+			<span class="hljs-comment">/* Now figure out how many rows and columns we want to display. */</span>
+			<span class="hljs-keyword">int</span> col_ext = ent_max_len + <span class="hljs-number">1</span>; <span class="hljs-comment">/* column spacing */</span>
+			<span class="hljs-keyword">int</span> cols = ((rline_terminal_width + <span class="hljs-number">1</span>) / col_ext);
+			<span class="hljs-keyword">if</span> (cols == <span class="hljs-number">0</span>) cols = <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">int</span> rows = matches-&gt;length / cols;
+			<span class="hljs-keyword">if</span> (rows * cols &lt; (<span class="hljs-keyword">int</span>)matches-&gt;length) rows++;
+
+			<span class="hljs-comment">/* The rest of this is largely derived from our new column layout in 'ls' */</span>
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,<span class="hljs-string">"\n\033[0m"</span>);
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; rows; ++i) {
+				<span class="hljs-keyword">int</span> printed = match_display_width(match_array[i]);
+				match_format(match_array[i]);
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> k = printed; k &lt; ent_max_len; k++) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">" "</span>);
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">1</span>; j &lt; cols; ++j) {
+					<span class="hljs-keyword">if</span> (i + j * rows &gt;= (<span class="hljs-keyword">int</span>)matches-&gt;length) <span class="hljs-keyword">break</span>;
+					printed = match_display_width(match_array[i + j * rows]);
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">" "</span>);
+					match_format(match_array[i + j * rows]);
+					<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> k = printed; k &lt; ent_max_len; k++) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">" "</span>);
+				}
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,<span class="hljs-string">"\n"</span>);
+			}
+
+			<span class="hljs-built_in">free</span>(match_array);
+
+			c-&gt;callbacks-&gt;redraw_prompt(c);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"\033[s"</span>);
+			rline_redraw(c);
+		}
+	}
+
+finish_tab:
+	<span class="hljs-keyword">if</span> (free_matches) list_destroy(matches);
+	list_free(matches);
+	<span class="hljs-built_in">free</span>(prefix);
+	<span class="hljs-built_in">free</span>(dup);
+
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">add_environment</span><span class="hljs-params">(<span class="hljs-keyword">list_t</span> * env)</span> </span>{
+	<span class="hljs-keyword">if</span> (env-&gt;length) {
+		foreach (node, env) {
+			<span class="hljs-keyword">char</span> * c = node-&gt;value;
+			putenv(strdup(c));
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">sig_winch</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sig)</span> </span>{
+	<span class="hljs-comment">/* Just having this at all is enough. */</span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">rline_winch</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * <span class="hljs-built_in">buffer</span>, <span class="hljs-keyword">size_t</span> len)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sigaction</span> <span class="hljs-title">action</span> = {</span>.sa_handler=sig_winch, .sa_flags=<span class="hljs-number">0</span>};
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sigaction</span> <span class="hljs-title">original</span>;</span>
+	sigemptyset(&amp;action.sa_mask);
+	sigaction(SIGWINCH, &amp;action, &amp;original);
+	<span class="hljs-keyword">int</span> ret = rline(<span class="hljs-built_in">buffer</span>, len);
+	sigaction(SIGWINCH, &amp;original, <span class="hljs-literal">NULL</span>);
+	<span class="hljs-keyword">return</span> ret;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> FALLBACK_PS1 <span class="hljs-meta-string">"\\u@\\h \\w\\$ "</span></span>
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">read_entry</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * <span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">char</span> lprompt[<span class="hljs-number">1024</span>], rprompt[<span class="hljs-number">1024</span>];
+	<span class="hljs-keyword">int</span> lwidth, rwidth;
+
+	<span class="hljs-keyword">char</span> * ps1 = getenv(<span class="hljs-string">"PS1_LEFT"</span>);
+	print_extended_ps(ps1 ? ps1 : FALLBACK_PS1, lprompt, &amp;lwidth);
+
+	<span class="hljs-keyword">char</span> * ps1r = getenv(<span class="hljs-string">"PS1_RIGHT"</span>);
+	print_extended_ps(ps1r ? ps1r : <span class="hljs-string">""</span>, rprompt, &amp;rwidth);
+
+	rline_exit_string=<span class="hljs-string">"exit"</span>;
+	rline_exp_set_syntax(esh_syntax_color ? <span class="hljs-string">"esh"</span> : <span class="hljs-literal">NULL</span>);
+	rline_exp_set_prompts(lprompt, rprompt, lwidth, rwidth);
+	rline_exp_set_shell_commands(shell_commands, shell_commands_len);
+	rline_exp_set_tab_complete_func(tab_complete_func);
+	<span class="hljs-keyword">return</span> rline_winch(<span class="hljs-built_in">buffer</span>, LINE_LEN);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">read_entry_continued</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * <span class="hljs-built_in">buffer</span>)</span> </span>{
+	rline_exit_string=<span class="hljs-string">"exit"</span>;
+	rline_exp_set_syntax(esh_syntax_color ? <span class="hljs-string">"esh"</span> : <span class="hljs-literal">NULL</span>);
+	rline_exp_set_prompts(<span class="hljs-string">"&gt; "</span>, <span class="hljs-string">""</span>, <span class="hljs-number">2</span>, <span class="hljs-number">0</span>);
+	rline_exp_set_shell_commands(shell_commands, shell_commands_len);
+	rline_exp_set_tab_complete_func(tab_complete_func);
+	<span class="hljs-keyword">return</span> rline_winch(<span class="hljs-built_in">buffer</span>, LINE_LEN);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">variable_char</span><span class="hljs-params">(<span class="hljs-keyword">uint8_t</span> c)</span> </span>{
+	<span class="hljs-keyword">if</span> (c &gt;= <span class="hljs-string">'A'</span> &amp;&amp; c &lt;= <span class="hljs-string">'Z'</span>)  <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (c &gt;= <span class="hljs-string">'a'</span> &amp;&amp; c &lt;= <span class="hljs-string">'z'</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (c &gt;= <span class="hljs-string">'0'</span> &amp;&amp; c &lt;= <span class="hljs-string">'9'</span>)  <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'_'</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">variable_char_first</span><span class="hljs-params">(<span class="hljs-keyword">uint8_t</span> c)</span> </span>{
+	<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'?'</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'$'</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'#'</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">alternative</span> {</span>
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * command;
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * replacement;
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * description;
+};
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ALT_BIM    <span class="hljs-meta-string">"bim"</span>, <span class="hljs-meta-string">"vi-like text editor"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ALT_FETCH  <span class="hljs-meta-string">"fetch"</span>, <span class="hljs-meta-string">"URL downloader"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ALT_NETIF  <span class="hljs-meta-string">"ifconfig"</span>, <span class="hljs-meta-string">"to see network configuration"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ALT_MORE   <span class="hljs-meta-string">"more"</span>, <span class="hljs-meta-string">"the default pager"</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">alternative</span> <span class="hljs-title">cmd_alternatives</span>[] = {</span>
+	<span class="hljs-comment">/* Propose bim as an alternative for common text editors */</span>
+	{<span class="hljs-string">"vim"</span>,   ALT_BIM},
+	{<span class="hljs-string">"vi"</span>,    ALT_BIM},
+	{<span class="hljs-string">"emacs"</span>, ALT_BIM},
+	{<span class="hljs-string">"nano"</span>,  ALT_BIM},
+
+	<span class="hljs-comment">/* Propose fetch for some common URL-getting tools */</span>
+	{<span class="hljs-string">"curl"</span>,  ALT_FETCH},
+	{<span class="hljs-string">"wget"</span>,  ALT_FETCH},
+
+	<span class="hljs-comment">/* We don't have ip or ifconfig commands, suggest cat /proc/netif */</span>
+	{<span class="hljs-string">"ipconfig"</span>, ALT_NETIF},
+	{<span class="hljs-string">"ip"</span>, ALT_NETIF},
+
+	<span class="hljs-comment">/* Pager */</span>
+	{<span class="hljs-string">"less"</span>, ALT_MORE},
+
+	{<span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>},
+};
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">run_cmd</span><span class="hljs-params">(<span class="hljs-keyword">char</span> ** args)</span> </span>{
+	<span class="hljs-keyword">int</span> i = execvp(*args, args);
+	<span class="hljs-keyword">shell_command_t</span> func = shell_find(*args);
+	<span class="hljs-keyword">if</span> (func) {
+		<span class="hljs-keyword">int</span> argc = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">while</span> (args[argc]) {
+			argc++;
+		}
+		i = func(argc, args);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">if</span> (i != <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">if</span> (errno == ENOENT) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: Command not found\n"</span>, *args);
+				<span class="hljs-keyword">for</span> (struct alternative * alt = cmd_alternatives; alt-&gt;command; alt++) {
+					<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(*args, alt-&gt;command)) {
+						<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Consider this alternative:\n\n\t%s -- \033[3m%s\033[0m\n\n"</span>,
+							alt-&gt;replacement,
+							alt-&gt;description);
+						<span class="hljs-keyword">break</span>;
+					}
+				}
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (errno == ELOOP) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"esh: %s: Bad interpreter (maximum recursion depth reached)\n"</span>, *args);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (errno) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"esh: %s: %s\n"</span>, *args, strerror(errno));
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"esh: %s: Invalid executable\n"</span>, *args);
+			}
+			i = <span class="hljs-number">127</span>;
+		}
+	}
+	<span class="hljs-built_in">exit</span>(i);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">is_number</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * c)</span> </span>{
+	<span class="hljs-keyword">while</span> (*c) {
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">isdigit</span>(*c)) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		c++;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Prints &quot;Segmentation fault&quot;, etc.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">handle_status</span><span class="hljs-params">(<span class="hljs-keyword">int</span> ret_code)</span> </span>{
+	<span class="hljs-keyword">if</span> (WIFSIGNALED(ret_code)) {
+		<span class="hljs-keyword">int</span> sig = WTERMSIG(ret_code);
+		<span class="hljs-keyword">if</span> (sig == SIGINT || sig == SIGPIPE) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"\n"</span>);
+			<span class="hljs-keyword">return</span>;
+		}
+		<span class="hljs-keyword">char</span> * str = strsignal(sig);
+		<span class="hljs-keyword">if</span> (shell_interactive == <span class="hljs-number">1</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s\n"</span>, str);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (shell_interactive == <span class="hljs-number">2</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: line %d: %s\n"</span>, current_file, current_line, str);
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">describe_job</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">wait_for_child</span><span class="hljs-params">(<span class="hljs-keyword">int</span> pgid, <span class="hljs-keyword">char</span> * name, <span class="hljs-keyword">int</span> retpid)</span> </span>{
+	<span class="hljs-keyword">int</span> waitee = (shell_interactive == <span class="hljs-number">1</span> &amp;&amp; !is_subshell) ? -pgid : pgid;
+	<span class="hljs-keyword">int</span> outpid;
+	<span class="hljs-keyword">int</span> ret_code = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> ret_code_real = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> e;
+	<span class="hljs-keyword">int</span> _stopped = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">do</span> {
+		outpid = waitpid(waitee, &amp;ret_code, WUNTRACED);
+		e = errno;
+		<span class="hljs-keyword">if</span> (outpid == retpid) {
+			ret_code_real = ret_code;
+		}
+		<span class="hljs-keyword">if</span> (outpid != <span class="hljs-number">-1</span> &amp;&amp; WIFSTOPPED(ret_code)) {
+			suspended_pgid = pgid;
+			<span class="hljs-keyword">if</span> (name) {
+				<span class="hljs-keyword">void</span> * old = hashmap_set(job_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pgid, strdup(name));
+				<span class="hljs-keyword">if</span> (old) <span class="hljs-built_in">free</span>(old);
+			}
+			<span class="hljs-keyword">void</span> * old = hashmap_set(desc_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pgid, strdup(WSTOPSIG(ret_code) ? strsignal(WSTOPSIG(ret_code)) : <span class="hljs-string">"Stopped"</span>));
+			<span class="hljs-keyword">if</span> (old) <span class="hljs-built_in">free</span>(old);
+			_stopped = <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">if</span> (!shell_interactive) <span class="hljs-keyword">continue</span>;
+			<span class="hljs-keyword">break</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (outpid != <span class="hljs-number">-1</span>) {
+			suspended_pgid = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">if</span> (hashmap_has(job_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pgid)) {
+				hashmap_remove(job_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pgid);
+				hashmap_remove(desc_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pgid);
+			}
+		}
+	} <span class="hljs-keyword">while</span> (outpid != <span class="hljs-number">-1</span> || (outpid == <span class="hljs-number">-1</span> &amp;&amp; e != ECHILD));
+	reset_pgrp();
+	handle_status(ret_code_real);
+	<span class="hljs-keyword">if</span> (_stopped &amp;&amp; shell_interactive) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"\n"</span>);
+		describe_job(pgid);
+	}
+	<span class="hljs-keyword">return</span> WEXITSTATUS(ret_code_real);
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ArgBuilder</span> {</span>
+	<span class="hljs-keyword">char</span> * bytes;
+	<span class="hljs-keyword">size_t</span> length;
+	<span class="hljs-keyword">size_t</span> capacity;
+};
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">argbuilder_push_char</span><span class="hljs-params">(struct ArgBuilder * ab, <span class="hljs-keyword">char</span> c)</span> </span>{
+	<span class="hljs-keyword">if</span> (ab-&gt;capacity &lt; ab-&gt;length + <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">size_t</span> old = ab-&gt;capacity;
+		ab-&gt;capacity = old &lt; <span class="hljs-number">8</span> ? <span class="hljs-number">8</span> : (old * <span class="hljs-number">2</span>);
+		ab-&gt;bytes = <span class="hljs-built_in">realloc</span>(ab-&gt;bytes, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span>) * ab-&gt;capacity);
+	}
+	ab-&gt;bytes[ab-&gt;length++] = c;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">argbuilder_push_bytes</span><span class="hljs-params">(struct ArgBuilder * ab, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *str, <span class="hljs-keyword">size_t</span> len)</span> </span>{
+	<span class="hljs-keyword">if</span> (ab-&gt;capacity &lt; ab-&gt;length + len) {
+		<span class="hljs-keyword">while</span> (ab-&gt;capacity &lt; ab-&gt;length + len) {
+			<span class="hljs-keyword">size_t</span> old = ab-&gt;capacity;
+			ab-&gt;capacity = old &lt; <span class="hljs-number">8</span> ? <span class="hljs-number">8</span> : (old * <span class="hljs-number">2</span>);
+		}
+		ab-&gt;bytes = <span class="hljs-built_in">realloc</span>(ab-&gt;bytes, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span>) * ab-&gt;capacity);
+	}
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; len; ++i) {
+		ab-&gt;bytes[ab-&gt;length++] = *(str++);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">argbuilder_push</span><span class="hljs-params">(struct ArgBuilder *ab, <span class="hljs-keyword">char</span> *str)</span> </span>{
+	argbuilder_push_bytes(ab, str, <span class="hljs-built_in">strlen</span>(str));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">argbuilder_discard</span><span class="hljs-params">(struct ArgBuilder *ab)</span> </span>{
+	<span class="hljs-built_in">free</span>(ab-&gt;bytes);
+	ab-&gt;bytes = <span class="hljs-literal">NULL</span>;
+	ab-&gt;length = <span class="hljs-number">0</span>;
+	ab-&gt;capacity = <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">add_argument</span><span class="hljs-params">(<span class="hljs-keyword">list_t</span> * argv, struct ArgBuilder *ab)</span> </span>{
+	<span class="hljs-keyword">char</span> * arg = <span class="hljs-built_in">malloc</span>(ab-&gt;length + <span class="hljs-number">1</span>);
+	arg[ab-&gt;length] = <span class="hljs-number">0</span>;
+	<span class="hljs-built_in">memcpy</span>(arg, ab-&gt;bytes, ab-&gt;length);
+	argbuilder_discard(ab);
+	list_insert(argv, arg);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">shell_exec</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * <span class="hljs-built_in">buffer</span>, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, FILE * file, <span class="hljs-keyword">char</span> ** out_buffer, <span class="hljs-keyword">char</span> ** getline_buf, <span class="hljs-keyword">size_t</span> * getline_avail)</span> </span>{
+
+	*out_buffer = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-comment">/* Read previous history entries */</span>
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">buffer</span>[<span class="hljs-number">0</span>] == <span class="hljs-string">'!'</span>) {
+		<span class="hljs-keyword">int</span> x = atoi((<span class="hljs-keyword">char</span> *)((<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-built_in">buffer</span> + <span class="hljs-number">1</span>));
+		<span class="hljs-keyword">if</span> (x &gt; <span class="hljs-number">0</span> &amp;&amp; x &lt;= rline_history_count) {
+			<span class="hljs-built_in">buffer</span> = rline_history_get(x - <span class="hljs-number">1</span>);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"esh: !%d: event not found\n"</span>, x);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+	}
+
+	<span class="hljs-keyword">char</span> * argv[<span class="hljs-number">1024</span>];
+	<span class="hljs-keyword">int</span> tokenid = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">char</span> quoted = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> backslash = <span class="hljs-number">0</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ArgBuilder</span> <span class="hljs-title">ab</span> = {</span><span class="hljs-number">0</span>};
+
+	<span class="hljs-keyword">int</span> force_collected = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">list_t</span> * args = list_create();
+	<span class="hljs-keyword">int</span> have_star = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+
+		<span class="hljs-keyword">char</span> * p = <span class="hljs-built_in">buffer</span>;
+
+		<span class="hljs-keyword">while</span> (*p) {
+			<span class="hljs-keyword">switch</span> (*p) {
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'$'</span>: {
+					<span class="hljs-keyword">if</span> (quoted == <span class="hljs-string">'\''</span>) <span class="hljs-keyword">goto</span> _just_add;
+					<span class="hljs-keyword">if</span> (backslash) <span class="hljs-keyword">goto</span> _just_add;
+					p++;
+					<span class="hljs-keyword">char</span> var[<span class="hljs-number">100</span>];
+					<span class="hljs-keyword">int</span>  coll = <span class="hljs-number">0</span>;
+					<span class="hljs-keyword">if</span> (*p == <span class="hljs-string">'{'</span>) {
+						p++;
+						<span class="hljs-keyword">while</span> (*p != <span class="hljs-string">'}'</span> &amp;&amp; *p != <span class="hljs-string">'\0'</span> &amp;&amp; (coll &lt; <span class="hljs-number">100</span>)) {
+							var[coll] = *p;
+							coll++;
+							var[coll] = <span class="hljs-string">'\0'</span>;
+							p++;
+						}
+						<span class="hljs-keyword">if</span> (*p == <span class="hljs-string">'}'</span>) {
+							p++;
+						}
+					} <span class="hljs-keyword">else</span> {
+						<span class="hljs-keyword">while</span> (*p != <span class="hljs-string">'\0'</span> &amp;&amp; (variable_char(*p) || (coll == <span class="hljs-number">0</span> &amp;&amp; variable_char_first(*p)))  &amp;&amp; (coll &lt; <span class="hljs-number">100</span>)) {
+							var[coll] = *p;
+							coll++;
+							var[coll] = <span class="hljs-string">'\0'</span>;
+							<span class="hljs-keyword">if</span> (coll == <span class="hljs-number">1</span> &amp;&amp; (<span class="hljs-built_in">isdigit</span>(*p) || *p == <span class="hljs-string">'?'</span> || *p == <span class="hljs-string">'$'</span> || *p == <span class="hljs-string">'#'</span>)) {
+								p++;
+								<span class="hljs-keyword">break</span>; <span class="hljs-comment">/* Don't let these keep going */</span>
+							}
+							p++;
+						}
+					}
+					<span class="hljs-comment">/* Special cases */</span>
+					<span class="hljs-keyword">char</span> *c = <span class="hljs-literal">NULL</span>;
+					<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">128</span>];
+					<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(var, <span class="hljs-string">"?"</span>)) {
+						<span class="hljs-built_in">sprintf</span>(tmp,<span class="hljs-string">"%d"</span>,last_ret);
+						c = tmp;
+					} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(var, <span class="hljs-string">"$"</span>)) {
+						<span class="hljs-built_in">sprintf</span>(tmp,<span class="hljs-string">"%d"</span>,getpid());
+						c = tmp;
+					} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(var, <span class="hljs-string">"#"</span>)) {
+						<span class="hljs-built_in">sprintf</span>(tmp,<span class="hljs-string">"%d"</span>,shell_argc ? shell_argc<span class="hljs-number">-1</span> : <span class="hljs-number">0</span>);
+						c = tmp;
+					} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (is_number(var)) {
+						<span class="hljs-keyword">int</span> a = atoi(var);
+						<span class="hljs-keyword">if</span> (a &gt;= <span class="hljs-number">0</span> &amp;&amp; a &lt; shell_argc) {
+							c = shell_argv[a];
+						}
+					} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(var, <span class="hljs-string">"RANDOM"</span>)) {
+						<span class="hljs-built_in">sprintf</span>(tmp,<span class="hljs-string">"%d"</span>,rand()%<span class="hljs-number">32768</span>); <span class="hljs-comment">/* sure, modulo is bad for range restriction, shut up */</span>
+						c = tmp;
+					} <span class="hljs-keyword">else</span> {
+						c = getenv(var);
+					}
+
+					<span class="hljs-keyword">if</span> (c) {
+						backslash = <span class="hljs-number">0</span>;
+						<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; (<span class="hljs-keyword">int</span>)<span class="hljs-built_in">strlen</span>(c); ++i) {
+							<span class="hljs-keyword">if</span> (c[i] == <span class="hljs-string">' '</span> &amp;&amp; !quoted) {
+								<span class="hljs-comment">/* If we are not quoted and we reach a space, it signals a new argument */</span>
+								<span class="hljs-keyword">if</span> (ab.length || force_collected) {
+									add_argument(args, &amp;ab);
+									have_star = <span class="hljs-number">0</span>;
+									force_collected = <span class="hljs-number">0</span>;
+								}
+							} <span class="hljs-keyword">else</span> {
+								argbuilder_push_char(&amp;ab, c[i]);
+							}
+						}
+					}
+					<span class="hljs-keyword">continue</span>;
+				}
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'~'</span>:
+					<span class="hljs-keyword">if</span> (quoted || ab.length || backslash) <span class="hljs-keyword">goto</span> _just_add;
+					<span class="hljs-keyword">if</span> (p[<span class="hljs-number">1</span>] == <span class="hljs-number">0</span> || p[<span class="hljs-number">1</span>] == <span class="hljs-string">'/'</span> || p[<span class="hljs-number">1</span>] == <span class="hljs-string">'\n'</span> || p[<span class="hljs-number">1</span>] == <span class="hljs-string">' '</span> || p[<span class="hljs-number">1</span>] == <span class="hljs-string">';'</span>) {
+						<span class="hljs-keyword">char</span> * c = getenv(<span class="hljs-string">"HOME"</span>);
+						<span class="hljs-keyword">if</span> (!c) <span class="hljs-keyword">goto</span> _just_add;
+						argbuilder_push(&amp;ab, c);
+						<span class="hljs-keyword">goto</span> _next;
+					}
+					<span class="hljs-keyword">goto</span> _just_add;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'\"'</span>:
+					force_collected = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">if</span> (quoted == <span class="hljs-string">'\"'</span>) {
+						<span class="hljs-keyword">if</span> (backslash) <span class="hljs-keyword">goto</span> _just_add;
+						quoted = <span class="hljs-number">0</span>;
+						<span class="hljs-keyword">goto</span> _next;
+					} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!quoted) {
+						<span class="hljs-keyword">if</span> (backslash) <span class="hljs-keyword">goto</span> _just_add;
+						quoted = *p;
+						<span class="hljs-keyword">goto</span> _next;
+					}
+					<span class="hljs-keyword">goto</span> _just_add;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'\''</span>:
+					force_collected = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">if</span> (quoted == <span class="hljs-string">'\''</span>) {
+						<span class="hljs-keyword">if</span> (backslash) <span class="hljs-keyword">goto</span> _just_add;
+						quoted = <span class="hljs-number">0</span>;
+						<span class="hljs-keyword">goto</span> _next;
+					} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!quoted) {
+						<span class="hljs-keyword">if</span> (backslash) <span class="hljs-keyword">goto</span> _just_add;
+						quoted = *p;
+						<span class="hljs-keyword">goto</span> _next;
+					}
+					<span class="hljs-keyword">goto</span> _just_add;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'*'</span>:
+					<span class="hljs-keyword">if</span> (quoted || backslash || have_star) <span class="hljs-keyword">goto</span> _just_add;
+					<span class="hljs-comment">/* TODO multiple globs */</span>
+					have_star = <span class="hljs-number">1</span>;
+					argbuilder_push(&amp;ab, STAR_TOKEN);
+					<span class="hljs-keyword">goto</span> _next;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'\\'</span>:
+					<span class="hljs-keyword">if</span> (quoted == <span class="hljs-string">'\''</span> || backslash) <span class="hljs-keyword">goto</span> _just_add;
+					backslash = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">goto</span> _next;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">' '</span>:
+					<span class="hljs-keyword">if</span> (!quoted &amp;&amp; !backslash) <span class="hljs-keyword">goto</span> _new_arg;
+					<span class="hljs-keyword">goto</span> _just_add;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'\n'</span>:
+					<span class="hljs-keyword">if</span> (!quoted) <span class="hljs-keyword">goto</span> _done;
+					<span class="hljs-keyword">goto</span> _just_add;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'|'</span>:
+					<span class="hljs-keyword">if</span> (!quoted &amp;&amp; !backslash) {
+						<span class="hljs-keyword">if</span> (ab.length || force_collected) {
+							add_argument(args, &amp;ab);
+						}
+						force_collected = <span class="hljs-number">0</span>;
+						argbuilder_push(&amp;ab, PIPE_TOKEN);
+						<span class="hljs-keyword">goto</span> _new_arg;
+					}
+					<span class="hljs-keyword">goto</span> _just_add;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'&gt;'</span>:
+					<span class="hljs-keyword">if</span> (!quoted &amp;&amp; !backslash) {
+						<span class="hljs-keyword">if</span> (ab.length || force_collected) {
+							<span class="hljs-keyword">if</span> (ab.length == <span class="hljs-number">1</span> &amp;&amp; ab.bytes[<span class="hljs-number">0</span>] == <span class="hljs-string">'2'</span>) {
+								<span class="hljs-comment">/* Special case */</span>
+								force_collected = <span class="hljs-number">0</span>;
+								argbuilder_discard(&amp;ab);
+								argbuilder_push(&amp;ab, WRITE_ERR_TOKEN);
+								<span class="hljs-keyword">goto</span> _new_arg;
+							}
+							add_argument(args, &amp;ab);
+						}
+						force_collected = <span class="hljs-number">0</span>;
+						argbuilder_push(&amp;ab, WRITE_TOKEN);
+						<span class="hljs-keyword">goto</span> _new_arg;
+					}
+					<span class="hljs-keyword">goto</span> _just_add;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">';'</span>:
+					<span class="hljs-keyword">if</span> (!quoted &amp;&amp; !backslash) {
+						*out_buffer = ++p;
+						<span class="hljs-keyword">goto</span> _done;
+					}
+					<span class="hljs-keyword">goto</span> _just_add;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'#'</span>:
+					<span class="hljs-keyword">if</span> (!quoted &amp;&amp; !backslash) <span class="hljs-keyword">goto</span> _done;
+					<span class="hljs-keyword">goto</span> _just_add;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'`'</span>:
+					<span class="hljs-keyword">if</span> (!backslash &amp;&amp; quoted != <span class="hljs-string">'\''</span>) {
+						<span class="hljs-comment">/* oh boy here we go */</span>
+						p++;
+						<span class="hljs-keyword">char</span> * start_of_cmd = p;
+						<span class="hljs-keyword">while</span> (*p &amp;&amp; *p != <span class="hljs-string">'`'</span>) p++;
+						<span class="hljs-keyword">if</span> (!*p) {
+							argbuilder_discard(&amp;ab);
+							list_destroy(args);
+							<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"esh: unterminated ` sequence\n"</span>);
+							<span class="hljs-keyword">return</span> <span class="hljs-number">127</span>;
+						}
+						*p = <span class="hljs-string">'\0'</span>;
+
+						<span class="hljs-keyword">int</span> out_pipe[<span class="hljs-number">2</span>];
+						pipe2(out_pipe, O_CLOEXEC);
+						<span class="hljs-keyword">int</span> child_pid = fork();
+
+						<span class="hljs-keyword">if</span> (!child_pid) {
+							set_pgid(<span class="hljs-number">0</span>);
+							set_pgrp(getpid());
+							is_subshell = <span class="hljs-number">1</span>;
+							dup2(out_pipe[<span class="hljs-number">1</span>], STDOUT_FILENO);
+							<span class="hljs-built_in">close</span>(out_pipe[<span class="hljs-number">0</span>]);
+							shell_interactive = <span class="hljs-number">0</span>;
+							<span class="hljs-keyword">char</span> * out = <span class="hljs-literal">NULL</span>;
+							<span class="hljs-keyword">do</span> {
+								shell_exec(start_of_cmd, p - start_of_cmd, <span class="hljs-literal">NULL</span>, &amp;out, <span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>);
+								start_of_cmd = out;
+							} <span class="hljs-keyword">while</span> (start_of_cmd);
+							<span class="hljs-built_in">exit</span>(<span class="hljs-number">0</span>);
+						}
+						<span class="hljs-built_in">close</span>(out_pipe[<span class="hljs-number">1</span>]);
+						<span class="hljs-keyword">ssize_t</span> hold_out = <span class="hljs-number">0</span>;
+						<span class="hljs-keyword">ssize_t</span> ew = <span class="hljs-number">0</span>;
+
+						<span class="hljs-keyword">do</span> {
+							<span class="hljs-keyword">char</span> buf[<span class="hljs-number">1024</span>];
+							<span class="hljs-keyword">ssize_t</span> r = <span class="hljs-built_in">read</span>(out_pipe[<span class="hljs-number">0</span>], buf, <span class="hljs-number">1024</span>);
+							<span class="hljs-keyword">if</span> (r &lt;= <span class="hljs-number">0</span>) <span class="hljs-keyword">break</span>;
+							<span class="hljs-keyword">for</span> (<span class="hljs-keyword">ssize_t</span> i = <span class="hljs-number">0</span>; i &lt; r; ++i) {
+								<span class="hljs-comment">/* Skip NUL */</span>
+								<span class="hljs-keyword">if</span> (!buf[i]) <span class="hljs-keyword">continue</span>;
+								<span class="hljs-comment">/* TODO probably other whitespace, but we're a bad shell after all */</span>
+								<span class="hljs-keyword">if</span> (hold_out &amp;&amp; buf[i] != <span class="hljs-string">'\n'</span>) {
+									add_argument(args, &amp;ab);
+									hold_out = <span class="hljs-number">0</span>;
+								} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ew &amp;&amp; buf[i] != <span class="hljs-string">'\n'</span>) {
+									<span class="hljs-keyword">while</span> (ew) {
+										argbuilder_push_char(&amp;ab, <span class="hljs-string">'\n'</span>);
+										ew--;
+									}
+								}
+								<span class="hljs-keyword">if</span> (!quoted &amp;&amp; buf[i] == <span class="hljs-string">'\n'</span>) {
+									hold_out = ab.length != <span class="hljs-number">0</span>;
+								} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!quoted &amp;&amp; buf[i] == <span class="hljs-string">' '</span>) {
+									<span class="hljs-keyword">if</span> (ab.length) add_argument(args, &amp;ab);
+									hold_out = <span class="hljs-number">-1</span>;
+								} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (quoted &amp;&amp; buf[i] == <span class="hljs-string">'\n'</span>) {
+									ew++;
+								} <span class="hljs-keyword">else</span> {
+									argbuilder_push_char(&amp;ab, buf[i]);
+								}
+							}
+						} <span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>);
+						<span class="hljs-built_in">close</span>(out_pipe[<span class="hljs-number">0</span>]);
+						kill(-child_pid, SIGKILL);
+						waitpid(child_pid, <span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>);
+						reset_pgrp();
+
+						<span class="hljs-comment">/* Restore state */</span>
+						*p = <span class="hljs-string">'`'</span>;
+						<span class="hljs-keyword">goto</span> _next;
+					}
+					<span class="hljs-keyword">goto</span> _just_add;
+				<span class="hljs-keyword">default</span>:
+					<span class="hljs-keyword">if</span> (backslash) argbuilder_push_char(&amp;ab, <span class="hljs-string">'\\'</span>);
+_just_add:
+					backslash = <span class="hljs-number">0</span>;
+					argbuilder_push_char(&amp;ab, *p);
+					<span class="hljs-keyword">goto</span> _next;
+			}
+
+_new_arg:
+			backslash = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">if</span> (ab.length || force_collected) {
+				add_argument(args, &amp;ab);
+				have_star = <span class="hljs-number">0</span>;
+				force_collected = <span class="hljs-number">0</span>;
+			}
+
+_next:
+			p++;
+		}
+
+_done:
+
+		<span class="hljs-keyword">if</span> (quoted || backslash) {
+			backslash = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">if</span> (shell_interactive == <span class="hljs-number">1</span>) {
+				break_while = <span class="hljs-number">0</span>;
+				read_entry_continued(<span class="hljs-built_in">buffer</span>);
+				<span class="hljs-keyword">if</span> (break_while) {
+					break_while = <span class="hljs-number">0</span>;
+					<span class="hljs-keyword">if</span> (ab.capacity) argbuilder_discard(&amp;ab);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+				}
+				rline_history_append_line(<span class="hljs-built_in">buffer</span>);
+				<span class="hljs-keyword">continue</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (shell_interactive == <span class="hljs-number">2</span>) {
+				<span class="hljs-keyword">if</span> (getline_buf) {
+					<span class="hljs-keyword">ssize_t</span> len = getline(getline_buf, getline_avail, file);
+					<span class="hljs-keyword">if</span> (len &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">break</span>;
+					<span class="hljs-built_in">buffer</span> = *getline_buf;
+					<span class="hljs-built_in">size</span> = len;
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-comment">/* fallback */</span>
+					fgets(<span class="hljs-built_in">buffer</span>, <span class="hljs-built_in">size</span>, file);
+				}
+				<span class="hljs-keyword">continue</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">if</span> (ab.capacity) argbuilder_discard(&amp;ab);
+				list_destroy(args);
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Syntax error: Unterminated quoted string.\n"</span>);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">127</span>;
+			}
+		}
+
+		<span class="hljs-keyword">if</span> (ab.length || force_collected) {
+			add_argument(args, &amp;ab);
+			<span class="hljs-keyword">break</span>;
+		}
+
+		<span class="hljs-keyword">break</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (ab.capacity) argbuilder_discard(&amp;ab);
+
+	<span class="hljs-keyword">int</span> cmdi = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> ** arg_starts[<span class="hljs-number">100</span>] = { &amp;argv[<span class="hljs-number">0</span>], <span class="hljs-literal">NULL</span> };
+	<span class="hljs-keyword">char</span> * output_files[<span class="hljs-number">100</span>] = { <span class="hljs-literal">NULL</span> };
+	<span class="hljs-keyword">int</span> file_args[<span class="hljs-number">100</span>] = {<span class="hljs-number">0</span>};
+	<span class="hljs-keyword">int</span> argcs[<span class="hljs-number">100</span>] = {<span class="hljs-number">0</span>};
+	<span class="hljs-keyword">char</span> * err_files[<span class="hljs-number">100</span>] = { <span class="hljs-literal">NULL</span> };
+	<span class="hljs-keyword">int</span> err_args[<span class="hljs-number">100</span>] = {<span class="hljs-number">0</span>};
+	<span class="hljs-keyword">int</span> next_is_file = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> next_is_err = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">list_t</span> * extra_env = list_create();
+
+	<span class="hljs-keyword">list_t</span> * glob_args = list_create();
+
+	<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+	foreach(node, args) {
+		<span class="hljs-keyword">char</span> * c = node-&gt;value;
+
+		<span class="hljs-keyword">if</span> (next_is_err) {
+			<span class="hljs-keyword">if</span> (next_is_err == <span class="hljs-number">1</span> &amp;&amp; !<span class="hljs-built_in">strcmp</span>(c, WRITE_TOKEN)) {
+				next_is_err = <span class="hljs-number">2</span>;
+				err_args[cmdi] = O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC;
+				<span class="hljs-keyword">continue</span>;
+			}
+			err_files[cmdi] = c;
+			next_is_err = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(c, WRITE_ERR_TOKEN)) {
+			next_is_err = <span class="hljs-number">1</span>;
+			err_args[cmdi] = O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC;
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (next_is_file) {
+			<span class="hljs-keyword">if</span> (next_is_file == <span class="hljs-number">1</span> &amp;&amp; !<span class="hljs-built_in">strcmp</span>(c, WRITE_TOKEN)) {
+				next_is_file = <span class="hljs-number">2</span>;
+				file_args[cmdi] = O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC;
+				<span class="hljs-keyword">continue</span>;
+			}
+			output_files[cmdi] = c;
+			next_is_file = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(c, WRITE_TOKEN)) {
+			next_is_file = <span class="hljs-number">1</span>;
+			file_args[cmdi] = O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC;
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(c, PIPE_TOKEN)) {
+			<span class="hljs-keyword">if</span> (arg_starts[cmdi] == &amp;argv[i]) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Syntax error: Unexpected pipe token\n"</span>);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+			}
+			argv[i] = <span class="hljs-number">0</span>;
+			i++;
+			cmdi++;
+			arg_starts[cmdi] = &amp;argv[i];
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (i == <span class="hljs-number">0</span> &amp;&amp; <span class="hljs-built_in">strstr</span>(c,<span class="hljs-string">"="</span>)) {
+			list_insert(extra_env, c);
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-keyword">char</span> * glob = <span class="hljs-built_in">strstr</span>(c, STAR_TOKEN);
+		<span class="hljs-keyword">if</span> (glob) {
+			<span class="hljs-comment">/* Globbing */</span>
+			glob[<span class="hljs-number">0</span>] = <span class="hljs-string">'\0'</span>;
+			glob[<span class="hljs-number">1</span>] = <span class="hljs-string">'\0'</span>;
+
+			<span class="hljs-keyword">char</span> * before = c;
+			<span class="hljs-keyword">char</span> * after = &amp;glob[<span class="hljs-number">8</span>];
+			<span class="hljs-keyword">char</span> * dir = <span class="hljs-literal">NULL</span>;
+
+			<span class="hljs-keyword">int</span> has_before = !!<span class="hljs-built_in">strlen</span>(before);
+			<span class="hljs-keyword">int</span> has_after = !!<span class="hljs-built_in">strlen</span>(after);
+
+			<span class="hljs-keyword">if</span> (<span class="hljs-number">1</span>) {
+				<span class="hljs-comment">/* read current directory, add all */</span>
+				DIR * dirp;
+				<span class="hljs-keyword">char</span> * prepend = <span class="hljs-string">""</span>;
+				<span class="hljs-keyword">if</span> (has_before) {
+					dir = <span class="hljs-built_in">strrchr</span>(before,<span class="hljs-string">'/'</span>);
+
+					<span class="hljs-keyword">if</span> (!dir) {
+						dirp = opendir(<span class="hljs-string">"."</span>);
+					} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (dir == before) {
+						dirp = opendir(<span class="hljs-string">"/"</span>);
+						prepend = before;
+						before++;
+					} <span class="hljs-keyword">else</span> {
+						*dir = <span class="hljs-string">'\0'</span>;
+						dirp = opendir(before);
+						prepend = before;
+						before = dir+<span class="hljs-number">1</span>;
+					}
+				} <span class="hljs-keyword">else</span> {
+					dirp = opendir(<span class="hljs-string">"."</span>);
+				}
+
+				<span class="hljs-keyword">int</span> before_i = i;
+				<span class="hljs-keyword">if</span> (dirp) {
+					<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent</span> * <span class="hljs-title">ent</span> = <span class="hljs-title">readdir</span>(<span class="hljs-title">dirp</span>);</span>
+					<span class="hljs-keyword">while</span> (ent != <span class="hljs-literal">NULL</span>) {
+						<span class="hljs-keyword">if</span> (ent-&gt;d_name[<span class="hljs-number">0</span>] != <span class="hljs-string">'.'</span> || (dir ? (dir[<span class="hljs-number">1</span>] == <span class="hljs-string">'.'</span>) : (before &amp;&amp; before[<span class="hljs-number">0</span>] == <span class="hljs-string">'.'</span>))) {
+							<span class="hljs-keyword">char</span> * s = strdup(ent-&gt;d_name);
+
+							<span class="hljs-keyword">char</span> * t = s;
+
+							<span class="hljs-keyword">if</span> (has_before) {
+								<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(s,before) != s) {
+									<span class="hljs-built_in">free</span>(s);
+									<span class="hljs-keyword">goto</span> _nope;
+								}
+								t = &amp;s[<span class="hljs-built_in">strlen</span>(before)];
+							}
+							<span class="hljs-keyword">if</span> (has_after) {
+								<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strlen</span>(t) &gt;= <span class="hljs-built_in">strlen</span>(after)) {
+									<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(after,&amp;t[<span class="hljs-built_in">strlen</span>(t)-<span class="hljs-built_in">strlen</span>(after)])) {
+										<span class="hljs-keyword">char</span> * out;
+										asprintf(&amp;out, <span class="hljs-string">"%s%s%s"</span>, prepend, !!*prepend ? <span class="hljs-string">"/"</span> : <span class="hljs-string">""</span>, s);
+										list_insert(glob_args, out);
+										argv[i] = out;
+										i++;
+										argcs[cmdi]++;
+									}
+								}
+							} <span class="hljs-keyword">else</span> {
+								<span class="hljs-keyword">char</span> * out;
+								asprintf(&amp;out,<span class="hljs-string">"%s%s%s"</span>, prepend, !!*prepend ? <span class="hljs-string">"/"</span> : <span class="hljs-string">""</span>, s);
+								list_insert(glob_args, out);
+								argv[i] = out;
+								i++;
+								argcs[cmdi]++;
+							}
+							<span class="hljs-built_in">free</span>(s);
+						}
+_nope:
+						ent = readdir(dirp);
+					}
+					closedir(dirp);
+				}
+
+				<span class="hljs-keyword">if</span> (before_i == i) {
+					<span class="hljs-comment">/* no matches */</span>
+					glob[<span class="hljs-number">0</span>] = <span class="hljs-string">'*'</span>;
+					<span class="hljs-keyword">if</span> (dir) {
+						*dir = <span class="hljs-string">'/'</span>;
+					}
+					memmove(&amp;glob[<span class="hljs-number">1</span>], after, <span class="hljs-built_in">strlen</span>(after)+<span class="hljs-number">1</span>);
+					argv[i] = c;
+					i++;
+					argcs[cmdi]++;
+				}
+			}
+		} <span class="hljs-keyword">else</span> {
+			argv[i] = c;
+			i++;
+			argcs[cmdi]++;
+		}
+	}
+	argv[i] = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-comment">/* Ensure globs get freed */</span>
+	foreach(node, glob_args) {
+		list_insert(args, node-&gt;value);
+	}
+	list_free(glob_args);
+	<span class="hljs-built_in">free</span>(glob_args);
+
+	<span class="hljs-keyword">if</span> (i == <span class="hljs-number">0</span>) {
+		add_environment(extra_env);
+		list_free(extra_env);
+		<span class="hljs-built_in">free</span>(extra_env);
+		list_destroy(args);
+		<span class="hljs-built_in">free</span>(args);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (!*arg_starts[cmdi]) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Syntax error: Unexpected end of input\n"</span>);
+		list_free(extra_env);
+		<span class="hljs-built_in">free</span>(extra_env);
+		list_destroy(args);
+		<span class="hljs-built_in">free</span>(args);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+	}
+
+	tokenid = i;
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> child_pid;
+	<span class="hljs-keyword">int</span> last_child;
+
+	<span class="hljs-keyword">int</span> nowait = (!<span class="hljs-built_in">strcmp</span>(argv[tokenid<span class="hljs-number">-1</span>],<span class="hljs-string">"&amp;"</span>));
+	<span class="hljs-keyword">if</span> (nowait) {
+		argv[tokenid<span class="hljs-number">-1</span>] = <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">int</span> pgid = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (cmdi &gt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">int</span> last_output[<span class="hljs-number">2</span>];
+		pipe2(last_output, O_CLOEXEC);
+
+		child_pid = fork();
+		<span class="hljs-keyword">if</span> (!child_pid) {
+			set_pgid(<span class="hljs-number">0</span>);
+			<span class="hljs-keyword">if</span> (!nowait) set_pgrp(getpid());
+			is_subshell = <span class="hljs-number">1</span>;
+			dup2(last_output[<span class="hljs-number">1</span>], STDOUT_FILENO);
+			<span class="hljs-built_in">close</span>(last_output[<span class="hljs-number">0</span>]);
+			add_environment(extra_env);
+			run_cmd(arg_starts[<span class="hljs-number">0</span>]);
+		}
+
+		pgid = child_pid;
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">1</span>; j &lt; cmdi; ++j) {
+			<span class="hljs-keyword">int</span> tmp_out[<span class="hljs-number">2</span>];
+			pipe2(tmp_out, O_CLOEXEC);
+			<span class="hljs-keyword">if</span> (!fork()) {
+				is_subshell = <span class="hljs-number">1</span>;
+				set_pgid(pgid);
+				dup2(tmp_out[<span class="hljs-number">1</span>], STDOUT_FILENO);
+				dup2(last_output[<span class="hljs-number">0</span>], STDIN_FILENO);
+				<span class="hljs-built_in">close</span>(tmp_out[<span class="hljs-number">0</span>]);
+				<span class="hljs-built_in">close</span>(last_output[<span class="hljs-number">1</span>]);
+				add_environment(extra_env);
+				run_cmd(arg_starts[j]);
+			}
+			<span class="hljs-built_in">close</span>(last_output[<span class="hljs-number">0</span>]);
+			<span class="hljs-built_in">close</span>(last_output[<span class="hljs-number">1</span>]);
+			last_output[<span class="hljs-number">0</span>] = tmp_out[<span class="hljs-number">0</span>];
+			last_output[<span class="hljs-number">1</span>] = tmp_out[<span class="hljs-number">1</span>];
+		}
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">semaphore</span> <span class="hljs-title">s</span> = <span class="hljs-title">create_semaphore</span>();</span>
+		last_child = fork();
+		<span class="hljs-keyword">if</span> (!last_child) {
+			is_subshell = <span class="hljs-number">1</span>;
+			set_pgid(pgid);
+			raise_semaphore(s);
+			<span class="hljs-keyword">if</span> (output_files[cmdi]) {
+				<span class="hljs-keyword">int</span> fd = <span class="hljs-built_in">open</span>(output_files[cmdi], file_args[cmdi], <span class="hljs-number">0666</span>);
+				<span class="hljs-keyword">if</span> (fd &lt; <span class="hljs-number">0</span>) {
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"sh: %s: %s\n"</span>, output_files[cmdi], strerror(errno));
+					<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+				} <span class="hljs-keyword">else</span> {
+					dup2(fd, STDOUT_FILENO);
+				}
+			}
+			<span class="hljs-keyword">if</span> (err_files[cmdi]) {
+				<span class="hljs-keyword">int</span> fd = <span class="hljs-built_in">open</span>(err_files[cmdi], err_args[cmdi], <span class="hljs-number">0666</span>);
+				<span class="hljs-keyword">if</span> (fd &lt; <span class="hljs-number">0</span>) {
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"sh: %s: %s\n"</span>, err_files[cmdi], strerror(errno));
+					<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+				} <span class="hljs-keyword">else</span> {
+					dup2(fd, STDERR_FILENO);
+				}
+			}
+			dup2(last_output[<span class="hljs-number">0</span>], STDIN_FILENO);
+			<span class="hljs-built_in">close</span>(last_output[<span class="hljs-number">1</span>]);
+			add_environment(extra_env);
+			run_cmd(arg_starts[cmdi]);
+		}
+		<span class="hljs-built_in">close</span>(last_output[<span class="hljs-number">0</span>]);
+		<span class="hljs-built_in">close</span>(last_output[<span class="hljs-number">1</span>]);
+		wait_semaphore(s);
+
+		<span class="hljs-comment">/* Now execute the last piece and wait on all of them */</span>
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">shell_command_t</span> func = shell_find(*arg_starts[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">if</span> (func) {
+			<span class="hljs-keyword">int</span> old_out = <span class="hljs-number">-1</span>;
+			<span class="hljs-keyword">int</span> old_err = <span class="hljs-number">-1</span>;
+			<span class="hljs-keyword">if</span> (output_files[<span class="hljs-number">0</span>]) {
+				old_out = dup(STDOUT_FILENO);
+				fcntl(old_out, F_SETFD, FD_CLOEXEC);
+				<span class="hljs-keyword">int</span> fd = <span class="hljs-built_in">open</span>(output_files[cmdi], file_args[cmdi], <span class="hljs-number">0666</span>);
+				<span class="hljs-keyword">if</span> (fd &lt; <span class="hljs-number">0</span>) {
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"sh: %s: %s\n"</span>, output_files[cmdi], strerror(errno));
+					<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+				} <span class="hljs-keyword">else</span> {
+					dup2(fd, STDOUT_FILENO);
+				}
+			}
+			<span class="hljs-keyword">if</span> (err_files[<span class="hljs-number">0</span>]) {
+				old_err = dup(STDERR_FILENO);
+				fcntl(old_err, F_SETFD, FD_CLOEXEC);
+				<span class="hljs-keyword">int</span> fd = <span class="hljs-built_in">open</span>(err_files[cmdi], err_args[cmdi], <span class="hljs-number">0666</span>);
+				<span class="hljs-keyword">if</span> (fd &lt; <span class="hljs-number">0</span>) {
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"sh: %s: %s\n"</span>, err_files[cmdi], strerror(errno));
+					<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+				} <span class="hljs-keyword">else</span> {
+					dup2(fd, STDERR_FILENO);
+				}
+			}
+			<span class="hljs-keyword">int</span> result = func(argcs[<span class="hljs-number">0</span>], arg_starts[<span class="hljs-number">0</span>]);
+			<span class="hljs-keyword">if</span> (old_out != <span class="hljs-number">-1</span>) dup2(old_out, STDOUT_FILENO);
+			<span class="hljs-keyword">if</span> (old_err != <span class="hljs-number">-1</span>) dup2(old_err, STDERR_FILENO);
+			<span class="hljs-keyword">return</span> result;
+		} <span class="hljs-keyword">else</span> {
+			struct semaphore s = create_semaphore();
+			child_pid = fork();
+			<span class="hljs-keyword">if</span> (!child_pid) {
+				set_pgid(<span class="hljs-number">0</span>);
+				<span class="hljs-keyword">if</span> (!nowait) set_pgrp(getpid());
+				raise_semaphore(s);
+				is_subshell = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">if</span> (output_files[cmdi]) {
+					<span class="hljs-keyword">int</span> fd = <span class="hljs-built_in">open</span>(output_files[cmdi], file_args[cmdi], <span class="hljs-number">0666</span>);
+					<span class="hljs-keyword">if</span> (fd &lt; <span class="hljs-number">0</span>) {
+						<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"sh: %s: %s\n"</span>, output_files[cmdi], strerror(errno));
+						<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+					} <span class="hljs-keyword">else</span> {
+						dup2(fd, STDOUT_FILENO);
+					}
+				}
+				<span class="hljs-keyword">if</span> (err_files[cmdi]) {
+					<span class="hljs-keyword">int</span> fd = <span class="hljs-built_in">open</span>(err_files[cmdi], err_args[cmdi], <span class="hljs-number">0666</span>);
+					<span class="hljs-keyword">if</span> (fd &lt; <span class="hljs-number">0</span>) {
+						<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"sh: %s: %s\n"</span>, err_files[cmdi], strerror(errno));
+						<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+					} <span class="hljs-keyword">else</span> {
+						dup2(fd, STDERR_FILENO);
+					}
+				}
+				add_environment(extra_env);
+				run_cmd(arg_starts[<span class="hljs-number">0</span>]);
+			}
+
+			wait_semaphore(s);
+
+			pgid = child_pid;
+			last_child = child_pid;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (nowait) {
+		<span class="hljs-keyword">if</span> (shell_interactive == <span class="hljs-number">1</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"[%d] %s\n"</span>, pgid, arg_starts[<span class="hljs-number">0</span>][<span class="hljs-number">0</span>]);
+			hashmap_set(job_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pgid, strdup(arg_starts[<span class="hljs-number">0</span>][<span class="hljs-number">0</span>]));
+			hashmap_set(desc_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pgid, strdup(<span class="hljs-string">"Running"</span>));
+		} <span class="hljs-keyword">else</span> {
+			hashmap_set(job_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)last_child, strdup(arg_starts[<span class="hljs-number">0</span>][<span class="hljs-number">0</span>]));
+		}
+		list_free(extra_env);
+		<span class="hljs-built_in">free</span>(extra_env);
+		list_destroy(args);
+		<span class="hljs-built_in">free</span>(args);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+
+	<span class="hljs-keyword">int</span> ret = wait_for_child(shell_interactive == <span class="hljs-number">1</span> ? pgid : last_child, arg_starts[<span class="hljs-number">0</span>][<span class="hljs-number">0</span>], last_child);
+
+	list_free(extra_env);
+	<span class="hljs-built_in">free</span>(extra_env);
+	list_destroy(args);
+	<span class="hljs-built_in">free</span>(args);
+	<span class="hljs-keyword">return</span> ret;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">add_path_contents</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * path)</span> </span>{
+	DIR * dirp = opendir(path);
+
+	<span class="hljs-keyword">if</span> (!dirp) <span class="hljs-keyword">return</span>; <span class="hljs-comment">/* Failed to load directly */</span>
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent</span> * <span class="hljs-title">ent</span> = <span class="hljs-title">readdir</span>(<span class="hljs-title">dirp</span>);</span>
+	<span class="hljs-keyword">while</span> (ent != <span class="hljs-literal">NULL</span>) {
+		<span class="hljs-keyword">if</span> (ent-&gt;d_name[<span class="hljs-number">0</span>] != <span class="hljs-string">'.'</span>) {
+			shell_install_command(strdup(ent-&gt;d_name), <span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>);
+		}
+
+		ent = readdir(dirp);
+	}
+	closedir(dirp);
+
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">command</span> {</span>
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">string</span>;
+	<span class="hljs-keyword">void</span> * func;
+	<span class="hljs-keyword">char</span> * desc;
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">comp_shell_commands</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> *p1, <span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> *p2)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">strcmp</span>(((struct command *)p1)-&gt;<span class="hljs-built_in">string</span>, ((struct command *)p2)-&gt;<span class="hljs-built_in">string</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">sort_commands</span><span class="hljs-params">()</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">command</span> <span class="hljs-title">commands</span>[<span class="hljs-title">SHELL_COMMANDS</span>];</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; shell_commands_len; ++i) {
+		commands[i].<span class="hljs-built_in">string</span> = shell_commands[i];
+		commands[i].func   = shell_pointers[i];
+		commands[i].desc   = shell_descript[i];
+	}
+	qsort(&amp;commands, shell_commands_len, <span class="hljs-keyword">sizeof</span>(struct command), comp_shell_commands);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; shell_commands_len; ++i) {
+		shell_commands[i] = commands[i].<span class="hljs-built_in">string</span>;
+		shell_pointers[i] = commands[i].func;
+		shell_descript[i] = commands[i].desc;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">show_version</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"esh 1.11.0\n"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">show_usage</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_S <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_U <span class="hljs-meta-string">"\033[4m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_E <span class="hljs-meta-string">"\033[0m"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+			<span class="hljs-string">"Esh: The Experimental Shell\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"usage: %s ["</span> X_S <span class="hljs-string">"script"</span> X_E <span class="hljs-string">" ["</span> X_S <span class="hljs-string">"args..."</span> X_E <span class="hljs-string">"]]\n"</span>
+			<span class="hljs-string">"       %s [-c "</span> X_U <span class="hljs-string">"cmd"</span> X_E <span class="hljs-string">"]\n"</span>
+			<span class="hljs-string">"       %s [-v] [-?]\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -c "</span> X_U <span class="hljs-string">"cmd"</span> X_E <span class="hljs-string">"  "</span> X_S <span class="hljs-string">"parse and execute cmd"</span> X_E <span class="hljs-string">"\n"</span>
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<p>-c cmd  &quot; X_S &quot;p...</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			<span class="hljs-string">" -v      "</span> X_S <span class="hljs-string">"show version information"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -?      "</span> X_S <span class="hljs-string">"show this help text"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"\n"</span>, argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">add_path</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+
+	<span class="hljs-keyword">char</span> * envvar = getenv(<span class="hljs-string">"PATH"</span>);
+
+	<span class="hljs-keyword">if</span> (!envvar) {
+		add_path_contents(<span class="hljs-string">"/bin"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-keyword">char</span> * tmp = strdup(envvar);
+
+	<span class="hljs-keyword">do</span> {
+		<span class="hljs-keyword">char</span> * <span class="hljs-built_in">end</span> = <span class="hljs-built_in">strstr</span>(tmp,<span class="hljs-string">":"</span>);
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">end</span>) {
+			*<span class="hljs-built_in">end</span> = <span class="hljs-string">'\0'</span>;
+			<span class="hljs-built_in">end</span>++;
+		}
+		add_path_contents(tmp);
+		tmp = <span class="hljs-built_in">end</span>;
+	} <span class="hljs-keyword">while</span> (tmp);
+
+	<span class="hljs-built_in">free</span>(tmp);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">run_script</span><span class="hljs-params">(FILE * f)</span> </span>{
+	current_line = <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">char</span> * buf = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">size_t</span> avail = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">ssize_t</span> len;
+
+	<span class="hljs-keyword">while</span> ((len = getline(&amp;buf, &amp;avail, f)) &gt;= <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">int</span> ret;
+		<span class="hljs-keyword">char</span> * out = <span class="hljs-literal">NULL</span>;
+		<span class="hljs-keyword">char</span> * b = buf;
+		<span class="hljs-keyword">do</span> {
+			ret = shell_exec(b, len, f, &amp;out, &amp;buf, &amp;avail);
+			b = out;
+		} <span class="hljs-keyword">while</span> (b);
+		current_line++;
+		<span class="hljs-keyword">if</span> (ret &gt;= <span class="hljs-number">0</span>) last_ret = ret;
+	}
+
+	<span class="hljs-built_in">free</span>(buf);
+	fclose(f);
+
+	<span class="hljs-keyword">return</span> last_ret;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">source_eshrc</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">home</span> = getenv(<span class="hljs-string">"HOME"</span>);
+
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">home</span>) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">512</span>];
+	<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"%s/.eshrc"</span>, <span class="hljs-built_in">home</span>);
+
+	FILE * f = fopen(tmp, <span class="hljs-string">"re"</span>);
+	<span class="hljs-keyword">if</span> (!f) <span class="hljs-keyword">return</span>;
+
+	current_file = tmp;
+	run_script(f);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> ** argv)</span> </span>{
+
+	pid = getpid();
+
+	signal(SIGINT, sig_break_loop);
+
+	srand(getpid() + time(<span class="hljs-number">0</span>));
+
+	job_hash = hashmap_create_int(<span class="hljs-number">10</span>);
+	desc_hash = hashmap_create_int(<span class="hljs-number">10</span>);
+
+	getuser();
+	gethost();
+
+	install_commands();
+
+	<span class="hljs-keyword">int</span> err = dup(STDERR_FILENO);
+	fcntl(err, F_SETFD, FD_CLOEXEC);
+	shell_stderr = fdopen(err, <span class="hljs-string">"w"</span>);
+
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">int</span> c;
+		<span class="hljs-keyword">while</span> ((c = getopt(argc, argv, <span class="hljs-string">"c:v?"</span>)) != <span class="hljs-number">-1</span>) {
+			<span class="hljs-keyword">switch</span> (c) {
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'c'</span>:
+					shell_interactive = <span class="hljs-number">0</span>;
+					{
+						<span class="hljs-keyword">char</span> * out = <span class="hljs-literal">NULL</span>;
+						<span class="hljs-keyword">do</span> {
+							last_ret = shell_exec(optarg, <span class="hljs-built_in">strlen</span>(optarg), <span class="hljs-literal">NULL</span>, &amp;out, <span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>);
+							optarg = out;
+						} <span class="hljs-keyword">while</span> (optarg);
+					}
+					<span class="hljs-keyword">return</span> (last_ret == <span class="hljs-number">-1</span>) ? <span class="hljs-number">0</span> : last_ret;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'v'</span>:
+					show_version();
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+					<span class="hljs-keyword">return</span> show_usage(argc, argv);
+			}
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (optind &lt; argc) {
+		shell_interactive = <span class="hljs-number">2</span>;
+		FILE * f = fopen(argv[optind],<span class="hljs-string">"re"</span>);
+
+		<span class="hljs-keyword">if</span> (!f) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], argv[optind], strerror(errno));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+
+		shell_argc = argc - <span class="hljs-number">1</span>;
+		shell_argv = &amp;argv[optind];
+		current_file = argv[optind];
+
+		<span class="hljs-keyword">return</span> run_script(f);
+	}
+
+	shell_interactive = <span class="hljs-number">1</span>;
+
+	my_pgid = getpgid(<span class="hljs-number">0</span>);
+
+	source_eshrc();
+	add_path();
+	sort_commands();
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">char</span> <span class="hljs-built_in">buffer</span>[LINE_LEN] = {<span class="hljs-number">0</span>};
+
+		<span class="hljs-keyword">list_t</span> * keys = hashmap_keys(job_hash);
+		foreach(node, keys) {
+			<span class="hljs-keyword">int</span> pid = (<span class="hljs-keyword">intptr_t</span>)node-&gt;value;
+			<span class="hljs-keyword">int</span> status = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">if</span> (waitpid(-pid, &amp;status, WNOHANG|WUNTRACED) &gt; <span class="hljs-number">0</span>) {
+				<span class="hljs-keyword">char</span> * desc;
+				<span class="hljs-keyword">if</span> (WIFSTOPPED(status)) {
+					desc = strdup(WSTOPSIG(status) ? strsignal(WSTOPSIG(status)) : <span class="hljs-string">"Stopped"</span>);
+				} <span class="hljs-keyword">else</span> {
+					desc = strdup(WTERMSIG(status) ? strsignal(WTERMSIG(status)) : <span class="hljs-string">"Done"</span>);
+				}
+				<span class="hljs-keyword">void</span> * old = hashmap_set(desc_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pid, desc);
+				<span class="hljs-keyword">if</span> (old) <span class="hljs-built_in">free</span>(old);
+				describe_job(pid);
+				<span class="hljs-keyword">if</span> (WIFEXITED(status)) {
+					<span class="hljs-keyword">if</span> (hashmap_has(job_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pid)) {
+						hashmap_remove(job_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pid);
+						hashmap_remove(desc_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pid);
+					}
+				}
+			}
+		}
+		list_free(keys);
+		<span class="hljs-built_in">free</span>(keys);
+
+		read_entry(<span class="hljs-built_in">buffer</span>);
+
+		<span class="hljs-keyword">char</span> * history = strdup(<span class="hljs-built_in">buffer</span>);
+
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">buffer</span>[<span class="hljs-number">0</span>] != <span class="hljs-string">' '</span> &amp;&amp; <span class="hljs-built_in">buffer</span>[<span class="hljs-number">0</span>] != <span class="hljs-string">'\n'</span> &amp;&amp; <span class="hljs-built_in">buffer</span>[<span class="hljs-number">0</span>] != <span class="hljs-string">'!'</span>) {
+			rline_history_insert(history);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-built_in">free</span>(history);
+		}
+
+		<span class="hljs-keyword">int</span> ret;
+		<span class="hljs-keyword">char</span> * out = <span class="hljs-literal">NULL</span>;
+		<span class="hljs-keyword">char</span> * b = <span class="hljs-built_in">buffer</span>;
+		<span class="hljs-keyword">do</span> {
+			ret = shell_exec(b, LINE_LEN, <span class="hljs-built_in">stdin</span>, &amp;out, <span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>);
+			b = out;
+		} <span class="hljs-keyword">while</span> (b);
+		<span class="hljs-keyword">if</span> (ret &gt;= <span class="hljs-number">0</span>) last_ret = ret;
+		rline_scroll = <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>cd [path]</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_cd</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">if</span> (chdir(argv[<span class="hljs-number">1</span>])) {
+			<span class="hljs-keyword">goto</span> cd_error;
+		} <span class="hljs-comment">/* else success */</span>
+	} <span class="hljs-keyword">else</span> <span class="hljs-comment">/* argc &lt; 2 */</span> {
+		<span class="hljs-keyword">char</span> * <span class="hljs-built_in">home</span> = getenv(<span class="hljs-string">"HOME"</span>);
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">home</span>) {
+			<span class="hljs-keyword">if</span> (chdir(<span class="hljs-built_in">home</span>)) {
+				<span class="hljs-keyword">goto</span> cd_error;
+			}
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">char</span> home_path[<span class="hljs-number">1200</span>];
+			<span class="hljs-built_in">sprintf</span>(home_path, <span class="hljs-string">"/home/%s"</span>, username);
+			<span class="hljs-keyword">if</span> (chdir(home_path)) {
+				<span class="hljs-keyword">goto</span> cd_error;
+			}
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+cd_error:
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: could not cd '%s': %s\n"</span>, argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">1</span>], strerror(errno));
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>history</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_history</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; rline_history_count; ++i) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%d\t%s\n"</span>, i + <span class="hljs-number">1</span>, rline_history_get(i));
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_export</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">if</span> (putenv(argv[<span class="hljs-number">1</span>]) &lt; <span class="hljs-number">0</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: putenv: %s\n"</span>, argv[<span class="hljs-number">0</span>], strerror(errno));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_exit</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-built_in">exit</span>(atoi(argv[<span class="hljs-number">1</span>]));
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">exit</span>(<span class="hljs-number">0</span>);
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_help</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	show_version();
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\nThis shell is not POSIX-compliant, please be careful.\n\n"</span>);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Built-in commands:\n"</span>);
+
+	<span class="hljs-comment">/* First, determine max width of command names */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> max_len = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; shell_commands_len; ++i) {
+		<span class="hljs-keyword">if</span> (!shell_descript[i]) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strlen</span>(shell_commands[i]) &gt; max_len) {
+			max_len = <span class="hljs-built_in">strlen</span>(shell_commands[i]);
+		}
+	}
+
+	<span class="hljs-comment">/* Then print the commands their help text */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; shell_commands_len; ++i) {
+		<span class="hljs-keyword">if</span> (!shell_descript[i]) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">" %-*s - %s\n"</span>, max_len + <span class="hljs-number">1</span>, shell_commands[i], shell_descript[i]);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_if</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">char</span> ** if_args = &amp;argv[<span class="hljs-number">1</span>];
+	<span class="hljs-keyword">char</span> ** then_args = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">char</span> ** else_args = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">2</span>; i &lt; argc; ++i) {
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[i],<span class="hljs-string">"then"</span>)) {
+			argv[i] = <span class="hljs-literal">NULL</span>;
+			then_args = &amp;argv[i+<span class="hljs-number">1</span>];
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[i],<span class="hljs-string">"else"</span>)) {
+			argv[i] = <span class="hljs-literal">NULL</span>;
+			else_args = &amp;argv[i+<span class="hljs-number">1</span>];
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!then_args) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: syntax error: expected 'then' clause\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (else_args &amp;&amp; else_args &lt; then_args) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: syntax error: 'else' clause before 'then' clase\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">pid_t</span> child_pid = fork();
+	<span class="hljs-keyword">if</span> (!child_pid) {
+		set_pgid(<span class="hljs-number">0</span>);
+		set_pgrp(getpid());
+		is_subshell = <span class="hljs-number">1</span>;
+		run_cmd(if_args);
+	}
+
+	<span class="hljs-keyword">int</span> pid, ret_code = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">do</span> {
+		pid = waitpid(child_pid, &amp;ret_code, <span class="hljs-number">0</span>);
+	} <span class="hljs-keyword">while</span> (pid != <span class="hljs-number">-1</span> || (pid == <span class="hljs-number">-1</span> &amp;&amp; errno != ECHILD));
+
+	handle_status(ret_code);
+
+	<span class="hljs-keyword">if</span> (WEXITSTATUS(ret_code) == <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">shell_command_t</span> func = shell_find(*then_args);
+		<span class="hljs-keyword">if</span> (func) {
+			<span class="hljs-keyword">int</span> argc = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">while</span> (then_args[argc]) {
+				argc++;
+			}
+			<span class="hljs-keyword">return</span> func(argc, then_args);
+		} <span class="hljs-keyword">else</span> {
+			child_pid = fork();
+			<span class="hljs-keyword">if</span> (!child_pid) {
+				set_pgid(<span class="hljs-number">0</span>);
+				set_pgrp(getpid());
+				is_subshell = <span class="hljs-number">1</span>;
+				run_cmd(then_args);
+			}
+			<span class="hljs-keyword">do</span> {
+				pid = waitpid(child_pid, &amp;ret_code, <span class="hljs-number">0</span>);
+			} <span class="hljs-keyword">while</span> (pid != <span class="hljs-number">-1</span> || (pid == <span class="hljs-number">-1</span> &amp;&amp; errno != ECHILD));
+			reset_pgrp();
+			handle_status(ret_code);
+			<span class="hljs-keyword">return</span> WEXITSTATUS(ret_code);
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (else_args) {
+		<span class="hljs-keyword">shell_command_t</span> func = shell_find(*else_args);
+		<span class="hljs-keyword">if</span> (func) {
+			<span class="hljs-keyword">int</span> argc = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">while</span> (else_args[argc]) {
+				argc++;
+			}
+			<span class="hljs-keyword">return</span> func(argc, else_args);
+		} <span class="hljs-keyword">else</span> {
+			child_pid = fork();
+			<span class="hljs-keyword">if</span> (!child_pid) {
+				set_pgid(<span class="hljs-number">0</span>);
+				set_pgrp(getpid());
+				is_subshell = <span class="hljs-number">1</span>;
+				run_cmd(else_args);
+			}
+			<span class="hljs-keyword">do</span> {
+				pid = waitpid(child_pid, &amp;ret_code, <span class="hljs-number">0</span>);
+			} <span class="hljs-keyword">while</span> (pid != <span class="hljs-number">-1</span> || (pid == <span class="hljs-number">-1</span> &amp;&amp; errno != ECHILD));
+			handle_status(ret_code);
+			<span class="hljs-keyword">return</span> WEXITSTATUS(ret_code);
+		}
+	}
+
+	reset_pgrp();
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_while</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">char</span> ** while_args = &amp;argv[<span class="hljs-number">1</span>];
+	<span class="hljs-keyword">char</span> ** do_args = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">2</span>; i &lt; argc; ++i) {
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[i],<span class="hljs-string">"do"</span>)) {
+			argv[i] = <span class="hljs-literal">NULL</span>;
+			do_args = &amp;argv[i+<span class="hljs-number">1</span>];
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!do_args) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: syntax error: expected 'do' clause\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	break_while = <span class="hljs-number">0</span>;
+	reset_pgrp();
+
+	<span class="hljs-keyword">do</span> {
+		<span class="hljs-keyword">pid_t</span> child_pid = fork();
+		<span class="hljs-keyword">if</span> (!child_pid) {
+			set_pgid(<span class="hljs-number">0</span>);
+			set_pgrp(getpid());
+			is_subshell = <span class="hljs-number">1</span>;
+			run_cmd(while_args);
+		}
+
+		<span class="hljs-keyword">int</span> pid, ret_code = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">do</span> {
+			pid = waitpid(child_pid, &amp;ret_code, <span class="hljs-number">0</span>);
+		} <span class="hljs-keyword">while</span> (pid != <span class="hljs-number">-1</span> || (pid == <span class="hljs-number">-1</span> &amp;&amp; errno != ECHILD));
+
+		handle_status(ret_code);
+		<span class="hljs-keyword">if</span> (WEXITSTATUS(ret_code) == <span class="hljs-number">0</span>) {
+			child_pid = fork();
+			<span class="hljs-keyword">if</span> (!child_pid) {
+				set_pgid(<span class="hljs-number">0</span>);
+				set_pgrp(getpid());
+				is_subshell = <span class="hljs-number">1</span>;
+				run_cmd(do_args);
+			}
+			<span class="hljs-keyword">do</span> {
+				pid = waitpid(child_pid, &amp;ret_code, <span class="hljs-number">0</span>);
+				<span class="hljs-keyword">if</span> (pid != <span class="hljs-number">-1</span> &amp;&amp; WIFSIGNALED(ret_code)) {
+					<span class="hljs-keyword">int</span> sig = WTERMSIG(ret_code);
+					<span class="hljs-keyword">if</span> (sig == SIGINT) <span class="hljs-keyword">return</span> <span class="hljs-number">127</span>; <span class="hljs-comment">/* break */</span>
+				}
+			} <span class="hljs-keyword">while</span> (pid != <span class="hljs-number">-1</span> || (pid == <span class="hljs-number">-1</span> &amp;&amp; errno != ECHILD));
+		} <span class="hljs-keyword">else</span> {
+			reset_pgrp();
+			<span class="hljs-keyword">return</span> WEXITSTATUS(ret_code);
+		}
+	} <span class="hljs-keyword">while</span> (!break_while);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">127</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_export_cmd</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">3</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: syntax error: not enough arguments\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">int</span> pipe_fds[<span class="hljs-number">2</span>];
+	pipe2(pipe_fds, O_CLOEXEC);
+
+	<span class="hljs-keyword">pid_t</span> child_pid = fork();
+	<span class="hljs-keyword">if</span> (!child_pid) {
+		set_pgid(<span class="hljs-number">0</span>);
+		set_pgrp(getpid());
+		is_subshell = <span class="hljs-number">1</span>;
+		dup2(pipe_fds[<span class="hljs-number">1</span>], STDOUT_FILENO);
+		<span class="hljs-built_in">close</span>(pipe_fds[<span class="hljs-number">0</span>]);
+		run_cmd(&amp;argv[<span class="hljs-number">2</span>]);
+	}
+
+	<span class="hljs-built_in">close</span>(pipe_fds[<span class="hljs-number">1</span>]);
+
+	<span class="hljs-keyword">char</span> buf[<span class="hljs-number">1024</span>];
+	<span class="hljs-keyword">size_t</span> accum = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">do</span> {
+		<span class="hljs-keyword">ssize_t</span> r = <span class="hljs-built_in">read</span>(pipe_fds[<span class="hljs-number">0</span>], buf+accum, <span class="hljs-number">1023</span>-accum);
+		<span class="hljs-keyword">if</span> (r == <span class="hljs-number">0</span>) <span class="hljs-keyword">break</span>;
+
+		<span class="hljs-keyword">if</span> (r &lt; <span class="hljs-number">0</span>) {
+			<span class="hljs-built_in">close</span>(pipe_fds[<span class="hljs-number">0</span>]);
+			kill(child_pid, SIGKILL);
+			<span class="hljs-keyword">return</span> -r;
+		}
+
+		accum += r;
+	} <span class="hljs-keyword">while</span> (accum &lt; <span class="hljs-number">1023</span>);
+
+	<span class="hljs-built_in">close</span>(pipe_fds[<span class="hljs-number">0</span>]);
+	kill(child_pid, SIGKILL);
+
+	waitpid(child_pid, <span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>);
+
+	reset_pgrp();
+
+	buf[accum] = <span class="hljs-string">'\0'</span>;
+
+	<span class="hljs-keyword">if</span> (accum &amp;&amp; buf[accum<span class="hljs-number">-1</span>] == <span class="hljs-string">'\n'</span>) {
+		buf[accum<span class="hljs-number">-1</span>] = <span class="hljs-string">'\0'</span>;
+	}
+
+	setenv(argv[<span class="hljs-number">1</span>], buf, <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_empty</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; i &lt; argc; i++) {
+		<span class="hljs-keyword">if</span> (argv[i] &amp;&amp; *argv[i]) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_equals</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">3</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">return</span> !!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">1</span>], argv[<span class="hljs-number">2</span>]);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_return</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">2</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">return</span> atoi(argv[<span class="hljs-number">1</span>]);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_source</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">2</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	FILE * f = fopen(argv[<span class="hljs-number">1</span>], <span class="hljs-string">"re"</span>);
+
+	<span class="hljs-keyword">if</span> (!f) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">1</span>], strerror(errno));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	current_file = argv[<span class="hljs-number">1</span>];
+	<span class="hljs-keyword">return</span> run_script(f);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_exec</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">2</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> execvp(argv[<span class="hljs-number">1</span>], &amp;argv[<span class="hljs-number">1</span>]);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_not</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">2</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: expected command argument\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">int</span> ret_code = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">pid_t</span> child_pid = fork();
+	<span class="hljs-keyword">if</span> (!child_pid) {
+		set_pgid(<span class="hljs-number">0</span>);
+		set_pgrp(getpid());
+		is_subshell = <span class="hljs-number">1</span>;
+		run_cmd(&amp;argv[<span class="hljs-number">1</span>]);
+	}
+	<span class="hljs-keyword">do</span> {
+		pid = waitpid(child_pid, &amp;ret_code, <span class="hljs-number">0</span>);
+	} <span class="hljs-keyword">while</span> (pid != <span class="hljs-number">-1</span> || (pid == <span class="hljs-number">-1</span> &amp;&amp; errno != ECHILD));
+	reset_pgrp();
+	handle_status(ret_code);
+	<span class="hljs-keyword">return</span> !WEXITSTATUS(ret_code);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_unset</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">2</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: expected command argument\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (unsetenv(argv[<span class="hljs-number">1</span>]) &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: unsetenv: %s\n"</span>, argv[<span class="hljs-number">0</span>], strerror(errno));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_read</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">int</span> raw = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">char</span> * var = <span class="hljs-string">"REPLY"</span>;
+	<span class="hljs-keyword">if</span> (i &lt; argc &amp;&amp; !<span class="hljs-built_in">strcmp</span>(argv[i], <span class="hljs-string">"-r"</span>)) {
+		raw = <span class="hljs-number">1</span>;
+		i++;
+	}
+	<span class="hljs-keyword">if</span> (i &lt; argc) {
+		var = argv[i];
+	}
+
+	<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">4096</span>];
+	fgets(tmp, <span class="hljs-number">4096</span>, <span class="hljs-built_in">stdin</span>);
+
+	<span class="hljs-keyword">if</span> (*tmp &amp;&amp; tmp[<span class="hljs-built_in">strlen</span>(tmp)<span class="hljs-number">-1</span>] == <span class="hljs-string">'\n'</span>) {
+		tmp[<span class="hljs-built_in">strlen</span>(tmp)<span class="hljs-number">-1</span>] = <span class="hljs-string">'\0'</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (raw) {
+		setenv(var, tmp, <span class="hljs-number">1</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">char</span> tmp2[<span class="hljs-number">4096</span>] = {<span class="hljs-number">0</span>};
+	<span class="hljs-keyword">char</span> * out = tmp2;
+	<span class="hljs-keyword">char</span> * in = tmp;
+
+	<span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> This needs to actually read more if a \ at the end of the line is found */</span>
+	<span class="hljs-keyword">while</span> (*in) {
+		<span class="hljs-keyword">if</span> (*in == <span class="hljs-string">'\\'</span>) {
+			in++;
+			<span class="hljs-keyword">if</span> (*in == <span class="hljs-string">'\n'</span>) {
+				in++;
+			}
+		} <span class="hljs-keyword">else</span> {
+			*out = *in;
+			out++;
+			in++;
+		}
+	}
+
+	setenv(var, tmp2, <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">get_available_job</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">2</span>) {
+		<span class="hljs-keyword">if</span> (!suspended_pgid) {
+			<span class="hljs-keyword">list_t</span> * keys = hashmap_keys(job_hash);
+			foreach(node, keys) {
+				suspended_pgid = (<span class="hljs-keyword">intptr_t</span>)node-&gt;value;
+				<span class="hljs-keyword">break</span>;
+			}
+			list_free(keys);
+			<span class="hljs-built_in">free</span>(keys);
+			<span class="hljs-keyword">if</span> (!suspended_pgid) {
+				<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			}
+		}
+		<span class="hljs-keyword">return</span> suspended_pgid;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">return</span> atoi(argv[<span class="hljs-number">1</span>]);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_fg</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">int</span> pid = get_available_job(argc,argv);
+	<span class="hljs-keyword">if</span> (!pid || !hashmap_has(job_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pid)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"no current job\n"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	set_pgrp(pid);
+
+	<span class="hljs-keyword">if</span> (kill(-pid, SIGCONT) &lt; <span class="hljs-number">0</span>) {
+		reset_pgrp();
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"no current job / bad pid\n"</span>);
+		<span class="hljs-keyword">if</span> (hashmap_has(job_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pid)) {
+			hashmap_remove(job_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pid);
+			hashmap_remove(desc_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pid);
+		}
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">return</span> wait_for_child(pid, <span class="hljs-literal">NULL</span>, pid);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">describe_job</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid)</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"[%d] %s\t\t%s\n"</span>, pid, (<span class="hljs-keyword">char</span>*)hashmap_get(desc_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pid), (<span class="hljs-keyword">char</span>*)hashmap_get(job_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pid));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_bg</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">int</span> pid = get_available_job(argc,argv);
+	<span class="hljs-keyword">if</span> (!pid || !hashmap_has(job_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pid)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"no current job\n"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (kill(-pid, SIGCONT) &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"no current job / bad pid\n"</span>);
+		<span class="hljs-keyword">if</span> (hashmap_has(job_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pid)) {
+			hashmap_remove(job_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pid);
+			hashmap_remove(desc_hash, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">intptr_t</span>)pid);
+		}
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	describe_job(pid);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_jobs</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">list_t</span> * keys = hashmap_keys(job_hash);
+	foreach(node, keys) {
+		<span class="hljs-keyword">int</span> pid = (<span class="hljs-keyword">intptr_t</span>)node-&gt;value;
+		describe_job(pid);
+	}
+	list_free(keys);
+	<span class="hljs-built_in">free</span>(keys);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_rehash</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-comment">/* PATH commands are malloc'd */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; shell_commands_len; ++i) {
+		<span class="hljs-keyword">if</span> (!shell_pointers[i]) {
+			<span class="hljs-built_in">free</span>(shell_commands[i]);
+		}
+	}
+	<span class="hljs-comment">/* Clear array */</span>
+	shell_commands_len = <span class="hljs-number">0</span>;
+	<span class="hljs-comment">/* Reset capacity */</span>
+	SHELL_COMMANDS = <span class="hljs-number">64</span>;
+	<span class="hljs-comment">/* Free existing */</span>
+	<span class="hljs-built_in">free</span>(shell_commands);
+	<span class="hljs-built_in">free</span>(shell_pointers);
+	<span class="hljs-built_in">free</span>(shell_descript);
+	<span class="hljs-comment">/* Reallocate + install builtins */</span>
+	install_commands();
+	<span class="hljs-comment">/* Reload PATH */</span>
+	add_path();
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">time_diff</span><span class="hljs-params">(struct timeval * start, struct timeval * <span class="hljs-built_in">end</span>, <span class="hljs-keyword">int</span> *minutes, <span class="hljs-keyword">time_t</span> *sec_diff, <span class="hljs-keyword">suseconds_t</span> * usec_diff)</span> </span>{
+	*sec_diff = <span class="hljs-built_in">end</span>-&gt;tv_sec - start-&gt;tv_sec;
+	*usec_diff = <span class="hljs-built_in">end</span>-&gt;tv_usec - start-&gt;tv_usec;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">end</span>-&gt;tv_usec &lt; start-&gt;tv_usec) {
+		*sec_diff -= <span class="hljs-number">1</span>;
+		*usec_diff = (<span class="hljs-number">1000000</span> + <span class="hljs-built_in">end</span>-&gt;tv_usec) - start-&gt;tv_usec;
+	}
+
+	*minutes = *sec_diff / <span class="hljs-number">60</span>;
+	*sec_diff = *sec_diff % <span class="hljs-number">60</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_time</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">int</span> pid, ret_code = <span class="hljs-number">0</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timeval</span> <span class="hljs-title">start</span>, <span class="hljs-title">end</span>;</span>
+	gettimeofday(&amp;start, <span class="hljs-literal">NULL</span>);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">rusage</span> <span class="hljs-title">before</span>, <span class="hljs-title">after</span>;</span>
+	getrusage(RUSAGE_CHILDREN, &amp;before);
+
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">pid_t</span> child_pid = fork();
+		<span class="hljs-keyword">if</span> (!child_pid) {
+			set_pgid(<span class="hljs-number">0</span>);
+			set_pgrp(getpid());
+			is_subshell = <span class="hljs-number">1</span>;
+			run_cmd(&amp;argv[<span class="hljs-number">1</span>]);
+		}
+
+		<span class="hljs-keyword">do</span> {
+			pid = waitpid(child_pid, &amp;ret_code, <span class="hljs-number">0</span>);
+		} <span class="hljs-keyword">while</span> (pid != <span class="hljs-number">-1</span> || (pid == <span class="hljs-number">-1</span> &amp;&amp; errno != ECHILD));
+
+		reset_pgrp();
+		handle_status(ret_code);
+	}
+
+	gettimeofday(&amp;<span class="hljs-built_in">end</span>, <span class="hljs-literal">NULL</span>);
+	getrusage(RUSAGE_CHILDREN, &amp;after);
+
+	<span class="hljs-keyword">int</span> minutes;
+	<span class="hljs-keyword">time_t</span> sec_diff;
+	<span class="hljs-keyword">suseconds_t</span> usec_diff;
+
+	time_diff(&amp;start, &amp;<span class="hljs-built_in">end</span>, &amp;minutes, &amp;sec_diff, &amp;usec_diff);
+	<span class="hljs-built_in">fprintf</span>(shell_stderr, <span class="hljs-string">"\nreal\t%dm%d.%.03ds\n"</span>, minutes, (<span class="hljs-keyword">int</span>)sec_diff, (<span class="hljs-keyword">int</span>)(usec_diff / <span class="hljs-number">1000</span>));
+
+	time_diff(&amp;before.ru_utime, &amp;after.ru_utime, &amp;minutes, &amp;sec_diff, &amp;usec_diff);
+	<span class="hljs-built_in">fprintf</span>(shell_stderr, <span class="hljs-string">"user\t%dm%d.%.03ds\n"</span>, minutes, (<span class="hljs-keyword">int</span>)sec_diff, (<span class="hljs-keyword">int</span>)(usec_diff / <span class="hljs-number">1000</span>));
+	time_diff(&amp;before.ru_stime, &amp;after.ru_stime, &amp;minutes, &amp;sec_diff, &amp;usec_diff);
+	<span class="hljs-built_in">fprintf</span>(shell_stderr, <span class="hljs-string">"sys\t%dm%d.%.03ds\n"</span>, minutes, (<span class="hljs-keyword">int</span>)sec_diff, (<span class="hljs-keyword">int</span>)(usec_diff / <span class="hljs-number">1000</span>));
+
+	<span class="hljs-keyword">return</span> WEXITSTATUS(ret_code);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_set</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">3</span> || <span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">1</span>],<span class="hljs-string">"-o"</span>)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+			<span class="hljs-string">"set -o [option]\n"</span>
+			<span class="hljs-string">"  options:\n"</span>
+			<span class="hljs-string">"    complete-color      Use color in tab completion results.\n"</span>
+			<span class="hljs-string">"    no-complete-color   Don't use color in tab completion results.\n"</span>
+			<span class="hljs-string">"    complete-hints      Show hints in tab completion results.\n"</span>
+			<span class="hljs-string">"    no-complete-hints   Don't show hints in tab completion results.\n"</span>
+			<span class="hljs-string">"    syntax-color        Enable syntax highlighting.\n"</span>
+			<span class="hljs-string">"    no-syntax-color     Disable syntax highlighting.\n"</span>
+			<span class="hljs-string">"\n"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">2</span>], <span class="hljs-string">"complete-color"</span>)) {
+		esh_complete_color = <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">2</span>], <span class="hljs-string">"no-complete-color"</span>)) {
+		esh_complete_color = <span class="hljs-number">0</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">2</span>], <span class="hljs-string">"complete-hints"</span>)) {
+		esh_complete_hints = <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">2</span>], <span class="hljs-string">"no-complete-hints"</span>)) {
+		esh_complete_hints = <span class="hljs-number">0</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">2</span>], <span class="hljs-string">"syntax-color"</span>)) {
+		esh_syntax_color = <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">2</span>], <span class="hljs-string">"no-syntax-color"</span>)) {
+		esh_syntax_color = <span class="hljs-number">0</span>;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"'%s' is not a recognized option\n"</span>, argv[<span class="hljs-number">2</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_umask</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">int</span> optind = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">int</span> symbolic = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">mode_t</span> mode = umask(<span class="hljs-number">0777</span>);
+
+	<span class="hljs-keyword">if</span> (optind &lt; argc &amp;&amp; !<span class="hljs-built_in">strcmp</span>(argv[optind], <span class="hljs-string">"-S"</span>)) {
+		symbolic = <span class="hljs-number">1</span>;
+		optind++;
+	}
+
+	<span class="hljs-keyword">if</span> (optind &lt; argc) {
+		<span class="hljs-keyword">mode_t</span> new_mode = mode_calc(argv[optind], <span class="hljs-number">0777</span> &amp; (~mode), <span class="hljs-number">0</span>, <span class="hljs-number">1</span>);
+		<span class="hljs-keyword">if</span> (new_mode == (<span class="hljs-keyword">mode_t</span>)<span class="hljs-number">-1</span>) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: invalid mask '%s'\n"</span>, argv[<span class="hljs-number">0</span>], argv[optind]);
+		<span class="hljs-keyword">else</span> mode = new_mode;
+	}
+
+	umask(mode);
+
+	<span class="hljs-keyword">if</span> (symbolic) {
+		<span class="hljs-keyword">char</span> u_mode[<span class="hljs-number">4</span>] = {<span class="hljs-number">0</span>}; <span class="hljs-keyword">char</span> * u_m = u_mode;
+		<span class="hljs-keyword">char</span> g_mode[<span class="hljs-number">4</span>] = {<span class="hljs-number">0</span>}; <span class="hljs-keyword">char</span> * g_m = g_mode;
+		<span class="hljs-keyword">char</span> o_mode[<span class="hljs-number">4</span>] = {<span class="hljs-number">0</span>}; <span class="hljs-keyword">char</span> * o_m = o_mode;
+
+		<span class="hljs-keyword">if</span> (!(mode &amp; S_IRUSR)) *u_m++ = <span class="hljs-string">'r'</span>;
+		<span class="hljs-keyword">if</span> (!(mode &amp; S_IWUSR)) *u_m++ = <span class="hljs-string">'w'</span>;
+		<span class="hljs-keyword">if</span> (!(mode &amp; S_IXUSR)) *u_m++ = <span class="hljs-string">'x'</span>;
+
+		<span class="hljs-keyword">if</span> (!(mode &amp; S_IRGRP)) *g_m++ = <span class="hljs-string">'r'</span>;
+		<span class="hljs-keyword">if</span> (!(mode &amp; S_IWGRP)) *g_m++ = <span class="hljs-string">'w'</span>;
+		<span class="hljs-keyword">if</span> (!(mode &amp; S_IXGRP)) *g_m++ = <span class="hljs-string">'x'</span>;
+
+		<span class="hljs-keyword">if</span> (!(mode &amp; S_IROTH)) *o_m++ = <span class="hljs-string">'r'</span>;
+		<span class="hljs-keyword">if</span> (!(mode &amp; S_IWOTH)) *o_m++ = <span class="hljs-string">'w'</span>;
+		<span class="hljs-keyword">if</span> (!(mode &amp; S_IXOTH)) *o_m++ = <span class="hljs-string">'x'</span>;
+
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"u=%s,g=%s,o=%s\n"</span>, u_mode, g_mode, o_mode);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (optind == argc) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%04o\n"</span>, mode);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">shell_cmd_for</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">5</span>) <span class="hljs-keyword">goto</span> _for_usage;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">2</span>],<span class="hljs-string">"in"</span>)) <span class="hljs-keyword">goto</span> _for_usage;
+
+	<span class="hljs-keyword">char</span> * varname = argv[<span class="hljs-number">1</span>];
+	<span class="hljs-keyword">size_t</span> num_words = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> **words = &amp;argv[<span class="hljs-number">3</span>];
+	<span class="hljs-keyword">for</span> (; words[num_words] &amp;&amp; <span class="hljs-built_in">strcmp</span>(words[num_words], <span class="hljs-string">"do"</span>); num_words++);
+
+	<span class="hljs-keyword">if</span> (!words[num_words]) <span class="hljs-keyword">goto</span> _for_usage;
+	<span class="hljs-keyword">if</span> (!words[num_words+<span class="hljs-number">1</span>] || !<span class="hljs-built_in">strcmp</span>(words[num_words+<span class="hljs-number">1</span>],<span class="hljs-string">"done"</span>)) <span class="hljs-keyword">goto</span> _for_usage;
+	<span class="hljs-keyword">if</span> (!words[num_words+<span class="hljs-number">2</span>] || <span class="hljs-built_in">strcmp</span>(words[num_words+<span class="hljs-number">2</span>],<span class="hljs-string">"done"</span>)) <span class="hljs-keyword">goto</span> _for_usage;
+
+	<span class="hljs-keyword">char</span> *cmd = words[num_words+<span class="hljs-number">1</span>];
+
+	<span class="hljs-keyword">int</span> last_ret = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; num_words; ++i) {
+		setenv(varname, words[i], <span class="hljs-number">1</span>);
+		<span class="hljs-keyword">char</span> * c = cmd;
+		<span class="hljs-keyword">do</span> {
+			<span class="hljs-keyword">char</span> * out = <span class="hljs-literal">NULL</span>;
+			last_ret = shell_exec(c, <span class="hljs-built_in">strlen</span>(c), <span class="hljs-literal">NULL</span>, &amp;out, <span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>);
+			c = out;
+		} <span class="hljs-keyword">while</span> (c);
+	}
+
+	<span class="hljs-keyword">return</span> last_ret;
+
+_for_usage:
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"usage: for [var] in [words...] do 'cmd' done\n"</span>);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">install_commands</span><span class="hljs-params">()</span> </span>{
+	shell_commands = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span> *) * SHELL_COMMANDS);
+	shell_pointers = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">shell_command_t</span>) * SHELL_COMMANDS);
+	shell_descript = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span> *) * SHELL_COMMANDS);
+
+	shell_install_command(<span class="hljs-string">"cd"</span>,      shell_cmd_cd, <span class="hljs-string">"change directory"</span>);
+	shell_install_command(<span class="hljs-string">"exit"</span>,    shell_cmd_exit, <span class="hljs-string">"exit the shell"</span>);
+	shell_install_command(<span class="hljs-string">"export"</span>,  shell_cmd_export, <span class="hljs-string">"set environment variables: export VAR=value"</span>);
+	shell_install_command(<span class="hljs-string">"help"</span>,    shell_cmd_help, <span class="hljs-string">"display this help text"</span>);
+	shell_install_command(<span class="hljs-string">"history"</span>, shell_cmd_history, <span class="hljs-string">"list command history"</span>);
+	shell_install_command(<span class="hljs-string">"if"</span>,      shell_cmd_if, <span class="hljs-string">"if ... then ... [else ...]"</span>);
+	shell_install_command(<span class="hljs-string">"while"</span>,   shell_cmd_while, <span class="hljs-string">"while ... do ..."</span>);
+	shell_install_command(<span class="hljs-string">"empty?"</span>,  shell_cmd_empty, <span class="hljs-string">"empty? args..."</span>);
+	shell_install_command(<span class="hljs-string">"equals?"</span>, shell_cmd_equals, <span class="hljs-string">"equals? arg1 arg2"</span>);
+	shell_install_command(<span class="hljs-string">"return"</span>,  shell_cmd_return, <span class="hljs-string">"return status code"</span>);
+	shell_install_command(<span class="hljs-string">"export-cmd"</span>,   shell_cmd_export_cmd, <span class="hljs-string">"set variable to result of command: export-cmd VAR command..."</span>);
+	shell_install_command(<span class="hljs-string">"source"</span>,  shell_cmd_source, <span class="hljs-string">"run a shell script in the context of this shell"</span>);
+	shell_install_command(<span class="hljs-string">"."</span>,       shell_cmd_source, <span class="hljs-string">"alias for 'source'"</span>);
+	shell_install_command(<span class="hljs-string">"exec"</span>,    shell_cmd_exec, <span class="hljs-string">"replace shell (or subshell) with command"</span>);
+	shell_install_command(<span class="hljs-string">"not"</span>,     shell_cmd_not, <span class="hljs-string">"invert status of command"</span>);
+	shell_install_command(<span class="hljs-string">"unset"</span>,   shell_cmd_unset, <span class="hljs-string">"unset variable"</span>);
+	shell_install_command(<span class="hljs-string">"read"</span>,    shell_cmd_read, <span class="hljs-string">"read user input"</span>);
+	shell_install_command(<span class="hljs-string">"fg"</span>,      shell_cmd_fg, <span class="hljs-string">"resume a suspended job"</span>);
+	shell_install_command(<span class="hljs-string">"jobs"</span>,    shell_cmd_jobs, <span class="hljs-string">"list stopped jobs"</span>);
+	shell_install_command(<span class="hljs-string">"bg"</span>,      shell_cmd_bg, <span class="hljs-string">"restart suspended job in the background"</span>);
+	shell_install_command(<span class="hljs-string">"rehash"</span>,  shell_cmd_rehash, <span class="hljs-string">"reset shell command memory"</span>);
+	shell_install_command(<span class="hljs-string">"time"</span>,    shell_cmd_time, <span class="hljs-string">"time a command"</span>);
+	shell_install_command(<span class="hljs-string">"set"</span>,     shell_cmd_set, <span class="hljs-string">"set shell options"</span>);
+	shell_install_command(<span class="hljs-string">"umask"</span>,   shell_cmd_umask, <span class="hljs-string">"set file creation mask"</span>);
+	shell_install_command(<span class="hljs-string">"for"</span>,     shell_cmd_for, <span class="hljs-string">"run command on words"</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ptrace.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\sys\\ptrace.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>ptrace.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">See</div>
+<div class="dox_tag_detail">
+<span class="dox_type">apps/dbg.c</span>
+</div>
+<div class="dox_tag_title">See</div>
+<div class="dox_tag_detail">
+<span class="dox_type">apps/strace.c</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ptrace.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/ptrace.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/args.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__x86_64__)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/regs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">elif</span> defined(__aarch64__)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/aarch64/regs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">error</span> <span class="hljs-meta-string">"no regs"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">tracer</span>
+<span>Process that is the doing the tracing
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">tracee</span>
+<span>Process that is breing traced
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">ptrace_trace</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * tracer, <span class="hljs-keyword">process_t</span> * tracee)</span> </span>{
+	spin_lock(tracer-&gt;wait_lock);
+	__sync_or_and_fetch(&amp;tracee-&gt;flags, (PROC_FLAG_TRACE_SYSCALLS | PROC_FLAG_TRACE_SIGNALS));
+
+	<span class="hljs-keyword">if</span> (!tracer-&gt;tracees) {
+		tracer-&gt;tracees = list_create(<span class="hljs-string">"debug tracees"</span>, tracer);
+	}
+
+	<span class="hljs-keyword">int</span> already = <span class="hljs-number">0</span>;
+	foreach (node, tracer-&gt;tracees) {
+		<span class="hljs-keyword">process_t</span> * p = node-&gt;value;
+		<span class="hljs-keyword">if</span> (p == tracee) {
+			already = <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!already) list_insert(tracer-&gt;tracees, tracee);
+
+	tracee-&gt;tracer = tracer-&gt;id;
+
+	spin_unlock(tracer-&gt;wait_lock);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">tracer</span>
+<span>Tracer to unlink.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">tracee</span>
+<span>Tracee to remove.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">ptrace_untrace</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * tracer, <span class="hljs-keyword">process_t</span> * tracee)</span> </span>{
+	spin_lock(tracer-&gt;wait_lock);
+
+	<span class="hljs-keyword">if</span> (tracer-&gt;tracees) {
+		foreach (node, tracer-&gt;tracees) {
+			<span class="hljs-keyword">process_t</span> * p = node-&gt;value;
+			<span class="hljs-keyword">if</span> (p == tracee) {
+				list_delete(tracer-&gt;tracees, node);
+				<span class="hljs-keyword">break</span>;
+			}
+		}
+	}
+
+	spin_unlock(tracer-&gt;wait_lock);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">pid</span>
+<span>Tracee ID
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">ptrace_attach</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid)</span> </span>{
+	<span class="hljs-keyword">process_t</span> * tracer = (<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process;
+	<span class="hljs-keyword">process_t</span> * tracee = process_from_pid(pid);
+	<span class="hljs-keyword">if</span> (!tracee) <span class="hljs-keyword">return</span> -ESRCH;
+	<span class="hljs-keyword">if</span> (tracer-&gt;user != <span class="hljs-number">0</span> &amp;&amp; tracer-&gt;user != tracee-&gt;user) <span class="hljs-keyword">return</span> -EPERM;
+
+	ptrace_trace(tracer, tracee);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">ptrace_self</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">process_t</span> * tracee = (<span class="hljs-keyword">process_t</span>*)this_core-&gt;current_process;
+	<span class="hljs-keyword">process_t</span> * tracer = process_get_parent(tracee);
+	<span class="hljs-keyword">if</span> (!tracer) <span class="hljs-keyword">return</span> -EINVAL;
+
+	ptrace_trace(tracer, tracee);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">signal</span>
+<span>Signal number if @p reason is 0.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">reason</span>
+<span>PTRACE_EVENT value describing the event; 0 for signal delivery.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">ptrace_signal</span><span class="hljs-params">(<span class="hljs-keyword">int</span> signal, <span class="hljs-keyword">int</span> reason)</span> </span>{
+	this_core-&gt;current_process-&gt;status = <span class="hljs-number">0x7F</span> | (signal &lt;&lt; <span class="hljs-number">8</span>) | (reason &lt;&lt; <span class="hljs-number">16</span>);
+	__sync_or_and_fetch(&amp;this_core-&gt;current_process-&gt;flags, PROC_FLAG_SUSPENDED);
+
+	<span class="hljs-keyword">process_t</span> * parent = process_from_pid(this_core-&gt;current_process-&gt;tracer);
+	<span class="hljs-keyword">if</span> (parent &amp;&amp; !(parent-&gt;flags &amp; PROC_FLAG_FINISHED)) {
+		spin_lock(parent-&gt;wait_lock);
+		wakeup_queue(parent-&gt;wait_queue);
+		spin_unlock(parent-&gt;wait_lock);
+	}
+	switch_task(<span class="hljs-number">0</span>);
+
+	<span class="hljs-keyword">int</span> signum = (this_core-&gt;current_process-&gt;status &gt;&gt; <span class="hljs-number">8</span>);
+	this_core-&gt;current_process-&gt;status = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> signum;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">pid</span>
+<span>Tracee ID
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">tracee</span>
+<span>Tracee process object
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">sig</span>
+<span>Signal number to send, or 0 if none.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">signal_and_continue</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">process_t</span> * tracee, <span class="hljs-keyword">int</span> sig)</span> </span>{
+	<span class="hljs-comment">/* Unsuspend */</span>
+	__sync_and_and_fetch(&amp;tracee-&gt;flags, ~(PROC_FLAG_SUSPENDED));
+
+	<span class="hljs-comment">/* Does the process have a pending signal? */</span>
+	<span class="hljs-keyword">if</span> ((tracee-&gt;status &gt;&gt; <span class="hljs-number">8</span>) &amp; <span class="hljs-number">0xFF</span> &amp;&amp; (!(tracee-&gt;status &gt;&gt; <span class="hljs-number">16</span>) || ((tracee-&gt;status &gt;&gt; <span class="hljs-number">16</span>) == <span class="hljs-number">0xFF</span>))) {
+		tracee-&gt;status = (sig &lt;&lt; <span class="hljs-number">8</span>);
+		make_process_ready(tracee);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (sig) {
+		send_signal(pid, sig,<span class="hljs-number">1</span>);
+	} <span class="hljs-keyword">else</span> {
+		make_process_ready(tracee);
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">pid</span>
+<span>Tracee ID
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">sig</span>
+<span>Signal to send to tracee on resume, or 0 for none.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">ptrace_continue</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">int</span> sig)</span> </span>{
+	<span class="hljs-keyword">process_t</span> * tracee = process_from_pid(pid);
+	<span class="hljs-keyword">if</span> (!tracee || (tracee-&gt;tracer != this_core-&gt;current_process-&gt;id) || !(tracee-&gt;flags &amp; PROC_FLAG_SUSPENDED)) <span class="hljs-keyword">return</span> -ESRCH;
+
+	signal_and_continue(pid,tracee,sig);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">pid</span>
+<span>Tracee ID
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">sig</span>
+<span>Signal to send to tracee on resume, or 0 for none.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">ptrace_detach</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">int</span> sig)</span> </span>{
+	<span class="hljs-keyword">process_t</span> * tracee = process_from_pid(pid);
+
+	<span class="hljs-comment">/* Always remove the tracee from our tracee list, even if we don't think it's ours. */</span>
+	<span class="hljs-keyword">if</span> (tracee) ptrace_untrace((<span class="hljs-keyword">process_t</span>*)this_core-&gt;current_process, tracee);
+
+	<span class="hljs-keyword">if</span> (!tracee || (tracee-&gt;tracer != this_core-&gt;current_process-&gt;id) || !(tracee-&gt;flags &amp; PROC_FLAG_SUSPENDED)) <span class="hljs-keyword">return</span> -ESRCH;
+
+	<span class="hljs-comment">/* Mark us not the tracer. */</span>
+	tracee-&gt;tracer = <span class="hljs-number">0</span>;
+	__sync_and_and_fetch(&amp;tracee-&gt;flags, ~(PROC_FLAG_TRACE_SYSCALLS | PROC_FLAG_TRACE_SIGNALS));
+
+	signal_and_continue(pid,tracee,sig);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">pid</span>
+<span>Tracee ID
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">data</span>
+<span>Address in tracer to write data into.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">ptrace_getregs</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">void</span> * data)</span> </span>{
+	<span class="hljs-keyword">if</span> (!data || ptr_validate(data, <span class="hljs-string">"ptrace"</span>)) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">process_t</span> * tracee = process_from_pid(pid);
+	<span class="hljs-keyword">if</span> (!tracee || (tracee-&gt;tracer != this_core-&gt;current_process-&gt;id) || !(tracee-&gt;flags &amp; PROC_FLAG_SUSPENDED)) <span class="hljs-keyword">return</span> -ESRCH;
+
+	<span class="hljs-comment">/* Copy registers */</span>
+	<span class="hljs-built_in">memcpy</span>(data, tracee-&gt;syscall_registers, <span class="hljs-keyword">sizeof</span>(struct regs));
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __aarch64__</span>
+	<span class="hljs-built_in">memcpy</span>((<span class="hljs-keyword">char</span>*)data + <span class="hljs-keyword">sizeof</span>(struct regs), &amp;tracee-&gt;thread.context.saved[<span class="hljs-number">10</span>], <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uintptr_t</span>));
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-11" id="section-11"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">pid</span>
+<span>Tracee ID
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">data</span>
+<span>Address in tracer to read data from.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">ptrace_setregs</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">void</span> * data)</span> </span>{
+	<span class="hljs-keyword">if</span> (!data || ptr_validate(data, <span class="hljs-string">"ptrace"</span>)) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">process_t</span> * tracee = process_from_pid(pid);
+	<span class="hljs-keyword">if</span> (!tracee || (tracee-&gt;tracer != this_core-&gt;current_process-&gt;id) || !(tracee-&gt;flags &amp; PROC_FLAG_SUSPENDED)) <span class="hljs-keyword">return</span> -ESRCH;
+
+	<span class="hljs-comment">/* Copy registers */</span>
+	<span class="hljs-built_in">memcpy</span>(tracee-&gt;syscall_registers, data, <span class="hljs-keyword">sizeof</span>(struct regs));
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __aarch64__</span>
+	<span class="hljs-built_in">memcpy</span>(&amp;tracee-&gt;thread.context.saved[<span class="hljs-number">10</span>], (<span class="hljs-keyword">char</span>*)data + <span class="hljs-keyword">sizeof</span>(struct regs), <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uintptr_t</span>));
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-12" id="section-12"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">pid</span>
+<span>Tracee ID
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">addr</span>
+<span>Virtual address in the tracee context to write to.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">data</span>
+<span>Address in the tracer to store the read byte into.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">ptrace_peek</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">void</span> * addr, <span class="hljs-keyword">void</span> * data)</span> </span>{
+	<span class="hljs-keyword">if</span> (!data || ptr_validate(data, <span class="hljs-string">"ptrace"</span>)) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">process_t</span> * tracee = process_from_pid(pid);
+	<span class="hljs-keyword">if</span> (!tracee || (tracee-&gt;tracer != this_core-&gt;current_process-&gt;id) || !(tracee-&gt;flags &amp; PROC_FLAG_SUSPENDED)) <span class="hljs-keyword">return</span> -ESRCH;
+
+	<span class="hljs-keyword">union</span> PML * page_entry = mmu_get_page_other(tracee-&gt;thread.page_directory-&gt;directory, (<span class="hljs-keyword">uintptr_t</span>)addr);
+
+	<span class="hljs-keyword">if</span> (!page_entry) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">if</span> (!mmu_page_is_user_readable(page_entry)) <span class="hljs-keyword">return</span> -EFAULT;
+
+	<span class="hljs-keyword">uintptr_t</span> mapped_address = mmu_map_to_physical(tracee-&gt;thread.page_directory-&gt;directory, (<span class="hljs-keyword">uintptr_t</span>)addr);
+
+	<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">intptr_t</span>)mapped_address &lt; <span class="hljs-number">0</span> &amp;&amp; (<span class="hljs-keyword">intptr_t</span>)mapped_address &gt; <span class="hljs-number">-10</span>) <span class="hljs-keyword">return</span> -EFAULT;
+
+	<span class="hljs-keyword">uintptr_t</span> blarg = (<span class="hljs-keyword">uintptr_t</span>)mmu_map_from_physical(mapped_address);
+
+	<span class="hljs-comment">/* Yeah, uh, one byte. That works. */</span>
+	*(<span class="hljs-keyword">char</span>*)data = *(<span class="hljs-keyword">char</span>*)blarg;
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-13" id="section-13"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">pid</span>
+<span>Tracee ID
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">addr</span>
+<span>Virtual address in the tracee context to write to.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">data</span>
+<span>Address in the tracer context to read one byte from.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">ptrace_poke</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">void</span> * addr, <span class="hljs-keyword">void</span> * data)</span> </span>{
+	<span class="hljs-keyword">if</span> (!data || ptr_validate(data, <span class="hljs-string">"ptrace"</span>)) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">process_t</span> * tracee = process_from_pid(pid);
+	<span class="hljs-keyword">if</span> (!tracee || (tracee-&gt;tracer != this_core-&gt;current_process-&gt;id) || !(tracee-&gt;flags &amp; PROC_FLAG_SUSPENDED)) <span class="hljs-keyword">return</span> -ESRCH;
+
+	<span class="hljs-keyword">union</span> PML * page_entry = mmu_get_page_other(tracee-&gt;thread.page_directory-&gt;directory, (<span class="hljs-keyword">uintptr_t</span>)addr);
+
+	<span class="hljs-keyword">if</span> (!page_entry) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">if</span> (!mmu_page_is_user_writable(page_entry)) <span class="hljs-keyword">return</span> -EFAULT;
+
+	<span class="hljs-keyword">uintptr_t</span> mapped_address = mmu_map_to_physical(tracee-&gt;thread.page_directory-&gt;directory, (<span class="hljs-keyword">uintptr_t</span>)addr);
+
+	<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">intptr_t</span>)mapped_address &lt; <span class="hljs-number">0</span> &amp;&amp; (<span class="hljs-keyword">intptr_t</span>)mapped_address &gt; <span class="hljs-number">-10</span>) <span class="hljs-keyword">return</span> -EFAULT;
+
+	<span class="hljs-keyword">uintptr_t</span> blarg = (<span class="hljs-keyword">uintptr_t</span>)mmu_map_from_physical(mapped_address);
+
+	<span class="hljs-comment">/* Yeah, uh, one byte. That works. */</span>
+	*(<span class="hljs-keyword">char</span>*)blarg = *(<span class="hljs-keyword">char</span>*)data;
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-14" id="section-14"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">pid</span>
+<span>Tracee ID
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">ptrace_signals_only</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid)</span> </span>{
+	<span class="hljs-keyword">process_t</span> * tracee = process_from_pid(pid);
+	<span class="hljs-keyword">if</span> (!tracee || (tracee-&gt;tracer != this_core-&gt;current_process-&gt;id) || !(tracee-&gt;flags &amp; PROC_FLAG_SUSPENDED)) <span class="hljs-keyword">return</span> -ESRCH;
+	__sync_and_and_fetch(&amp;tracee-&gt;flags, ~(PROC_FLAG_TRACE_SYSCALLS));
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-15" id="section-15"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">pid</span>
+<span>ID of the process to enable single-step for
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">sig</span>
+<span>Signal number to hand to the process when it resumes, or 0.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">ptrace_singlestep</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">int</span> sig)</span> </span>{
+	<span class="hljs-keyword">process_t</span> * tracee = process_from_pid(pid);
+	<span class="hljs-keyword">if</span> (!tracee || (tracee-&gt;tracer != this_core-&gt;current_process-&gt;id) || !(tracee-&gt;flags &amp; PROC_FLAG_SUSPENDED)) <span class="hljs-keyword">return</span> -ESRCH;
+
+	<span class="hljs-comment">/* arch_set_singlestep? */</span>
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__x86_64__)</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">regs</span> * <span class="hljs-title">target</span> = <span class="hljs-title">tracee</span>-&gt;<span class="hljs-title">syscall_registers</span>;</span>
+	target-&gt;rflags |= (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">8</span>);
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">elif</span> defined(__aarch64__)</span>
+	tracee-&gt;thread.context.saved[<span class="hljs-number">11</span>] |= (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">21</span>);
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	__sync_and_and_fetch(&amp;tracee-&gt;flags, ~(PROC_FLAG_SUSPENDED));
+	tracee-&gt;status = (sig &lt;&lt; <span class="hljs-number">8</span>);
+	make_process_ready(tracee);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">ptrace_setoptions</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">int</span> options)</span> </span>{
+	<span class="hljs-keyword">process_t</span> * tracee = process_from_pid(pid);
+	<span class="hljs-keyword">if</span> (!tracee || (tracee-&gt;tracer != this_core-&gt;current_process-&gt;id)) <span class="hljs-keyword">return</span> -ESRCH;
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> unwanted_flags = PROC_FLAG_TRACE_FORK | PROC_FLAG_TRACE_CLONE;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> wanted_flags = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (options &amp; PTRACE_O_TRACEFORK) {
+		wanted_flags |= PROC_FLAG_TRACE_FORK;
+		unwanted_flags &amp;= ~PROC_FLAG_TRACE_FORK;
+	}
+
+	<span class="hljs-keyword">if</span> (options &amp; PTRACE_O_TRACECLONE) {
+		wanted_flags |= PROC_FLAG_TRACE_CLONE;
+		unwanted_flags &amp;= ~PROC_FLAG_TRACE_CLONE;
+	}
+
+	__sync_or_and_fetch(&amp;tracee-&gt;flags, wanted_flags);
+	__sync_and_and_fetch(&amp;tracee-&gt;flags, ~unwanted_flags);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-16" id="section-16"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">request</span>
+<span>Request type
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">pid</span>
+<span>Tracee ID
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">addr</span>
+<span>Address to peek or poke
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">data</span>
+<span>Place to put or read data, depending on the function
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">ptrace_handle</span><span class="hljs-params">(<span class="hljs-keyword">long</span> request, <span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">void</span> * addr, <span class="hljs-keyword">void</span> * data)</span> </span>{
+	<span class="hljs-keyword">switch</span> (request) {
+		<span class="hljs-keyword">case</span> PTRACE_ATTACH:
+			<span class="hljs-keyword">return</span> ptrace_attach(pid);
+		<span class="hljs-keyword">case</span> PTRACE_TRACEME:
+			<span class="hljs-keyword">return</span> ptrace_self();
+		<span class="hljs-keyword">case</span> PTRACE_GETREGS:
+			<span class="hljs-keyword">return</span> ptrace_getregs(pid,data);
+		<span class="hljs-keyword">case</span> PTRACE_CONT:
+			<span class="hljs-keyword">return</span> ptrace_continue(pid,(<span class="hljs-keyword">uintptr_t</span>)data);
+		<span class="hljs-keyword">case</span> PTRACE_PEEKDATA:
+			<span class="hljs-keyword">return</span> ptrace_peek(pid,addr,data);
+		<span class="hljs-keyword">case</span> PTRACE_POKEDATA:
+			<span class="hljs-keyword">return</span> ptrace_poke(pid,addr,data);
+		<span class="hljs-keyword">case</span> PTRACE_SIGNALS_ONLY_PLZ:
+			<span class="hljs-keyword">return</span> ptrace_signals_only(pid);
+		<span class="hljs-keyword">case</span> PTRACE_SINGLESTEP:
+			<span class="hljs-keyword">return</span> ptrace_singlestep(pid,(<span class="hljs-keyword">uintptr_t</span>)data);
+		<span class="hljs-keyword">case</span> PTRACE_DETACH:
+			<span class="hljs-keyword">return</span> ptrace_detach(pid,(<span class="hljs-keyword">uintptr_t</span>)data);
+		<span class="hljs-keyword">case</span> PTRACE_SETREGS:
+			<span class="hljs-keyword">return</span> ptrace_setregs(pid,data);
+		<span class="hljs-keyword">case</span> PTRACE_SETOPTIONS:
+			<span class="hljs-keyword">return</span> ptrace_setoptions(pid,(<span class="hljs-keyword">uintptr_t</span>)data);
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> -EINVAL;
+	}
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

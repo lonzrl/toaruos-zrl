@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ls.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\ls.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>ls.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;dirent.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;termios.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;pwd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;wchar.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;getopt.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/time.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TRACE_APP_NAME <span class="hljs-meta-string">"ls"</span></span>
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<p>#include &quot;lib/trace.h&quot;</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TRACE(...)</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/decodeutf8.h&gt;</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Minimum padding between columns.</p>
+</div>
+<div class="body">
+<p>This used to be 2. If you're building
+from source, you can change it back.
+1 makes our output identical to macOS.</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MIN_COL_SPACING 1</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXE_COLOR		<span class="hljs-meta-string">"1;32"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DIR_COLOR		<span class="hljs-meta-string">"1;34"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SYMLINK_COLOR	<span class="hljs-meta-string">"1;36"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> REG_COLOR		<span class="hljs-meta-string">"0"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MEDIA_COLOR		<span class="hljs-meta-string">""</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SYM_COLOR		<span class="hljs-meta-string">""</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BROKEN_COLOR	<span class="hljs-meta-string">"1;"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DEVICE_COLOR	<span class="hljs-meta-string">"1;33;40"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SETUID_COLOR	<span class="hljs-meta-string">"37;41"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SETGID_COLOR	<span class="hljs-meta-string">"30;43"</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DEFAULT_TERM_WIDTH 0</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DEFAULT_TERM_HEIGHT 0</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MAX(a, b) (((a) &gt; (b)) ? (a) : (b))</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> LINE_LEN 4096</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> human_readable = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> stdout_is_tty = <span class="hljs-number">1</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> this_year = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> show_hidden = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> long_mode   = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> print_dir   = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> term_width = DEFAULT_TERM_WIDTH;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> term_height = DEFAULT_TERM_HEIGHT;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> columns = <span class="hljs-number">1</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> in_order = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> show_inode = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> show_size = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> one_column = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> show_slash = <span class="hljs-number">0</span>;
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tfile</span> {</span>
+	<span class="hljs-keyword">char</span> * name;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">statbuf</span>;</span>
+	<span class="hljs-keyword">char</span> * link;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">statbufl</span>;</span>
+	<span class="hljs-keyword">int</span> lstatres;
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">color_str</span><span class="hljs-params">(struct stat * sb)</span> </span>{
+	<span class="hljs-keyword">if</span> (S_ISDIR(sb-&gt;st_mode)) {
+		<span class="hljs-comment">/* Directory */</span>
+		<span class="hljs-keyword">return</span> DIR_COLOR;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (S_ISLNK(sb-&gt;st_mode)) {
+		<span class="hljs-comment">/* Symbolic Link */</span>
+		<span class="hljs-keyword">return</span> SYMLINK_COLOR;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (sb-&gt;st_mode &amp; S_ISUID) {
+		<span class="hljs-comment">/* setuid - sudo, etc. */</span>
+		<span class="hljs-keyword">return</span> SETUID_COLOR;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (sb-&gt;st_mode &amp; S_ISGID) {
+		<span class="hljs-keyword">return</span> SETGID_COLOR;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (sb-&gt;st_mode &amp; <span class="hljs-number">0111</span>) {
+		<span class="hljs-comment">/* Executable */</span>
+		<span class="hljs-keyword">return</span> EXE_COLOR;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (S_ISBLK(sb-&gt;st_mode) || S_ISCHR(sb-&gt;st_mode) || S_ISFIFO(sb-&gt;st_mode)) {
+		<span class="hljs-comment">/* Device file */</span>
+		<span class="hljs-keyword">return</span> DEVICE_COLOR;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-comment">/* Regular file */</span>
+		<span class="hljs-keyword">return</span> REG_COLOR;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">filecmp</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> * c1, <span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> * c2)</span> </span>{
+	<span class="hljs-keyword">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tfile</span> * <span class="hljs-title">d1</span> = *(<span class="hljs-title">const</span> <span class="hljs-title">struct</span> <span class="hljs-title">tfile</span> **)<span class="hljs-title">c1</span>;</span>
+	<span class="hljs-keyword">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tfile</span> * <span class="hljs-title">d2</span> = *(<span class="hljs-title">const</span> <span class="hljs-title">struct</span> <span class="hljs-title">tfile</span> **)<span class="hljs-title">c2</span>;</span>
+
+	<span class="hljs-keyword">int</span> a = S_ISDIR(d1-&gt;statbuf.st_mode);
+	<span class="hljs-keyword">int</span> b = S_ISDIR(d2-&gt;statbuf.st_mode);
+
+	<span class="hljs-keyword">if</span> (a == b) <span class="hljs-keyword">return</span> <span class="hljs-built_in">strcmp</span>(d1-&gt;name, d2-&gt;name);
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (a &lt; b) <span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (a &gt; b) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>; <span class="hljs-comment">/* impossible ? */</span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">filecmp_notypesort</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> * c1, <span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> * c2)</span> </span>{
+	<span class="hljs-keyword">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tfile</span> * <span class="hljs-title">d1</span> = *(<span class="hljs-title">const</span> <span class="hljs-title">struct</span> <span class="hljs-title">tfile</span> **)<span class="hljs-title">c1</span>;</span>
+	<span class="hljs-keyword">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tfile</span> * <span class="hljs-title">d2</span> = *(<span class="hljs-title">const</span> <span class="hljs-title">struct</span> <span class="hljs-title">tfile</span> **)<span class="hljs-title">c2</span>;</span>
+
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">strcmp</span>(d1-&gt;name, d2-&gt;name);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">display_width_of_string</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * str)</span> </span>{
+	<span class="hljs-keyword">int</span> out = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint32_t</span> c, state = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint8_t</span> *s = (<span class="hljs-keyword">uint8_t</span>*)str; *s; s++) {
+		<span class="hljs-keyword">if</span> (!decode(&amp;state, &amp;c, *s)) out += wcwidth(c);
+		<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (state == UTF8_REJECT) state = <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> <span class="hljs-title">as_1k_blocks</span><span class="hljs-params">(<span class="hljs-keyword">off_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-keyword">size_t</span> blocks = <span class="hljs-built_in">size</span> / <span class="hljs-number">1024</span>;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> % <span class="hljs-number">1024</span>) blocks += <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> blocks;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">print_human_readable_size</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * _out, <span class="hljs-keyword">size_t</span> avail, <span class="hljs-keyword">size_t</span> s)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">prefixes</span><span class="hljs-params">(<span class="hljs-keyword">int</span> *colwidth, struct tfile * file)</span> </span>{
+	<span class="hljs-comment">/* Prefixed stuff */</span>
+	<span class="hljs-keyword">if</span> (show_inode) <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*zu "</span>, colwidth[<span class="hljs-number">1</span>]<span class="hljs-number">-1</span>, file-&gt;statbuf.st_ino);
+	<span class="hljs-keyword">if</span> (show_size) {
+		<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = as_1k_blocks(file-&gt;statbuf.st_size);
+		<span class="hljs-keyword">if</span> (human_readable) {
+			<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">100</span>];
+			print_human_readable_size(tmp, <span class="hljs-number">100</span>, <span class="hljs-built_in">size</span> * <span class="hljs-number">1024</span>);
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, colwidth[<span class="hljs-number">2</span>]<span class="hljs-number">-1</span>, tmp);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*zu "</span>, colwidth[<span class="hljs-number">2</span>]<span class="hljs-number">-1</span>, <span class="hljs-built_in">size</span>);
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">print_entry</span><span class="hljs-params">(struct tfile * file, <span class="hljs-keyword">int</span> *colwidth)</span> </span>{
+	prefixes(colwidth,file);
+
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * ansi_color_str = color_str(&amp;file-&gt;statbuf);
+
+	<span class="hljs-comment">/* Print the file name */</span>
+	<span class="hljs-keyword">if</span> (stdout_is_tty) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[%sm%s\033[0m"</span>, ansi_color_str, file-&gt;name);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s"</span>, file-&gt;name);
+	}
+
+	<span class="hljs-comment">/* These classifiers are accounted for in width calculations separately */</span>
+	<span class="hljs-keyword">if</span> (show_slash) {
+		<span class="hljs-keyword">if</span> (S_ISDIR(file-&gt;statbuf.st_mode)) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"/"</span>);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (show_slash &gt; <span class="hljs-number">1</span> &amp;&amp; S_ISLNK(file-&gt;statbuf.st_mode)) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"@"</span>);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (show_slash &gt; <span class="hljs-number">1</span> &amp;&amp; S_ISFIFO(file-&gt;statbuf.st_mode)) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"|"</span>);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (show_slash &gt; <span class="hljs-number">1</span> &amp;&amp; (file-&gt;statbuf.st_mode &amp; <span class="hljs-number">0111</span>)) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"*"</span>);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (show_slash &gt; <span class="hljs-number">1</span> &amp;&amp; S_ISSOCK(file-&gt;statbuf.st_mode)) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"="</span>);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">" "</span>);
+		}
+	}
+
+	<span class="hljs-comment">/* Pad the rest of the column */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> rem = colwidth[<span class="hljs-number">0</span>] - display_width_of_string(file-&gt;name); rem &gt; <span class="hljs-number">0</span>; rem--) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">" "</span>);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">print_username</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * _out, <span class="hljs-keyword">size_t</span> avail, <span class="hljs-keyword">int</span> uid)</span> </span>{
+
+	TRACE(<span class="hljs-string">"getpwuid"</span>);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">passwd</span> * <span class="hljs-title">p</span> = <span class="hljs-title">getpwuid</span>(<span class="hljs-title">uid</span>);</span>
+	<span class="hljs-keyword">int</span> out = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (p) {
+		TRACE(<span class="hljs-string">"p is set"</span>);
+		out = <span class="hljs-built_in">snprintf</span>(_out, avail, <span class="hljs-string">"%s"</span>, p-&gt;pw_name);
+	} <span class="hljs-keyword">else</span> {
+		TRACE(<span class="hljs-string">"p is not set"</span>);
+		out = <span class="hljs-built_in">snprintf</span>(_out, avail, <span class="hljs-string">"%d"</span>, uid);
+	}
+
+	endpwent();
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">print_human_readable_size</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * _out, <span class="hljs-keyword">size_t</span> avail, <span class="hljs-keyword">size_t</span> s)</span> </span>{
+	<span class="hljs-keyword">if</span> (s &gt;= <span class="hljs-number">1</span>&lt;&lt;<span class="hljs-number">20</span>) {
+		<span class="hljs-keyword">size_t</span> t = s / (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">20</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-built_in">snprintf</span>(_out, avail, <span class="hljs-string">"%d.%1dM"</span>, (<span class="hljs-keyword">int</span>)t, (<span class="hljs-keyword">int</span>)(s - t * (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">20</span>)) / ((<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">20</span>) / <span class="hljs-number">10</span>));
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (s &gt;= <span class="hljs-number">1</span>&lt;&lt;<span class="hljs-number">10</span>) {
+		<span class="hljs-keyword">size_t</span> t = s / (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">10</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-built_in">snprintf</span>(_out, avail, <span class="hljs-string">"%d.%1dK"</span>, (<span class="hljs-keyword">int</span>)t, (<span class="hljs-keyword">int</span>)(s - t * (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">10</span>)) / ((<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">10</span>) / <span class="hljs-number">10</span>));
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">return</span> <span class="hljs-built_in">snprintf</span>(_out, avail, <span class="hljs-string">"%d"</span>, (<span class="hljs-keyword">int</span>)s);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">update_column_widths</span><span class="hljs-params">(<span class="hljs-keyword">int</span> * widths, struct tfile * file)</span> </span>{
+	<span class="hljs-keyword">int</span> n;
+
+	<span class="hljs-comment">/* Links */</span>
+	TRACE(<span class="hljs-string">"links"</span>);
+	n = <span class="hljs-built_in">snprintf</span>(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, <span class="hljs-string">"%d"</span>, file-&gt;statbuf.st_nlink);
+	<span class="hljs-keyword">if</span> (n &gt; widths[<span class="hljs-number">0</span>]) widths[<span class="hljs-number">0</span>] = n;
+
+	<span class="hljs-comment">/* User */</span>
+	TRACE(<span class="hljs-string">"user"</span>);
+	n = print_username(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, file-&gt;statbuf.st_uid);
+	<span class="hljs-keyword">if</span> (n &gt; widths[<span class="hljs-number">1</span>]) widths[<span class="hljs-number">1</span>] = n;
+
+	<span class="hljs-comment">/* Group */</span>
+	TRACE(<span class="hljs-string">"group"</span>);
+	n = print_username(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, file-&gt;statbuf.st_gid);
+	<span class="hljs-keyword">if</span> (n &gt; widths[<span class="hljs-number">2</span>]) widths[<span class="hljs-number">2</span>] = n;
+
+	<span class="hljs-comment">/* File size */</span>
+	TRACE(<span class="hljs-string">"file size"</span>);
+	<span class="hljs-keyword">if</span> (human_readable) {
+		n = print_human_readable_size(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, file-&gt;statbuf.st_size);
+	} <span class="hljs-keyword">else</span> {
+		n = <span class="hljs-built_in">snprintf</span>(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, <span class="hljs-string">"%d"</span>, (<span class="hljs-keyword">int</span>)file-&gt;statbuf.st_size);
+	}
+	<span class="hljs-keyword">if</span> (n &gt; widths[<span class="hljs-number">3</span>]) widths[<span class="hljs-number">3</span>] = n;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">print_entry_long</span><span class="hljs-params">(<span class="hljs-keyword">int</span> * widths, <span class="hljs-keyword">int</span> * colwidth, struct tfile * file)</span> </span>{
+	prefixes(colwidth, file);
+
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * ansi_color_str = color_str(&amp;file-&gt;statbuf);
+	<span class="hljs-keyword">mode_t</span> mode = file-&gt;statbuf.st_mode;
+
+	<span class="hljs-comment">/* file permissions */</span>
+	<span class="hljs-keyword">if</span> (S_ISLNK(mode))       { <span class="hljs-built_in">printf</span>(<span class="hljs-string">"l"</span>); }
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (S_ISCHR(mode))  { <span class="hljs-built_in">printf</span>(<span class="hljs-string">"c"</span>); }
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (S_ISBLK(mode))  { <span class="hljs-built_in">printf</span>(<span class="hljs-string">"b"</span>); }
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (S_ISDIR(mode))  { <span class="hljs-built_in">printf</span>(<span class="hljs-string">"d"</span>); }
+	<span class="hljs-keyword">else</span> { <span class="hljs-built_in">printf</span>(<span class="hljs-string">"-"</span>); }
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%c"</span>, (mode &amp; S_IRUSR) ? <span class="hljs-string">'r'</span> : <span class="hljs-string">'-'</span>);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%c"</span>, (mode &amp; S_IWUSR) ? <span class="hljs-string">'w'</span> : <span class="hljs-string">'-'</span>);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%c"</span>, (mode &amp; S_IXUSR) ? ((mode &amp; S_ISUID) ? <span class="hljs-string">'s'</span> : <span class="hljs-string">'x'</span>) : ((mode &amp; S_ISUID) ? <span class="hljs-string">'S'</span> : <span class="hljs-string">'-'</span>));
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%c"</span>, (mode &amp; S_IRGRP) ? <span class="hljs-string">'r'</span> : <span class="hljs-string">'-'</span>);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%c"</span>, (mode &amp; S_IWGRP) ? <span class="hljs-string">'w'</span> : <span class="hljs-string">'-'</span>);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%c"</span>, (mode &amp; S_IXGRP) ? ((mode &amp; S_ISGID) ? <span class="hljs-string">'s'</span> : <span class="hljs-string">'x'</span>) : ((mode &amp; S_ISGID) ? <span class="hljs-string">'S'</span> : <span class="hljs-string">'-'</span>));
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%c"</span>, (mode &amp; S_IROTH) ? <span class="hljs-string">'r'</span> : <span class="hljs-string">'-'</span>);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%c"</span>, (mode &amp; S_IWOTH) ? <span class="hljs-string">'w'</span> : <span class="hljs-string">'-'</span>);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%c"</span>, (mode &amp; S_IXOTH) ? <span class="hljs-string">'x'</span> : <span class="hljs-string">'-'</span>);
+
+	<span class="hljs-built_in">printf</span>( <span class="hljs-string">" %*d "</span>, widths[<span class="hljs-number">0</span>], file-&gt;statbuf.st_nlink); <span class="hljs-comment">/* number of links, not supported */</span>
+
+	<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">100</span>];
+	print_username(tmp, <span class="hljs-number">100</span>, file-&gt;statbuf.st_uid);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%-*s "</span>, widths[<span class="hljs-number">1</span>], tmp);
+	print_username(tmp, <span class="hljs-number">100</span>, file-&gt;statbuf.st_gid);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%-*s "</span>, widths[<span class="hljs-number">2</span>], tmp);
+
+	<span class="hljs-keyword">if</span> (human_readable) {
+		print_human_readable_size(tmp, <span class="hljs-number">100</span>, file-&gt;statbuf.st_size);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, widths[<span class="hljs-number">3</span>], tmp);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*d "</span>, widths[<span class="hljs-number">3</span>], (<span class="hljs-keyword">int</span>)file-&gt;statbuf.st_size);
+	}
+
+	<span class="hljs-keyword">char</span> time_buf[<span class="hljs-number">80</span>];
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tm</span> * <span class="hljs-title">timeinfo</span> = <span class="hljs-title">localtime</span>((<span class="hljs-title">time_t</span>*)&amp;<span class="hljs-title">file</span>-&gt;<span class="hljs-title">statbuf</span>.<span class="hljs-title">st_mtime</span>);</span>
+	<span class="hljs-keyword">if</span> (timeinfo-&gt;tm_year == this_year) {
+		strftime(time_buf, <span class="hljs-number">80</span>, <span class="hljs-string">"%b %d %H:%M"</span>, timeinfo);
+	} <span class="hljs-keyword">else</span> {
+		strftime(time_buf, <span class="hljs-number">80</span>, <span class="hljs-string">"%b %d  %Y"</span>, timeinfo);
+	}
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s "</span>, time_buf);
+
+	<span class="hljs-comment">/* Print the file name */</span>
+	<span class="hljs-keyword">if</span> (stdout_is_tty) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[%sm%s\033[0m"</span>, ansi_color_str, file-&gt;name);
+		<span class="hljs-keyword">if</span> (show_slash &amp;&amp; S_ISDIR(file-&gt;statbuf.st_mode)) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"/"</span>);
+		}
+		<span class="hljs-keyword">if</span> (S_ISLNK(file-&gt;statbuf.st_mode)) {
+			<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * s = file-&gt;lstatres == <span class="hljs-number">0</span> ? color_str(&amp;file-&gt;statbufl) : <span class="hljs-string">"1;31"</span>;
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">" -&gt; \033[%sm%s\033[0m"</span>, s, file-&gt;link);
+		}
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s"</span>, file-&gt;name);
+		<span class="hljs-keyword">if</span> (show_slash &amp;&amp; S_ISDIR(file-&gt;statbuf.st_mode)) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"/"</span>);
+		}
+		<span class="hljs-keyword">if</span> (S_ISLNK(file-&gt;statbuf.st_mode)) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">" -&gt; %s"</span>, file-&gt;link);
+		}
+	}
+
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\n"</span>);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_S <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_E <span class="hljs-meta-string">"\033[0m"</span></span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">show_help</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+			<span class="hljs-string">"%s - list files\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"usage: %s [-aAfFhiklpsxC1] ["</span> X_S <span class="hljs-string">"path"</span> X_E <span class="hljs-string">"...]\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -a  --all             "</span> X_S <span class="hljs-string">"list all files (including . files)"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -A  --almost-all      "</span> X_S <span class="hljs-string">"like -a, but still hide . and .."</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -f                    "</span> X_S <span class="hljs-string">"display entries in original order"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -F  --classify        "</span> X_S <span class="hljs-string">"show characters after files depending on type"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -h  --human-readable  "</span> X_S <span class="hljs-string">"human-readable file sizes"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -i  --inode           "</span> X_S <span class="hljs-string">"display inode number before name"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -k  --kibibytes       "</span> X_S <span class="hljs-string">"(no-op; block size is always 1024)"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -l                    "</span> X_S <span class="hljs-string">"use a long listing format"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -p                    "</span> X_S <span class="hljs-string">"show a / after directory names"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -s  --size            "</span> X_S <span class="hljs-string">"show size (in block) before file names"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -x                    "</span> X_S <span class="hljs-string">"sort entries across columns instead of down"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -C                    "</span> X_S <span class="hljs-string">"format output by columns (default)"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" --help                "</span> X_S <span class="hljs-string">"show this help text"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"\n"</span>, argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">show_usage</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+			<span class="hljs-string">"usage: %s [-aAfFhiklpsxC1] ["</span> X_S <span class="hljs-string">"path"</span> X_E <span class="hljs-string">"...]\n"</span>
+			<span class="hljs-string">" or try '%s --help' for more information\n"</span>,
+			argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">display_tfiles</span><span class="hljs-params">(struct tfile ** ents_array, <span class="hljs-keyword">int</span> numents)</span> </span>{
+	<span class="hljs-keyword">int</span> ent_max_len[<span class="hljs-number">4</span>] = {<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>};
+	<span class="hljs-keyword">size_t</span> total_blocks = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; numents; i++) {
+		ent_max_len[<span class="hljs-number">0</span>] = MAX(ent_max_len[<span class="hljs-number">0</span>], display_width_of_string(ents_array[i]-&gt;name));
+		<span class="hljs-keyword">if</span> (show_inode) ent_max_len[<span class="hljs-number">1</span>] = MAX(ent_max_len[<span class="hljs-number">1</span>], <span class="hljs-built_in">snprintf</span>(<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>,<span class="hljs-string">"%zu "</span>,ents_array[i]-&gt;statbuf.st_ino));
+		<span class="hljs-keyword">if</span> (show_size) {
+			<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = as_1k_blocks(ents_array[i]-&gt;statbuf.st_size);
+			<span class="hljs-keyword">if</span> (human_readable) {
+				ent_max_len[<span class="hljs-number">2</span>] = MAX(ent_max_len[<span class="hljs-number">2</span>], print_human_readable_size(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, <span class="hljs-built_in">size</span> * <span class="hljs-number">1024</span>) + <span class="hljs-number">1</span>);
+			} <span class="hljs-keyword">else</span> {
+				ent_max_len[<span class="hljs-number">2</span>] = MAX(ent_max_len[<span class="hljs-number">2</span>], <span class="hljs-built_in">snprintf</span>(<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>,<span class="hljs-string">"%zu "</span>,<span class="hljs-built_in">size</span>));
+			}
+		}
+		total_blocks += as_1k_blocks(ents_array[i]-&gt;statbuf.st_size);
+	}
+	<span class="hljs-keyword">int</span> total_width = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-keyword">sizeof</span>(ent_max_len) / <span class="hljs-keyword">sizeof</span>(*ent_max_len); ++i) {
+		total_width += ent_max_len[i];
+	}
+	<span class="hljs-keyword">if</span> (show_slash) total_width += <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">if</span> (long_mode || show_size) {
+		<span class="hljs-comment">/* || a few other things as well we don't have yet */</span>
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"total %zu\n"</span>, total_blocks);
+	}
+
+	<span class="hljs-keyword">if</span> (long_mode) {
+		TRACE(<span class="hljs-string">"long mode display, column lengths"</span>);
+		<span class="hljs-keyword">int</span> widths[<span class="hljs-number">4</span>] = {<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>};
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; numents; i++) {
+			update_column_widths(widths, ents_array[i]);
+		}
+		TRACE(<span class="hljs-string">"actual printing"</span>);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; numents; i++) {
+			print_entry_long(widths, ent_max_len, ents_array[i]);
+		}
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-comment">/* Determine the gridding dimensions */</span>
+		<span class="hljs-keyword">int</span> col_ext = total_width + MIN_COL_SPACING;
+		<span class="hljs-keyword">int</span> cols = ((term_width + MIN_COL_SPACING) / col_ext);
+		<span class="hljs-keyword">if</span> (cols == <span class="hljs-number">0</span>) cols = <span class="hljs-number">1</span>;
+
+		<span class="hljs-comment">/* Print the entries */</span>
+		<span class="hljs-keyword">if</span> (columns) {
+			<span class="hljs-keyword">int</span> rows = numents / cols;
+			<span class="hljs-keyword">if</span> (rows * cols &lt; numents) rows++;
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; rows; ++i) {
+				print_entry(ents_array[i], ent_max_len);
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">1</span>; j &lt; cols; ++j) {
+					<span class="hljs-keyword">if</span> (i + j * rows &gt;= numents) <span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> t = <span class="hljs-number">0</span>; t &lt; MIN_COL_SPACING; ++t) <span class="hljs-built_in">printf</span>(<span class="hljs-string">" "</span>);
+					print_entry(ents_array[i + j * rows], ent_max_len);
+				}
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\n"</span>);
+			}
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; numents;) {
+				print_entry(ents_array[i++], ent_max_len);
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; (i &lt; numents) &amp;&amp; (j &lt; (cols<span class="hljs-number">-1</span>)); j++) {
+					<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> t = <span class="hljs-number">0</span>; t &lt; MIN_COL_SPACING; ++t) <span class="hljs-built_in">printf</span>(<span class="hljs-string">" "</span>);
+					print_entry(ents_array[i++], ent_max_len);
+				}
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\n"</span>);
+			}
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">display_dir</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * p)</span> </span>{
+	<span class="hljs-comment">/* Open the directory */</span>
+	DIR * dirp = opendir(p);
+	<span class="hljs-keyword">if</span> (dirp == <span class="hljs-literal">NULL</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (print_dir) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s:\n"</span>, p);
+	}
+
+	<span class="hljs-comment">/* Read the entries in the directory */</span>
+	<span class="hljs-keyword">list_t</span> * ents_list = list_create();
+
+	TRACE(<span class="hljs-string">"reading entries"</span>);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent</span> * <span class="hljs-title">ent</span> = <span class="hljs-title">readdir</span>(<span class="hljs-title">dirp</span>);</span>
+	<span class="hljs-keyword">for</span> (; ent; ent = readdir(dirp)) {
+		<span class="hljs-keyword">if</span> (ent-&gt;d_name[<span class="hljs-number">0</span>] == <span class="hljs-string">'.'</span> &amp;&amp; !show_hidden) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">if</span> (show_hidden != <span class="hljs-number">1</span> &amp;&amp; !<span class="hljs-built_in">strcmp</span>(ent-&gt;d_name, <span class="hljs-string">"."</span>)) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">if</span> (show_hidden != <span class="hljs-number">1</span> &amp;&amp; !<span class="hljs-built_in">strcmp</span>(ent-&gt;d_name, <span class="hljs-string">".."</span>)) <span class="hljs-keyword">continue</span>;
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tfile</span> * <span class="hljs-title">f</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">tfile</span>));</span>
+
+		f-&gt;name = strdup(ent-&gt;d_name);
+
+		<span class="hljs-keyword">char</span> tmp[<span class="hljs-built_in">strlen</span>(p)+<span class="hljs-built_in">strlen</span>(ent-&gt;d_name)+<span class="hljs-number">2</span>];
+		<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"%s/%s"</span>, p, ent-&gt;d_name);
+		lstat(tmp, &amp;f-&gt;statbuf);
+		<span class="hljs-keyword">if</span> (S_ISLNK(f-&gt;statbuf.st_mode)) {
+			f-&gt;lstatres = stat(tmp, &amp;f-&gt;statbufl);
+			f-&gt;link = <span class="hljs-built_in">malloc</span>(f-&gt;statbuf.st_size + <span class="hljs-number">1</span>);
+			<span class="hljs-keyword">ssize_t</span> len = readlink(tmp, f-&gt;link, f-&gt;statbuf.st_size);
+			<span class="hljs-keyword">if</span> (len &gt;= <span class="hljs-number">0</span>) f-&gt;link[len] = <span class="hljs-string">'\0'</span>;
+		}
+
+		list_insert(ents_list, (<span class="hljs-keyword">void</span> *)f);
+	}
+	closedir(dirp);
+
+	TRACE(<span class="hljs-string">"copying"</span>);
+
+	<span class="hljs-comment">/* Now, copy those entries into an array (for sorting) */</span>
+
+	<span class="hljs-keyword">if</span> (!ents_list-&gt;length) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tfile</span> ** <span class="hljs-title">file_arr</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">tfile</span> *) * <span class="hljs-title">ents_list</span>-&gt;<span class="hljs-title">length</span>);</span>
+	<span class="hljs-keyword">int</span> index = <span class="hljs-number">0</span>;
+	foreach(node, ents_list) {
+		file_arr[index++] = (struct tfile *)node-&gt;value;
+	}
+
+	list_free(ents_list);
+
+	TRACE(<span class="hljs-string">"sorting"</span>);
+	<span class="hljs-keyword">if</span> (!in_order) qsort(file_arr, index, <span class="hljs-keyword">sizeof</span>(struct tfile *), filecmp_notypesort);
+
+	TRACE(<span class="hljs-string">"displaying"</span>);
+	display_tfiles(file_arr, index);
+
+	<span class="hljs-built_in">free</span>(file_arr);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span> <span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">char</span> * p = <span class="hljs-string">"."</span>;
+
+	<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">option</span> <span class="hljs-title">long_opts</span>[] = {</span>
+		{<span class="hljs-string">"help"</span>, no_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'-'</span>},
+		{<span class="hljs-string">"all"</span>, no_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'a'</span>},
+		{<span class="hljs-string">"almost-all"</span>, no_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'A'</span>},
+		{<span class="hljs-string">"classify"</span>, no_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'F'</span>},
+		{<span class="hljs-string">"human-readable"</span>, no_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'h'</span>},
+		{<span class="hljs-string">"inode"</span>, no_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'i'</span>},
+		{<span class="hljs-string">"kibibytes"</span>, no_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'k'</span>},
+		{<span class="hljs-string">"size"</span>, no_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'s'</span>},
+		{<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>},
+	};
+
+	<span class="hljs-keyword">int</span> opt, index;
+	<span class="hljs-keyword">while</span> ((opt = getopt_long(argc, argv, <span class="hljs-string">"aAfFhiklpsxC1?"</span>, long_opts, &amp;index)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'a'</span>:
+				show_hidden = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'A'</span>:
+				show_hidden = <span class="hljs-number">2</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>:
+				in_order = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'F'</span>:
+				show_slash = <span class="hljs-number">2</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'h'</span>:
+				human_readable = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'i'</span>:
+				show_inode = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'k'</span>:
+				<span class="hljs-comment">/* no op, we always use 1024 like GNU */</span>
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'l'</span>:
+				long_mode = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'p'</span>:
+				show_slash = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'s'</span>:
+				show_size = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>TODO These two should also force the multi-column
+display even when stdout is not a TTY...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			<span class="hljs-keyword">case</span> <span class="hljs-string">'x'</span>:
+				long_mode = <span class="hljs-number">0</span>;
+				columns = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'C'</span>:
+				long_mode = <span class="hljs-number">0</span>;
+				columns = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'1'</span>:
+				one_column = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'-'</span>:
+				<span class="hljs-keyword">if</span> (index == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> show_help(argc, argv);
+				<span class="hljs-comment">/* fallthrough */</span>
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> show_usage(argc, argv);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (optind &lt; argc) p = argv[optind];
+	<span class="hljs-keyword">if</span> (optind + <span class="hljs-number">1</span> &lt; argc) print_dir = <span class="hljs-number">1</span>;
+
+	stdout_is_tty = isatty(STDOUT_FILENO);
+
+	<span class="hljs-keyword">if</span> (long_mode) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tm</span> * <span class="hljs-title">timeinfo</span>;</span>
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timeval</span> <span class="hljs-title">now</span>;</span>
+		gettimeofday(&amp;now, <span class="hljs-literal">NULL</span>); <span class="hljs-comment">//time(NULL);</span>
+		timeinfo = localtime((<span class="hljs-keyword">time_t</span> *)&amp;now.tv_sec);
+		this_year = timeinfo-&gt;tm_year;
+	}
+
+	<span class="hljs-keyword">if</span> (stdout_is_tty &amp;&amp; !one_column) {
+		TRACE(<span class="hljs-string">"getting display size"</span>);
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">winsize</span> <span class="hljs-title">w</span>;</span>
+		ioctl(<span class="hljs-number">1</span>, TIOCGWINSZ, &amp;w);
+		term_width = w.ws_col;
+		term_height = w.ws_row;
+		term_width -= <span class="hljs-number">1</span>; <span class="hljs-comment">/* And this just helps clean up our math */</span>
+	}
+
+	<span class="hljs-keyword">int</span> out = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (argc == <span class="hljs-number">1</span> || optind == argc) {
+		TRACE(<span class="hljs-string">"no file to look up"</span>);
+		<span class="hljs-keyword">if</span> (display_dir(p) == <span class="hljs-number">2</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], p, strerror(errno));
+		}
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">list_t</span> * files = list_create();
+		<span class="hljs-keyword">while</span> (p) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tfile</span> * <span class="hljs-title">f</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">tfile</span>));</span>
+
+			f-&gt;name = p;
+			<span class="hljs-keyword">int</span> t = lstat(p, &amp;f-&gt;statbuf);
+
+			<span class="hljs-keyword">if</span> (t &lt; <span class="hljs-number">0</span>) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], p, strerror(errno));
+				<span class="hljs-built_in">free</span>(f);
+				out = <span class="hljs-number">2</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">if</span> (S_ISLNK(f-&gt;statbuf.st_mode)) {
+					f-&gt;lstatres = stat(p, &amp;f-&gt;statbufl);
+					f-&gt;link = <span class="hljs-built_in">malloc</span>(f-&gt;statbuf.st_size + <span class="hljs-number">1</span>);
+					<span class="hljs-keyword">ssize_t</span> len = readlink(p, f-&gt;link, f-&gt;statbuf.st_size);
+					<span class="hljs-keyword">if</span> (len &gt;= <span class="hljs-number">0</span>) f-&gt;link[len] = <span class="hljs-string">'\0'</span>;
+				}
+				list_insert(files, f);
+			}
+
+			optind++;
+			<span class="hljs-keyword">if</span> (optind &gt;= argc) p = <span class="hljs-literal">NULL</span>;
+			<span class="hljs-keyword">else</span> p = argv[optind];
+		}
+
+		<span class="hljs-keyword">if</span> (!files-&gt;length) {
+			<span class="hljs-comment">/* No valid entries */</span>
+			<span class="hljs-keyword">return</span> out;
+		}
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tfile</span> ** <span class="hljs-title">file_arr</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">tfile</span> *) * <span class="hljs-title">files</span>-&gt;<span class="hljs-title">length</span>);</span>
+		<span class="hljs-keyword">int</span> index = <span class="hljs-number">0</span>;
+		foreach(node, files) {
+			file_arr[index++] = (struct tfile *)node-&gt;value;
+		}
+
+		list_free(files);
+
+		qsort(file_arr, index, <span class="hljs-keyword">sizeof</span>(struct tfile *), filecmp);
+
+		<span class="hljs-keyword">int</span> first_directory = index;
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; index; ++i) {
+			<span class="hljs-keyword">if</span> (S_ISDIR(file_arr[i]-&gt;statbuf.st_mode)) {
+				first_directory = i;
+				<span class="hljs-keyword">break</span>;
+			}
+		}
+
+		<span class="hljs-keyword">if</span> (first_directory) {
+			display_tfiles(file_arr, first_directory);
+		}
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = first_directory; i &lt; index; ++i) {
+			<span class="hljs-keyword">if</span> (i != <span class="hljs-number">0</span>) {
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\n"</span>);
+			}
+			<span class="hljs-keyword">if</span> (display_dir(file_arr[i]-&gt;name) == <span class="hljs-number">2</span>) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], file_arr[i]-&gt;name, strerror(errno));
+			}
+		}
+	}
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>e1000.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "modules\\e1000.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>e1000.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pci.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pipe.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/spinlock.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/net/netif.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/net/eth.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/module.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__x86_64__)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/irq.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">elif</span> defined(__aarch64__)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/aarch64/gic.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/net/e1000.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/socket.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;net/if.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> INTS (ICR_LSC | ICR_RXO | ICR_RXT0 | ICR_TXQE | ICR_TXDW | ICR_ACK | ICR_RXDMT0 | ICR_SRPD)</span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">e1000_nic</span> {</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">EthernetDevice</span> <span class="hljs-title">eth</span>;</span>
+	<span class="hljs-keyword">uint32_t</span> pci_device;
+	<span class="hljs-keyword">uint16_t</span> deviceid;
+	<span class="hljs-keyword">uintptr_t</span> mmio_addr;
+	<span class="hljs-keyword">int</span> irq_number;
+
+	<span class="hljs-keyword">int</span> has_eeprom;
+	<span class="hljs-keyword">int</span> rx_index;
+	<span class="hljs-keyword">int</span> tx_index;
+	<span class="hljs-keyword">int</span> link_status;
+
+	<span class="hljs-keyword">spin_lock_t</span> tx_lock;
+
+	<span class="hljs-keyword">uint8_t</span> * rx_virt[E1000_NUM_RX_DESC];
+	<span class="hljs-keyword">uint8_t</span> * tx_virt[E1000_NUM_TX_DESC];
+	<span class="hljs-keyword">volatile</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">e1000_rx_desc</span> * <span class="hljs-title">rx</span>;</span>
+	<span class="hljs-keyword">volatile</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">e1000_tx_desc</span> * <span class="hljs-title">tx</span>;</span>
+	<span class="hljs-keyword">uintptr_t</span> rx_phys;
+	<span class="hljs-keyword">uintptr_t</span> tx_phys;
+
+	<span class="hljs-keyword">int</span> configured;
+	<span class="hljs-keyword">process_t</span> * queuer;
+	<span class="hljs-keyword">process_t</span> * processor;
+
+	<span class="hljs-keyword">netif_counters_t</span> counts;
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> device_count = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">e1000_nic</span> * <span class="hljs-title">devices</span>[32] = {</span><span class="hljs-literal">NULL</span>};
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __aarch64__</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">mmio_read32</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> addr)</span> </span>{
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc ivac, %0\ndsb sy\nisb\n"</span> :: <span class="hljs-string">"r"</span>(addr) : <span class="hljs-string">"memory"</span>)</span></span>;
+	<span class="hljs-keyword">uint32_t</span> res = *((<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span>*)(addr));
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dmb ish"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+	<span class="hljs-keyword">return</span> res;
+}
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">mmio_write32</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> addr, <span class="hljs-keyword">uint32_t</span> val)</span> </span>{
+	(*((<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span>*)(addr))) = val;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dsb ishst\nisb\ndc cvac, %0\n"</span> :: <span class="hljs-string">"r"</span>(addr) : <span class="hljs-string">"memory"</span>)</span></span>;
+}
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">cache_invalidate</span><span class="hljs-params">(<span class="hljs-keyword">void</span> *addr)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> a = (<span class="hljs-keyword">uintptr_t</span>)addr;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uintptr_t</span> x = <span class="hljs-number">0</span>; x &lt; <span class="hljs-number">4096</span>; x += <span class="hljs-number">64</span>) {
+		<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc ivac, %0\n"</span> :: <span class="hljs-string">"r"</span>(a + x) : <span class="hljs-string">"memory"</span>)</span></span>;
+	}
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dsb sy\nisb"</span>:::<span class="hljs-string">"memory"</span>)</span></span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">cache_clean</span><span class="hljs-params">(<span class="hljs-keyword">void</span> *addr)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> a = (<span class="hljs-keyword">uintptr_t</span>)addr;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dmb ish"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uintptr_t</span> x = <span class="hljs-number">0</span>; x &lt; <span class="hljs-number">4096</span>; x += <span class="hljs-number">64</span>) {
+		<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc cvac, %0"</span> :: <span class="hljs-string">"r"</span>(a + x) : <span class="hljs-string">"memory"</span>)</span></span>;
+	}
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dsb sy\nisb"</span>:::<span class="hljs-string">"memory"</span>)</span></span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">mmio_read32</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> addr)</span> </span>{
+	<span class="hljs-keyword">return</span> *((<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span>*)(addr));
+}
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">mmio_write32</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> addr, <span class="hljs-keyword">uint32_t</span> val)</span> </span>{
+	(*((<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span>*)(addr))) = val;
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">write_command</span><span class="hljs-params">(struct e1000_nic * device, <span class="hljs-keyword">uint16_t</span> addr, <span class="hljs-keyword">uint32_t</span> val)</span> </span>{
+	mmio_write32(device-&gt;mmio_addr + addr, val);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">read_command</span><span class="hljs-params">(struct e1000_nic * device, <span class="hljs-keyword">uint16_t</span> addr)</span> </span>{
+	<span class="hljs-keyword">return</span> mmio_read32(device-&gt;mmio_addr + addr);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">delay_yield</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> subticks)</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __aarch64__</span>
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> s, ss;
+	relative_time(<span class="hljs-number">0</span>, subticks, &amp;s, &amp;ss);
+	sleep_until((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, s, ss);
+	switch_task(<span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">eeprom_detect</span><span class="hljs-params">(struct e1000_nic * device)</span> </span>{
+
+	<span class="hljs-comment">/* Definitely not */</span>
+	<span class="hljs-keyword">if</span> (device-&gt;deviceid == <span class="hljs-number">0x10d3</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	write_command(device, E1000_REG_EEPROM, <span class="hljs-number">1</span>);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">10000</span> &amp;&amp; !device-&gt;has_eeprom; ++i) {
+		<span class="hljs-keyword">uint32_t</span> val = read_command(device, E1000_REG_EEPROM);
+		<span class="hljs-keyword">if</span> (val &amp; <span class="hljs-number">0x10</span>) device-&gt;has_eeprom = <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint16_t</span> <span class="hljs-title">eeprom_read</span><span class="hljs-params">(struct e1000_nic * device, <span class="hljs-keyword">uint8_t</span> addr)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> temp = <span class="hljs-number">0</span>;
+	write_command(device, E1000_REG_EEPROM, <span class="hljs-number">1</span> | ((<span class="hljs-keyword">uint32_t</span>)(addr) &lt;&lt; <span class="hljs-number">8</span>));
+	<span class="hljs-keyword">while</span> (!((temp = read_command(device, E1000_REG_EEPROM)) &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">4</span>)));
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">uint16_t</span>)((temp &gt;&gt; <span class="hljs-number">16</span>) &amp; <span class="hljs-number">0xFFFF</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">write_mac</span><span class="hljs-params">(struct e1000_nic * device)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> low, high;
+	<span class="hljs-built_in">memcpy</span>(&amp;low, &amp;device-&gt;eth.mac[<span class="hljs-number">0</span>], <span class="hljs-number">4</span>);
+	<span class="hljs-built_in">memcpy</span>(&amp;high,&amp;device-&gt;eth.mac[<span class="hljs-number">4</span>], <span class="hljs-number">2</span>);
+	<span class="hljs-built_in">memset</span>((<span class="hljs-keyword">uint8_t</span> *)&amp;high + <span class="hljs-number">2</span>, <span class="hljs-number">0</span>, <span class="hljs-number">2</span>);
+	high |= <span class="hljs-number">0x80000000</span>;
+	write_command(device, E1000_REG_RXADDR + <span class="hljs-number">0</span>, low);
+	write_command(device, E1000_REG_RXADDR + <span class="hljs-number">4</span>, high);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">read_mac</span><span class="hljs-params">(struct e1000_nic * device)</span> </span>{
+	<span class="hljs-keyword">if</span> (device-&gt;has_eeprom) {
+		<span class="hljs-keyword">uint32_t</span> t;
+		t = eeprom_read(device, <span class="hljs-number">0</span>);
+		device-&gt;eth.mac[<span class="hljs-number">0</span>] = t &amp; <span class="hljs-number">0xFF</span>;
+		device-&gt;eth.mac[<span class="hljs-number">1</span>] = t &gt;&gt; <span class="hljs-number">8</span>;
+		t = eeprom_read(device, <span class="hljs-number">1</span>);
+		device-&gt;eth.mac[<span class="hljs-number">2</span>] = t &amp; <span class="hljs-number">0xFF</span>;
+		device-&gt;eth.mac[<span class="hljs-number">3</span>] = t &gt;&gt; <span class="hljs-number">8</span>;
+		t = eeprom_read(device, <span class="hljs-number">2</span>);
+		device-&gt;eth.mac[<span class="hljs-number">4</span>] = t &amp; <span class="hljs-number">0xFF</span>;
+		device-&gt;eth.mac[<span class="hljs-number">5</span>] = t &gt;&gt; <span class="hljs-number">8</span>;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">uint32_t</span> mac_addr_low  = *(<span class="hljs-keyword">uint32_t</span> *)(device-&gt;mmio_addr + E1000_REG_RXADDR);
+		<span class="hljs-keyword">uint32_t</span> mac_addr_high = *(<span class="hljs-keyword">uint32_t</span> *)(device-&gt;mmio_addr + E1000_REG_RXADDR + <span class="hljs-number">4</span>);
+		device-&gt;eth.mac[<span class="hljs-number">0</span>] = (mac_addr_low &gt;&gt; <span class="hljs-number">0</span> ) &amp; <span class="hljs-number">0xFF</span>;
+		device-&gt;eth.mac[<span class="hljs-number">1</span>] = (mac_addr_low &gt;&gt; <span class="hljs-number">8</span> ) &amp; <span class="hljs-number">0xFF</span>;
+		device-&gt;eth.mac[<span class="hljs-number">2</span>] = (mac_addr_low &gt;&gt; <span class="hljs-number">16</span>) &amp; <span class="hljs-number">0xFF</span>;
+		device-&gt;eth.mac[<span class="hljs-number">3</span>] = (mac_addr_low &gt;&gt; <span class="hljs-number">24</span>) &amp; <span class="hljs-number">0xFF</span>;
+		device-&gt;eth.mac[<span class="hljs-number">4</span>] = (mac_addr_high&gt;&gt; <span class="hljs-number">0</span> ) &amp; <span class="hljs-number">0xFF</span>;
+		device-&gt;eth.mac[<span class="hljs-number">5</span>] = (mac_addr_high&gt;&gt; <span class="hljs-number">8</span> ) &amp; <span class="hljs-number">0xFF</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">e1000_handle</span><span class="hljs-params">(struct e1000_nic * nic, <span class="hljs-keyword">uint32_t</span> status)</span> </span>{
+	write_command(nic, E1000_REG_ICR, status);
+
+	<span class="hljs-keyword">if</span> (!nic-&gt;configured) {
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (status &amp; ICR_LSC) {
+		nic-&gt;link_status= (read_command(nic, E1000_REG_STATUS) &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">1</span>));
+	}
+
+	make_process_ready(nic-&gt;queuer);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">e1000_queuer</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * data)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">e1000_nic</span> * <span class="hljs-title">nic</span> = <span class="hljs-title">data</span>;</span>
+
+	<span class="hljs-keyword">int</span> head = read_command(nic, E1000_REG_RXDESCHEAD);
+	<span class="hljs-keyword">int</span> budget = <span class="hljs-number">8</span>;
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">int</span> processed = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (head == nic-&gt;rx_index) {
+			head = read_command(nic, E1000_REG_RXDESCHEAD);
+		}
+		<span class="hljs-keyword">if</span> (head != nic-&gt;rx_index) {
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __aarch64__</span>
+			__sync_synchronize();
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+			<span class="hljs-keyword">while</span> ((nic-&gt;rx[nic-&gt;rx_index].status &amp; <span class="hljs-number">0x01</span>) &amp;&amp; (processed &lt; budget)) {
+				<span class="hljs-keyword">int</span> i = nic-&gt;rx_index;
+				<span class="hljs-keyword">if</span> (!(nic-&gt;rx[i].errors &amp; (<span class="hljs-number">0x97</span>))) {
+					nic-&gt;counts.rx_count++;
+					nic-&gt;counts.rx_bytes += nic-&gt;rx[i].length;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __aarch64__</span>
+					cache_invalidate(nic-&gt;rx_virt[i]);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+					net_eth_handle((<span class="hljs-keyword">void</span>*)nic-&gt;rx_virt[i], nic-&gt;eth.device_node, nic-&gt;rx[i].length);
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-built_in">printf</span>(<span class="hljs-string">"error bits set in packet: %x\n"</span>, nic-&gt;rx[i].errors);
+				}
+				processed++;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __aarch64__</span>
+				__sync_synchronize();
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+				nic-&gt;rx[i].status = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">if</span> (++nic-&gt;rx_index == E1000_NUM_RX_DESC) {
+					nic-&gt;rx_index = <span class="hljs-number">0</span>;
+				}
+				<span class="hljs-keyword">if</span> (nic-&gt;rx_index == head) {
+					head = read_command(nic, E1000_REG_RXDESCHEAD);
+					<span class="hljs-keyword">if</span> (nic-&gt;rx_index == head) <span class="hljs-keyword">break</span>;
+				}
+				write_command(nic, E1000_REG_RXDESCTAIL, nic-&gt;rx_index);
+				read_command(nic, E1000_REG_STATUS);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __aarch64__</span>
+				__sync_synchronize();
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+			}
+		}
+		<span class="hljs-keyword">if</span> (processed == <span class="hljs-number">0</span>) {
+			delay_yield(<span class="hljs-number">100000</span>);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">if</span> (this_core-&gt;cpu_id == <span class="hljs-number">0</span>) switch_task(<span class="hljs-number">1</span>);
+		}
+	}
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__x86_64__)</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">irq_handler</span><span class="hljs-params">(struct regs *r)</span> </span>{
+	<span class="hljs-keyword">int</span> irq = r-&gt;int_no - <span class="hljs-number">32</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">elif</span> defined(__aarch64__)</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">e1000_irq_handler</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">int</span> irq, <span class="hljs-keyword">void</span> * data)</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	<span class="hljs-keyword">int</span> handled = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; device_count; ++i) {
+		<span class="hljs-keyword">if</span> (devices[i]-&gt;irq_number == irq) {
+			<span class="hljs-keyword">uint32_t</span> status = read_command(devices[i], E1000_REG_ICR);
+			<span class="hljs-keyword">if</span> (status) {
+				e1000_handle(devices[i], status);
+				<span class="hljs-keyword">if</span> (!handled) {
+					handled = <span class="hljs-number">1</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__x86_64__)</span>
+					irq_ack(irq);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+				}
+			}
+		}
+	}
+
+	<span class="hljs-keyword">return</span> handled;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">tx_full</span><span class="hljs-params">(struct e1000_nic * device, <span class="hljs-keyword">int</span> tx_tail, <span class="hljs-keyword">int</span> tx_head)</span> </span>{
+	<span class="hljs-keyword">if</span> (tx_tail == tx_head) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (device-&gt;tx_index == tx_head) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (((device-&gt;tx_index + <span class="hljs-number">1</span>) &amp; E1000_NUM_TX_DESC) == tx_head) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">send_packet</span><span class="hljs-params">(struct e1000_nic * device, <span class="hljs-keyword">uint8_t</span>* payload, <span class="hljs-keyword">size_t</span> payload_size)</span> </span>{
+	spin_lock(device-&gt;tx_lock);
+	<span class="hljs-keyword">int</span> tx_tail = read_command(device, E1000_REG_TXDESCTAIL);
+	<span class="hljs-keyword">int</span> tx_head = read_command(device, E1000_REG_TXDESCHEAD);
+
+	<span class="hljs-keyword">if</span> (tx_full(device, tx_tail, tx_head)) {
+		<span class="hljs-keyword">int</span> timeout = <span class="hljs-number">1000</span>;
+		<span class="hljs-keyword">do</span> {
+			spin_unlock(device-&gt;tx_lock);
+			delay_yield(<span class="hljs-number">10000</span>);
+			timeout--;
+			<span class="hljs-keyword">if</span> (timeout == <span class="hljs-number">0</span>) {
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"e1000: wait for tx timed out, giving up\n"</span>);
+				<span class="hljs-keyword">return</span>;
+			}
+			spin_lock(device-&gt;tx_lock);
+			tx_tail = read_command(device, E1000_REG_TXDESCTAIL);
+			tx_head = read_command(device, E1000_REG_TXDESCHEAD);
+		} <span class="hljs-keyword">while</span> (tx_full(device, tx_tail, tx_head));
+	}
+
+	<span class="hljs-keyword">int</span> sent = device-&gt;tx_index;
+
+	<span class="hljs-built_in">memcpy</span>(device-&gt;tx_virt[device-&gt;tx_index], payload, payload_size);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__aarch64__)</span>
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dmb ish\nisb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+	cache_clean(device-&gt;tx_virt[device-&gt;tx_index]);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	device-&gt;tx[device-&gt;tx_index].length = payload_size;
+	device-&gt;tx[device-&gt;tx_index].cmd = CMD_EOP | CMD_IFCS | CMD_RS | CMD_RPS;
+	device-&gt;tx[device-&gt;tx_index].status = <span class="hljs-number">0</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__aarch64__)</span>
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dmb ish\nisb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	device-&gt;counts.tx_count++;
+	device-&gt;counts.tx_bytes += payload_size;
+
+	<span class="hljs-keyword">if</span> (++device-&gt;tx_index == E1000_NUM_TX_DESC) {
+		device-&gt;tx_index = <span class="hljs-number">0</span>;
+	}
+
+	write_command(device, E1000_REG_TXDESCTAIL, device-&gt;tx_index);
+	<span class="hljs-keyword">int</span> st = read_command(device, E1000_REG_STATUS);
+	(<span class="hljs-keyword">void</span>)st;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__aarch64__)</span>
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc ivac, %0\ndsb sy\n"</span> :: <span class="hljs-string">"r"</span>(&amp;device-&gt;tx[sent]) : <span class="hljs-string">"memory"</span>)</span></span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+	(<span class="hljs-keyword">void</span>)sent;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	spin_unlock(device-&gt;tx_lock);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">init_rx</span><span class="hljs-params">(struct e1000_nic * device)</span> </span>{
+	write_command(device, E1000_REG_RXDESCLO, device-&gt;rx_phys);
+	write_command(device, E1000_REG_RXDESCHI, <span class="hljs-number">0</span>);
+	write_command(device, E1000_REG_RXDESCLEN, E1000_NUM_RX_DESC * <span class="hljs-keyword">sizeof</span>(struct e1000_rx_desc));
+	write_command(device, E1000_REG_RXDESCHEAD, <span class="hljs-number">0</span>);
+	write_command(device, E1000_REG_RXDESCTAIL, E1000_NUM_RX_DESC - <span class="hljs-number">1</span>);
+
+	device-&gt;rx_index = <span class="hljs-number">0</span>;
+
+	write_command(device, E1000_REG_RCTRL,
+		RCTL_EN  |
+		(<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">2</span>) | <span class="hljs-comment">/* store bad packets */</span>
+		(<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">4</span>) | <span class="hljs-comment">/* multicast promiscuous */</span>
+		(<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">15</span>) | <span class="hljs-comment">/* broadcast accept */</span>
+		(<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">25</span>) | <span class="hljs-comment">/* Extended size... */</span>
+		(<span class="hljs-number">3</span> &lt;&lt; <span class="hljs-number">16</span>) | <span class="hljs-comment">/*   4096 */</span>
+		(<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">26</span>) <span class="hljs-comment">/* strip CRC */</span>
+	);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">init_tx</span><span class="hljs-params">(struct e1000_nic * device)</span> </span>{
+	write_command(device, E1000_REG_TXDESCLO, device-&gt;tx_phys);
+	write_command(device, E1000_REG_TXDESCHI, <span class="hljs-number">0</span>);
+	write_command(device, E1000_REG_TXDESCLEN, E1000_NUM_TX_DESC * <span class="hljs-keyword">sizeof</span>(struct e1000_tx_desc));
+	write_command(device, E1000_REG_TXDESCHEAD, <span class="hljs-number">0</span>);
+	write_command(device, E1000_REG_TXDESCTAIL, <span class="hljs-number">0</span>);
+
+	device-&gt;tx_index = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">uint32_t</span> tctl = read_command(device, E1000_REG_TCTRL);
+
+	<span class="hljs-comment">/* Collision threshold */</span>
+	tctl &amp;= ~(<span class="hljs-number">0xFF</span> &lt;&lt; <span class="hljs-number">4</span>);
+	tctl |= (<span class="hljs-number">15</span> &lt;&lt; <span class="hljs-number">4</span>);
+
+	<span class="hljs-comment">/* Turn it on */</span>
+	tctl |= TCTL_EN;
+	tctl |= TCTL_PSP;
+	tctl |= (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">24</span>); <span class="hljs-comment">/* retransmit on late collision */</span>
+
+	write_command(device, E1000_REG_TCTRL, tctl);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> privileged() do { <span class="hljs-meta-keyword">if</span> (this_core-&gt;current_process-&gt;user != USER_ROOT_UID) { return -EPERM; } } while (0)</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ioctl_e1000</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> request, <span class="hljs-keyword">void</span> * argp)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">e1000_nic</span> * <span class="hljs-title">nic</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+
+	<span class="hljs-keyword">switch</span> (request) {
+		<span class="hljs-keyword">case</span> SIOCGIFHWADDR:
+			<span class="hljs-comment">/* fill argp with mac */</span>
+			<span class="hljs-built_in">memcpy</span>(argp, nic-&gt;eth.mac, <span class="hljs-number">6</span>);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+		<span class="hljs-keyword">case</span> SIOCGIFADDR:
+			<span class="hljs-keyword">if</span> (nic-&gt;eth.ipv4_addr == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -ENOENT;
+			<span class="hljs-built_in">memcpy</span>(argp, &amp;nic-&gt;eth.ipv4_addr, <span class="hljs-keyword">sizeof</span>(nic-&gt;eth.ipv4_addr));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">case</span> SIOCSIFADDR:
+			privileged();
+			<span class="hljs-built_in">memcpy</span>(&amp;nic-&gt;eth.ipv4_addr, argp, <span class="hljs-keyword">sizeof</span>(nic-&gt;eth.ipv4_addr));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">case</span> SIOCGIFNETMASK:
+			<span class="hljs-keyword">if</span> (nic-&gt;eth.ipv4_subnet == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -ENOENT;
+			<span class="hljs-built_in">memcpy</span>(argp, &amp;nic-&gt;eth.ipv4_subnet, <span class="hljs-keyword">sizeof</span>(nic-&gt;eth.ipv4_subnet));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">case</span> SIOCSIFNETMASK:
+			privileged();
+			<span class="hljs-built_in">memcpy</span>(&amp;nic-&gt;eth.ipv4_subnet, argp, <span class="hljs-keyword">sizeof</span>(nic-&gt;eth.ipv4_subnet));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">case</span> SIOCGIFGATEWAY:
+			<span class="hljs-keyword">if</span> (nic-&gt;eth.ipv4_subnet == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -ENOENT;
+			<span class="hljs-built_in">memcpy</span>(argp, &amp;nic-&gt;eth.ipv4_gateway, <span class="hljs-keyword">sizeof</span>(nic-&gt;eth.ipv4_gateway));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">case</span> SIOCSIFGATEWAY:
+			privileged();
+			<span class="hljs-built_in">memcpy</span>(&amp;nic-&gt;eth.ipv4_gateway, argp, <span class="hljs-keyword">sizeof</span>(nic-&gt;eth.ipv4_gateway));
+			net_arp_ask(nic-&gt;eth.ipv4_gateway, node);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+		<span class="hljs-keyword">case</span> SIOCGIFADDR6:
+			<span class="hljs-keyword">return</span> -ENOENT;
+		<span class="hljs-keyword">case</span> SIOCSIFADDR6:
+			privileged();
+			<span class="hljs-built_in">memcpy</span>(&amp;nic-&gt;eth.ipv6_addr, argp, <span class="hljs-keyword">sizeof</span>(nic-&gt;eth.ipv6_addr));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+		<span class="hljs-keyword">case</span> SIOCGIFFLAGS: {
+			<span class="hljs-keyword">uint32_t</span> * flags = argp;
+			*flags = IFF_RUNNING;
+			<span class="hljs-keyword">if</span> (nic-&gt;link_status) *flags |= IFF_UP;
+			<span class="hljs-comment">/* We turn these on in our init_tx */</span>
+			*flags |= IFF_BROADCAST;
+			*flags |= IFF_MULTICAST;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+
+		<span class="hljs-keyword">case</span> SIOCGIFMTU: {
+			<span class="hljs-keyword">uint32_t</span> * mtu = argp;
+			*mtu = nic-&gt;eth.mtu;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+
+		<span class="hljs-keyword">case</span> SIOCGIFCOUNTS: {
+			<span class="hljs-built_in">memcpy</span>(argp, &amp;nic-&gt;counts, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">netif_counters_t</span>));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> -ENOTTY;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">write_e1000</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">e1000_nic</span> * <span class="hljs-title">nic</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+	<span class="hljs-comment">/* write packet */</span>
+	send_packet(nic, <span class="hljs-built_in">buffer</span>, <span class="hljs-built_in">size</span>);
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">size</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ints_off</span><span class="hljs-params">(struct e1000_nic * nic)</span> </span>{
+	write_command(nic, E1000_REG_IMC, <span class="hljs-number">0xFFFFFFFF</span>);
+	write_command(nic, E1000_REG_ICR, <span class="hljs-number">0xFFFFFFFF</span>);
+	read_command(nic, E1000_REG_STATUS);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">e1000_init</span><span class="hljs-params">(struct e1000_nic * nic)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> e1000_device_pci = nic-&gt;pci_device;
+
+	nic-&gt;rx_phys = mmu_allocate_n_frames(<span class="hljs-number">2</span>) &lt;&lt; <span class="hljs-number">12</span>;
+	nic-&gt;rx = mmu_map_mmio_region(nic-&gt;rx_phys, <span class="hljs-number">8192</span>);
+
+	nic-&gt;tx_phys = mmu_allocate_n_frames(<span class="hljs-number">2</span>) &lt;&lt; <span class="hljs-number">12</span>;
+	nic-&gt;tx = mmu_map_mmio_region(nic-&gt;tx_phys, <span class="hljs-number">8192</span>);
+
+	<span class="hljs-built_in">memset</span>((<span class="hljs-keyword">void</span>*)nic-&gt;rx, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(struct e1000_rx_desc) * E1000_NUM_RX_DESC);
+	<span class="hljs-built_in">memset</span>((<span class="hljs-keyword">void</span>*)nic-&gt;tx, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(struct e1000_tx_desc) * E1000_NUM_TX_DESC);
+
+	<span class="hljs-comment">/* Allocate buffers */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; E1000_NUM_RX_DESC; ++i) {
+		nic-&gt;rx[i].addr = mmu_allocate_a_frame() &lt;&lt; <span class="hljs-number">12</span>;
+		nic-&gt;rx_virt[i] = mmu_map_mmio_region(nic-&gt;rx[i].addr, <span class="hljs-number">4096</span>);
+		mmu_frame_map_address(mmu_get_page((<span class="hljs-keyword">uintptr_t</span>)nic-&gt;rx_virt[i],<span class="hljs-number">0</span>),MMU_FLAG_KERNEL|MMU_FLAG_WRITABLE,nic-&gt;rx[i].addr);
+		nic-&gt;rx[i].status = <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; E1000_NUM_TX_DESC; ++i) {
+		nic-&gt;tx[i].addr = mmu_allocate_a_frame() &lt;&lt; <span class="hljs-number">12</span>;
+		nic-&gt;tx_virt[i] = mmu_map_mmio_region(nic-&gt;tx[i].addr, <span class="hljs-number">4096</span>);
+		mmu_frame_allocate(mmu_get_page((<span class="hljs-keyword">uintptr_t</span>)nic-&gt;tx_virt[i],<span class="hljs-number">0</span>),MMU_FLAG_KERNEL|MMU_FLAG_WRITABLE);
+		<span class="hljs-built_in">memset</span>(nic-&gt;tx_virt[i], <span class="hljs-number">0</span>, <span class="hljs-number">4096</span>);
+		nic-&gt;tx[i].status = <span class="hljs-number">0</span>;
+		nic-&gt;tx[i].cmd = (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">0</span>);
+	}
+
+	<span class="hljs-keyword">uint16_t</span> command_reg = pci_read_field(e1000_device_pci, PCI_COMMAND, <span class="hljs-number">2</span>);
+	command_reg = (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">1</span>) | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">2</span>);
+	pci_write_field(e1000_device_pci, PCI_COMMAND, <span class="hljs-number">2</span>, command_reg);
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__aarch64__)</span>
+	pci_write_field(e1000_device_pci, PCI_BAR0, <span class="hljs-number">4</span>, <span class="hljs-number">0x12200000</span>);
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	delay_yield(<span class="hljs-number">10000</span>);
+
+	<span class="hljs-comment">/* Is this size enough? */</span>
+	<span class="hljs-keyword">uint32_t</span> initial_bar = pci_read_field(e1000_device_pci, PCI_BAR0, <span class="hljs-number">4</span>);
+	nic-&gt;mmio_addr = (<span class="hljs-keyword">uintptr_t</span>)mmu_map_mmio_region(initial_bar, <span class="hljs-number">0x20000</span>);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__aarch64__)</span>
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	eeprom_detect(nic);
+	read_mac(nic);
+	write_mac(nic);
+
+	nic-&gt;queuer = (<span class="hljs-keyword">process_t</span>*)this_core-&gt;current_process;
+
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CTRL_PHY_RST (1UL &lt;&lt; 31UL)</span>
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CTRL_RST     (1UL &lt;&lt; 26UL)</span>
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CTRL_SLU     (1UL &lt;&lt; 6UL)</span>
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CTRL_LRST    (1UL &lt;&lt; 3UL)</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__x86_64__)</span>
+	nic-&gt;irq_number = pci_get_interrupt(e1000_device_pci);
+	irq_install_handler(nic-&gt;irq_number, irq_handler, nic-&gt;eth.if_name);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">elif</span> defined(__aarch64__)</span>
+	<span class="hljs-keyword">int</span> irq;
+	gic_map_pci_interrupt(nic-&gt;eth.if_name,e1000_device_pci,&amp;irq,e1000_irq_handler,nic);
+	nic-&gt;irq_number = irq;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	<span class="hljs-comment">/* Disable interrupts */</span>
+	ints_off(nic);
+
+	<span class="hljs-comment">/* Turn off receive + transmit */</span>
+	write_command(nic, E1000_REG_RCTRL, <span class="hljs-number">0</span>);
+	write_command(nic, E1000_REG_TCTRL, TCTL_PSP);
+	read_command(nic, E1000_REG_STATUS);
+	delay_yield(<span class="hljs-number">10000</span>);
+
+	<span class="hljs-comment">/* Reset everything */</span>
+	<span class="hljs-keyword">uint32_t</span> ctrl = read_command(nic, E1000_REG_CTRL);
+	ctrl |= CTRL_RST;
+	write_command(nic, E1000_REG_CTRL, ctrl);
+	delay_yield(<span class="hljs-number">20000</span>);
+
+	<span class="hljs-comment">/* Turn off interrupts _again_ */</span>
+	ints_off(nic);
+
+	<span class="hljs-comment">/* Recommended flow control settings? */</span>
+	write_command(nic, <span class="hljs-number">0x0028</span>, <span class="hljs-number">0x002C8001</span>);
+	write_command(nic, <span class="hljs-number">0x002c</span>, <span class="hljs-number">0x0100</span>);
+	write_command(nic, <span class="hljs-number">0x0030</span>, <span class="hljs-number">0x8808</span>);
+	write_command(nic, <span class="hljs-number">0x0170</span>, <span class="hljs-number">0xFFFF</span>);
+
+	<span class="hljs-comment">/* Link up */</span>
+	<span class="hljs-keyword">uint32_t</span> status = read_command(nic, E1000_REG_CTRL);
+	status |= CTRL_SLU;
+	status |= (<span class="hljs-number">2</span> &lt;&lt; <span class="hljs-number">8</span>); <span class="hljs-comment">/* Speed to gigabit... */</span>
+	status &amp;= ~CTRL_LRST;
+	status &amp;= ~CTRL_PHY_RST;
+	write_command(nic, E1000_REG_CTRL, status);
+
+	<span class="hljs-comment">/* Clear statistical counters */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> __aarch64__</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">128</span>; ++i) {
+		write_command(nic, <span class="hljs-number">0x5200</span> + i * <span class="hljs-number">4</span>, <span class="hljs-number">0</span>);
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">64</span>; ++i) {
+		read_command(nic, <span class="hljs-number">0x4000</span> + i * <span class="hljs-number">4</span>);
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	init_rx(nic);
+	init_tx(nic);
+
+	write_command(nic, E1000_REG_RDTR, <span class="hljs-number">0</span>);
+	write_command(nic, E1000_REG_ITR, <span class="hljs-number">500</span>);
+	read_command(nic, E1000_REG_STATUS);
+
+	nic-&gt;link_status = (read_command(nic, E1000_REG_STATUS) &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">1</span>));
+
+	nic-&gt;eth.device_node = <span class="hljs-built_in">calloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>),<span class="hljs-number">1</span>);
+	<span class="hljs-built_in">snprintf</span>(nic-&gt;eth.device_node-&gt;name, <span class="hljs-number">100</span>, <span class="hljs-string">"%s"</span>, nic-&gt;eth.if_name);
+	nic-&gt;eth.device_node-&gt;flags = FS_BLOCKDEVICE; <span class="hljs-comment">/* NETDEVICE? */</span>
+	nic-&gt;eth.device_node-&gt;mask  = <span class="hljs-number">0644</span>; <span class="hljs-comment">/* temporary; shouldn't be doing this with these device files */</span>
+	nic-&gt;eth.device_node-&gt;ioctl = ioctl_e1000;
+	nic-&gt;eth.device_node-&gt;<span class="hljs-built_in">write</span> = write_e1000;
+	nic-&gt;eth.device_node-&gt;device = nic;
+
+	nic-&gt;eth.mtu = <span class="hljs-number">1500</span>; <span class="hljs-comment">/* guess */</span>
+
+	net_add_interface(nic-&gt;eth.if_name, nic-&gt;eth.device_node);
+
+	<span class="hljs-keyword">char</span> worker_name[<span class="hljs-number">34</span>];
+	<span class="hljs-built_in">snprintf</span>(worker_name, <span class="hljs-number">33</span>, <span class="hljs-string">"[%s]"</span>, nic-&gt;eth.if_name);
+	nic-&gt;queuer = spawn_worker_thread(e1000_queuer, worker_name, nic);
+
+	nic-&gt;configured = <span class="hljs-number">1</span>;
+
+	<span class="hljs-comment">/* Twiddle interrupts */</span>
+	write_command(nic, E1000_REG_IMS, INTS);
+	delay_yield(<span class="hljs-number">10000</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">find_e1000</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> device, <span class="hljs-keyword">uint16_t</span> vendorid, <span class="hljs-keyword">uint16_t</span> deviceid, <span class="hljs-keyword">void</span> * found)</span> </span>{
+	<span class="hljs-keyword">if</span> ((vendorid == <span class="hljs-number">0x8086</span>) &amp;&amp; (deviceid == <span class="hljs-number">0x100e</span> || deviceid == <span class="hljs-number">0x1004</span> || deviceid == <span class="hljs-number">0x100f</span> || deviceid == <span class="hljs-number">0x10ea</span> || deviceid == <span class="hljs-number">0x10d3</span>)) {
+		<span class="hljs-comment">/* Allocate a device */</span>
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">e1000_nic</span> * <span class="hljs-title">nic</span> = <span class="hljs-title">calloc</span>(1,<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">e1000_nic</span>));</span>
+		nic-&gt;pci_device = device;
+		nic-&gt;deviceid   = deviceid;
+		devices[device_count++] = nic;
+
+		<span class="hljs-built_in">snprintf</span>(nic-&gt;eth.if_name, <span class="hljs-number">31</span>,
+			<span class="hljs-string">"enp%ds%d"</span>,
+			(<span class="hljs-keyword">int</span>)pci_extract_bus(device),
+			(<span class="hljs-keyword">int</span>)pci_extract_slot(device));
+
+		e1000_init(nic);
+		*(<span class="hljs-keyword">int</span>*)found = <span class="hljs-number">1</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">e1000_install</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> found = <span class="hljs-number">0</span>;
+	pci_scan(&amp;find_e1000, <span class="hljs-number">-1</span>, &amp;found);
+
+	<span class="hljs-keyword">if</span> (!found) {
+		<span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> Clean up? Remove ourselves? */</span>
+		<span class="hljs-keyword">return</span> -ENODEV;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">fini</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> Uninstall device */</span>
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Module</span> <span class="hljs-title">metadata</span> = {</span>
+	.name = <span class="hljs-string">"e1000"</span>,
+	.init = e1000_install,
+	.fini = fini,
+};
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

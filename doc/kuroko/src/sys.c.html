@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>sys.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\src\\sys.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>sys.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/value.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/object.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KRK_VERSION_MAJOR  1</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KRK_VERSION_MINOR  5</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KRK_VERSION_PATCH  0</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KRK_VERSION_LEVEL  0xc</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KRK_VERSION_SERIAL 0x2</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KRK_VERSION_EXTRA_BASE  <span class="hljs-meta-string">"rc2"</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_STATIC_ONLY</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KRK_VERSION_EXTRA KRK_VERSION_EXTRA_BASE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KRK_VERSION_EXTRA KRK_VERSION_EXTRA_BASE <span class="hljs-meta-string">"-static"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KRK_BUILD_DATE     __DATE__ <span class="hljs-meta-string">" at "</span> __TIME__</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> (defined(__GNUC__) || defined(__GNUG__)) &amp;&amp; !(defined(__clang__) || defined(__INTEL_COMPILER))</span>
+<span class="hljs-meta"># <span class="hljs-meta-keyword">define</span> KRK_BUILD_COMPILER <span class="hljs-meta-string">"GCC "</span> __VERSION__</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">elif</span> (defined(__clang__))</span>
+<span class="hljs-meta"># <span class="hljs-meta-keyword">define</span> KRK_BUILD_COMPILER <span class="hljs-meta-string">"clang "</span> __clang_version__</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">elif</span> (defined(_MSC_VER) &amp;&amp; !defined(__clang__))</span>
+<span class="hljs-meta"># <span class="hljs-meta-keyword">define</span> KRK_ARG_STR(str) #str</span>
+<span class="hljs-meta"># <span class="hljs-meta-keyword">define</span> KRK_ARG_LOL(s) KRK_ARG_STR(s)</span>
+<span class="hljs-meta"># <span class="hljs-meta-keyword">define</span> KRK_BUILD_COMPILER <span class="hljs-meta-string">"msvc "</span> KRK_ARG_LOL(_MSC_FULL_VER)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+<span class="hljs-meta"># <span class="hljs-meta-keyword">define</span> KRK_BUILD_COMPILER <span class="hljs-meta-string">""</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_DISABLE_DEBUG</span>
+KRK_Function(set_tracing) {
+	<span class="hljs-keyword">int</span> tracing = <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">int</span> disassembly = <span class="hljs-number">-1</span>;
+
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(
+		<span class="hljs-string">"|$pp"</span>, (<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *[]){<span class="hljs-string">"tracing"</span>,<span class="hljs-string">"disassembly"</span>},
+		&amp;tracing, &amp;disassembly)) {
+		<span class="hljs-keyword">return</span> NONE_VAL();
+	}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SET_THREAD(arg,flag) do { <span class="hljs-meta-keyword">if</span> (arg != -1) { <span class="hljs-meta-keyword">if</span> (arg) krk_currentThread.flags |= KRK_THREAD_ENABLE_ ## flag; <span class="hljs-meta-keyword">else</span> krk_currentThread.flags &amp;= ~KRK_THREAD_ENABLE_ ## flag; } } while (0)</span>
+	SET_THREAD(tracing,TRACING);
+	SET_THREAD(disassembly,DISASSEMBLY);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> SET_THREAD</span>
+
+	<span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">1</span>);
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+KRK_Function(set_tracing) {
+	<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError,<span class="hljs-string">"Debugging is not enabled in this build."</span>);
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+KRK_Function(getsizeof) {
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">1</span> || !IS_OBJECT(argv[<span class="hljs-number">0</span>])) <span class="hljs-keyword">return</span> INTEGER_VAL(<span class="hljs-number">0</span>);
+	<span class="hljs-keyword">size_t</span> mySize = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">switch</span> (AS_OBJECT(argv[<span class="hljs-number">0</span>])-&gt;type) {
+		<span class="hljs-keyword">case</span> KRK_OBJ_STRING: {
+			KrkString * self = AS_STRING(argv[<span class="hljs-number">0</span>]);
+			mySize += <span class="hljs-keyword">sizeof</span>(KrkString) + self-&gt;length + <span class="hljs-number">1</span>; <span class="hljs-comment">/* For the UTF8 */</span>
+			<span class="hljs-keyword">if</span> (self-&gt;codes &amp;&amp; self-&gt;chars != self-&gt;codes) {
+				<span class="hljs-keyword">if</span> ((self-&gt;obj.flags &amp; KRK_OBJ_FLAGS_STRING_MASK) &lt;= KRK_OBJ_FLAGS_STRING_UCS1) mySize += self-&gt;codesLength;
+				<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> ((self-&gt;obj.flags &amp; KRK_OBJ_FLAGS_STRING_MASK) == KRK_OBJ_FLAGS_STRING_UCS2) mySize += <span class="hljs-number">2</span> * self-&gt;codesLength;
+				<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> ((self-&gt;obj.flags &amp; KRK_OBJ_FLAGS_STRING_MASK) == KRK_OBJ_FLAGS_STRING_UCS4) mySize += <span class="hljs-number">4</span> * self-&gt;codesLength;
+			}
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_CODEOBJECT: {
+			KrkCodeObject * self = (KrkCodeObject*)AS_OBJECT(argv[<span class="hljs-number">0</span>]);
+			mySize += <span class="hljs-keyword">sizeof</span>(KrkCodeObject);
+			<span class="hljs-comment">/* Chunk size */</span>
+			mySize += <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint8_t</span>) * self-&gt;chunk.capacity;
+			mySize += <span class="hljs-keyword">sizeof</span>(KrkLineMap) * self-&gt;chunk.linesCapacity;
+			mySize += <span class="hljs-keyword">sizeof</span>(KrkValue) * self-&gt;chunk.constants.capacity;
+			mySize += <span class="hljs-keyword">sizeof</span>(KrkExpressionsMap) * self-&gt;expressionsCapacity;
+			<span class="hljs-comment">/* requiredArgNames */</span>
+			mySize += <span class="hljs-keyword">sizeof</span>(KrkValue) * self-&gt;positionalArgNames.capacity;
+			<span class="hljs-comment">/* keywordArgNames */</span>
+			mySize += <span class="hljs-keyword">sizeof</span>(KrkValue) * self-&gt;keywordArgNames.capacity;
+			<span class="hljs-comment">/* Locals array */</span>
+			mySize += <span class="hljs-keyword">sizeof</span>(KrkLocalEntry) * self-&gt;localNameCount;
+			<span class="hljs-comment">/* Overlong jumps */</span>
+			mySize += <span class="hljs-keyword">sizeof</span>(KrkOverlongJump) * self-&gt;overlongJumpsCapacity;
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_NATIVE: {
+			KrkNative * self = (KrkNative*)AS_OBJECT(argv[<span class="hljs-number">0</span>]);
+			mySize += <span class="hljs-keyword">sizeof</span>(KrkNative) + <span class="hljs-built_in">strlen</span>(self-&gt;name) + <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_CLOSURE: {
+			KrkClosure * self = AS_CLOSURE(argv[<span class="hljs-number">0</span>]);
+			mySize += <span class="hljs-keyword">sizeof</span>(KrkClosure) + <span class="hljs-keyword">sizeof</span>(KrkUpvalue*) * self-&gt;function-&gt;upvalueCount;
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_UPVALUE: {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>It should not be possible for an upvalue to be an argument to getsizeof,
+but for the sake of completeness, we'll include it here...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			mySize += <span class="hljs-keyword">sizeof</span>(KrkUpvalue);
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_CLASS: {
+			KrkClass * self = AS_CLASS(argv[<span class="hljs-number">0</span>]);
+			mySize += <span class="hljs-keyword">sizeof</span>(KrkClass);
+			mySize += (<span class="hljs-keyword">sizeof</span>(KrkTableEntry) + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">ssize_t</span>)) * self-&gt;methods.capacity;
+			mySize += (<span class="hljs-keyword">sizeof</span>(KrkTableEntry) + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">ssize_t</span>)) * self-&gt;subclasses.capacity;
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_INSTANCE: {
+			KrkInstance * self = AS_INSTANCE(argv[<span class="hljs-number">0</span>]);
+			mySize += (<span class="hljs-keyword">sizeof</span>(KrkTableEntry) + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">ssize_t</span>)) * self-&gt;fields.capacity;
+			KrkClass * type = krk_getType(argv[<span class="hljs-number">0</span>]);
+			mySize += type-&gt;allocSize; <span class="hljs-comment">/* All instance types have an allocSize set */</span>
+
+			<span class="hljs-comment">/* TODO __sizeof__ */</span>
+			<span class="hljs-keyword">if</span> (krk_isInstanceOf(argv[<span class="hljs-number">0</span>], vm.baseClasses-&gt;listClass)) {
+				mySize += <span class="hljs-keyword">sizeof</span>(KrkValue) * AS_LIST(argv[<span class="hljs-number">0</span>])-&gt;capacity;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (krk_isInstanceOf(argv[<span class="hljs-number">0</span>], vm.baseClasses-&gt;dictClass)) {
+				mySize += (<span class="hljs-keyword">sizeof</span>(KrkTableEntry) + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">ssize_t</span>)) * AS_DICT(argv[<span class="hljs-number">0</span>])-&gt;capacity;
+			}
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_BOUND_METHOD: {
+			mySize += <span class="hljs-keyword">sizeof</span>(KrkBoundMethod);
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_TUPLE: {
+			KrkTuple * self = AS_TUPLE(argv[<span class="hljs-number">0</span>]);
+			mySize += <span class="hljs-keyword">sizeof</span>(KrkTuple) + <span class="hljs-keyword">sizeof</span>(KrkValue) * self-&gt;values.capacity;
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_BYTES: {
+			KrkBytes * self = AS_BYTES(argv[<span class="hljs-number">0</span>]);
+			mySize += <span class="hljs-keyword">sizeof</span>(KrkBytes) + self-&gt;length;
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">default</span>: <span class="hljs-keyword">break</span>;
+	}
+	<span class="hljs-keyword">return</span> INTEGER_VAL(mySize);
+}
+
+KRK_Function(set_clean_output) {
+	<span class="hljs-keyword">if</span> (!argc || (IS_BOOLEAN(argv[<span class="hljs-number">0</span>]) &amp;&amp; AS_BOOLEAN(argv[<span class="hljs-number">0</span>]))) {
+		vm.globalFlags |= KRK_GLOBAL_CLEAN_OUTPUT;
+	} <span class="hljs-keyword">else</span> {
+		vm.globalFlags &amp;= ~KRK_GLOBAL_CLEAN_OUTPUT;
+	}
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Function(importmodule) {
+	FUNCTION_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (!IS_STRING(argv[<span class="hljs-number">0</span>])) <span class="hljs-keyword">return</span> TYPE_ERROR(str,argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">if</span> (!krk_doRecursiveModuleLoad(AS_STRING(argv[<span class="hljs-number">0</span>]))) <span class="hljs-keyword">return</span> NONE_VAL(); <span class="hljs-comment">/* ImportError already raised */</span>
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+
+KRK_Function(modules) {
+	FUNCTION_TAKES_NONE();
+	KrkValue moduleList = krk_list_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	krk_push(moduleList);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; vm.modules.capacity; ++i) {
+		KrkTableEntry * entry = &amp;vm.modules.entries[i];
+		<span class="hljs-keyword">if</span> (IS_KWARGS(entry-&gt;key)) <span class="hljs-keyword">continue</span>;
+		krk_writeValueArray(AS_LIST(moduleList), entry-&gt;key);
+	}
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+
+KRK_Function(unload) {
+	FUNCTION_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (!IS_STRING(argv[<span class="hljs-number">0</span>])) <span class="hljs-keyword">return</span> TYPE_ERROR(str,argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">if</span> (!krk_tableDelete(&amp;vm.modules, argv[<span class="hljs-number">0</span>])) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;keyError, <span class="hljs-string">"Module is not loaded."</span>);
+	}
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Function(inspect_value) {
+	FUNCTION_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">return</span> OBJECT_VAL(krk_newBytes(<span class="hljs-keyword">sizeof</span>(KrkValue),(<span class="hljs-keyword">uint8_t</span>*)&amp;argv[<span class="hljs-number">0</span>]));
+}
+
+KRK_Function(members) {
+	KrkValue val;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"V"</span>, (<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"obj"</span>}, &amp;val)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	KrkValue myDict = krk_dict_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	krk_push(myDict);
+
+	KrkTable * src = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">if</span> (IS_INSTANCE(val) || IS_CLASS(val)) {
+		src = &amp;AS_INSTANCE(val)-&gt;fields;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_CLOSURE(val)) {
+		src = &amp;AS_CLOSURE(val)-&gt;fields;
+	}
+
+	<span class="hljs-keyword">if</span> (src) {
+		krk_tableAddAll(src, AS_DICT(myDict));
+	}
+
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+
+KRK_Function(set_recursion_depth) {
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> maxdepth;
+	<span class="hljs-keyword">int</span> quiet = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"I|p"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"maxdepth"</span>,<span class="hljs-string">"quiet"</span>},&amp;maxdepth,&amp;quiet)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">if</span> (krk_currentThread.exitOnFrame != <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">if</span> (quiet) <span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">0</span>);
+		<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-string">"Can not change recursion depth in this context."</span>);
+	}
+	krk_setMaximumRecursionDepth(maxdepth);
+	<span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">1</span>);
+}
+
+KRK_Function(get_recursion_depth) {
+	<span class="hljs-keyword">return</span> INTEGER_VAL(krk_currentThread.maximumCallDepth);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_module_init_kuroko</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>kuroko = module()</p>
+</div>
+<div class="body">
+<p>This is equivalent to Python's &quot;sys&quot; module, but we do not use that name
+in consideration of future compatibility, where a &quot;sys&quot; module may be
+added to emulate Python version numbers, etc.</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	vm.system = krk_newInstance(vm.baseClasses-&gt;moduleClass);
+	krk_attachNamedObject(&amp;vm.modules, <span class="hljs-string">"kuroko"</span>, (KrkObj*)vm.system);
+	krk_attachNamedObject(&amp;vm.system-&gt;fields, <span class="hljs-string">"__name__"</span>, (KrkObj*)S(<span class="hljs-string">"kuroko"</span>));
+	krk_attachNamedValue(&amp;vm.system-&gt;fields, <span class="hljs-string">"__file__"</span>, NONE_VAL()); <span class="hljs-comment">/* (built-in) */</span>
+	KRK_DOC(vm.system, <span class="hljs-string">"@brief System module."</span>);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> STR_(x) #x</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> STR(x) STR_(x)</span>
+	krk_attachNamedObject(&amp;vm.system-&gt;fields, <span class="hljs-string">"version"</span>,
+		(KrkObj*)S(STR(KRK_VERSION_MAJOR) <span class="hljs-string">"."</span> STR(KRK_VERSION_MINOR) <span class="hljs-string">"."</span> STR(KRK_VERSION_PATCH) KRK_VERSION_EXTRA));
+	krk_attachNamedObject(&amp;vm.system-&gt;fields, <span class="hljs-string">"buildenv"</span>, (KrkObj*)S(KRK_BUILD_COMPILER));
+	krk_attachNamedObject(&amp;vm.system-&gt;fields, <span class="hljs-string">"builddate"</span>, (KrkObj*)S(KRK_BUILD_DATE));
+	krk_attachNamedValue(&amp;vm.system-&gt;fields, <span class="hljs-string">"hexversion"</span>,
+		INTEGER_VAL((KRK_VERSION_MAJOR &lt;&lt; <span class="hljs-number">24</span>) | (KRK_VERSION_MINOR &lt;&lt; <span class="hljs-number">16</span>) | (KRK_VERSION_PATCH &lt;&lt; <span class="hljs-number">8</span>) | (KRK_VERSION_LEVEL &lt;&lt; <span class="hljs-number">4</span>) | (KRK_VERSION_SERIAL)));
+
+	KRK_DOC(BIND_FUNC(vm.system,getsizeof),
+		<span class="hljs-string">"@brief Calculate the approximate size of an object in bytes.\n"</span>
+		<span class="hljs-string">"@arguments value\n\n"</span>
+		<span class="hljs-string">"@param value Value to examine."</span>);
+	KRK_DOC(BIND_FUNC(vm.system,set_clean_output),
+		<span class="hljs-string">"@brief Disables terminal escapes in some output from the VM.\n"</span>
+		<span class="hljs-string">"@arguments clean=True\n\n"</span>
+		<span class="hljs-string">"@param clean Whether to remove escapes."</span>);
+	KRK_DOC(BIND_FUNC(vm.system,set_tracing),
+		<span class="hljs-string">"@brief Toggle debugging modes.\n"</span>
+		<span class="hljs-string">"@arguments tracing=None,disassembly=None\n\n"</span>
+		<span class="hljs-string">"Enables or disables tracing options for the current thread.\n\n"</span>
+		<span class="hljs-string">"@param tracing Enables instruction tracing.\n"</span>
+		<span class="hljs-string">"@param disassembly Prints bytecode disassembly after compilation."</span>);
+	KRK_DOC(BIND_FUNC(vm.system,importmodule),
+		<span class="hljs-string">"@brief Import a module by string name\n"</span>
+		<span class="hljs-string">"@arguments module\n\n"</span>
+		<span class="hljs-string">"Imports the dot-separated module @p module as if it were imported by the @c import statement and returns the resulting module object.\n\n"</span>
+		<span class="hljs-string">"@param module A string with a dot-separated package or module name"</span>);
+	KRK_DOC(BIND_FUNC(vm.system,modules),
+		<span class="hljs-string">"Get the list of valid names from the module table"</span>);
+	KRK_DOC(BIND_FUNC(vm.system,unload),
+		<span class="hljs-string">"Removes a module from the module table. It is not necessarily garbage collected if other references to it exist."</span>);
+	KRK_DOC(BIND_FUNC(vm.system,inspect_value),
+		<span class="hljs-string">"Obtain the memory representation of a stack value."</span>);
+	KRK_DOC(BIND_FUNC(vm.system,members),
+		<span class="hljs-string">"Obtain a copy of a dict of the direct members of an object."</span>);
+	KRK_DOC(BIND_FUNC(vm.system,set_recursion_depth),
+		<span class="hljs-string">"Change the maximum recursion depth of the current thread if possible."</span>);
+	KRK_DOC(BIND_FUNC(vm.system,get_recursion_depth),
+		<span class="hljs-string">"Examine the maximum recursion depth of the current thread."</span>);
+	krk_attachNamedObject(&amp;vm.system-&gt;fields, <span class="hljs-string">"module"</span>, (KrkObj*)vm.baseClasses-&gt;moduleClass);
+	krk_attachNamedObject(&amp;vm.system-&gt;fields, <span class="hljs-string">"path_sep"</span>, (KrkObj*)S(KRK_PATH_SEP));
+	KrkValue module_paths = krk_list_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	krk_attachNamedValue(&amp;vm.system-&gt;fields, <span class="hljs-string">"module_paths"</span>, module_paths);
+	krk_writeValueArray(AS_LIST(module_paths), OBJECT_VAL(S(<span class="hljs-string">"./"</span>)));
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_NO_FILESYSTEM</span>
+	<span class="hljs-keyword">if</span> (vm.binpath) {
+		krk_attachNamedObject(&amp;vm.system-&gt;fields, <span class="hljs-string">"executable_path"</span>, (KrkObj*)krk_copyString(vm.binpath, <span class="hljs-built_in">strlen</span>(vm.binpath)));
+		<span class="hljs-keyword">char</span> * dir = strdup(vm.binpath);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> _WIN32</span>
+		<span class="hljs-keyword">char</span> * slash = <span class="hljs-built_in">strrchr</span>(dir,<span class="hljs-string">'/'</span>);
+		<span class="hljs-keyword">if</span> (slash) *slash = <span class="hljs-string">'\0'</span>;
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(dir,<span class="hljs-string">"/bin"</span>) == (dir + <span class="hljs-built_in">strlen</span>(dir) - <span class="hljs-number">4</span>)) {
+			slash = <span class="hljs-built_in">strrchr</span>(dir,<span class="hljs-string">'/'</span>);
+			<span class="hljs-keyword">if</span> (slash) *slash = <span class="hljs-string">'\0'</span>;
+			krk_writeValueArray(AS_LIST(module_paths), krk_stringFromFormat(<span class="hljs-string">"%s/lib/kuroko/"</span>, dir));
+		} <span class="hljs-keyword">else</span> {
+			krk_writeValueArray(AS_LIST(module_paths), krk_stringFromFormat(<span class="hljs-string">"%s/modules/"</span>, dir));
+		}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+		<span class="hljs-keyword">char</span> * backslash = <span class="hljs-built_in">strrchr</span>(dir,<span class="hljs-string">'\\'</span>);
+		<span class="hljs-keyword">if</span> (backslash) *backslash = <span class="hljs-string">'\0'</span>;
+		krk_writeValueArray(AS_LIST(module_paths), krk_stringFromFormat(<span class="hljs-string">"%s\\modules\\"</span>, dir));
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+		<span class="hljs-built_in">free</span>(dir);
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>obj_gen.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\src\\obj_gen.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>obj_gen.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/value.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/memory.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/debug.h&gt;</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">generator</span> {</span>
+	KrkInstance inst;
+	KrkClosure * closure;
+	KrkValue * args;
+	<span class="hljs-keyword">size_t</span> argCount;
+	<span class="hljs-keyword">uint8_t</span> * ip;
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">running</span>;
+	<span class="hljs-keyword">int</span> started;
+	KrkValue result;
+	<span class="hljs-keyword">int</span> type;
+	KrkThreadState fakethread;
+	KrkUpvalue * capturedUpvalues;
+};
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AS_generator(o) ((struct generator *)AS_OBJECT(o))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> IS_generator(o) (krk_isInstanceOf(o, KRK_BASE_CLASS(generator)))</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE struct generator *</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_NAME  self</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _generator_close_upvalues(struct generator * self) {
+	<span class="hljs-keyword">while</span> (self-&gt;capturedUpvalues) {
+		KrkUpvalue * upvalue = self-&gt;capturedUpvalues;
+		upvalue-&gt;closed = self-&gt;args[upvalue-&gt;location];
+		upvalue-&gt;location = <span class="hljs-number">-1</span>;
+		self-&gt;capturedUpvalues = upvalue-&gt;next;
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _generator_gcscan(KrkInstance * _self) {
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">generator</span> * <span class="hljs-title">self</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">generator</span>*)_<span class="hljs-title">self</span>;</span>
+	krk_markObject((KrkObj*)self-&gt;closure);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; self-&gt;argCount; ++i) {
+		krk_markValue(self-&gt;args[i]);
+	}
+	<span class="hljs-keyword">for</span> (KrkUpvalue * upvalue = self-&gt;capturedUpvalues; upvalue; upvalue = upvalue-&gt;next) {
+		krk_markObject((KrkObj*)upvalue);
+	}
+	krk_markValue(self-&gt;result);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _generator_gcsweep(KrkInstance * self) {
+	_generator_close_upvalues((struct generator*)self);
+	<span class="hljs-built_in">free</span>(((struct generator*)self)-&gt;args);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _set_generator_done(struct generator * self) {
+	self-&gt;ip = <span class="hljs-literal">NULL</span>;
+	_generator_close_upvalues(self);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">closure</span>
+<span>Function object to transform.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">argsIn</span>
+<span>Array of arguments passed to the call.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">argCount</span>
+<span>Number of arguments in @p argsIn
+</span>
+</div>
+<div class="dox_tag_title">Returns</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name"></span>
+<span>A @ref generator object.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function">KrkInstance * <span class="hljs-title">krk_buildGenerator</span><span class="hljs-params">(KrkClosure * closure, KrkValue * argsIn, <span class="hljs-keyword">size_t</span> argCount)</span> </span>{
+	<span class="hljs-comment">/* Copy the args */</span>
+	KrkValue * args = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(KrkValue) * (argCount));
+	<span class="hljs-built_in">memcpy</span>(args, argsIn, <span class="hljs-keyword">sizeof</span>(KrkValue) * argCount);
+
+	<span class="hljs-comment">/* Create a generator object */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">generator</span> * <span class="hljs-title">self</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">generator</span> *)<span class="hljs-title">krk_newInstance</span>(<span class="hljs-title">KRK_BASE_CLASS</span>(<span class="hljs-title">generator</span>));</span>
+	self-&gt;args = args;
+	self-&gt;argCount = argCount;
+	self-&gt;closure = closure;
+	self-&gt;ip = self-&gt;closure-&gt;function-&gt;chunk.code;
+	self-&gt;result = NONE_VAL();
+	self-&gt;type = closure-&gt;function-&gt;obj.flags &amp; (KRK_OBJ_FLAGS_CODEOBJECT_IS_GENERATOR | KRK_OBJ_FLAGS_CODEOBJECT_IS_COROUTINE);
+	<span class="hljs-keyword">return</span> (KrkInstance *)self;
+}
+
+FUNC_SIG(generator,__init__) {
+	<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"cannot create '%s' instances"</span>, <span class="hljs-string">"generator"</span>);
+}
+
+KRK_Method(generator,__repr__) {
+	METHOD_TAKES_NONE();
+
+	<span class="hljs-keyword">char</span> * typeStr = <span class="hljs-string">"generator"</span>;
+	<span class="hljs-keyword">if</span> (self-&gt;type == KRK_OBJ_FLAGS_CODEOBJECT_IS_COROUTINE) {
+		<span class="hljs-comment">/* Regular coroutine */</span>
+		typeStr = <span class="hljs-string">"coroutine"</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (self-&gt;type == (KRK_OBJ_FLAGS_CODEOBJECT_IS_COROUTINE | KRK_OBJ_FLAGS_CODEOBJECT_IS_GENERATOR)) {
+		typeStr = <span class="hljs-string">"async_generator"</span>;
+	}
+
+	<span class="hljs-keyword">return</span> krk_stringFromFormat(<span class="hljs-string">"&lt;%s object %S at %p&gt;"</span>,
+		typeStr, self-&gt;closure-&gt;function-&gt;name, (<span class="hljs-keyword">void</span>*)self);
+}
+
+KRK_Method(generator,__iter__) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">return</span> OBJECT_VAL(self);
+}
+
+KRK_Method(generator,__call__) {
+	METHOD_TAKES_AT_MOST(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (!self-&gt;ip) <span class="hljs-keyword">return</span> OBJECT_VAL(self);
+	<span class="hljs-keyword">if</span> (self-&gt;<span class="hljs-built_in">running</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-string">"generator already executing"</span>);
+	}
+	<span class="hljs-comment">/* Prepare frame */</span>
+	KrkCallFrame * frame = &amp;krk_currentThread.frames[krk_currentThread.frameCount++];
+	frame-&gt;closure = self-&gt;closure;
+	frame-&gt;ip      = self-&gt;ip;
+	frame-&gt;slots   = krk_currentThread.stackTop - krk_currentThread.<span class="hljs-built_in">stack</span>;
+	frame-&gt;outSlots = frame-&gt;slots;
+	frame-&gt;globals = self-&gt;closure-&gt;globalsTable;
+	frame-&gt;globalsOwner = self-&gt;closure-&gt;globalsOwner;
+
+	<span class="hljs-comment">/* Stick our stack on their stack */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; self-&gt;argCount; ++i) {
+		krk_push(self-&gt;args[i]);
+	}
+
+	<span class="hljs-comment">/* Point any of our captured upvalues back to their actual stack locations */</span>
+	<span class="hljs-keyword">while</span> (self-&gt;capturedUpvalues) {
+		KrkUpvalue * upvalue = self-&gt;capturedUpvalues;
+		upvalue-&gt;owner = &amp;krk_currentThread;
+		upvalue-&gt;location = upvalue-&gt;location + frame-&gt;slots;
+		self-&gt;capturedUpvalues = upvalue-&gt;next;
+		upvalue-&gt;next = krk_currentThread.openUpvalues;
+		krk_currentThread.openUpvalues = upvalue;
+	}
+
+	<span class="hljs-keyword">if</span> (self-&gt;started) {
+		krk_pop();
+		<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) {
+			krk_push(argv[<span class="hljs-number">1</span>]);
+		} <span class="hljs-keyword">else</span> {
+			krk_push(NONE_VAL());
+		}
+	}
+
+	<span class="hljs-comment">/* Jump into the iterator */</span>
+	self-&gt;<span class="hljs-built_in">running</span> = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">size_t</span> stackBefore = krk_currentThread.stackTop - krk_currentThread.<span class="hljs-built_in">stack</span>;
+	KrkValue result = krk_runNext();
+	<span class="hljs-keyword">size_t</span> stackAfter = krk_currentThread.stackTop - krk_currentThread.<span class="hljs-built_in">stack</span>;
+	self-&gt;<span class="hljs-built_in">running</span> = <span class="hljs-number">0</span>;
+
+	self-&gt;started = <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">if</span> (IS_KWARGS(result) &amp;&amp; AS_INTEGER(result) == <span class="hljs-number">0</span>) {
+		self-&gt;result = krk_pop();
+		_set_generator_done(self);
+		<span class="hljs-keyword">return</span> OBJECT_VAL(self);
+	}
+
+	<span class="hljs-comment">/* Was there an exception? */</span>
+	<span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION) {
+		_set_generator_done(self);
+		krk_currentThread.stackTop = krk_currentThread.<span class="hljs-built_in">stack</span> + frame-&gt;slots;
+		<span class="hljs-keyword">return</span> NONE_VAL();
+	}
+
+	<span class="hljs-comment">/* Redirect any remaining upvalues captured from us, and release them from the VM */</span>
+	<span class="hljs-keyword">while</span> (krk_currentThread.openUpvalues != <span class="hljs-literal">NULL</span> &amp;&amp; krk_currentThread.openUpvalues-&gt;location &gt;= (<span class="hljs-keyword">int</span>)frame-&gt;slots) {
+		KrkUpvalue * upvalue = krk_currentThread.openUpvalues;
+		upvalue-&gt;location = upvalue-&gt;location - frame-&gt;slots;
+		upvalue-&gt;owner = &amp;self-&gt;fakethread;
+		krk_currentThread.openUpvalues = upvalue-&gt;next;
+		upvalue-&gt;next = self-&gt;capturedUpvalues;
+		self-&gt;capturedUpvalues = upvalue;
+	}
+
+	<span class="hljs-comment">/* Determine the stack state */</span>
+	<span class="hljs-keyword">if</span> (stackAfter &gt; stackBefore) {
+		<span class="hljs-keyword">size_t</span> newArgs = stackAfter - stackBefore;
+		self-&gt;args = <span class="hljs-built_in">realloc</span>(self-&gt;args, <span class="hljs-keyword">sizeof</span>(KrkValue) * (self-&gt;argCount + newArgs));
+		self-&gt;argCount += newArgs;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (stackAfter &lt; stackBefore) {
+		<span class="hljs-keyword">size_t</span> deadArgs = stackBefore - stackAfter;
+		self-&gt;args = <span class="hljs-built_in">realloc</span>(self-&gt;args, <span class="hljs-keyword">sizeof</span>(KrkValue) * (self-&gt;argCount - deadArgs));
+		self-&gt;argCount -= deadArgs;
+	}
+
+	<span class="hljs-comment">/* Save stack entries */</span>
+	<span class="hljs-built_in">memcpy</span>(self-&gt;args, krk_currentThread.stackTop - self-&gt;argCount, <span class="hljs-keyword">sizeof</span>(KrkValue) * self-&gt;argCount);
+	self-&gt;ip      = frame-&gt;ip;
+	self-&gt;fakethread.<span class="hljs-built_in">stack</span> = self-&gt;args;
+
+	krk_currentThread.stackTop = krk_currentThread.<span class="hljs-built_in">stack</span> + frame-&gt;slots;
+
+	<span class="hljs-keyword">return</span> result;
+}
+
+KRK_Method(generator,send) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (!self-&gt;started &amp;&amp; !IS_NONE(argv[<span class="hljs-number">1</span>])) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"Can not send non-None value to just-started generator"</span>);
+	}
+	<span class="hljs-keyword">return</span> FUNC_NAME(generator,__call__)(argc,argv,<span class="hljs-number">0</span>);
+}
+
+KRK_Method(generator,__finish__) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">return</span> self-&gt;result;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>For compatibility with Python...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">KRK_Method(generator,gi_running) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">return</span> BOOLEAN_VAL(self-&gt;<span class="hljs-built_in">running</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_getAwaitable</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (IS_generator(krk_peek(<span class="hljs-number">0</span>)) &amp;&amp; AS_generator(krk_peek(<span class="hljs-number">0</span>))-&gt;type == KRK_OBJ_FLAGS_CODEOBJECT_IS_COROUTINE) {
+		<span class="hljs-comment">/* Good to go */</span>
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* Need to try for __await__ */</span>
+	KrkValue method = krk_valueGetAttribute_default(krk_peek(<span class="hljs-number">0</span>), <span class="hljs-string">"__await__"</span>, NONE_VAL());
+	<span class="hljs-keyword">if</span> (!IS_NONE(method)) {
+		krk_push(method);
+		krk_swap(<span class="hljs-number">1</span>);
+		krk_pop();
+		krk_push(krk_callStack(<span class="hljs-number">0</span>));
+		KrkClass * _type = krk_getType(krk_peek(<span class="hljs-number">0</span>));
+		<span class="hljs-keyword">if</span> (!_type || !_type-&gt;_iter) {
+			krk_runtimeError(vm.exceptions-&gt;attributeError, <span class="hljs-string">"__await__ returned non-iterator of type '%T'"</span>, krk_peek(<span class="hljs-number">0</span>));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+	} <span class="hljs-keyword">else</span> {
+		krk_runtimeError(vm.exceptions-&gt;attributeError, <span class="hljs-string">"'%T' object is not awaitable"</span>, krk_peek(<span class="hljs-number">0</span>));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+_noexport
+<span class="hljs-keyword">void</span> _createAndBind_generatorClass(<span class="hljs-keyword">void</span>) {
+	KrkClass * generator = ADD_BASE_CLASS(vm.baseClasses-&gt;generatorClass, <span class="hljs-string">"generator"</span>, vm.baseClasses-&gt;objectClass);
+	generator-&gt;allocSize = <span class="hljs-keyword">sizeof</span>(struct generator);
+	generator-&gt;_ongcscan = _generator_gcscan;
+	generator-&gt;_ongcsweep = _generator_gcsweep;
+	generator-&gt;obj.flags |= KRK_OBJ_FLAGS_NO_INHERIT;
+	BIND_METHOD(generator,__init__);
+	BIND_METHOD(generator,__iter__);
+	BIND_METHOD(generator,__call__);
+	BIND_METHOD(generator,__repr__);
+	BIND_METHOD(generator,__finish__);
+	BIND_METHOD(generator,send);
+	BIND_PROP(generator,gi_running);
+	krk_finalizeClass(generator);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

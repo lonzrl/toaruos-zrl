@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>panel_network.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "lib\\panel_network.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>panel_network.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;dirent.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/socket.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;net/if.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;arpa/inet.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/yutani.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/menu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/text.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/panel.h&gt;</span></span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> netstat_count = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> netstat_prev[<span class="hljs-number">32</span>] = {<span class="hljs-number">0</span>};
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> netstat_data[<span class="hljs-number">32</span>][<span class="hljs-number">1024</span>];
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">netstat</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> network_status = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">sprite_t</span> * sprite_net_active;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">sprite_t</span> * sprite_net_disabled;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ip_ntoa</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">uint32_t</span> src_addr, <span class="hljs-keyword">char</span> * out)</span> </span>{
+	<span class="hljs-built_in">snprintf</span>(out, <span class="hljs-number">16</span>, <span class="hljs-string">"%d.%d.%d.%d"</span>,
+		(src_addr &amp; <span class="hljs-number">0xFF000000</span>) &gt;&gt; <span class="hljs-number">24</span>,
+		(src_addr &amp; <span class="hljs-number">0xFF0000</span>) &gt;&gt; <span class="hljs-number">16</span>,
+		(src_addr &amp; <span class="hljs-number">0xFF00</span>) &gt;&gt; <span class="hljs-number">8</span>,
+		(src_addr &amp; <span class="hljs-number">0xFF</span>));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">netif_show_toast</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * str)</span> </span>{
+	<span class="hljs-keyword">int</span> toastDaemon = <span class="hljs-built_in">open</span>(<span class="hljs-string">"/dev/pex/toast"</span>, O_WRONLY);
+	<span class="hljs-keyword">if</span> (toastDaemon &gt;= <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">write</span>(toastDaemon, str, <span class="hljs-built_in">strlen</span>(str));
+		<span class="hljs-built_in">close</span>(toastDaemon);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">netif_disconnected</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * if_name)</span> </span>{
+	network_status |= <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (netstat_prev[netstat_count] &amp;&amp; netstat_prev[netstat_count] != <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">char</span> toastMsg[<span class="hljs-number">1024</span>];
+		<span class="hljs-built_in">sprintf</span>(toastMsg, <span class="hljs-string">"{\"icon\":\"/usr/share/icons/48/network-jack-disconnected.png\",\"body\":\"&lt;b&gt;%s&lt;/b&gt;&lt;br&gt;Network disconnected.\"}"</span>, if_name);
+		netif_show_toast(toastMsg);
+	}
+	netstat_prev[netstat_count] = <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">netif_connected</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * if_name)</span> </span>{
+	network_status |= <span class="hljs-number">2</span>;
+	<span class="hljs-keyword">if</span> (netstat_prev[netstat_count] &amp;&amp; netstat_prev[netstat_count] != <span class="hljs-number">2</span>) {
+		<span class="hljs-keyword">char</span> toastMsg[<span class="hljs-number">1024</span>];
+		<span class="hljs-built_in">sprintf</span>(toastMsg, <span class="hljs-string">"{\"icon\":\"/usr/share/icons/48/network-jack.png\",\"body\":\"&lt;b&gt;%s&lt;/b&gt;&lt;br&gt;Connection established.\"}"</span>, if_name);
+		netif_show_toast(toastMsg);
+	}
+	netstat_prev[netstat_count] = <span class="hljs-number">2</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">check_network</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * if_name)</span> </span>{
+	<span class="hljs-keyword">if</span> (netstat_count &gt;= <span class="hljs-number">32</span>) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-keyword">char</span> if_path[<span class="hljs-number">512</span>];
+	<span class="hljs-built_in">snprintf</span>(if_path, <span class="hljs-number">511</span>, <span class="hljs-string">"/dev/net/%s"</span>, if_name);
+	<span class="hljs-keyword">int</span> netdev = <span class="hljs-built_in">open</span>(if_path, O_RDONLY);
+
+	<span class="hljs-keyword">if</span> (netdev &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-keyword">uint32_t</span> flags;
+	<span class="hljs-keyword">if</span> (!ioctl(netdev, SIOCGIFFLAGS, &amp;flags)) {
+		<span class="hljs-keyword">if</span> (flags &amp; IFF_LOOPBACK) <span class="hljs-keyword">return</span>; <span class="hljs-comment">/* Ignore loopback */</span>
+		<span class="hljs-keyword">if</span> (!(flags &amp; IFF_UP)) {
+			<span class="hljs-built_in">snprintf</span>(netstat_data[netstat_count], <span class="hljs-number">1023</span>, <span class="hljs-string">"%s: disconnected"</span>, if_name);
+			netif_disconnected(if_name);
+			<span class="hljs-keyword">goto</span> _netif_next;
+		}
+	}
+
+	<span class="hljs-comment">/* Get IPv4 address */</span>
+	<span class="hljs-keyword">uint32_t</span> ip_addr;
+	<span class="hljs-keyword">if</span> (!ioctl(netdev, SIOCGIFADDR, &amp;ip_addr)) {
+		<span class="hljs-keyword">char</span> ip_str[<span class="hljs-number">16</span>];
+		ip_ntoa(ntohl(ip_addr), ip_str);
+		<span class="hljs-built_in">snprintf</span>(netstat_data[netstat_count], <span class="hljs-number">1023</span>, <span class="hljs-string">"%s: %s"</span>, if_name, ip_str);
+		netif_connected(if_name);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">snprintf</span>(netstat_data[netstat_count], <span class="hljs-number">1023</span>, <span class="hljs-string">"%s: No address"</span>, if_name);
+		netif_disconnected(if_name);
+	}
+
+_netif_next:
+	<span class="hljs-built_in">close</span>(netdev);
+	netstat_count++;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">widget_update_network</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">int</span> * force_updates)</span> </span>{
+	network_status = <span class="hljs-number">0</span>;
+	netstat_count = <span class="hljs-number">0</span>;
+
+	DIR * d = opendir(<span class="hljs-string">"/dev/net"</span>);
+	<span class="hljs-keyword">if</span> (!d) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent</span> * <span class="hljs-title">ent</span>;</span>
+	<span class="hljs-keyword">while</span> ((ent = readdir(d))) {
+		<span class="hljs-keyword">if</span> (ent-&gt;d_name[<span class="hljs-number">0</span>] == <span class="hljs-string">'.'</span>) <span class="hljs-keyword">continue</span>;
+		check_network(ent-&gt;d_name);
+	}
+
+	closedir(d);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">widget_click_network</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, struct yutani_msg_window_mouse_event * evt)</span> </span>{
+	<span class="hljs-keyword">if</span> (!netstat) {
+		netstat = menu_create();
+		netstat-&gt;flags |= MENU_FLAG_BUBBLE_LEFT;
+		menu_insert(netstat, menu_create_normal(<span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"&lt;b&gt;Network Status&lt;/b&gt;"</span>, <span class="hljs-literal">NULL</span>));
+		menu_insert(netstat, menu_create_separator());
+	}
+	<span class="hljs-keyword">while</span> (netstat-&gt;entries-&gt;length &gt; <span class="hljs-number">2</span>) {
+		<span class="hljs-keyword">node_t</span> * node = list_pop(netstat-&gt;entries);
+		menu_free_entry((struct MenuEntry *)node-&gt;value);
+		<span class="hljs-built_in">free</span>(node);
+	}
+	<span class="hljs-keyword">if</span> (!network_status) {
+		menu_insert(netstat, menu_create_normal(<span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"No network."</span>, <span class="hljs-literal">NULL</span>));
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; netstat_count; ++i) {
+			menu_insert(netstat, menu_create_normal(<span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>, netstat_data[i], <span class="hljs-literal">NULL</span>));
+		}
+	}
+	<span class="hljs-keyword">if</span> (!netstat-&gt;window) {
+		panel_menu_show(<span class="hljs-keyword">this</span>,netstat);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">widget_draw_network</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">gfx_context_t</span> * ctx)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> color = (netstat &amp;&amp; netstat-&gt;window) ? <span class="hljs-keyword">this</span>-&gt;pctx-&gt;color_text_hilighted : <span class="hljs-keyword">this</span>-&gt;pctx-&gt;color_icon_normal;
+	panel_highlight_widget(<span class="hljs-keyword">this</span>,ctx,(netstat &amp;&amp; netstat-&gt;window));
+	<span class="hljs-keyword">if</span> (network_status &amp; <span class="hljs-number">2</span>) {
+		draw_sprite_alpha_paint(ctx, sprite_net_active, (ctx-&gt;<span class="hljs-built_in">width</span> - sprite_net_active-&gt;<span class="hljs-built_in">width</span>) / <span class="hljs-number">2</span>, <span class="hljs-number">1</span>, <span class="hljs-number">1.0</span>, color);
+	} <span class="hljs-keyword">else</span> {
+		draw_sprite_alpha_paint(ctx, sprite_net_disabled, (ctx-&gt;<span class="hljs-built_in">width</span> - sprite_net_disabled-&gt;<span class="hljs-built_in">width</span>) / <span class="hljs-number">2</span>, <span class="hljs-number">1</span>, <span class="hljs-number">1.0</span>, color);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function">struct PanelWidget * <span class="hljs-title">widget_init_network</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	sprite_net_active = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">sprite_t</span>));
+	load_sprite(sprite_net_active, <span class="hljs-string">"/usr/share/icons/24/net-active.png"</span>);
+	sprite_net_disabled = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">sprite_t</span>));
+	load_sprite(sprite_net_disabled, <span class="hljs-string">"/usr/share/icons/24/net-disconnected.png"</span>);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">PanelWidget</span> * <span class="hljs-title">widget</span> = <span class="hljs-title">widget_new</span>();</span>
+	widget-&gt;<span class="hljs-built_in">width</span> = sprite_net_active-&gt;<span class="hljs-built_in">width</span> + widget-&gt;pctx-&gt;extra_widget_spacing;
+	widget-&gt;draw = widget_draw_network;
+	widget-&gt;<span class="hljs-built_in">click</span> = widget_click_network;
+	widget-&gt;update = widget_update_network;
+	list_insert(widgets_enabled, widget);
+	<span class="hljs-keyword">return</span> widget;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

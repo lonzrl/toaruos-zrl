@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>netty.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\netty.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>netty.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;pty.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;pthread.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/wait.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/fswait.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/socket.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;netinet/in.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;netdb.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;arpa/inet.h&gt;</span></span>
+
+<span class="hljs-keyword">int</span> fd_master, fd_slave, fd_serial;
+<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">int</span> _stop = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"usage: %s [-a user] remote:port [TERM]\n"</span>, argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> * <span class="hljs-title">handle_in</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * unused)</span> </span>{
+	<span class="hljs-keyword">while</span> (!_stop) {
+		<span class="hljs-keyword">int</span> index = fswait2(<span class="hljs-number">1</span>,&amp;fd_serial,<span class="hljs-number">200</span>);
+		<span class="hljs-keyword">char</span> buf[<span class="hljs-number">1</span>];
+		<span class="hljs-keyword">int</span> r;
+		<span class="hljs-keyword">switch</span> (index) {
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0</span>: <span class="hljs-comment">/* fd_serial */</span>
+				r = <span class="hljs-built_in">read</span>(fd_serial, buf, <span class="hljs-number">1</span>);
+				<span class="hljs-keyword">if</span> (r &gt; <span class="hljs-number">0</span>) {
+					<span class="hljs-built_in">write</span>(fd_master, buf, r);
+				}
+				<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">char</span> * user = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">if</span> (getuid() != <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: only root can do that\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">int</span> opt;
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"a:"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'a'</span>:
+				user = optarg;
+				<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (optind == argc) <span class="hljs-keyword">return</span> usage(argv);
+
+	<span class="hljs-keyword">if</span> (optind + <span class="hljs-number">1</span> &lt; argc) {
+		setenv(<span class="hljs-string">"TERM"</span>, argv[optind+<span class="hljs-number">1</span>], <span class="hljs-number">1</span>);
+	}
+
+	<span class="hljs-keyword">char</span> * remotehost = argv[optind];
+	<span class="hljs-keyword">char</span> * colon = <span class="hljs-built_in">strstr</span>(remotehost, <span class="hljs-string">":"</span>);
+	<span class="hljs-keyword">if</span> (!colon) <span class="hljs-keyword">return</span> usage(argv);
+
+	*colon = <span class="hljs-string">'\0'</span>; colon++;
+	<span class="hljs-keyword">int</span> remoteport = atoi(colon);
+
+	openpty(&amp;fd_master, &amp;fd_slave, <span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>);
+
+	<span class="hljs-keyword">int</span> sock = socket(AF_INET, SOCK_STREAM, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">if</span> (sock &lt; <span class="hljs-number">0</span>) {
+		perror(<span class="hljs-string">"socket"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">hostent</span> * <span class="hljs-title">remote</span> = <span class="hljs-title">gethostbyname</span>(<span class="hljs-title">remotehost</span>);</span>
+
+	<span class="hljs-keyword">if</span> (!remote) {
+		perror(<span class="hljs-string">"gethostbyname"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_in</span> <span class="hljs-title">addr</span>;</span>
+	addr.sin_family = AF_INET;
+	<span class="hljs-built_in">memcpy</span>(&amp;addr.sin_addr.s_addr, remote-&gt;h_addr, remote-&gt;h_length);
+	addr.sin_port = htons(remoteport);
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">connect</span>(sock, (struct sockaddr*)&amp;addr, <span class="hljs-keyword">sizeof</span>(struct sockaddr_in)) &lt; <span class="hljs-number">0</span>) {
+		perror(<span class="hljs-string">"connect"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	fd_serial = sock; <span class="hljs-comment">//open(file, O_RDWR);</span>
+	<span class="hljs-keyword">pthread_t</span> input_buffer_thread;
+	pthread_create(&amp;input_buffer_thread, <span class="hljs-literal">NULL</span>, handle_in, <span class="hljs-literal">NULL</span>);
+
+	<span class="hljs-keyword">pid_t</span> child = fork();
+
+	<span class="hljs-keyword">if</span> (!child) {
+		setsid();
+		dup2(fd_slave, <span class="hljs-number">0</span>);
+		dup2(fd_slave, <span class="hljs-number">1</span>);
+		dup2(fd_slave, <span class="hljs-number">2</span>);
+		ioctl(STDIN_FILENO, TIOCSCTTY, &amp;(<span class="hljs-keyword">int</span>){<span class="hljs-number">1</span>});
+		tcsetpgrp(STDIN_FILENO, getpid());
+		signal(SIGHUP, SIG_DFL);
+
+		system(<span class="hljs-string">"ttysize -q"</span>);
+
+		<span class="hljs-keyword">char</span> * tokens[] = {<span class="hljs-string">"/bin/login-loop"</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-literal">NULL</span>};
+
+		<span class="hljs-keyword">if</span> (user) {
+			tokens[<span class="hljs-number">0</span>] = <span class="hljs-string">"/bin/login"</span>;
+			tokens[<span class="hljs-number">1</span>] = <span class="hljs-string">"-f"</span>;
+			tokens[<span class="hljs-number">2</span>] = user;
+		}
+
+		execvp(tokens[<span class="hljs-number">0</span>], tokens);
+		<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+	} <span class="hljs-keyword">else</span> {
+
+		<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+			<span class="hljs-keyword">int</span> index = fswait2(<span class="hljs-number">1</span>,&amp;fd_master,<span class="hljs-number">200</span>);
+			<span class="hljs-keyword">char</span> buf[<span class="hljs-number">1024</span>];
+			<span class="hljs-keyword">int</span> r;
+			<span class="hljs-keyword">switch</span> (index) {
+				<span class="hljs-keyword">case</span> <span class="hljs-number">0</span>: <span class="hljs-comment">/* fd_master */</span>
+					r = <span class="hljs-built_in">read</span>(fd_master, buf, <span class="hljs-number">1024</span>);
+					<span class="hljs-built_in">write</span>(fd_serial, buf, r);
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">default</span>: <span class="hljs-comment">/* timeout */</span>
+					{
+						<span class="hljs-keyword">int</span> result = waitpid(child, <span class="hljs-literal">NULL</span>, WNOHANG);
+						<span class="hljs-keyword">if</span> (result &gt; <span class="hljs-number">0</span>) {
+							<span class="hljs-comment">/* Child login shell has returned (session ended) */</span>
+							_stop = <span class="hljs-number">1</span>;
+							<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+						}
+					}
+					<span class="hljs-keyword">break</span>;
+			}
+
+		}
+
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

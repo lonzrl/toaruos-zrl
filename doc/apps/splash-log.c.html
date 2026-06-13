@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>splash-log.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\splash-log.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>splash-log.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/utsname.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/times.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/fswait.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/pex.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/hashmap.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TIMEOUT_SECS 2</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">say_hello</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-comment">/* Get our release version */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">utsname</span> <span class="hljs-title">u</span>;</span>
+	uname(&amp;u);
+	<span class="hljs-comment">/* Strip git tag */</span>
+	<span class="hljs-keyword">char</span> * tmp = <span class="hljs-built_in">strstr</span>(u.<span class="hljs-built_in">release</span>, <span class="hljs-string">"-"</span>);
+	<span class="hljs-keyword">if</span> (tmp) *tmp = <span class="hljs-string">'\0'</span>;
+
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"ToaruOS %s is starting up...\n"</span>, u.<span class="hljs-built_in">release</span>);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"../kernel/misc/args.c"</span></span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">hashmap_t</span> * <span class="hljs-title">get_cmdline</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">char</span> * results = args_from_procfs();
+	<span class="hljs-keyword">if</span> (results) <span class="hljs-built_in">free</span>(results);
+	<span class="hljs-keyword">return</span> kernel_args_map;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">handle_message</span><span class="hljs-params">(<span class="hljs-keyword">pex_packet_t</span> *p)</span> </span>{
+	p-&gt;data[p-&gt;<span class="hljs-built_in">size</span>] = <span class="hljs-string">'\0'</span>;
+	<span class="hljs-keyword">char</span> *msg = (<span class="hljs-keyword">char</span>*)p-&gt;data + (p-&gt;data[<span class="hljs-number">0</span>] == <span class="hljs-string">':'</span> ? <span class="hljs-number">1</span> : <span class="hljs-number">0</span>);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s\n"</span>, msg);
+	<span class="hljs-built_in">free</span>(p);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">if</span> (getuid() != <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: only root should run this\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (!fork()) {
+		<span class="hljs-keyword">hashmap_t</span> * cmdline = get_cmdline();
+
+		<span class="hljs-keyword">int</span> quiet = !hashmap_has(cmdline, <span class="hljs-string">"debug"</span>);
+		<span class="hljs-keyword">pex_packet_t</span> *last_message = <span class="hljs-literal">NULL</span>;
+		<span class="hljs-keyword">clock_t</span> start = times(<span class="hljs-literal">NULL</span>);
+
+		FILE * pex_endpoint = pex_bind(<span class="hljs-string">"splash"</span>);
+		<span class="hljs-keyword">if</span> (!pex_endpoint) <span class="hljs-keyword">return</span> <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], <span class="hljs-string">"pex"</span>, strerror(errno)), <span class="hljs-number">1</span>;
+
+		<span class="hljs-keyword">int</span> console = <span class="hljs-built_in">open</span>(<span class="hljs-string">"/dev/console"</span>,O_APPEND|O_WRONLY);
+		<span class="hljs-keyword">if</span> (console == <span class="hljs-number">-1</span>) <span class="hljs-keyword">return</span> <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], <span class="hljs-string">"/dev/console"</span>, strerror(errno)), <span class="hljs-number">1</span>;
+
+		dup2(console, STDOUT_FILENO);
+		<span class="hljs-built_in">close</span>(console);
+
+		<span class="hljs-keyword">if</span> (!quiet) say_hello();
+
+		<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+			<span class="hljs-keyword">int</span> pex_fd[] = {fileno(pex_endpoint)};
+			<span class="hljs-keyword">int</span> index = fswait2(<span class="hljs-number">1</span>, pex_fd, <span class="hljs-number">100</span>);
+
+			<span class="hljs-keyword">if</span> (index == <span class="hljs-number">0</span>) {
+				<span class="hljs-keyword">pex_packet_t</span> * p = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>, PACKET_SIZE);
+				pex_listen(pex_endpoint, p);
+
+				<span class="hljs-keyword">if</span> (p-&gt;<span class="hljs-built_in">size</span> &lt; <span class="hljs-number">4</span>)  { <span class="hljs-built_in">free</span>(p); <span class="hljs-keyword">continue</span>; } <span class="hljs-comment">/* Ignore blank messages, erroneous line feeds, etc. */</span>
+				<span class="hljs-keyword">if</span> (p-&gt;<span class="hljs-built_in">size</span> &gt; <span class="hljs-number">80</span>) { <span class="hljs-built_in">free</span>(p); <span class="hljs-keyword">continue</span>; } <span class="hljs-comment">/* Ignore overly large messages */</span>
+
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strncmp</span>((<span class="hljs-keyword">char</span>*)p-&gt;data, <span class="hljs-string">"!quit"</span>, <span class="hljs-number">5</span>)) {
+					<span class="hljs-comment">/* Use the special message !quit to exit. */</span>
+					fclose(pex_endpoint);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				}
+
+				<span class="hljs-keyword">if</span> (quiet) {
+					<span class="hljs-built_in">free</span>(last_message);
+					last_message = p;
+				} <span class="hljs-keyword">else</span> {
+					handle_message(p);
+				}
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (quiet &amp;&amp; times(<span class="hljs-literal">NULL</span>) - start &gt; TIMEOUT_SECS * <span class="hljs-number">1000000L</span>) {
+				quiet = <span class="hljs-number">0</span>;
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Startup is taking a while, enabling log.%s\n"</span>, last_message ? <span class="hljs-string">" Last message was:"</span> :<span class="hljs-string">""</span>);
+				<span class="hljs-keyword">if</span> (last_message) {
+					handle_message(last_message);
+					last_message = <span class="hljs-literal">NULL</span>;
+				}
+			}
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

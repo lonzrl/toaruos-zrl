@@ -1,0 +1,1434 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>obj_str.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\src\\obj_str.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>obj_str.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/value.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/memory.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"private.h"</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> KrkValue <span class="hljs-title">FUNC_NAME</span><span class="hljs-params">(striterator,__init__)</span><span class="hljs-params">(<span class="hljs-keyword">int</span>,<span class="hljs-keyword">const</span> KrkValue[],<span class="hljs-keyword">int</span>)</span></span>;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE KrkString *</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_NAME  self</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AT_END() (self-&gt;length == 0 || i == self-&gt;length - 1)</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KRK_STRING_FAST(string,offset)  (uint32_t)\
+	((string-&gt;obj.flags &amp; KRK_OBJ_FLAGS_STRING_MASK) <span class="hljs-meta-string">&lt;= (KRK_OBJ_FLAGS_STRING_UCS1) ? ((uint8_t*)string-&gt;codes)[offset] : \</span></span>
+	((<span class="hljs-built_in">string</span>-&gt;obj.flags &amp; KRK_OBJ_FLAGS_STRING_MASK) == (KRK_OBJ_FLAGS_STRING_UCS2) ? ((<span class="hljs-keyword">uint16_t</span>*)<span class="hljs-built_in">string</span>-&gt;codes)[offset] : \
+	((<span class="hljs-keyword">uint32_t</span>*)<span class="hljs-built_in">string</span>-&gt;codes)[offset]))
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CODEPOINT_BYTES(cp) (cp &lt; 0x80 ? 1 : (cp &lt; 0x800 ? 2 : (cp &lt; 0x10000 ? 3 : 4)))</span>
+
+KRK_Method(str,__ord__) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">if</span> (self-&gt;codesLength != <span class="hljs-number">1</span>)
+		<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"ord() expected a character, but string of length %d found"</span>, (<span class="hljs-keyword">int</span>)self-&gt;codesLength);
+	<span class="hljs-keyword">return</span> INTEGER_VAL(krk_unicodeCodepoint(self,<span class="hljs-number">0</span>));
+}
+
+KRK_StaticMethod(str,__new__) {
+	<span class="hljs-comment">/* Ignore argument which would have been an instance */</span>
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">2</span>) {
+		<span class="hljs-keyword">return</span> OBJECT_VAL(S(<span class="hljs-string">""</span>));
+	}
+	FUNCTION_TAKES_AT_MOST(<span class="hljs-number">2</span>);
+	<span class="hljs-keyword">if</span> (IS_STRING(argv[<span class="hljs-number">1</span>])) <span class="hljs-keyword">return</span> argv[<span class="hljs-number">1</span>]; <span class="hljs-comment">/* strings are immutable, so we can just return the arg */</span>
+	<span class="hljs-comment">/* Find the type of arg */</span>
+	krk_push(argv[<span class="hljs-number">1</span>]);
+	<span class="hljs-keyword">if</span> (!krk_getType(argv[<span class="hljs-number">1</span>])-&gt;_tostr) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"Can not convert '%T' to str"</span>, argv[<span class="hljs-number">1</span>]);
+	<span class="hljs-keyword">return</span> krk_callDirect(krk_getType(argv[<span class="hljs-number">1</span>])-&gt;_tostr, <span class="hljs-number">1</span>);
+}
+
+KRK_Method(str,__add__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,str,KrkString*,them);
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * a;
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * b;
+	<span class="hljs-keyword">size_t</span> al;
+	<span class="hljs-keyword">size_t</span> bl;
+	<span class="hljs-keyword">int</span> needsPop = <span class="hljs-number">0</span>;
+
+	a = AS_CSTRING(argv[<span class="hljs-number">0</span>]);
+	al = self-&gt;length;
+
+	b = AS_CSTRING(argv[<span class="hljs-number">1</span>]);
+	bl = them-&gt;length;
+
+	<span class="hljs-keyword">size_t</span> length = al + bl;
+	<span class="hljs-keyword">char</span> * chars = KRK_ALLOCATE(<span class="hljs-keyword">char</span>, length + <span class="hljs-number">1</span>);
+	<span class="hljs-built_in">memcpy</span>(chars, a, al);
+	<span class="hljs-built_in">memcpy</span>(chars + al, b, bl);
+	chars[length] = <span class="hljs-string">'\0'</span>;
+
+	<span class="hljs-keyword">size_t</span> cpLength = self-&gt;codesLength + them-&gt;codesLength;
+
+	<span class="hljs-keyword">int</span> self_type = (self-&gt;obj.flags &amp; KRK_OBJ_FLAGS_STRING_MASK);
+	<span class="hljs-keyword">int</span> them_type = (them-&gt;obj.flags &amp; KRK_OBJ_FLAGS_STRING_MASK);
+
+	KrkStringType type = self_type &gt; them_type ? self_type : them_type;
+
+	<span class="hljs-comment">/* Hashes can be extended, which saves us calculating the whole thing */</span>
+	<span class="hljs-keyword">uint32_t</span> hash = self-&gt;obj.hash;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; bl; ++i) {
+		krk_hash_advance(hash,b[i]);
+	}
+
+	KrkString * result = krk_takeStringVetted(chars, length, cpLength, type, hash);
+	<span class="hljs-keyword">if</span> (needsPop) krk_pop();
+	<span class="hljs-keyword">return</span> OBJECT_VAL(result);
+}
+
+KRK_Method(str,__hash__) {
+	<span class="hljs-keyword">return</span> INTEGER_VAL(self-&gt;obj.hash);
+}
+
+KRK_Method(str,__len__) {
+	<span class="hljs-keyword">return</span> INTEGER_VAL(self-&gt;codesLength);
+}
+
+KRK_Method(str,__setitem__) {
+	<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"Strings are not mutable."</span>);
+}
+
+<span class="hljs-comment">/* str.__int__(base=10) */</span>
+KRK_Method(str,__int__) {
+	METHOD_TAKES_AT_MOST(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">int</span> base = (argc &lt; <span class="hljs-number">2</span> || !IS_INTEGER(argv[<span class="hljs-number">1</span>])) ? <span class="hljs-number">0</span> : (<span class="hljs-keyword">int</span>)AS_INTEGER(argv[<span class="hljs-number">1</span>]);
+	<span class="hljs-keyword">return</span> krk_parse_int(AS_CSTRING(argv[<span class="hljs-number">0</span>]), AS_STRING(argv[<span class="hljs-number">0</span>])-&gt;length, base);
+}
+
+<span class="hljs-comment">/* str.__float__() */</span>
+KRK_Method(str,__float__) {
+	METHOD_TAKES_NONE();
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_NO_FLOAT</span>
+	<span class="hljs-keyword">return</span> krk_parse_float(AS_CSTRING(argv[<span class="hljs-number">0</span>]),AS_STRING(argv[<span class="hljs-number">0</span>])-&gt;length);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+	<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-string">"no float support"</span>);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+}
+
+KRK_Method(str,__getitem__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (IS_INTEGER(argv[<span class="hljs-number">1</span>])) {
+		CHECK_ARG(<span class="hljs-number">1</span>,<span class="hljs-keyword">int</span>,krk_integer_type,asInt);
+		<span class="hljs-keyword">if</span> (asInt &lt; <span class="hljs-number">0</span>) asInt += (<span class="hljs-keyword">int</span>)AS_STRING(argv[<span class="hljs-number">0</span>])-&gt;codesLength;
+		<span class="hljs-keyword">if</span> (asInt &lt; <span class="hljs-number">0</span> || asInt &gt;= (<span class="hljs-keyword">int</span>)AS_STRING(argv[<span class="hljs-number">0</span>])-&gt;codesLength) {
+			<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;indexError, <span class="hljs-string">"String index out of range: "</span> PRIkrk_int, asInt);
+		}
+		<span class="hljs-keyword">if</span> ((self-&gt;obj.flags &amp; KRK_OBJ_FLAGS_STRING_MASK) == KRK_OBJ_FLAGS_STRING_ASCII) {
+			<span class="hljs-keyword">return</span> OBJECT_VAL(krk_copyString(self-&gt;chars + asInt, <span class="hljs-number">1</span>));
+		} <span class="hljs-keyword">else</span> {
+			krk_unicodeString(self);
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> asbytes[<span class="hljs-number">5</span>];
+			<span class="hljs-keyword">size_t</span> length = krk_codepointToBytes(KRK_STRING_FAST(self,asInt),(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span>*)&amp;asbytes);
+			<span class="hljs-keyword">return</span> OBJECT_VAL(krk_copyString((<span class="hljs-keyword">char</span>*)&amp;asbytes, length));
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_slice(argv[<span class="hljs-number">1</span>])) {
+		KRK_SLICER(argv[<span class="hljs-number">1</span>], self-&gt;codesLength) {
+			<span class="hljs-keyword">return</span> NONE_VAL();
+		}
+
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">step</span> == <span class="hljs-number">1</span>) {
+			<span class="hljs-keyword">long</span> len = <span class="hljs-built_in">end</span> - start;
+			<span class="hljs-keyword">if</span> ((self-&gt;obj.flags &amp; KRK_OBJ_FLAGS_STRING_MASK) == KRK_OBJ_FLAGS_STRING_ASCII) {
+				<span class="hljs-keyword">return</span> OBJECT_VAL(krk_copyString(self-&gt;chars + start, len));
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">size_t</span> offset = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">size_t</span> length = <span class="hljs-number">0</span>;
+				<span class="hljs-comment">/* Figure out where the UTF8 for this string starts. */</span>
+				krk_unicodeString(self);
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">long</span> i = <span class="hljs-number">0</span>; i &lt; start; ++i) {
+					<span class="hljs-keyword">uint32_t</span> cp = KRK_STRING_FAST(self,i);
+					offset += CODEPOINT_BYTES(cp);
+				}
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">long</span> i = start; i &lt; <span class="hljs-built_in">end</span>; ++i) {
+					<span class="hljs-keyword">uint32_t</span> cp = KRK_STRING_FAST(self,i);
+					length += CODEPOINT_BYTES(cp);
+				}
+				<span class="hljs-keyword">return</span> OBJECT_VAL(krk_copyString(self-&gt;chars + offset, length));
+			}
+		} <span class="hljs-keyword">else</span> {
+			struct StringBuilder sb = {<span class="hljs-number">0</span>};
+			krk_unicodeString(self);
+
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> asbytes[<span class="hljs-number">5</span>];
+			krk_integer_type i = start;
+
+			<span class="hljs-keyword">while</span> ((<span class="hljs-built_in">step</span> &lt; <span class="hljs-number">0</span>) ? (i &gt; <span class="hljs-built_in">end</span>) : (i &lt; <span class="hljs-built_in">end</span>)) {
+				<span class="hljs-keyword">size_t</span> length = krk_codepointToBytes(KRK_STRING_FAST(self,i),(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span>*)&amp;asbytes);
+				pushStringBuilderStr(&amp;sb, (<span class="hljs-keyword">char</span>*)asbytes, length);
+				i += <span class="hljs-built_in">step</span>;
+			}
+
+			<span class="hljs-keyword">return</span> finishStringBuilder(&amp;sb);
+		}
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">return</span> TYPE_ERROR(<span class="hljs-keyword">int</span> <span class="hljs-keyword">or</span> slice, argv[<span class="hljs-number">1</span>]);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">krk_parseCommonFormatSpec</span><span class="hljs-params">(struct ParsedFormatSpec *result, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * spec, <span class="hljs-keyword">size_t</span> length)</span></span>;
+
+KRK_Method(str,__format__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,str,KrkString*,format_spec);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ParsedFormatSpec</span> <span class="hljs-title">opts</span> = {</span><span class="hljs-number">0</span>};
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * spec = krk_parseCommonFormatSpec(&amp;opts, format_spec-&gt;chars, format_spec-&gt;length);
+	<span class="hljs-keyword">if</span> (!spec) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-keyword">switch</span> (*spec) {
+		<span class="hljs-keyword">case</span> <span class="hljs-number">0</span>:   <span class="hljs-comment">/* unspecified */</span>
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'s'</span>:
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;valueError,
+				<span class="hljs-string">"Unknown format code '%c' for object of type '%s'"</span>,
+				*spec,
+				<span class="hljs-string">"str"</span>);
+	}
+
+	<span class="hljs-comment">/* Note we're going to deal in codepoints exclusive here, so hold on to your hat. */</span>
+	krk_unicodeString(self);
+
+	<span class="hljs-keyword">size_t</span> actualLength = self-&gt;codesLength;
+
+	<span class="hljs-comment">/* Restrict to the precision specified */</span>
+	<span class="hljs-keyword">if</span> (opts.hasPrecision &amp;&amp; (<span class="hljs-keyword">size_t</span>)opts.prec &lt; actualLength) {
+		actualLength = opts.prec;
+	}
+
+	<span class="hljs-comment">/* How much padding do we need? */</span>
+	<span class="hljs-keyword">size_t</span> padLeft = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> padRight = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (opts.hasWidth &amp;&amp; actualLength &lt; (<span class="hljs-keyword">size_t</span>)opts.<span class="hljs-built_in">width</span>) {
+		<span class="hljs-keyword">if</span> (!opts.align || opts.align == <span class="hljs-string">'&lt;'</span>) {
+			padRight = opts.<span class="hljs-built_in">width</span> - actualLength;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (opts.align == <span class="hljs-string">'&gt;'</span> || opts.align == <span class="hljs-string">'='</span>) {
+			padLeft = opts.<span class="hljs-built_in">width</span> - actualLength;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (opts.align == <span class="hljs-string">'^'</span>) {
+			padLeft = (opts.<span class="hljs-built_in">width</span> - actualLength) / <span class="hljs-number">2</span>;
+			padRight = (opts.<span class="hljs-built_in">width</span> - actualLength) - padLeft;
+		}
+	}
+
+	<span class="hljs-comment">/* If there's no work to do, return self */</span>
+	<span class="hljs-keyword">if</span> (padLeft == <span class="hljs-number">0</span> &amp;&amp; padRight == <span class="hljs-number">0</span> &amp;&amp; actualLength == self-&gt;codesLength) {
+		<span class="hljs-keyword">return</span> argv[<span class="hljs-number">0</span>];
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+
+	<span class="hljs-comment">/* Push left padding */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; padLeft; ++i) {
+		pushStringBuilderStr(&amp;sb, opts.<span class="hljs-built_in">fill</span>, opts.fillSize);
+	}
+
+	<span class="hljs-comment">/* Push codes from us */</span>
+	<span class="hljs-keyword">size_t</span> offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; actualLength; ++i) {
+		<span class="hljs-keyword">uint32_t</span> cp = KRK_STRING_FAST(self,i);
+		<span class="hljs-keyword">size_t</span>   bytes =  CODEPOINT_BYTES(cp);
+		pushStringBuilderStr(&amp;sb, &amp;self-&gt;chars[offset], bytes);
+		offset += bytes;
+	}
+
+	<span class="hljs-comment">/* Push right padding */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; padRight; ++i) {
+		pushStringBuilderStr(&amp;sb, opts.<span class="hljs-built_in">fill</span>, opts.fillSize);
+	}
+
+	<span class="hljs-keyword">return</span> finishStringBuilder(&amp;sb);
+}
+
+<span class="hljs-comment">/* str.format(**kwargs) */</span>
+KRK_Method(str,format) {
+	KrkValue kwargs = NONE_VAL();
+	<span class="hljs-keyword">if</span> (hasKw) {
+		kwargs = argv[argc];
+	}
+
+	<span class="hljs-comment">/* Read through `self` until we find a field specifier. */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+
+	<span class="hljs-keyword">int</span> counterOffset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> * erroneousField = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">int</span> erroneousIndex = <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * errorStr = <span class="hljs-string">""</span>;
+
+	<span class="hljs-keyword">char</span> * workSpace = strdup(self-&gt;chars);
+	<span class="hljs-keyword">char</span> * c = workSpace;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; self-&gt;length; i++, c++) {
+		<span class="hljs-keyword">if</span> (*c == <span class="hljs-string">'{'</span>) {
+			<span class="hljs-keyword">if</span> (!AT_END() &amp;&amp; c[<span class="hljs-number">1</span>] == <span class="hljs-string">'{'</span>) {
+				pushStringBuilder(&amp;sb, <span class="hljs-string">'{'</span>);
+				i++; c++; <span class="hljs-comment">/* Skip both */</span>
+				<span class="hljs-keyword">continue</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-comment">/* Start field specifier */</span>
+				i++; c++; <span class="hljs-comment">/* Skip the { */</span>
+				<span class="hljs-keyword">char</span> * fieldStart = c;
+				<span class="hljs-keyword">char</span> * fieldStop = <span class="hljs-literal">NULL</span>;
+				<span class="hljs-keyword">for</span> (; i &lt; self-&gt;length; i++, c++) {
+					<span class="hljs-keyword">if</span> (*c == <span class="hljs-string">'}'</span>) {
+						fieldStop = c;
+						<span class="hljs-keyword">break</span>;
+					}
+				}
+				<span class="hljs-keyword">if</span> (!fieldStop) {
+					errorStr = <span class="hljs-string">"Unclosed { found."</span>;
+					<span class="hljs-keyword">goto</span> _formatError;
+				}
+				<span class="hljs-keyword">size_t</span> fieldLength = fieldStop - fieldStart;
+				*fieldStop = <span class="hljs-string">'\0'</span>;
+				<span class="hljs-comment">/* fieldStart is now a nice little C string... */</span>
+				<span class="hljs-keyword">int</span> isDigits = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">char</span> * field = fieldStart; *field; ++field) {
+					<span class="hljs-keyword">if</span> (!(*field &gt;= <span class="hljs-string">'0'</span> &amp;&amp; *field &lt;= <span class="hljs-string">'9'</span>)) {
+						isDigits = <span class="hljs-number">0</span>;
+						<span class="hljs-keyword">break</span>;
+					}
+				}
+				KrkValue value;
+				<span class="hljs-keyword">if</span> (isDigits) {
+					<span class="hljs-comment">/* Must be positional */</span>
+					<span class="hljs-keyword">int</span> positionalOffset;
+					<span class="hljs-keyword">if</span> (fieldLength == <span class="hljs-number">0</span>) {
+						positionalOffset = counterOffset++;
+					} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (counterOffset) {
+						<span class="hljs-keyword">goto</span> _formatSwitchedNumbering;
+					} <span class="hljs-keyword">else</span> {
+						positionalOffset = strtoul(fieldStart,<span class="hljs-literal">NULL</span>,<span class="hljs-number">10</span>);
+					}
+					<span class="hljs-keyword">if</span> (positionalOffset &gt;= argc - <span class="hljs-number">1</span>) {
+						erroneousIndex = positionalOffset;
+						<span class="hljs-keyword">goto</span> _formatOutOfRange;
+					}
+					value = argv[<span class="hljs-number">1</span> + positionalOffset];
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (hasKw) {
+					KrkValue fieldAsString = OBJECT_VAL(krk_copyString(fieldStart, fieldLength));
+					krk_push(fieldAsString);
+					<span class="hljs-keyword">if</span> (!krk_tableGet(AS_DICT(kwargs), fieldAsString, &amp;value)) {
+						erroneousField = fieldStart;
+						<span class="hljs-keyword">goto</span> _formatKeyError;
+					}
+					krk_pop(); <span class="hljs-comment">/* fieldAsString */</span>
+				} <span class="hljs-keyword">else</span> {
+					erroneousField = fieldStart;
+					<span class="hljs-keyword">goto</span> _formatKeyError;
+				}
+				KrkValue asString;
+				<span class="hljs-keyword">if</span> (IS_STRING(value)) {
+					asString = value;
+				} <span class="hljs-keyword">else</span> {
+					krk_push(value);
+					KrkClass * type = krk_getType(value);
+					<span class="hljs-keyword">if</span> (type-&gt;_tostr) {
+						asString = krk_callDirect(type-&gt;_tostr, <span class="hljs-number">1</span>);
+					} <span class="hljs-keyword">else</span> {
+						<span class="hljs-keyword">if</span> (!krk_bindMethod(type, AS_STRING(vm.specialMethodNames[METHOD_STR]))) {
+							errorStr = <span class="hljs-string">"Failed to convert field to string."</span>;
+							<span class="hljs-keyword">goto</span> _formatError;
+						}
+						asString = krk_callStack(<span class="hljs-number">0</span>);
+					}
+					<span class="hljs-keyword">if</span> (!IS_STRING(asString)) <span class="hljs-keyword">goto</span> _freeAndDone;
+				}
+				krk_push(asString);
+				pushStringBuilderStr(&amp;sb, AS_CSTRING(asString), AS_STRING(asString)-&gt;length);
+				krk_pop();
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (*c == <span class="hljs-string">'}'</span>) {
+			<span class="hljs-keyword">if</span> (!AT_END() &amp;&amp; c[<span class="hljs-number">1</span>] == <span class="hljs-string">'}'</span>) {
+				pushStringBuilder(&amp;sb, <span class="hljs-string">'}'</span>);
+				i++; c++; <span class="hljs-comment">/* Skip both */</span>
+				<span class="hljs-keyword">continue</span>;
+			} <span class="hljs-keyword">else</span> {
+				errorStr = <span class="hljs-string">"Single } found."</span>;
+				<span class="hljs-keyword">goto</span> _formatError;
+			}
+		} <span class="hljs-keyword">else</span> {
+			pushStringBuilder(&amp;sb, *c);
+		}
+	}
+
+	<span class="hljs-built_in">free</span>(workSpace);
+	<span class="hljs-keyword">return</span> finishStringBuilder(&amp;sb);
+
+_formatError:
+	krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"Error parsing format string: %s"</span>, errorStr);
+	<span class="hljs-keyword">goto</span> _freeAndDone;
+
+_formatSwitchedNumbering:
+	krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-string">"Can not switch from automatic indexing to manual indexing"</span>);
+	<span class="hljs-keyword">goto</span> _freeAndDone;
+
+_formatOutOfRange:
+	krk_runtimeError(vm.exceptions-&gt;indexError, <span class="hljs-string">"Positional index out of range: %d"</span>, erroneousIndex);
+	<span class="hljs-keyword">goto</span> _freeAndDone;
+
+_formatKeyError:
+	<span class="hljs-comment">/* which one? */</span>
+	krk_runtimeError(vm.exceptions-&gt;keyError, <span class="hljs-string">"'%s'"</span>, erroneousField);
+	<span class="hljs-keyword">goto</span> _freeAndDone;
+
+_freeAndDone:
+	discardStringBuilder(&amp;sb);
+	<span class="hljs-built_in">free</span>(workSpace);
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(str,__mul__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (!IS_INTEGER(argv[<span class="hljs-number">1</span>])) <span class="hljs-keyword">return</span> NOTIMPL_VAL();
+	CHECK_ARG(<span class="hljs-number">1</span>,<span class="hljs-keyword">int</span>,krk_integer_type,howMany);
+	<span class="hljs-keyword">if</span> (howMany &lt; <span class="hljs-number">0</span>) howMany = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">size_t</span> totalLength = self-&gt;length * howMany;
+	<span class="hljs-keyword">char</span> * out = <span class="hljs-built_in">malloc</span>(totalLength + <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">char</span> * c = out;
+
+	<span class="hljs-keyword">uint32_t</span> hash = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">for</span> (krk_integer_type i = <span class="hljs-number">0</span>; i &lt; howMany; ++i) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> j = <span class="hljs-number">0</span>; j &lt; self-&gt;length; ++j) {
+			*c = self-&gt;chars[j];
+			krk_hash_advance(hash, *c);
+			c++;
+		}
+	}
+
+	*c = <span class="hljs-string">'\0'</span>;
+	<span class="hljs-keyword">return</span> OBJECT_VAL(krk_takeStringVetted(out, totalLength, self-&gt;codesLength * howMany, (self-&gt;obj.flags &amp; KRK_OBJ_FLAGS_STRING_MASK), hash));
+}
+
+KRK_Method(str,__rmul__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (IS_INTEGER(argv[<span class="hljs-number">1</span>])) <span class="hljs-keyword">return</span> FUNC_NAME(str,__mul__)(argc,argv,hasKw);
+	<span class="hljs-keyword">return</span> NOTIMPL_VAL();
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> _<span class="hljs-title">str_join_context</span> {</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> * <span class="hljs-title">sb</span>;</span>
+	KrkString * self;
+	<span class="hljs-keyword">int</span> isFirst;
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> _str_join_callback(<span class="hljs-keyword">void</span> * context, <span class="hljs-keyword">const</span> KrkValue * values, <span class="hljs-keyword">size_t</span> count) {
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> _<span class="hljs-title">str_join_context</span> * _<span class="hljs-title">context</span> = <span class="hljs-title">context</span>;</span>
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+		<span class="hljs-keyword">if</span> (!IS_STRING(values[i])) {
+			krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"%s() expects %s, not '%T'"</span>,
+				<span class="hljs-string">"join"</span>, <span class="hljs-string">"str"</span>, values[i]);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (_context-&gt;isFirst) {
+			_context-&gt;isFirst = <span class="hljs-number">0</span>;
+		} <span class="hljs-keyword">else</span> {
+			pushStringBuilderStr(_context-&gt;sb, (<span class="hljs-keyword">char</span>*)_context-&gt;self-&gt;chars, _context-&gt;self-&gt;length);
+		}
+		pushStringBuilderStr(_context-&gt;sb, (<span class="hljs-keyword">char</span>*)AS_STRING(values[i])-&gt;chars, AS_STRING(values[i])-&gt;length);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-comment">/* str.join(list) */</span>
+KRK_Method(str,join) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> _<span class="hljs-title">str_join_context</span> <span class="hljs-title">context</span> = {</span>&amp;sb, self, <span class="hljs-number">1</span>};
+
+	<span class="hljs-keyword">if</span> (krk_unpackIterable(argv[<span class="hljs-number">1</span>], &amp;context, _str_join_callback)) {
+		discardStringBuilder(&amp;sb);
+		<span class="hljs-keyword">return</span> NONE_VAL();
+	}
+
+	<span class="hljs-keyword">return</span> finishStringBuilder(&amp;sb);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">isWhitespace</span><span class="hljs-params">(<span class="hljs-keyword">char</span> c)</span> </span>{
+	<span class="hljs-keyword">return</span> (c == <span class="hljs-string">' '</span> || c == <span class="hljs-string">'\t'</span> || c == <span class="hljs-string">'\n'</span> || c == <span class="hljs-string">'\r'</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">substringMatch</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * haystack, <span class="hljs-keyword">size_t</span> haystackLen, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * needle, <span class="hljs-keyword">size_t</span> needleLength)</span> </span>{
+	<span class="hljs-keyword">if</span> (haystackLen &lt; needleLength) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; needleLength; ++i) {
+		<span class="hljs-keyword">if</span> (haystack[i] != needle[i]) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-comment">/* str.__contains__ */</span>
+KRK_Method(str,__contains__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (IS_NONE(argv[<span class="hljs-number">1</span>])) <span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">0</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,str,KrkString*,needle);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; self-&gt;length; ++i) {
+		<span class="hljs-keyword">if</span> (substringMatch(self-&gt;chars + i, self-&gt;length - i, needle-&gt;chars, needle-&gt;length)) {
+			<span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">1</span>);
+		}
+	}
+	<span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">charIn</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> c, KrkString * str)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; str-&gt;codesLength; ++i) {
+		<span class="hljs-keyword">if</span> (c == KRK_STRING_FAST(str,i)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Implements all three of strip, lstrip, rstrip.
+Set which = 0, 1, 2 respectively</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">static</span> KrkValue _string_strip_shared(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">const</span> KrkValue argv[], <span class="hljs-keyword">int</span> which) {
+	KrkString * subset = AS_STRING(vm.specialMethodNames[METHOD_STRSTRIP]);
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">if</span> (IS_STRING(argv[<span class="hljs-number">1</span>])) {
+			subset = AS_STRING(argv[<span class="hljs-number">1</span>]);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"argument to %sstrip() should be a string"</span>,
+				(which == <span class="hljs-number">0</span> ? <span class="hljs-string">""</span> : (which == <span class="hljs-number">1</span> ? <span class="hljs-string">"l"</span> : <span class="hljs-string">"r"</span>)));
+		}
+	}
+
+	KrkString * self = AS_STRING(argv[<span class="hljs-number">0</span>]);
+	krk_unicodeString(self);
+	krk_unicodeString(subset);
+
+	<span class="hljs-keyword">uint32_t</span> c;
+	<span class="hljs-keyword">size_t</span> start = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">end</span>   = self-&gt;length;
+	<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> k = self-&gt;codesLength - <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">if</span> (which &lt; <span class="hljs-number">2</span>) <span class="hljs-keyword">while</span> (start &lt; <span class="hljs-built_in">end</span> &amp;&amp; charIn((c = KRK_STRING_FAST(self, j)), subset)) { j++; start += CODEPOINT_BYTES(c); }
+	<span class="hljs-keyword">if</span> (which != <span class="hljs-number">1</span>) <span class="hljs-keyword">while</span> (<span class="hljs-built_in">end</span> &gt; start &amp;&amp; charIn((c = KRK_STRING_FAST(self, k)), subset)) { k--; <span class="hljs-built_in">end</span> -= CODEPOINT_BYTES(c); }
+
+	<span class="hljs-keyword">return</span> OBJECT_VAL(krk_copyString(&amp;self-&gt;chars[start], <span class="hljs-built_in">end</span>-start));
+}
+
+KRK_Method(str,strip) {
+	METHOD_TAKES_AT_MOST(<span class="hljs-number">1</span>); <span class="hljs-comment">/* TODO */</span>
+	<span class="hljs-keyword">return</span> _string_strip_shared(argc,argv,<span class="hljs-number">0</span>);
+}
+KRK_Method(str,lstrip) {
+	METHOD_TAKES_AT_MOST(<span class="hljs-number">1</span>); <span class="hljs-comment">/* TODO */</span>
+	<span class="hljs-keyword">return</span> _string_strip_shared(argc,argv,<span class="hljs-number">1</span>);
+}
+KRK_Method(str,rstrip) {
+	METHOD_TAKES_AT_MOST(<span class="hljs-number">1</span>); <span class="hljs-comment">/* TODO */</span>
+	<span class="hljs-keyword">return</span> _string_strip_shared(argc,argv,<span class="hljs-number">2</span>);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> strCompare(name,lop,iop,rop) \
+	KRK_Method(str,name) { \
+		METHOD_TAKES_EXACTLY(1); \
+		<span class="hljs-meta-keyword">if</span> (!IS_STRING(argv[1])) { \
+			return NOTIMPL_VAL(); \
+		} \
+		size_t aLen = AS_STRING(argv[0])-&gt;length; \
+		size_t bLen = AS_STRING(argv[1])-&gt;length; \
+		const unsigned char * a = (const unsigned char*)AS_CSTRING(argv[0]); \
+		const unsigned char * b = (const unsigned char*)AS_CSTRING(argv[1]); \
+		for (size_t i = 0; i &lt; ((aLen &lt; bLen) ? aLen : bLen); i++) { \
+			<span class="hljs-meta-keyword">if</span> (a[i] lop b[i]) return BOOLEAN_VAL(1); \
+			<span class="hljs-meta-keyword">if</span> (a[i] iop b[i]) return BOOLEAN_VAL(0); \
+		} \
+		return BOOLEAN_VAL((aLen rop bLen)); \
+	}</span>
+
+strCompare(__gt__,&gt;,&lt;,&gt;)
+strCompare(__lt__,&lt;,&gt;,&lt;)
+strCompare(__ge__,&gt;,&lt;,&gt;=)
+strCompare(__le__,&lt;,&gt;,&lt;=)
+
+KRK_Method(str,__mod__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+
+	KrkTuple * myTuple;
+
+	<span class="hljs-keyword">if</span> (IS_TUPLE(argv[<span class="hljs-number">1</span>])) {
+		myTuple = AS_TUPLE(argv[<span class="hljs-number">1</span>]);
+		krk_push(argv[<span class="hljs-number">1</span>]);
+	} <span class="hljs-keyword">else</span> {
+		myTuple = krk_newTuple(<span class="hljs-number">1</span>);
+		krk_push(OBJECT_VAL(myTuple));
+		myTuple-&gt;values.values[myTuple-&gt;values.count++] = argv[<span class="hljs-number">1</span>];
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+	<span class="hljs-keyword">size_t</span> ti = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; self-&gt;length; ++i) {
+		<span class="hljs-keyword">if</span> (self-&gt;chars[i] == <span class="hljs-string">'%'</span>) {
+			<span class="hljs-keyword">int</span> backwards = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">width</span> = <span class="hljs-number">0</span>;
+			i++;
+
+			<span class="hljs-keyword">if</span> (self-&gt;chars[i] == <span class="hljs-string">'%'</span>) {
+				pushStringBuilder(&amp;sb, self-&gt;chars[i]);
+				<span class="hljs-keyword">continue</span>;
+			}
+
+			<span class="hljs-keyword">if</span> (self-&gt;chars[i] == <span class="hljs-string">'-'</span>) { backwards = <span class="hljs-number">1</span>; i++; }
+
+			<span class="hljs-keyword">while</span> (self-&gt;chars[i] &gt;= <span class="hljs-string">'0'</span> &amp;&amp; self-&gt;chars[i] &lt;= <span class="hljs-string">'9'</span>) {
+				<span class="hljs-built_in">width</span> = <span class="hljs-built_in">width</span> * <span class="hljs-number">10</span> + (self-&gt;chars[i] - <span class="hljs-string">'0'</span>);
+				i++;
+			}
+
+			<span class="hljs-keyword">if</span> (self-&gt;chars[i] == <span class="hljs-string">'i'</span>) {
+				<span class="hljs-keyword">if</span> (ti &gt;= myTuple-&gt;values.count) <span class="hljs-keyword">goto</span> _notEnough;
+				KrkValue arg = myTuple-&gt;values.values[ti++];
+
+				<span class="hljs-keyword">if</span> (IS_INTEGER(arg)) {
+					krk_push(INTEGER_VAL(AS_INTEGER(arg)));
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_NO_FLOAT</span>
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_FLOATING(arg)) {
+					krk_push(INTEGER_VAL(AS_FLOATING(arg)));
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+				} <span class="hljs-keyword">else</span> {
+					krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"%%i format: a number is required, not '%T'"</span>, arg);
+					<span class="hljs-keyword">goto</span> _exception;
+				}
+				krk_push(krk_callDirect(krk_getType(arg)-&gt;_tostr, <span class="hljs-number">1</span>));
+				<span class="hljs-keyword">goto</span> _doit;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (self-&gt;chars[i] == <span class="hljs-string">'s'</span>) {
+				<span class="hljs-keyword">if</span> (ti &gt;= myTuple-&gt;values.count) <span class="hljs-keyword">goto</span> _notEnough;
+				KrkValue arg = myTuple-&gt;values.values[ti++];
+				<span class="hljs-keyword">if</span> (!krk_getType(arg)-&gt;_tostr) {
+					krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"%%s format: cannot convert '%T' to string"</span>, arg);
+					<span class="hljs-keyword">goto</span> _exception;
+				}
+
+				krk_push(arg);
+				krk_push(krk_callDirect(krk_getType(arg)-&gt;_tostr, <span class="hljs-number">1</span>));
+				<span class="hljs-keyword">goto</span> _doit;
+			} <span class="hljs-keyword">else</span> {
+				krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"%%%c format string specifier unsupported"</span>,
+					self-&gt;chars[i]);
+				<span class="hljs-keyword">goto</span> _exception;
+			}
+
+_doit:
+			<span class="hljs-keyword">if</span> (!IS_STRING(krk_peek(<span class="hljs-number">0</span>))) {
+				krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"__str__ returned non-string (type %T)"</span>, krk_peek(<span class="hljs-number">0</span>));
+				krk_pop();
+				<span class="hljs-keyword">goto</span> _exception;
+			}
+			<span class="hljs-keyword">if</span> (!backwards &amp;&amp; <span class="hljs-built_in">width</span> &gt; AS_STRING(krk_peek(<span class="hljs-number">0</span>))-&gt;codesLength) {
+				<span class="hljs-keyword">while</span> (<span class="hljs-built_in">width</span> &gt; AS_STRING(krk_peek(<span class="hljs-number">0</span>))-&gt;codesLength) {
+					pushStringBuilder(&amp;sb, <span class="hljs-string">' '</span>);
+					<span class="hljs-built_in">width</span>--;
+				}
+			}
+
+			pushStringBuilderStr(&amp;sb, AS_CSTRING(krk_peek(<span class="hljs-number">0</span>)), AS_STRING(krk_peek(<span class="hljs-number">0</span>))-&gt;length);
+			<span class="hljs-keyword">if</span> (backwards &amp;&amp; <span class="hljs-built_in">width</span> &gt; AS_STRING(krk_peek(<span class="hljs-number">0</span>))-&gt;codesLength) {
+				<span class="hljs-keyword">while</span> (<span class="hljs-built_in">width</span> &gt; AS_STRING(krk_peek(<span class="hljs-number">0</span>))-&gt;codesLength) {
+					pushStringBuilder(&amp;sb, <span class="hljs-string">' '</span>);
+					<span class="hljs-built_in">width</span>--;
+				}
+			}
+			krk_pop();
+		} <span class="hljs-keyword">else</span> {
+			pushStringBuilder(&amp;sb, self-&gt;chars[i]);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (ti != myTuple-&gt;values.count) {
+		krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"not all arguments converted durin string formatting"</span>);
+		<span class="hljs-keyword">goto</span> _exception;
+	}
+
+	krk_pop(); <span class="hljs-comment">/* tuple */</span>
+	<span class="hljs-keyword">return</span> finishStringBuilder(&amp;sb);
+
+_notEnough:
+	krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"not enough arguments for string format"</span>);
+	<span class="hljs-keyword">goto</span> _exception;
+
+_exception:
+	discardStringBuilder(&amp;sb);
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+<span class="hljs-comment">/* str.split() */</span>
+KRK_Method(str,split) {
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * sep = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">size_t</span> sepLen = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> maxsplit = <span class="hljs-number">-1</span>;
+
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(
+		<span class="hljs-string">".|z#i"</span>, (<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *[]){<span class="hljs-string">"sep"</span>,<span class="hljs-string">"maxsplit"</span>},
+		&amp;sep, &amp;sepLen,
+		&amp;maxsplit)) {
+		<span class="hljs-keyword">return</span> NONE_VAL();
+	}
+
+	<span class="hljs-keyword">if</span> (sep &amp;&amp; sepLen == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-string">"Empty separator"</span>);
+
+	KrkValue myList = krk_list_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	krk_push(myList);
+
+	<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> * c = self-&gt;chars;
+	<span class="hljs-keyword">ssize_t</span> count = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (!sep) {
+		<span class="hljs-keyword">while</span> (i != self-&gt;length) {
+			<span class="hljs-keyword">while</span> (i != self-&gt;length &amp;&amp; isWhitespace(*c)) {
+				i++;
+				c++;
+			}
+			<span class="hljs-keyword">if</span> (i == self-&gt;length) <span class="hljs-keyword">break</span>;
+
+			<span class="hljs-keyword">if</span> (count == maxsplit) {
+				krk_push(OBJECT_VAL(krk_copyString(&amp;self-&gt;chars[i], self-&gt;length - i)));
+				krk_writeValueArray(AS_LIST(myList), krk_peek(<span class="hljs-number">0</span>));
+				krk_pop();
+				<span class="hljs-keyword">break</span>;
+			}
+
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+			<span class="hljs-keyword">while</span> (i != self-&gt;length &amp;&amp; !isWhitespace(*c)) {
+				pushStringBuilder(&amp;sb, *c);
+				i++;
+				c++;
+			}
+			krk_push(finishStringBuilder(&amp;sb));
+			krk_writeValueArray(AS_LIST(myList), krk_peek(<span class="hljs-number">0</span>));
+			krk_pop();
+			count++;
+		}
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-comment">/* Special case 0 */</span>
+		<span class="hljs-keyword">if</span> (maxsplit == <span class="hljs-number">0</span>) {
+			krk_writeValueArray(AS_LIST(myList), argv[<span class="hljs-number">0</span>]);
+			<span class="hljs-keyword">return</span> krk_pop();
+		}
+
+		<span class="hljs-keyword">while</span> (i != self-&gt;length) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+			<span class="hljs-keyword">while</span> (i != self-&gt;length &amp;&amp; !substringMatch(c, self-&gt;length - i, sep, sepLen)) {
+				pushStringBuilder(&amp;sb, *c);
+				i++;
+				c++;
+			}
+			krk_push(finishStringBuilder(&amp;sb));
+			krk_writeValueArray(AS_LIST(myList), krk_peek(<span class="hljs-number">0</span>));
+			krk_pop();
+			<span class="hljs-keyword">if</span> (i == self-&gt;length) <span class="hljs-keyword">break</span>;
+			i += sepLen;
+			c += sepLen;
+			count++;
+			<span class="hljs-keyword">if</span> (count == maxsplit || i == self-&gt;length) {
+				krk_push(OBJECT_VAL(krk_copyString(&amp;self-&gt;chars[i], self-&gt;length - i)));
+				krk_writeValueArray(AS_LIST(myList), krk_peek(<span class="hljs-number">0</span>));
+				krk_pop();
+				<span class="hljs-keyword">break</span>;
+			}
+		}
+	}
+
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+
+KRK_Method(str,replace) {
+	METHOD_TAKES_AT_LEAST(<span class="hljs-number">2</span>);
+	METHOD_TAKES_AT_MOST(<span class="hljs-number">3</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,str,KrkString*,oldStr);
+	CHECK_ARG(<span class="hljs-number">2</span>,str,KrkString*,newStr);
+	KrkValue count = (argc &gt; <span class="hljs-number">3</span> &amp;&amp; IS_INTEGER(argv[<span class="hljs-number">3</span>])) ? argv[<span class="hljs-number">3</span>] : NONE_VAL();
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+
+	<span class="hljs-keyword">int</span> replacements = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> * c = self-&gt;chars;
+	<span class="hljs-keyword">while</span> (i &lt; self-&gt;length) {
+		<span class="hljs-keyword">if</span> ( substringMatch(c, self-&gt;length - i, oldStr-&gt;chars, oldStr-&gt;length) &amp;&amp; (IS_NONE(count) || replacements &lt; AS_INTEGER(count))) {
+			pushStringBuilderStr(&amp;sb, newStr-&gt;chars, newStr-&gt;length);
+			<span class="hljs-keyword">if</span> (oldStr-&gt;length == <span class="hljs-number">0</span>) {
+				pushStringBuilder(&amp;sb, *c);
+				c++;
+				i++;
+			}
+			c += oldStr-&gt;length;
+			i += oldStr-&gt;length;
+			replacements++;
+		} <span class="hljs-keyword">else</span> {
+			pushStringBuilder(&amp;sb, *c);
+			c++;
+			i++;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> finishStringBuilder(&amp;sb);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> WRAP_INDEX(index) \
+	<span class="hljs-meta-keyword">if</span> (index <span class="hljs-meta-string">&lt; 0) index += self-&gt;codesLength; \</span></span>
+	<span class="hljs-keyword">if</span> (index &lt; <span class="hljs-number">0</span>) index = <span class="hljs-number">0</span>; \
+	<span class="hljs-keyword">if</span> (index &gt;= (krk_integer_type)self-&gt;codesLength) index = self-&gt;codesLength
+
+KRK_Method(str,<span class="hljs-built_in">find</span>) {
+	METHOD_TAKES_AT_LEAST(<span class="hljs-number">1</span>);
+	METHOD_TAKES_AT_MOST(<span class="hljs-number">3</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,str,KrkString*,substr);
+
+	krk_integer_type start = <span class="hljs-number">0</span>;
+	krk_integer_type <span class="hljs-built_in">end</span> = self-&gt;codesLength;
+
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">2</span>) {
+		<span class="hljs-keyword">if</span> (IS_INTEGER(argv[<span class="hljs-number">2</span>])) {
+			start = AS_INTEGER(argv[<span class="hljs-number">2</span>]);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">return</span> TYPE_ERROR(<span class="hljs-keyword">int</span>,argv[<span class="hljs-number">2</span>]);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">3</span>) {
+		<span class="hljs-keyword">if</span> (IS_INTEGER(argv[<span class="hljs-number">3</span>])) {
+			<span class="hljs-built_in">end</span> = AS_INTEGER(argv[<span class="hljs-number">3</span>]);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">return</span> TYPE_ERROR(<span class="hljs-keyword">int</span>,argv[<span class="hljs-number">3</span>]);
+		}
+	}
+
+	WRAP_INDEX(start);
+	WRAP_INDEX(<span class="hljs-built_in">end</span>);
+
+	<span class="hljs-comment">/* Make sure both strings have code representations */</span>
+	krk_unicodeString(self);
+	krk_unicodeString(substr);
+
+	<span class="hljs-keyword">for</span> (krk_integer_type i = start; i &lt; <span class="hljs-built_in">end</span>; ++i) {
+		krk_integer_type j;
+		<span class="hljs-keyword">for</span> (j = <span class="hljs-number">0</span>; j &lt; (krk_integer_type)substr-&gt;codesLength &amp;&amp; (i + j &lt; <span class="hljs-built_in">end</span>); ++j) {
+			<span class="hljs-keyword">if</span> (KRK_STRING_FAST(self,i+j) != KRK_STRING_FAST(substr,j)) <span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">if</span> (j == (krk_integer_type)substr-&gt;codesLength) <span class="hljs-keyword">return</span> INTEGER_VAL(i);
+	}
+
+	<span class="hljs-keyword">return</span> INTEGER_VAL(<span class="hljs-number">-1</span>);
+}
+
+KRK_Method(str,index) {
+	KrkValue result = FUNC_NAME(str,<span class="hljs-built_in">find</span>)(argc,argv,hasKw);
+	<span class="hljs-keyword">if</span> (IS_INTEGER(result) &amp;&amp; AS_INTEGER(result) == <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-string">"substring not found"</span>);
+	}
+	<span class="hljs-keyword">return</span> result;
+}
+
+KRK_Method(str,startswith) {
+	KrkString * substr;
+	<span class="hljs-keyword">int</span> start = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">end</span> = self-&gt;codesLength;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">".O!|ii"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"prefix"</span>,<span class="hljs-string">"start"</span>,<span class="hljs-string">"end"</span>}, KRK_BASE_CLASS(str), &amp;substr, &amp;start, &amp;<span class="hljs-built_in">end</span>)) {
+		<span class="hljs-keyword">return</span> NONE_VAL();
+	}
+
+	WRAP_INDEX(start);
+	WRAP_INDEX(<span class="hljs-built_in">end</span>);
+
+	krk_unicodeString(self);
+	krk_unicodeString(substr);
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">end</span> &lt; start || (<span class="hljs-keyword">size_t</span>)(<span class="hljs-built_in">end</span> - start) &lt; substr-&gt;codesLength) <span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">0</span>);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; substr-&gt;codesLength; ++i) {
+		<span class="hljs-keyword">if</span> (KRK_STRING_FAST(self, start + i) != KRK_STRING_FAST(substr,i)) <span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">0</span>);
+	}
+	<span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">1</span>);
+}
+
+KRK_Method(str,endswith) {
+	KrkString * substr;
+	<span class="hljs-keyword">int</span> start = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">end</span> = self-&gt;codesLength;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">".O!|ii"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"suffix"</span>,<span class="hljs-string">"start"</span>,<span class="hljs-string">"end"</span>}, KRK_BASE_CLASS(str), &amp;substr, &amp;start, &amp;<span class="hljs-built_in">end</span>)) {
+		<span class="hljs-keyword">return</span> NONE_VAL();
+	}
+
+	WRAP_INDEX(start);
+	WRAP_INDEX(<span class="hljs-built_in">end</span>);
+
+	krk_unicodeString(self);
+	krk_unicodeString(substr);
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">end</span> &lt; start || (<span class="hljs-keyword">size_t</span>)(<span class="hljs-built_in">end</span> - start) &lt; substr-&gt;codesLength) <span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">0</span>);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; substr-&gt;codesLength; ++i) {
+		<span class="hljs-keyword">if</span> (KRK_STRING_FAST(self, (<span class="hljs-built_in">end</span> - i - <span class="hljs-number">1</span>)) != KRK_STRING_FAST(substr,(substr-&gt;codesLength - i - <span class="hljs-number">1</span>))) <span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">0</span>);
+	}
+	<span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">1</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>str.<strong>repr</strong>()</p>
+</div>
+<div class="body">
+<p>Strings are special because <strong>str</strong> should do nothing but <strong>repr</strong>
+should escape characters like quotes.</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">KRK_Method(str,__repr__) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">end</span> = AS_CSTRING(argv[<span class="hljs-number">0</span>]) + AS_STRING(argv[<span class="hljs-number">0</span>])-&gt;length;
+
+	<span class="hljs-comment">/* First count quotes */</span>
+	<span class="hljs-keyword">size_t</span> singles = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> doubles = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">char</span> * c = AS_CSTRING(argv[<span class="hljs-number">0</span>]); c &lt; <span class="hljs-built_in">end</span>; ++c) {
+		<span class="hljs-keyword">if</span> (*c == <span class="hljs-string">'\''</span>) singles++;
+		<span class="hljs-keyword">if</span> (*c == <span class="hljs-string">'\"'</span>) doubles++;
+	}
+
+	<span class="hljs-keyword">char</span> quote = (singles &gt; doubles) ? <span class="hljs-string">'\"'</span> : <span class="hljs-string">'\''</span>;
+
+	pushStringBuilder(&amp;sb, quote);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">char</span> * c = AS_CSTRING(argv[<span class="hljs-number">0</span>]); c &lt; <span class="hljs-built_in">end</span>; ++c) {
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> ch = *c;
+		<span class="hljs-keyword">int</span> addSlash = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">switch</span> (ch) {
+			<span class="hljs-comment">/* <span class="hljs-doctag">XXX:</span> Other non-printables should probably be escaped as well. */</span>
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\''</span>: addSlash = (quote == ch); ch = <span class="hljs-string">'\''</span>; <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\"'</span>: addSlash = (quote == ch); ch = <span class="hljs-string">'\"'</span>; <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\\'</span>: addSlash = <span class="hljs-number">1</span>; ch = <span class="hljs-string">'\\'</span>; <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\a'</span>: addSlash = <span class="hljs-number">1</span>; ch = <span class="hljs-string">'a'</span>; <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\b'</span>: addSlash = <span class="hljs-number">1</span>; ch = <span class="hljs-string">'b'</span>; <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\f'</span>: addSlash = <span class="hljs-number">1</span>; ch = <span class="hljs-string">'f'</span>; <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\n'</span>: addSlash = <span class="hljs-number">1</span>; ch = <span class="hljs-string">'n'</span>; <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\r'</span>: addSlash = <span class="hljs-number">1</span>; ch = <span class="hljs-string">'r'</span>; <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\t'</span>: addSlash = <span class="hljs-number">1</span>; ch = <span class="hljs-string">'t'</span>; <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\v'</span>: addSlash = <span class="hljs-number">1</span>; ch = <span class="hljs-string">'v'</span>; <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">27</span>:   addSlash = <span class="hljs-number">1</span>; ch = <span class="hljs-string">'['</span>; <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">default</span>:
+				<span class="hljs-keyword">if</span> (ch &lt; <span class="hljs-string">' '</span> || ch == <span class="hljs-number">0x7F</span>) {
+					pushStringBuilder(&amp;sb,<span class="hljs-string">'\\'</span>);
+					pushStringBuilder(&amp;sb,<span class="hljs-string">'x'</span>);
+					<span class="hljs-keyword">char</span> hex[<span class="hljs-number">3</span>];
+					<span class="hljs-built_in">snprintf</span>(hex, <span class="hljs-number">3</span>, <span class="hljs-string">"%02x"</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span>)*c);
+					pushStringBuilder(&amp;sb,hex[<span class="hljs-number">0</span>]);
+					pushStringBuilder(&amp;sb,hex[<span class="hljs-number">1</span>]);
+					<span class="hljs-keyword">continue</span>;
+				}
+				<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">if</span> (addSlash) krk_pushStringBuilder(&amp;sb,<span class="hljs-string">'\\'</span>);
+		krk_pushStringBuilder(&amp;sb,ch);
+	}
+
+	pushStringBuilder(&amp;sb, quote);
+
+	<span class="hljs-keyword">return</span> finishStringBuilder(&amp;sb);
+}
+
+KRK_Method(str,encode) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">return</span> OBJECT_VAL(krk_newBytes(AS_STRING(argv[<span class="hljs-number">0</span>])-&gt;length, (<span class="hljs-keyword">uint8_t</span>*)AS_CSTRING(argv[<span class="hljs-number">0</span>])));
+}
+
+KRK_Method(str,__str__) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">return</span> argv[<span class="hljs-number">0</span>];
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_addObjects</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	KrkValue tmp = FUNC_NAME(str,__add__)(<span class="hljs-number">2</span>, (KrkValue[]){krk_peek(<span class="hljs-number">1</span>), krk_peek(<span class="hljs-number">0</span>)},<span class="hljs-number">0</span>);
+	krk_pop(); krk_pop();
+	krk_push(tmp);
+}
+
+KRK_Method(str,__iter__) {
+	METHOD_TAKES_NONE();
+	KrkInstance * output = krk_newInstance(vm.baseClasses-&gt;striteratorClass);
+
+	krk_push(OBJECT_VAL(output));
+	FUNC_NAME(striterator,__init__)(<span class="hljs-number">2</span>, (KrkValue[]){krk_peek(<span class="hljs-number">0</span>), argv[<span class="hljs-number">0</span>]},<span class="hljs-number">0</span>);
+	krk_pop();
+
+	<span class="hljs-keyword">return</span> OBJECT_VAL(output);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CHECK_ALL(test) do { \
+	krk_unicodeString(self); \
+	for (size_t i = 0; i <span class="hljs-meta-string">&lt; self-&gt;codesLength; ++i) { \</span></span>
+		<span class="hljs-keyword">uint32_t</span> c = KRK_STRING_FAST(self,i); \
+		<span class="hljs-keyword">if</span> (!(test)) { <span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">0</span>); } \
+	} <span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">1</span>); } <span class="hljs-keyword">while</span> (<span class="hljs-number">0</span>)
+
+KRK_Method(str,<span class="hljs-built_in">isalnum</span>) {
+	CHECK_ALL( (c &gt;= <span class="hljs-string">'A'</span> &amp;&amp; c &lt;= <span class="hljs-string">'Z'</span>) || (c &gt;= <span class="hljs-string">'a'</span> &amp;&amp; c &lt;= <span class="hljs-string">'z'</span>) || (c &gt;= <span class="hljs-string">'0'</span> &amp;&amp; c &lt;= <span class="hljs-string">'9'</span>) );
+}
+
+KRK_Method(str,<span class="hljs-built_in">isalpha</span>) {
+	CHECK_ALL( (c &gt;= <span class="hljs-string">'A'</span> &amp;&amp; c &lt;= <span class="hljs-string">'Z'</span>) || (c &gt;= <span class="hljs-string">'a'</span> &amp;&amp; c &lt;= <span class="hljs-string">'z'</span>) );
+}
+
+KRK_Method(str,<span class="hljs-built_in">isdigit</span>) {
+	CHECK_ALL( (c &gt;= <span class="hljs-string">'0'</span> &amp;&amp; c &lt;= <span class="hljs-string">'9'</span>) );
+}
+
+KRK_Method(str,<span class="hljs-built_in">isxdigit</span>) {
+	CHECK_ALL( (c &gt;= <span class="hljs-string">'A'</span> &amp;&amp; c &lt;= <span class="hljs-string">'F'</span>) || (c &gt;= <span class="hljs-string">'a'</span> &amp;&amp; c &lt;= <span class="hljs-string">'f'</span>) || (c &gt;= <span class="hljs-string">'0'</span> &amp;&amp; c &lt;= <span class="hljs-string">'9'</span>) );
+}
+
+KRK_Method(str,<span class="hljs-built_in">isspace</span>) {
+	CHECK_ALL( (c == <span class="hljs-string">' '</span> || c == <span class="hljs-string">'\t'</span> || c == <span class="hljs-string">'\n'</span> || c == <span class="hljs-string">'\r'</span> || c == <span class="hljs-string">'\v'</span>) );
+}
+
+KRK_Method(str,<span class="hljs-built_in">islower</span>) {
+	CHECK_ALL( (c &gt;= <span class="hljs-string">'a'</span> &amp;&amp; c &lt;= <span class="hljs-string">'z'</span>) );
+}
+
+KRK_Method(str,<span class="hljs-built_in">isupper</span>)  {
+	CHECK_ALL( (c &gt;= <span class="hljs-string">'A'</span> &amp;&amp; c &lt;= <span class="hljs-string">'Z'</span>) );
+}
+
+KRK_Method(str,lower) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; self-&gt;length; ++i) {
+		<span class="hljs-keyword">if</span> (self-&gt;chars[i] &gt;= <span class="hljs-string">'A'</span> &amp;&amp; self-&gt;chars[i] &lt;= <span class="hljs-string">'Z'</span>) {
+			pushStringBuilder(&amp;sb, self-&gt;chars[i] + (<span class="hljs-string">'a'</span> - <span class="hljs-string">'A'</span>));
+		} <span class="hljs-keyword">else</span> {
+			pushStringBuilder(&amp;sb, self-&gt;chars[i]);
+		}
+	}
+
+	<span class="hljs-keyword">return</span> finishStringBuilder(&amp;sb);
+}
+
+KRK_Method(str,upper) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; self-&gt;length; ++i) {
+		<span class="hljs-keyword">if</span> (self-&gt;chars[i] &gt;= <span class="hljs-string">'a'</span> &amp;&amp; self-&gt;chars[i] &lt;= <span class="hljs-string">'z'</span>) {
+			pushStringBuilder(&amp;sb, self-&gt;chars[i] - (<span class="hljs-string">'a'</span> - <span class="hljs-string">'A'</span>));
+		} <span class="hljs-keyword">else</span> {
+			pushStringBuilder(&amp;sb, self-&gt;chars[i]);
+		}
+	}
+
+	<span class="hljs-keyword">return</span> finishStringBuilder(&amp;sb);
+}
+
+KRK_Method(str,title) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+
+	<span class="hljs-keyword">int</span> lastWasWhitespace = <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; self-&gt;length; ++i) {
+		<span class="hljs-keyword">if</span> (lastWasWhitespace &amp;&amp; self-&gt;chars[i] &gt;= <span class="hljs-string">'a'</span> &amp;&amp; self-&gt;chars[i] &lt;= <span class="hljs-string">'z'</span>) {
+			pushStringBuilder(&amp;sb, self-&gt;chars[i] - (<span class="hljs-string">'a'</span> - <span class="hljs-string">'A'</span>));
+			lastWasWhitespace = <span class="hljs-number">0</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!lastWasWhitespace &amp;&amp; self-&gt;chars[i] &gt;= <span class="hljs-string">'A'</span> &amp;&amp; self-&gt;chars[i] &lt;= <span class="hljs-string">'Z'</span>) {
+			pushStringBuilder(&amp;sb, self-&gt;chars[i] + (<span class="hljs-string">'a'</span> - <span class="hljs-string">'A'</span>));
+			lastWasWhitespace = <span class="hljs-number">0</span>;
+		} <span class="hljs-keyword">else</span> {
+			pushStringBuilder(&amp;sb, self-&gt;chars[i]);
+			lastWasWhitespace = !((self-&gt;chars[i] &gt;= <span class="hljs-string">'A'</span> &amp;&amp; self-&gt;chars[i] &lt;= <span class="hljs-string">'Z'</span>) || (self-&gt;chars[i] &gt;= <span class="hljs-string">'a'</span> &amp;&amp; self-&gt;chars[i] &lt;= <span class="hljs-string">'z'</span>));
+		}
+	}
+
+	<span class="hljs-keyword">return</span> finishStringBuilder(&amp;sb);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> CURRENT_CTYPE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE KrkInstance *</span>
+KRK_Method(striterator,__init__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,str,KrkString*,base);
+	krk_push(OBJECT_VAL(self));
+	krk_attachNamedObject(&amp;self-&gt;fields, <span class="hljs-string">"s"</span>, (KrkObj*)base);
+	krk_attachNamedValue(&amp;self-&gt;fields, <span class="hljs-string">"i"</span>, INTEGER_VAL(<span class="hljs-number">0</span>));
+	krk_pop();
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(striterator,__call__) {
+	METHOD_TAKES_NONE();
+	KrkValue _str;
+	KrkValue _counter;
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * errorStr = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">if</span> (!krk_tableGet(&amp;self-&gt;fields, OBJECT_VAL(S(<span class="hljs-string">"s"</span>)), &amp;_str) || !IS_STRING(_str)) {
+		errorStr = <span class="hljs-string">"no str pointer"</span>;
+		<span class="hljs-keyword">goto</span> _corrupt;
+	}
+	<span class="hljs-keyword">if</span> (!krk_tableGet(&amp;self-&gt;fields, OBJECT_VAL(S(<span class="hljs-string">"i"</span>)), &amp;_counter) || !IS_INTEGER(_counter)) {
+		errorStr = <span class="hljs-string">"no index"</span>;
+		<span class="hljs-keyword">goto</span> _corrupt;
+	}
+
+	<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">size_t</span>)AS_INTEGER(_counter) &gt;= AS_STRING(_str)-&gt;codesLength) {
+		<span class="hljs-keyword">return</span> argv[<span class="hljs-number">0</span>];
+	} <span class="hljs-keyword">else</span> {
+		krk_attachNamedValue(&amp;self-&gt;fields, <span class="hljs-string">"i"</span>, INTEGER_VAL(AS_INTEGER(_counter)+<span class="hljs-number">1</span>));
+		<span class="hljs-keyword">return</span> FUNC_NAME(str,__getitem__)(<span class="hljs-number">2</span>,(KrkValue[]){_str,_counter},<span class="hljs-number">3</span>);
+	}
+_corrupt:
+	<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"Corrupt str iterator: %s"</span>, errorStr);
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_pushStringBuilder</span><span class="hljs-params">(struct StringBuilder * sb, <span class="hljs-keyword">char</span> c)</span> </span>{
+	<span class="hljs-keyword">if</span> (sb-&gt;capacity &lt; sb-&gt;length + <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">size_t</span> old = sb-&gt;capacity;
+		sb-&gt;capacity = KRK_GROW_CAPACITY(old);
+		sb-&gt;bytes = KRK_GROW_ARRAY(<span class="hljs-keyword">char</span>, sb-&gt;bytes, old, sb-&gt;capacity);
+	}
+	sb-&gt;bytes[sb-&gt;length++] = c;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_pushStringBuilderStr</span><span class="hljs-params">(struct StringBuilder * sb, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *str, <span class="hljs-keyword">size_t</span> len)</span> </span>{
+	<span class="hljs-keyword">if</span> (sb-&gt;capacity &lt; sb-&gt;length + len) {
+		<span class="hljs-keyword">size_t</span> prevcap = sb-&gt;capacity;
+		<span class="hljs-keyword">while</span> (sb-&gt;capacity &lt; sb-&gt;length + len) {
+			<span class="hljs-keyword">size_t</span> old = sb-&gt;capacity;
+			sb-&gt;capacity = KRK_GROW_CAPACITY(old);
+		}
+		sb-&gt;bytes = KRK_GROW_ARRAY(<span class="hljs-keyword">char</span>, sb-&gt;bytes, prevcap, sb-&gt;capacity);
+	}
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; len; ++i) {
+		sb-&gt;bytes[sb-&gt;length++] = *(str++);
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _freeStringBuilder(struct StringBuilder * sb) {
+	KRK_FREE_ARRAY(<span class="hljs-keyword">char</span>,sb-&gt;bytes, sb-&gt;capacity);
+	sb-&gt;bytes = <span class="hljs-literal">NULL</span>;
+	sb-&gt;length = <span class="hljs-number">0</span>;
+	sb-&gt;capacity = <span class="hljs-number">0</span>;
+}
+<span class="hljs-function">KrkValue <span class="hljs-title">krk_finishStringBuilder</span><span class="hljs-params">(struct StringBuilder * sb)</span> </span>{
+	KrkValue out = OBJECT_VAL(krk_copyString(sb-&gt;bytes, sb-&gt;length));
+	_freeStringBuilder(sb);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function">KrkValue <span class="hljs-title">krk_finishStringBuilderBytes</span><span class="hljs-params">(struct StringBuilder * sb)</span> </span>{
+	KrkValue out = OBJECT_VAL(krk_newBytes(sb-&gt;length, (<span class="hljs-keyword">uint8_t</span>*)sb-&gt;bytes));
+	_freeStringBuilder(sb);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function">KrkValue <span class="hljs-title">krk_discardStringBuilder</span><span class="hljs-params">(struct StringBuilder * sb)</span> </span>{
+	_freeStringBuilder(sb);
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_pushStringBuilderFormatV</span><span class="hljs-params">(struct StringBuilder * sb, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * fmt, va_list args)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * f = fmt; *f; ++f) {
+		<span class="hljs-keyword">if</span> (*f != <span class="hljs-string">'%'</span>) {
+			pushStringBuilder(sb, *f);
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-comment">/* Bail on exception */</span>
+		<span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION) <span class="hljs-keyword">break</span>;
+
+		++f;
+
+		<span class="hljs-keyword">int</span> <span class="hljs-built_in">size</span> = <span class="hljs-string">' '</span>;
+		<span class="hljs-keyword">int</span> len  = <span class="hljs-number">-1</span>;
+
+		<span class="hljs-keyword">if</span> (*f == <span class="hljs-string">'z'</span>) <span class="hljs-built_in">size</span> = *f++;
+		<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (*f == <span class="hljs-string">'l'</span>) <span class="hljs-built_in">size</span> = *f++;
+		<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (*f == <span class="hljs-string">'L'</span>) <span class="hljs-built_in">size</span> = *f++;
+
+		<span class="hljs-keyword">if</span> (*f == <span class="hljs-string">'.'</span>) {
+			<span class="hljs-keyword">if</span> (f[<span class="hljs-number">1</span>] == <span class="hljs-string">'*'</span>) {
+				len = va_arg(args, <span class="hljs-keyword">int</span>);
+				f += <span class="hljs-number">2</span>;
+			}
+		}
+
+		<span class="hljs-keyword">switch</span> (*f) {
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0</span>: <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'%'</span>:
+				pushStringBuilder(sb, <span class="hljs-string">'%'</span>);
+				<span class="hljs-keyword">break</span>;
+
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'c'</span>: {
+				<span class="hljs-keyword">char</span> val = (<span class="hljs-keyword">char</span>)va_arg(args, <span class="hljs-keyword">int</span>);
+				pushStringBuilder(sb, val);
+				<span class="hljs-keyword">break</span>;
+			}
+
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'s'</span>: {
+				<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * c = va_arg(args, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *);
+				pushStringBuilderStr(sb, c, len == <span class="hljs-number">-1</span> ? <span class="hljs-built_in">strlen</span>(c) : (<span class="hljs-keyword">size_t</span>)len);
+				<span class="hljs-keyword">break</span>;
+			}
+
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'u'</span>: {
+				<span class="hljs-keyword">size_t</span> val = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-string">' '</span>) {
+					val = va_arg(args, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-string">'l'</span>) {
+					val = va_arg(args, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-string">'L'</span>) {
+					val = va_arg(args, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> <span class="hljs-keyword">long</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-string">'z'</span>) {
+					val = va_arg(args, <span class="hljs-keyword">size_t</span>);
+				}
+				<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">100</span>];
+				<span class="hljs-built_in">snprintf</span>(tmp, <span class="hljs-number">32</span>, <span class="hljs-string">"%zu"</span>, val);
+				pushStringBuilderStr(sb, tmp, <span class="hljs-built_in">strlen</span>(tmp));
+				<span class="hljs-keyword">break</span>;
+			}
+
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'d'</span>: {
+				<span class="hljs-keyword">ssize_t</span> val = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-string">' '</span>) {
+					val = va_arg(args, <span class="hljs-keyword">int</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-string">'l'</span>) {
+					val = va_arg(args, <span class="hljs-keyword">long</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-string">'L'</span>) {
+					val = va_arg(args, <span class="hljs-keyword">long</span> <span class="hljs-keyword">long</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-string">'z'</span>) {
+					val = va_arg(args, <span class="hljs-keyword">ssize_t</span>);
+				}
+				<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">100</span>];
+				<span class="hljs-built_in">snprintf</span>(tmp, <span class="hljs-number">32</span>, <span class="hljs-string">"%zd"</span>, val);
+				pushStringBuilderStr(sb, tmp, <span class="hljs-built_in">strlen</span>(tmp));
+				<span class="hljs-keyword">break</span>;
+			}
+
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'T'</span>: {
+				KrkValue val = va_arg(args, KrkValue);
+				<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * typeName = krk_typeName(val);
+				pushStringBuilderStr(sb, typeName, <span class="hljs-built_in">strlen</span>(typeName));
+				<span class="hljs-keyword">break</span>;
+			}
+
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'S'</span>: {
+				KrkString * val = va_arg(args, KrkString*);
+				pushStringBuilderStr(sb, val-&gt;chars, val-&gt;length);
+				<span class="hljs-keyword">break</span>;
+			}
+
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'R'</span>: {
+				KrkValue val = va_arg(args, KrkValue);
+				KrkClass * type = krk_getType(val);
+				<span class="hljs-keyword">if</span> (likely(type-&gt;_reprer != <span class="hljs-literal">NULL</span>)) {
+					krk_push(val);
+					KrkValue res = krk_callDirect(type-&gt;_reprer, <span class="hljs-number">1</span>);
+					krk_push(res);
+					<span class="hljs-keyword">if</span> (IS_STRING(res)) {
+						pushStringBuilderStr(sb, AS_CSTRING(res), AS_STRING(res)-&gt;length);
+					} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!(krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION)) {
+						krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"__repr__ returned non-string (type %T)"</span>, res);
+					}
+					krk_pop();
+				}
+				<span class="hljs-keyword">break</span>;
+			}
+
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'p'</span>: {
+				<span class="hljs-keyword">uintptr_t</span> val = va_arg(args, <span class="hljs-keyword">uintptr_t</span>);
+				<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">100</span>];
+				<span class="hljs-built_in">snprintf</span>(tmp, <span class="hljs-number">32</span>, <span class="hljs-string">"0x%zx"</span>, (<span class="hljs-keyword">size_t</span>)val);
+				pushStringBuilderStr(sb, tmp, <span class="hljs-built_in">strlen</span>(tmp));
+				<span class="hljs-keyword">break</span>;
+			}
+
+			<span class="hljs-keyword">default</span>: {
+				va_arg(args, <span class="hljs-keyword">void</span>*);
+				pushStringBuilderStr(sb, <span class="hljs-string">"(unsupported: "</span>, <span class="hljs-number">14</span>);
+				pushStringBuilder(sb, *f);
+				pushStringBuilder(sb, <span class="hljs-string">')'</span>);
+				<span class="hljs-keyword">break</span>;
+			}
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_pushStringBuilderFormat</span><span class="hljs-params">(struct StringBuilder * sb, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * fmt, ...)</span> </span>{
+	va_list args;
+	va_start(args, fmt);
+	<span class="hljs-keyword">int</span> result = krk_pushStringBuilderFormatV(sb,fmt,args);
+	va_end(args);
+	<span class="hljs-keyword">return</span> result;
+}
+
+<span class="hljs-function">KrkValue <span class="hljs-title">krk_stringFromFormat</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * fmt, ...)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+	va_list args;
+	va_start(args, fmt);
+	<span class="hljs-keyword">int</span> result = krk_pushStringBuilderFormatV(&amp;sb,fmt,args);
+	va_end(args);
+	<span class="hljs-keyword">if</span> (!result) <span class="hljs-keyword">return</span> krk_discardStringBuilder(&amp;sb);
+	<span class="hljs-keyword">return</span> krk_finishStringBuilder(&amp;sb);
+}
+
+_noexport
+<span class="hljs-keyword">void</span> _createAndBind_strClass(<span class="hljs-keyword">void</span>) {
+	KrkClass * str = ADD_BASE_CLASS(vm.baseClasses-&gt;strClass, <span class="hljs-string">"str"</span>, vm.baseClasses-&gt;objectClass);
+	str-&gt;obj.flags |= KRK_OBJ_FLAGS_NO_INHERIT;
+	str-&gt;allocSize = <span class="hljs-number">0</span>;
+	BIND_STATICMETHOD(str,__new__);
+	BIND_METHOD(str,__iter__);
+	BIND_METHOD(str,__ord__);
+	BIND_METHOD(str,__int__);
+	BIND_METHOD(str,__float__);
+	BIND_METHOD(str,__getitem__);
+	BIND_METHOD(str,__setitem__);
+	BIND_METHOD(str,__add__);
+	BIND_METHOD(str,__len__);
+	BIND_METHOD(str,__mul__);
+	BIND_METHOD(str,__rmul__);
+	BIND_METHOD(str,__contains__);
+	BIND_METHOD(str,__lt__);
+	BIND_METHOD(str,__gt__);
+	BIND_METHOD(str,__le__);
+	BIND_METHOD(str,__ge__);
+	BIND_METHOD(str,__mod__);
+	BIND_METHOD(str,__repr__);
+	BIND_METHOD(str,__str__);
+	BIND_METHOD(str,__hash__);
+	BIND_METHOD(str,__format__);
+	BIND_METHOD(str,encode);
+	BIND_METHOD(str,split);
+	BIND_METHOD(str,strip);
+	BIND_METHOD(str,lstrip);
+	BIND_METHOD(str,rstrip);
+	BIND_METHOD(str,join);
+	BIND_METHOD(str,format);
+	BIND_METHOD(str,replace);
+	BIND_METHOD(str,<span class="hljs-built_in">find</span>);
+	BIND_METHOD(str,index);
+	BIND_METHOD(str,startswith);
+	BIND_METHOD(str,endswith);
+
+	<span class="hljs-comment">/* TODO these are not properly Unicode-aware */</span>
+	BIND_METHOD(str,<span class="hljs-built_in">isalnum</span>);
+	BIND_METHOD(str,<span class="hljs-built_in">isalpha</span>);
+	BIND_METHOD(str,<span class="hljs-built_in">isdigit</span>);
+	BIND_METHOD(str,<span class="hljs-built_in">isxdigit</span>);
+	BIND_METHOD(str,<span class="hljs-built_in">isspace</span>);
+	BIND_METHOD(str,<span class="hljs-built_in">islower</span>);
+	BIND_METHOD(str,<span class="hljs-built_in">isupper</span>);
+
+	<span class="hljs-comment">/* Not recommended in their current forms, but here for some Python compatibility */</span>
+	BIND_METHOD(str,lower);
+	BIND_METHOD(str,upper);
+	BIND_METHOD(str,title);
+
+	krk_defineNative(&amp;str-&gt;methods,<span class="hljs-string">"__delitem__"</span>,FUNC_NAME(str,__setitem__));
+	krk_finalizeClass(str);
+	KRK_DOC(str, <span class="hljs-string">"Obtain a string representation of an object."</span>);
+
+	KrkClass * striterator = ADD_BASE_CLASS(vm.baseClasses-&gt;striteratorClass, <span class="hljs-string">"striterator"</span>, vm.baseClasses-&gt;objectClass);
+	striterator-&gt;obj.flags |= KRK_OBJ_FLAGS_NO_INHERIT;
+	BIND_METHOD(striterator,__init__);
+	BIND_METHOD(striterator,__call__);
+	krk_finalizeClass(striterator);
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

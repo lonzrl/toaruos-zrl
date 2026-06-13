@@ -1,0 +1,1507 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>syscall.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\sys\\syscall.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>syscall.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/utsname.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/times.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ptrace.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/resource.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/mman.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/version.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pipe.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/shm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pty.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/spinlock.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/misc.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/ptrace.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mman.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/net/netif.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span>   hostname[<span class="hljs-number">256</span>];
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> hostname_len = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">ptr_validate</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * ptr, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * syscall)</span> </span>{
+	<span class="hljs-keyword">if</span> (ptr &amp;&amp; (!PTR_INRANGE(ptr) || !mmu_validate_user_pointer(ptr,<span class="hljs-number">1</span>,<span class="hljs-number">0</span>))) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PTRCHECK(addr,size,flags) do { <span class="hljs-meta-keyword">if</span> (!mmu_validate_user_pointer(addr,size,flags)) return -EFAULT; } while (0)</span>
+
+__attribute__((noreturn))
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_exit</span><span class="hljs-params">(<span class="hljs-keyword">long</span> exitcode)</span> </span>{
+	task_exit(((<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span>)exitcode) &lt;&lt; <span class="hljs-number">8</span>);
+	__builtin_unreachable();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_write</span><span class="hljs-params">(<span class="hljs-keyword">int</span> fd, <span class="hljs-keyword">char</span> * ptr, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> len)</span> </span>{
+	<span class="hljs-keyword">if</span> (!FD_CHECK(fd)) <span class="hljs-keyword">return</span> -EBADF;
+	PTRCHECK(ptr,len,MMU_PTR_NULL);
+
+	<span class="hljs-keyword">fs_node_t</span> * node = FD_ENTRY(fd);
+	<span class="hljs-keyword">if</span> (!(FD_MODE(fd) &amp; PROC_FD_MODE_WRITE)) <span class="hljs-keyword">return</span> -EBADF;
+	<span class="hljs-keyword">if</span> (!len) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">int64_t</span> out = write_fs(node, FD_OFFSET(fd), len, (<span class="hljs-keyword">uint8_t</span>*)ptr);
+	<span class="hljs-keyword">if</span> (out &gt; <span class="hljs-number">0</span>) FD_OFFSET(fd) += out;
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_pwrite</span><span class="hljs-params">(<span class="hljs-keyword">int</span> fd, <span class="hljs-keyword">void</span> * ptr, <span class="hljs-keyword">size_t</span> count, <span class="hljs-keyword">off_t</span> offset)</span> </span>{
+	<span class="hljs-keyword">if</span> (!FD_CHECK(fd)) <span class="hljs-keyword">return</span> -EBADF;
+	<span class="hljs-keyword">if</span> ((FD_ENTRY(fd)-&gt;flags &amp; FS_PIPE) || (FD_ENTRY(fd)-&gt;flags &amp; FS_CHARDEVICE) || (FD_ENTRY(fd)-&gt;flags &amp; FS_SOCKET)) <span class="hljs-keyword">return</span> -ESPIPE;
+	PTRCHECK(ptr,count,MMU_PTR_NULL);
+
+	<span class="hljs-keyword">fs_node_t</span> * node = FD_ENTRY(fd);
+	<span class="hljs-keyword">if</span> (!(FD_MODE(fd) &amp; PROC_FD_MODE_WRITE)) <span class="hljs-keyword">return</span> -EBADF;
+	<span class="hljs-keyword">if</span> (!count) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">return</span> write_fs(node, offset, count, (<span class="hljs-keyword">uint8_t</span>*)ptr);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_read</span><span class="hljs-params">(<span class="hljs-keyword">int</span> fd, <span class="hljs-keyword">char</span> * ptr, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> len)</span> </span>{
+	<span class="hljs-keyword">if</span> (!FD_CHECK(fd)) <span class="hljs-keyword">return</span> -EBADF;
+	PTRCHECK(ptr,len,MMU_PTR_NULL|MMU_PTR_WRITE);
+
+	<span class="hljs-keyword">fs_node_t</span> * node = FD_ENTRY(fd);
+	<span class="hljs-keyword">if</span> (!(FD_MODE(fd) &amp; PROC_FD_MODE_READ)) <span class="hljs-keyword">return</span> -EBADF;
+	<span class="hljs-keyword">if</span> (!len) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">int64_t</span> out = read_fs(node, FD_OFFSET(fd), len, (<span class="hljs-keyword">uint8_t</span> *)ptr);
+	<span class="hljs-keyword">if</span> (out &gt; <span class="hljs-number">0</span>) FD_OFFSET(fd) += out;
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_pread</span><span class="hljs-params">(<span class="hljs-keyword">int</span> fd, <span class="hljs-keyword">void</span> * ptr, <span class="hljs-keyword">size_t</span> count, <span class="hljs-keyword">off_t</span> offset)</span> </span>{
+	<span class="hljs-keyword">if</span> (!FD_CHECK(fd)) <span class="hljs-keyword">return</span> -EBADF;
+	<span class="hljs-keyword">if</span> ((FD_ENTRY(fd)-&gt;flags &amp; FS_PIPE) || (FD_ENTRY(fd)-&gt;flags &amp; FS_CHARDEVICE) || (FD_ENTRY(fd)-&gt;flags &amp; FS_SOCKET)) <span class="hljs-keyword">return</span> -ESPIPE;
+	PTRCHECK(ptr,count,MMU_PTR_NULL|MMU_PTR_WRITE);
+
+	<span class="hljs-keyword">fs_node_t</span> * node = FD_ENTRY(fd);
+	<span class="hljs-keyword">if</span> (!(FD_MODE(fd) &amp; PROC_FD_MODE_READ)) <span class="hljs-keyword">return</span> -EBADF;
+	<span class="hljs-keyword">if</span> (!count) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">return</span> read_fs(node, offset, count, (<span class="hljs-keyword">uint8_t</span> *)ptr);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> <span class="hljs-title">stat_node</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * fn, struct stat * f)</span> </span>{
+	f-&gt;st_dev   = (<span class="hljs-keyword">uint16_t</span>)(((<span class="hljs-keyword">uint64_t</span>)fn-&gt;device &amp; <span class="hljs-number">0xFFFF0</span>) &gt;&gt; <span class="hljs-number">8</span>);
+	f-&gt;st_ino   = fn-&gt;inode;
+
+	<span class="hljs-keyword">uint32_t</span> flags = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (fn-&gt;flags &amp; FS_FILE)        { flags |= _IFREG; }
+	<span class="hljs-keyword">if</span> (fn-&gt;flags &amp; FS_DIRECTORY)   { flags |= _IFDIR; }
+	<span class="hljs-keyword">if</span> (fn-&gt;flags &amp; FS_CHARDEVICE)  { flags |= _IFCHR; }
+	<span class="hljs-keyword">if</span> (fn-&gt;flags &amp; FS_BLOCKDEVICE) { flags |= _IFBLK; }
+	<span class="hljs-keyword">if</span> (fn-&gt;flags &amp; FS_PIPE)        { flags |= _IFIFO; }
+	<span class="hljs-keyword">if</span> (fn-&gt;flags &amp; FS_SYMLINK)     { flags |= _IFLNK; }
+	<span class="hljs-keyword">if</span> (fn-&gt;flags &amp; FS_SOCKET)      { flags |= _IFSOCK; }
+
+	f-&gt;st_mode  = fn-&gt;mask | flags;
+	f-&gt;st_nlink = fn-&gt;nlink;
+	f-&gt;st_uid   = fn-&gt;uid;
+	f-&gt;st_gid   = fn-&gt;gid;
+	f-&gt;st_rdev  = <span class="hljs-number">0</span>;
+	f-&gt;st_size  = fn-&gt;length;
+
+	f-&gt;st_atim.tv_sec = fn-&gt;atime;
+	f-&gt;st_atim.tv_nsec = <span class="hljs-number">0</span>;
+	f-&gt;st_mtim.tv_sec = fn-&gt;mtime;
+	f-&gt;st_mtim.tv_nsec = <span class="hljs-number">0</span>;
+	f-&gt;st_ctim.tv_sec = fn-&gt;ctime;
+	f-&gt;st_ctim.tv_nsec = <span class="hljs-number">0</span>;
+	f-&gt;st_blksize = <span class="hljs-number">512</span>; <span class="hljs-comment">/* whatever */</span>
+
+	<span class="hljs-keyword">if</span> (fn-&gt;get_size) {
+		f-&gt;st_size = fn-&gt;get_size(fn);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_stat</span><span class="hljs-params">(<span class="hljs-keyword">int</span> fd, struct stat * st)</span> </span>{
+	PTRCHECK(st,<span class="hljs-keyword">sizeof</span>(struct stat),MMU_PTR_WRITE);
+	<span class="hljs-keyword">if</span> (!st) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">if</span> (!FD_CHECK(fd)) <span class="hljs-keyword">return</span> -EBADF;
+	<span class="hljs-keyword">return</span> stat_node(FD_ENTRY(fd), st);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> <span class="hljs-title">do_stat_path</span><span class="hljs-params">(<span class="hljs-keyword">char</span> *file, struct stat *st, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	PTR_VALIDATE(file);
+	PTRCHECK(st,<span class="hljs-keyword">sizeof</span>(struct stat),MMU_PTR_WRITE);
+	<span class="hljs-keyword">if</span> (!file || !st) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">fs_node_t</span> * fn = kopen_error(file, flags, &amp;error);
+	<span class="hljs-keyword">if</span> (!fn) {
+		<span class="hljs-built_in">memset</span>(st, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(struct stat));
+		<span class="hljs-keyword">return</span> -error;
+	}
+	<span class="hljs-keyword">long</span> result = stat_node(fn, st);
+	close_fs(fn);
+	<span class="hljs-keyword">return</span> result;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_statf</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * file, struct stat * st)</span> </span>{
+	<span class="hljs-keyword">return</span> do_stat_path(file, st, <span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_lstat</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * file, struct stat * st)</span> </span>{
+	<span class="hljs-keyword">return</span> do_stat_path(file, st, O_NOFOLLOW);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_symlink</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * target, <span class="hljs-keyword">char</span> * name)</span> </span>{
+	PTR_VALIDATE(target);
+	PTR_VALIDATE(name);
+	<span class="hljs-keyword">if</span> (!target || !name) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">return</span> symlink_fs(target, name);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_readlink</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * file, <span class="hljs-keyword">char</span> * ptr, <span class="hljs-keyword">long</span> len)</span> </span>{
+	PTR_VALIDATE(file);
+	PTRCHECK(ptr,len,MMU_PTR_WRITE);
+	<span class="hljs-keyword">if</span> (!file) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">fs_node_t</span> * node = kopen_error((<span class="hljs-keyword">char</span> *) file, O_NOFOLLOW, &amp;error);
+	<span class="hljs-keyword">if</span> (!node) <span class="hljs-keyword">return</span> -error;
+	<span class="hljs-keyword">long</span> rv = readlink_fs(node, ptr, len);
+	close_fs(node);
+	<span class="hljs-keyword">return</span> rv;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">mode_t</span> <span class="hljs-title">modify_mode</span><span class="hljs-params">(<span class="hljs-keyword">mode_t</span> mode_in)</span> </span>{
+	<span class="hljs-keyword">return</span> mode_in &amp; ~(this_core-&gt;current_process-&gt;<span class="hljs-built_in">process</span>-&gt;mask &amp; <span class="hljs-number">0777</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_open</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * file, <span class="hljs-keyword">long</span> flags, <span class="hljs-keyword">mode_t</span> mode_in)</span> </span>{
+	PTR_VALIDATE(file);
+	<span class="hljs-keyword">if</span> (!file) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">fs_node_t</span> * node = kopen_error((<span class="hljs-keyword">char</span> *)file, flags, &amp;error);
+
+	<span class="hljs-keyword">mode_t</span> mode = modify_mode(mode_in);
+
+	<span class="hljs-keyword">int</span> access_bits = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (node &amp;&amp; (flags &amp; O_CREAT) &amp;&amp; (flags &amp; O_EXCL)) {
+		close_fs(node);
+		<span class="hljs-keyword">return</span> -EEXIST;
+	}
+
+	<span class="hljs-keyword">if</span> (!node &amp;&amp; (flags &amp; O_CREAT)) {
+		<span class="hljs-keyword">int</span> result = create_file_fs((<span class="hljs-keyword">char</span> *)file, mode, &amp;node);
+		<span class="hljs-keyword">if</span> (result) <span class="hljs-keyword">return</span> result;
+		open_fs(node, flags);
+	}
+
+	<span class="hljs-keyword">if</span> ((flags &amp; O_NOFOLLOW) &amp;&amp; (node-&gt;flags &amp; FS_SYMLINK)) {
+		close_fs(node);
+		<span class="hljs-keyword">return</span> -ELOOP;
+	}
+
+	<span class="hljs-keyword">if</span> (!(flags &amp; O_WRONLY) || (flags &amp; O_RDWR)) {
+		<span class="hljs-keyword">if</span> (node &amp;&amp; !has_permission(node, R_OK)) {
+			close_fs(node);
+			<span class="hljs-keyword">return</span> -EACCES;
+		} <span class="hljs-keyword">else</span> {
+			access_bits |= PROC_FD_MODE_READ;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> ((flags &amp; O_RDWR) || (flags &amp; O_WRONLY)) {
+		<span class="hljs-keyword">if</span> (node &amp;&amp; !has_permission(node, W_OK)) {
+			close_fs(node);
+			<span class="hljs-keyword">return</span> -EACCES;
+		}
+		<span class="hljs-keyword">if</span> (node &amp;&amp; (node-&gt;flags &amp; FS_DIRECTORY)) {
+			close_fs(node);
+			<span class="hljs-keyword">return</span> -EISDIR;
+		}
+		<span class="hljs-keyword">if</span> ((flags &amp; O_RDWR) || (flags &amp; O_WRONLY)) {
+			<span class="hljs-comment">/* truncate doesn't grant write permissions */</span>
+			access_bits |= PROC_FD_MODE_WRITE;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (node &amp;&amp; (flags &amp; O_DIRECTORY)) {
+		<span class="hljs-keyword">if</span> (!(node-&gt;flags &amp; FS_DIRECTORY)) {
+			close_fs(node);
+			<span class="hljs-keyword">return</span> -ENOTDIR;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (node &amp;&amp; (flags &amp; O_TRUNC)) {
+		<span class="hljs-keyword">if</span> (!(access_bits &amp; PROC_FD_MODE_WRITE)) {
+			close_fs(node);
+			<span class="hljs-keyword">return</span> -EINVAL;
+		}
+		truncate_fs(node, <span class="hljs-number">0</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (!node) {
+		<span class="hljs-keyword">return</span> -error;
+	}
+	<span class="hljs-keyword">if</span> (node &amp;&amp; (flags &amp; O_CREAT) &amp;&amp; (node-&gt;flags &amp; FS_DIRECTORY)) {
+		close_fs(node);
+		<span class="hljs-keyword">return</span> -EISDIR;
+	}
+
+	<span class="hljs-keyword">if</span> (flags &amp; O_CLOEXEC) access_bits |= PROC_FD_MODE_CLOEXEC;
+	<span class="hljs-keyword">if</span> (flags &amp; O_CLOFORK) access_bits |= PROC_FD_MODE_CLOFORK;
+
+	<span class="hljs-keyword">int</span> fd = process_append_fd((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, node, access_bits);
+	<span class="hljs-keyword">if</span> (flags &amp; O_APPEND) {
+		FD_OFFSET(fd) = node-&gt;length;
+	} <span class="hljs-keyword">else</span> {
+		FD_OFFSET(fd) = <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">return</span> fd;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_close</span><span class="hljs-params">(<span class="hljs-keyword">int</span> fd)</span> </span>{
+	<span class="hljs-keyword">if</span> (!FD_CHECK(fd)) <span class="hljs-keyword">return</span> -EBADF;
+
+	close_fs(FD_ENTRY(fd));
+	FD_ENTRY(fd) = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_seek</span><span class="hljs-params">(<span class="hljs-keyword">int</span> fd, <span class="hljs-keyword">long</span> offset, <span class="hljs-keyword">long</span> whence)</span> </span>{
+	<span class="hljs-keyword">if</span> (!FD_CHECK(fd)) <span class="hljs-keyword">return</span> -EBADF;
+	<span class="hljs-keyword">if</span> ((FD_ENTRY(fd)-&gt;flags &amp; FS_PIPE) || (FD_ENTRY(fd)-&gt;flags &amp; FS_CHARDEVICE) || (FD_ENTRY(fd)-&gt;flags &amp; FS_SOCKET)) <span class="hljs-keyword">return</span> -ESPIPE;
+
+	<span class="hljs-keyword">switch</span> (whence) {
+		<span class="hljs-keyword">case</span> <span class="hljs-number">0</span>:
+			FD_OFFSET(fd) = offset;
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">1</span>:
+			FD_OFFSET(fd) += offset;
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">2</span>:
+			FD_OFFSET(fd) = FD_ENTRY(fd)-&gt;length + offset;
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> -EINVAL;
+	}
+
+	<span class="hljs-keyword">return</span> FD_OFFSET(fd);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_ioctl</span><span class="hljs-params">(<span class="hljs-keyword">int</span> fd, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> request, <span class="hljs-keyword">void</span> * argp)</span> </span>{
+	<span class="hljs-keyword">if</span> (!FD_CHECK(fd)) <span class="hljs-keyword">return</span> -EBADF;
+	PTR_VALIDATE(argp);
+
+	<span class="hljs-keyword">return</span> ioctl_fs(FD_ENTRY(fd), request, argp);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_readdir</span><span class="hljs-params">(<span class="hljs-keyword">int</span> fd, <span class="hljs-keyword">long</span> index, struct dirent * entry)</span> </span>{
+	<span class="hljs-keyword">if</span> (!FD_CHECK(fd)) <span class="hljs-keyword">return</span> -EBADF;
+	PTRCHECK(entry,<span class="hljs-keyword">sizeof</span>(struct dirent),MMU_PTR_WRITE);
+
+	<span class="hljs-keyword">fs_node_t</span> * node = FD_ENTRY(fd);
+	<span class="hljs-keyword">if</span> (!(FD_MODE(fd) &amp; PROC_FD_MODE_READ)) <span class="hljs-keyword">return</span> -EBADF;
+
+	<span class="hljs-keyword">return</span> readdir_fs(node, (<span class="hljs-keyword">uint64_t</span>)index, entry);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_mkdir</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * path, <span class="hljs-keyword">uint64_t</span> mode)</span> </span>{
+	PTR_VALIDATE(path);
+	<span class="hljs-keyword">if</span> (!path) <span class="hljs-keyword">return</span> -EFAULT;
+
+	<span class="hljs-keyword">return</span> mkdir_fs(path, modify_mode(mode), <span class="hljs-literal">NULL</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_access</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * file, <span class="hljs-keyword">long</span> flags)</span> </span>{
+	PTR_VALIDATE(file);
+	<span class="hljs-keyword">if</span> (!file) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">if</span> (flags &lt; <span class="hljs-number">0</span> || flags &gt; <span class="hljs-number">7</span>) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">fs_node_t</span> * node = kopen_error((<span class="hljs-keyword">char</span> *)file, <span class="hljs-number">0</span>, &amp;error);
+	<span class="hljs-keyword">if</span> (!node) <span class="hljs-keyword">return</span> -error;
+	flags |= <span class="hljs-number">010</span>;
+	<span class="hljs-keyword">int</span> ret = flags ? (!has_permission(node, flags) ? -EACCES : <span class="hljs-number">0</span>) : <span class="hljs-number">0</span>;
+	close_fs(node);
+	<span class="hljs-keyword">return</span> ret;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_eaccess</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * file, <span class="hljs-keyword">long</span> flags)</span> </span>{
+	PTR_VALIDATE(file);
+	<span class="hljs-keyword">if</span> (!file) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">if</span> (flags &lt; <span class="hljs-number">0</span> || flags &gt; <span class="hljs-number">7</span>) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">fs_node_t</span> * node = kopen_error((<span class="hljs-keyword">char</span> *)file, <span class="hljs-number">0</span>, &amp;error);
+	<span class="hljs-keyword">if</span> (!node) <span class="hljs-keyword">return</span> -error;
+	<span class="hljs-keyword">int</span> ret = flags ? (!has_permission(node, flags) ? -EACCES : <span class="hljs-number">0</span>) : <span class="hljs-number">0</span>;
+	close_fs(node);
+	<span class="hljs-keyword">return</span> ret;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> <span class="hljs-title">chmod_node</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * fn, <span class="hljs-keyword">mode_t</span> mode)</span> </span>{
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;user != <span class="hljs-number">0</span> &amp;&amp; this_core-&gt;current_process-&gt;user != fn-&gt;uid) <span class="hljs-keyword">return</span> -EACCES;
+	<span class="hljs-keyword">return</span> chmod_fs(fn, mode);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_chmod</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * file, <span class="hljs-keyword">long</span> mode)</span> </span>{
+	PTR_VALIDATE(file);
+	<span class="hljs-keyword">if</span> (!file) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">fs_node_t</span> * fn = kopen_error(file, <span class="hljs-number">0</span>, &amp;error);
+	<span class="hljs-keyword">if</span> (!fn) <span class="hljs-keyword">return</span> -error;
+	<span class="hljs-keyword">long</span> ret = chmod_node(fn, mode);
+	close_fs(fn);
+	<span class="hljs-keyword">return</span> ret;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_fchmod</span><span class="hljs-params">(<span class="hljs-keyword">int</span> fd, <span class="hljs-keyword">long</span> mode)</span> </span>{
+	<span class="hljs-keyword">if</span> (!FD_CHECK(fd)) <span class="hljs-keyword">return</span> -EBADF;
+	<span class="hljs-keyword">return</span> chmod_node(FD_ENTRY(fd), mode);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_rename</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * src, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * dest)</span> </span>{
+	PTR_VALIDATE(src);
+	<span class="hljs-keyword">if</span> (!src) <span class="hljs-keyword">return</span> -EFAULT;
+	PTR_VALIDATE(dest);
+	<span class="hljs-keyword">if</span> (!dest) <span class="hljs-keyword">return</span> -EFAULT;
+
+	<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">int</span> <span class="hljs-title">rename_file_fs</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * src, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * dest)</span></span>;
+	<span class="hljs-keyword">return</span> rename_file_fs(src, dest);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">current_group_matches</span><span class="hljs-params">(<span class="hljs-keyword">gid_t</span> gid)</span> </span>{
+	<span class="hljs-keyword">if</span> (gid == this_core-&gt;current_process-&gt;user_group) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; this_core-&gt;current_process-&gt;supplementary_group_count; ++i) {
+		<span class="hljs-keyword">if</span> (gid == this_core-&gt;current_process-&gt;supplementary_group_list[i]) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> <span class="hljs-title">chown_node</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * fn, <span class="hljs-keyword">uid_t</span> uid, <span class="hljs-keyword">gid_t</span> gid)</span> </span>{
+	<span class="hljs-comment">/* Only a privileged user can change the owner of a file. */</span>
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;user != USER_ROOT_UID &amp;&amp; uid != <span class="hljs-number">-1</span> &amp;&amp; uid != fn-&gt;uid) <span class="hljs-keyword">return</span> -EPERM;
+
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;user != USER_ROOT_UID &amp;&amp; gid != <span class="hljs-number">-1</span>) {
+		<span class="hljs-comment">/* The owner of a file... */</span>
+		<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;user != fn-&gt;uid) <span class="hljs-keyword">return</span> -EPERM;
+		<span class="hljs-comment">/* May change the group of the file to one that the owner is a member of... */</span>
+		<span class="hljs-keyword">if</span> (!current_group_matches(gid)) <span class="hljs-keyword">return</span> -EPERM;
+	}
+
+	<span class="hljs-keyword">if</span> ((fn-&gt;mask &amp; (S_IXUSR | S_IXGRP | S_IXOTH)) &amp;&amp; (fn-&gt;mask &amp; (S_ISUID | S_ISGID)) &amp;&amp;
+		this_core-&gt;current_process-&gt;user != USER_ROOT_UID) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If any of the execute bits is set, and &quot;the user does not have appropriate priveleges&quot;,
+clear the set-user-ID and set-group-ID bits; do this before we actually change
+ownership, to ensure there isn't a point where the new ownership is set but
+the bits haven't been cleared.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		chmod_fs(fn, fn-&gt;mask &amp; ~(S_ISUID | S_ISGID));
+	}
+
+	<span class="hljs-keyword">return</span> chown_fs(fn, uid, gid);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_chown</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * file, <span class="hljs-keyword">uid_t</span> uid, <span class="hljs-keyword">gid_t</span> gid)</span> </span>{
+	PTR_VALIDATE(file);
+	<span class="hljs-keyword">if</span> (!file) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">fs_node_t</span> * fn = kopen_error(file, <span class="hljs-number">0</span>, &amp;error);
+	<span class="hljs-keyword">if</span> (!fn) <span class="hljs-keyword">return</span> -error;
+	<span class="hljs-keyword">long</span> ret = chown_node(fn, uid, gid);
+	close_fs(fn);
+	<span class="hljs-keyword">return</span> ret;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_lchown</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * file, <span class="hljs-keyword">uid_t</span> uid, <span class="hljs-keyword">gid_t</span> gid)</span> </span>{
+	PTR_VALIDATE(file);
+	<span class="hljs-keyword">if</span> (!file) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">fs_node_t</span> * fn = kopen_error(file, O_NOFOLLOW, &amp;error);
+	<span class="hljs-keyword">if</span> (!fn) <span class="hljs-keyword">return</span> -error;
+	<span class="hljs-keyword">long</span> ret = chown_node(fn, uid, gid);
+	close_fs(fn);
+	<span class="hljs-keyword">return</span> ret;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_fchown</span><span class="hljs-params">(<span class="hljs-keyword">int</span> fd, <span class="hljs-keyword">uid_t</span> uid, <span class="hljs-keyword">gid_t</span> gid)</span> </span>{
+	<span class="hljs-keyword">if</span> (!FD_CHECK(fd)) <span class="hljs-keyword">return</span> -EBADF;
+	<span class="hljs-keyword">return</span> chown_node(FD_ENTRY(fd), uid, gid);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_truncate</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * file, <span class="hljs-keyword">off_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	PTR_VALIDATE(file);
+	<span class="hljs-keyword">if</span> (!file) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">fs_node_t</span> * fn = kopen_error(file, <span class="hljs-number">0</span>, &amp;error);
+	<span class="hljs-keyword">if</span> (!fn) <span class="hljs-keyword">return</span> -error;
+	<span class="hljs-keyword">if</span> (!has_permission(fn, W_OK)) <span class="hljs-keyword">return</span> close_fs(fn), -EACCES;
+	<span class="hljs-keyword">long</span> out = truncate_fs(fn, <span class="hljs-built_in">size</span>);
+	close_fs(fn);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_ftruncate</span><span class="hljs-params">(<span class="hljs-keyword">int</span> fd, <span class="hljs-keyword">off_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (!FD_CHECK(fd)) <span class="hljs-keyword">return</span> -EBADF;
+	<span class="hljs-keyword">if</span> (!(FD_MODE(fd) &amp; PROC_FD_MODE_WRITE)) <span class="hljs-keyword">return</span> -EBADF;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">return</span> truncate_fs(FD_ENTRY(fd), <span class="hljs-built_in">size</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_gettimeofday</span><span class="hljs-params">(struct timeval * tv, <span class="hljs-keyword">void</span> * tz)</span> </span>{
+	PTRCHECK(tv,<span class="hljs-keyword">sizeof</span>(struct timeval),MMU_PTR_WRITE);
+	PTR_VALIDATE(tz);
+	<span class="hljs-keyword">return</span> gettimeofday(tv, tz);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_settimeofday</span><span class="hljs-params">(struct timeval * tv, <span class="hljs-keyword">void</span> * tz)</span> </span>{
+	<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">int</span> <span class="hljs-title">settimeofday</span><span class="hljs-params">(struct timeval * t, <span class="hljs-keyword">void</span> *z)</span></span>;
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;user != USER_ROOT_UID) <span class="hljs-keyword">return</span> -EPERM;
+	PTRCHECK(tv,<span class="hljs-keyword">sizeof</span>(struct timeval),<span class="hljs-number">0</span>);
+	PTR_VALIDATE(tz);
+	<span class="hljs-keyword">return</span> settimeofday(tv,tz);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_getuid</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">long</span>)this_core-&gt;current_process-&gt;real_user;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_geteuid</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">long</span>)this_core-&gt;current_process-&gt;user;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_setuid</span><span class="hljs-params">(<span class="hljs-keyword">uid_t</span> new_uid)</span> </span>{
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;user == USER_ROOT_UID) {
+		this_core-&gt;current_process-&gt;user = new_uid;
+		this_core-&gt;current_process-&gt;real_user = new_uid;
+		this_core-&gt;current_process-&gt;saved_user = new_uid;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (new_uid == this_core-&gt;current_process-&gt;real_user || this_core-&gt;current_process-&gt;saved_user) {
+		this_core-&gt;current_process-&gt;user = new_uid;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">return</span> -EPERM;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_getgid</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">long</span>)this_core-&gt;current_process-&gt;real_user_group;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_getegid</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">long</span>)this_core-&gt;current_process-&gt;user_group;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_setgid</span><span class="hljs-params">(<span class="hljs-keyword">gid_t</span> new_gid)</span> </span>{
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;user == USER_ROOT_UID) {
+		this_core-&gt;current_process-&gt;user_group = new_gid;
+		this_core-&gt;current_process-&gt;real_user_group = new_gid;
+		this_core-&gt;current_process-&gt;saved_user_group = new_gid;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (new_gid == this_core-&gt;current_process-&gt;real_user_group || this_core-&gt;current_process-&gt;saved_user_group) {
+		this_core-&gt;current_process-&gt;user_group = new_gid;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">return</span> -EPERM;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">valid_uid</span><span class="hljs-params">(<span class="hljs-keyword">uid_t</span> id)</span> </span>{
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;user == USER_ROOT_UID) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> (id == this_core-&gt;current_process-&gt;real_user ||
+	        id == this_core-&gt;current_process-&gt;user ||
+	        id == this_core-&gt;current_process-&gt;saved_user);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_setresuid</span><span class="hljs-params">(<span class="hljs-keyword">uid_t</span> ruid, <span class="hljs-keyword">uid_t</span> euid, <span class="hljs-keyword">uid_t</span> suid)</span> </span>{
+	<span class="hljs-keyword">if</span> (ruid != <span class="hljs-number">-1</span> &amp;&amp; !valid_uid(ruid)) <span class="hljs-keyword">return</span> -EPERM;
+	<span class="hljs-keyword">if</span> (euid != <span class="hljs-number">-1</span> &amp;&amp; !valid_uid(euid)) <span class="hljs-keyword">return</span> -EPERM;
+	<span class="hljs-keyword">if</span> (suid != <span class="hljs-number">-1</span> &amp;&amp; !valid_uid(suid)) <span class="hljs-keyword">return</span> -EPERM;
+
+	<span class="hljs-keyword">if</span> (ruid != <span class="hljs-number">-1</span>) this_core-&gt;current_process-&gt;real_user = ruid;
+	<span class="hljs-keyword">if</span> (euid != <span class="hljs-number">-1</span>) this_core-&gt;current_process-&gt;user = euid;
+	<span class="hljs-keyword">if</span> (suid != <span class="hljs-number">-1</span>) this_core-&gt;current_process-&gt;saved_user = suid;
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_setreuid</span><span class="hljs-params">(<span class="hljs-keyword">uid_t</span> ruid, <span class="hljs-keyword">uid_t</span> euid)</span> </span>{
+	<span class="hljs-keyword">if</span> (ruid != <span class="hljs-number">-1</span> &amp;&amp; !valid_uid(ruid)) <span class="hljs-keyword">return</span> -EPERM;
+	<span class="hljs-keyword">if</span> (euid != <span class="hljs-number">-1</span> &amp;&amp; !valid_uid(euid)) <span class="hljs-keyword">return</span> -EPERM;
+
+	<span class="hljs-keyword">if</span> (ruid != <span class="hljs-number">-1</span>) this_core-&gt;current_process-&gt;real_user = ruid;
+	<span class="hljs-keyword">if</span> (euid != <span class="hljs-number">-1</span>) this_core-&gt;current_process-&gt;user = euid;
+
+	<span class="hljs-keyword">if</span> (ruid != <span class="hljs-number">-1</span> || this_core-&gt;current_process-&gt;user != this_core-&gt;current_process-&gt;real_user) {
+		this_core-&gt;current_process-&gt;saved_user = this_core-&gt;current_process-&gt;user;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">valid_gid</span><span class="hljs-params">(<span class="hljs-keyword">uid_t</span> id)</span> </span>{
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;user == USER_ROOT_UID) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> (id == this_core-&gt;current_process-&gt;real_user_group ||
+	        id == this_core-&gt;current_process-&gt;user_group ||
+	        id == this_core-&gt;current_process-&gt;saved_user_group);
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_setresgid</span><span class="hljs-params">(<span class="hljs-keyword">gid_t</span> rgid, <span class="hljs-keyword">gid_t</span> egid, <span class="hljs-keyword">gid_t</span> sgid)</span> </span>{
+	<span class="hljs-keyword">if</span> (rgid != <span class="hljs-number">-1</span> &amp;&amp; !valid_gid(rgid)) <span class="hljs-keyword">return</span> -EPERM;
+	<span class="hljs-keyword">if</span> (egid != <span class="hljs-number">-1</span> &amp;&amp; !valid_gid(egid)) <span class="hljs-keyword">return</span> -EPERM;
+	<span class="hljs-keyword">if</span> (sgid != <span class="hljs-number">-1</span> &amp;&amp; !valid_gid(sgid)) <span class="hljs-keyword">return</span> -EPERM;
+
+	<span class="hljs-keyword">if</span> (rgid != <span class="hljs-number">-1</span>) this_core-&gt;current_process-&gt;real_user_group = rgid;
+	<span class="hljs-keyword">if</span> (egid != <span class="hljs-number">-1</span>) this_core-&gt;current_process-&gt;user_group = egid;
+	<span class="hljs-keyword">if</span> (sgid != <span class="hljs-number">-1</span>) this_core-&gt;current_process-&gt;saved_user_group = sgid;
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_setregid</span><span class="hljs-params">(<span class="hljs-keyword">gid_t</span> rgid, <span class="hljs-keyword">gid_t</span> egid)</span> </span>{
+	<span class="hljs-keyword">if</span> (rgid != <span class="hljs-number">-1</span> &amp;&amp; !valid_gid(rgid)) <span class="hljs-keyword">return</span> -EPERM;
+	<span class="hljs-keyword">if</span> (egid != <span class="hljs-number">-1</span> &amp;&amp; !valid_gid(egid)) <span class="hljs-keyword">return</span> -EPERM;
+
+	<span class="hljs-keyword">if</span> (rgid != <span class="hljs-number">-1</span>) this_core-&gt;current_process-&gt;real_user_group = rgid;
+	<span class="hljs-keyword">if</span> (egid != <span class="hljs-number">-1</span>) this_core-&gt;current_process-&gt;user_group = egid;
+
+	<span class="hljs-keyword">if</span> (rgid != <span class="hljs-number">-1</span> || this_core-&gt;current_process-&gt;user_group != this_core-&gt;current_process-&gt;real_user_group) {
+		this_core-&gt;current_process-&gt;saved_user_group = this_core-&gt;current_process-&gt;user_group;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_getgroups</span><span class="hljs-params">(<span class="hljs-keyword">int</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">gid_t</span> <span class="hljs-built_in">list</span>[])</span> </span>{
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> this_core-&gt;current_process-&gt;supplementary_group_count;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &lt; this_core-&gt;current_process-&gt;supplementary_group_count) {
+		<span class="hljs-keyword">return</span> -EINVAL;
+	} <span class="hljs-keyword">else</span> {
+		PTRCHECK(<span class="hljs-built_in">list</span>,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">gid_t</span>)*<span class="hljs-built_in">size</span>,MMU_PTR_WRITE);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; this_core-&gt;current_process-&gt;supplementary_group_count; ++i) {
+			<span class="hljs-built_in">list</span>[i] = this_core-&gt;current_process-&gt;supplementary_group_list[i];
+		}
+		<span class="hljs-keyword">return</span> this_core-&gt;current_process-&gt;supplementary_group_count;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_setgroups</span><span class="hljs-params">(<span class="hljs-keyword">int</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">const</span> <span class="hljs-keyword">gid_t</span> <span class="hljs-built_in">list</span>[])</span> </span>{
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;user != USER_ROOT_UID) <span class="hljs-keyword">return</span> -EPERM;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &gt; <span class="hljs-number">32</span>) <span class="hljs-keyword">return</span> -EINVAL; <span class="hljs-comment">/* Arbitrary decision */</span>
+
+	<span class="hljs-comment">/* Free the current set. */</span>
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;supplementary_group_count) {
+		<span class="hljs-built_in">free</span>(this_core-&gt;current_process-&gt;supplementary_group_list);
+		this_core-&gt;current_process-&gt;supplementary_group_list = <span class="hljs-literal">NULL</span>;
+	}
+
+	this_core-&gt;current_process-&gt;supplementary_group_count = <span class="hljs-built_in">size</span>;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	this_core-&gt;current_process-&gt;supplementary_group_list = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">gid_t</span>) * <span class="hljs-built_in">size</span>);
+
+	PTRCHECK(<span class="hljs-built_in">list</span>,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">gid_t</span>)*<span class="hljs-built_in">size</span>,<span class="hljs-number">0</span>); <span class="hljs-comment">/* We already checked for 0 size */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">size</span>; ++i) {
+		this_core-&gt;current_process-&gt;supplementary_group_list[i] = <span class="hljs-built_in">list</span>[i];
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_getpid</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-comment">/* The user actually wants the pid of the originating thread (which can be us). */</span>
+	<span class="hljs-keyword">return</span> this_core-&gt;current_process-&gt;<span class="hljs-built_in">process</span>-&gt;id;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_gettid</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">long</span>)this_core-&gt;current_process-&gt;id;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_setsid</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;job == this_core-&gt;current_process-&gt;tgid) {
+		<span class="hljs-keyword">return</span> -EPERM;
+	}
+	this_core-&gt;current_process-&gt;session = this_core-&gt;current_process-&gt;tgid;
+	this_core-&gt;current_process-&gt;job = this_core-&gt;current_process-&gt;tgid;
+	<span class="hljs-keyword">return</span> this_core-&gt;current_process-&gt;session;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_setpgid</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">pid_t</span> pgid)</span> </span>{
+	<span class="hljs-keyword">if</span> (pgid &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> -EINVAL;
+	}
+	<span class="hljs-keyword">process_t</span> * proc = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">if</span> (pid == <span class="hljs-number">0</span>) {
+		proc = (<span class="hljs-keyword">process_t</span>*)this_core-&gt;current_process;
+	} <span class="hljs-keyword">else</span> {
+		proc = process_from_pid(pid);
+	}
+
+	<span class="hljs-keyword">if</span> (!proc) {
+		<span class="hljs-keyword">return</span> -ESRCH;
+	}
+	<span class="hljs-keyword">if</span> (proc-&gt;session != this_core-&gt;current_process-&gt;session || proc-&gt;session == proc-&gt;tgid) {
+		<span class="hljs-keyword">return</span> -EPERM;
+	}
+
+	<span class="hljs-keyword">if</span> (pgid == <span class="hljs-number">0</span>) {
+		proc-&gt;job = proc-&gt;tgid;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">process_t</span> * pgroup = process_from_pid(pgid);
+
+		<span class="hljs-keyword">if</span> (!pgroup || pgroup-&gt;session != proc-&gt;session) {
+			<span class="hljs-keyword">return</span> -EPERM;
+		}
+
+		proc-&gt;job = pgid;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_getpgid</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid)</span> </span>{
+	<span class="hljs-keyword">process_t</span> * proc;
+	<span class="hljs-keyword">if</span> (pid == <span class="hljs-number">0</span>) {
+		proc = (<span class="hljs-keyword">process_t</span>*)this_core-&gt;current_process;
+	} <span class="hljs-keyword">else</span> {
+		proc = process_from_pid(pid);
+	}
+
+	<span class="hljs-keyword">if</span> (!proc) {
+		<span class="hljs-keyword">return</span> -ESRCH;
+	}
+
+	<span class="hljs-keyword">return</span> proc-&gt;job;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_getppid</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">process_t</span> * proc = (<span class="hljs-keyword">process_t</span>*)this_core-&gt;current_process-&gt;<span class="hljs-built_in">process</span>;
+	<span class="hljs-keyword">process_t</span> * parent = process_get_parent(proc);
+	<span class="hljs-keyword">if</span> (!parent) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> parent-&gt;id;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_uname</span><span class="hljs-params">(struct utsname * name)</span> </span>{
+	PTRCHECK(name, <span class="hljs-keyword">sizeof</span>(struct utsname), MMU_PTR_WRITE);
+	<span class="hljs-keyword">char</span> version_number[<span class="hljs-number">256</span>];
+	<span class="hljs-built_in">snprintf</span>(version_number, <span class="hljs-number">255</span>, __kernel_version_format,
+			__kernel_version_major,
+			__kernel_version_minor,
+			__kernel_version_lower,
+			__kernel_version_suffix);
+	<span class="hljs-keyword">char</span> version_string[<span class="hljs-number">256</span>];
+	<span class="hljs-built_in">snprintf</span>(version_string, <span class="hljs-number">255</span>, <span class="hljs-string">"%s %s %s"</span>,
+			__kernel_version_codename,
+			__kernel_build_date,
+			__kernel_build_time);
+	<span class="hljs-built_in">strcpy</span>(name-&gt;sysname,  __kernel_name);
+	<span class="hljs-built_in">strcpy</span>(name-&gt;nodename, hostname);
+	<span class="hljs-built_in">strcpy</span>(name-&gt;<span class="hljs-built_in">release</span>,  version_number);
+	<span class="hljs-built_in">strcpy</span>(name-&gt;version,  version_string);
+	<span class="hljs-built_in">strcpy</span>(name-&gt;machine,  __kernel_arch);
+	<span class="hljs-built_in">strcpy</span>(name-&gt;domainname, <span class="hljs-string">""</span>); <span class="hljs-comment">/* TODO */</span>
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_chdir</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * newdir)</span> </span>{
+	PTR_VALIDATE(newdir);
+	<span class="hljs-keyword">if</span> (!newdir) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">char</span> * path = canonicalize_path(this_core-&gt;current_process-&gt;wd_name, newdir);
+	<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">fs_node_t</span> * chd = kopen_error(path, <span class="hljs-number">0</span>, &amp;error);
+	<span class="hljs-keyword">if</span> (!chd) <span class="hljs-keyword">return</span> <span class="hljs-built_in">free</span>(path), -error;
+	<span class="hljs-keyword">if</span> (!(chd-&gt;flags &amp; FS_DIRECTORY)) <span class="hljs-keyword">return</span> <span class="hljs-built_in">free</span>(path), -ENOTDIR;
+	<span class="hljs-keyword">if</span> (!has_permission(chd, X_OK)) <span class="hljs-keyword">return</span> <span class="hljs-built_in">free</span>(path), close_fs(chd), -EACCES;
+
+	close_fs(this_core-&gt;current_process-&gt;wd_node);
+	this_core-&gt;current_process-&gt;wd_node = chd;
+	<span class="hljs-built_in">free</span>(this_core-&gt;current_process-&gt;wd_name);
+	this_core-&gt;current_process-&gt;wd_name = path;
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_getcwd</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * buf, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	PTRCHECK(buf,<span class="hljs-built_in">size</span>,MMU_PTR_WRITE); <span class="hljs-comment">/* Never allow this to be NULL in the syscall layer */</span>
+	<span class="hljs-keyword">size_t</span> len = <span class="hljs-built_in">strlen</span>(this_core-&gt;current_process-&gt;wd_name) + <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &lt; len) <span class="hljs-keyword">return</span> -ERANGE;
+	<span class="hljs-built_in">memcpy</span>(buf, this_core-&gt;current_process-&gt;wd_name, len);
+	<span class="hljs-keyword">return</span> len;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_dup2</span><span class="hljs-params">(<span class="hljs-keyword">int</span> old, <span class="hljs-keyword">int</span> <span class="hljs-keyword">new</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> process_move_fd((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, old, <span class="hljs-keyword">new</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_dup3</span><span class="hljs-params">(<span class="hljs-keyword">int</span> old, <span class="hljs-keyword">int</span> <span class="hljs-keyword">new</span>, <span class="hljs-keyword">int</span> flag)</span> </span>{
+	<span class="hljs-keyword">if</span> (<span class="hljs-keyword">new</span> &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -EBADF; <span class="hljs-comment">/* only dup2 syscall interface accepts -1 */</span>
+	<span class="hljs-keyword">int</span> flags = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (flag &amp; ~(O_CLOEXEC | O_CLOFORK)) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">if</span> (flag &amp; O_CLOEXEC) flags |= PROC_FD_MODE_CLOEXEC;
+	<span class="hljs-keyword">if</span> (flag &amp; O_CLOFORK) flags |= PROC_FD_MODE_CLOFORK;
+	<span class="hljs-keyword">return</span> process_move_fd((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, old, <span class="hljs-keyword">new</span>, <span class="hljs-number">1</span>, flags);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_fcntl</span><span class="hljs-params">(<span class="hljs-keyword">int</span> fd, <span class="hljs-keyword">int</span> cmd, <span class="hljs-keyword">long</span> arg)</span> </span>{
+	<span class="hljs-keyword">if</span> (!FD_CHECK(fd)) <span class="hljs-keyword">return</span> -EBADF;
+
+	<span class="hljs-keyword">switch</span> (cmd) {
+		<span class="hljs-keyword">case</span> F_GETFD: {
+			<span class="hljs-keyword">int</span> flags = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">if</span> (FD_MODE(fd) &amp; PROC_FD_MODE_CLOEXEC) flags |= FD_CLOEXEC;
+			<span class="hljs-keyword">if</span> (FD_MODE(fd) &amp; PROC_FD_MODE_CLOFORK) flags |= FD_CLOFORK;
+			<span class="hljs-keyword">return</span> flags;
+		}
+		<span class="hljs-keyword">case</span> F_SETFD: {
+			<span class="hljs-keyword">int</span> new_mode = FD_MODE(fd) &amp; PROC_FD_MODE__RW;
+			<span class="hljs-keyword">if</span> (arg &amp; FD_CLOEXEC) new_mode |= PROC_FD_MODE_CLOEXEC;
+			<span class="hljs-keyword">if</span> (arg &amp; FD_CLOFORK) new_mode |= PROC_FD_MODE_CLOFORK;
+			FD_MODE(fd) = new_mode;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+		<span class="hljs-keyword">case</span> F_GETFL: {
+			<span class="hljs-keyword">int</span> mode = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">if</span> ((FD_MODE(fd) &amp; PROC_FD_MODE__RW) == PROC_FD_MODE__RW) mode = O_RDWR;
+			<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (FD_MODE(fd) &amp; PROC_FD_MODE_READ) mode = O_RDONLY;
+			<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (FD_MODE(fd) &amp; PROC_FD_MODE_WRITE) mode = O_WRONLY;
+			<span class="hljs-comment">/* TODO we don't persist O_APPEND and there are other flags we don't support */</span>
+			<span class="hljs-keyword">return</span> mode;
+		}
+		<span class="hljs-keyword">case</span> F_SETFL: {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>; <span class="hljs-comment">/* TODO NONBLOCK, APPEND, SYNC... */</span>
+		}
+		<span class="hljs-keyword">case</span> F_DUPFD_CLOEXEC:
+		<span class="hljs-keyword">case</span> F_DUPFD_CLOFORK:
+		<span class="hljs-keyword">case</span> F_DUPFD: {
+			<span class="hljs-keyword">if</span> (arg &lt; <span class="hljs-number">0</span> || arg &gt; <span class="hljs-number">256</span>) <span class="hljs-keyword">return</span> -EINVAL; <span class="hljs-comment">/* We expect a value of, like, 10 from dash. */</span>
+			<span class="hljs-keyword">int</span> flags = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">if</span> (cmd == F_DUPFD_CLOEXEC) flags = PROC_FD_MODE_CLOEXEC;
+			<span class="hljs-keyword">if</span> (cmd == F_DUPFD_CLOFORK) flags = PROC_FD_MODE_CLOFORK;
+			<span class="hljs-keyword">return</span> process_fd_dup_least((<span class="hljs-keyword">process_t</span>*)this_core-&gt;current_process, fd, arg, flags);
+		}
+		<span class="hljs-keyword">case</span> F_GETLK:
+		<span class="hljs-keyword">case</span> F_SETLK:
+		<span class="hljs-keyword">case</span> F_SETLKW:
+			<span class="hljs-comment">/* No lock support */</span>
+			<span class="hljs-keyword">return</span> -EINVAL;
+	}
+
+	<span class="hljs-keyword">return</span> -EINVAL;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_sethostname</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * new_hostname, <span class="hljs-keyword">size_t</span> len)</span> </span>{
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;user == USER_ROOT_UID) {
+		PTRCHECK(new_hostname, len, <span class="hljs-number">0</span>); <span class="hljs-comment">/* Don't accept NULL as an option, regardless */</span>
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>new_hostname does not need to be nul-terminated with 'len';
+account for adding a trailing nul byte</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		<span class="hljs-keyword">if</span> (len &gt; <span class="hljs-number">255</span>) <span class="hljs-keyword">return</span> -ENAMETOOLONG;
+		<span class="hljs-built_in">memcpy</span>(hostname, new_hostname, len);
+		hostname_len = len + <span class="hljs-number">1</span>; <span class="hljs-comment">/* hostname_len includes the nul */</span>
+		hostname[len] = <span class="hljs-string">'\0'</span>;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">return</span> -EPERM;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_gethostname</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * <span class="hljs-built_in">buffer</span>, <span class="hljs-keyword">size_t</span> len)</span> </span>{
+	PTRCHECK(<span class="hljs-built_in">buffer</span>, len, MMU_PTR_WRITE); <span class="hljs-comment">/* Don't allow NULL in this syscall interface, regardless */</span>
+	<span class="hljs-keyword">if</span> (len &lt; hostname_len) <span class="hljs-keyword">return</span> -ENAMETOOLONG;
+	<span class="hljs-comment">/* hostname is nul-terminated; hostname_len includes the nul */</span>
+	<span class="hljs-built_in">memcpy</span>(<span class="hljs-built_in">buffer</span>, hostname, hostname_len);
+	<span class="hljs-keyword">return</span> hostname_len;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_mount</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * arg, <span class="hljs-keyword">char</span> * mountpoint, <span class="hljs-keyword">char</span> * type, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> flags, <span class="hljs-keyword">void</span> * data)</span> </span>{
+	<span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> Make use of flags and data from mount command. */</span>
+	(<span class="hljs-keyword">void</span>)flags;
+	(<span class="hljs-keyword">void</span>)data;
+
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;user != USER_ROOT_UID) {
+		<span class="hljs-keyword">return</span> -EPERM;
+	}
+
+	<span class="hljs-keyword">if</span> (PTR_INRANGE(arg) &amp;&amp; PTR_INRANGE(mountpoint) &amp;&amp; PTR_INRANGE(type)) {
+		<span class="hljs-keyword">return</span> vfs_mount_type(type, arg, mountpoint);
+	}
+
+	<span class="hljs-keyword">return</span> -EFAULT;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_umask</span><span class="hljs-params">(<span class="hljs-keyword">mode_t</span> mode)</span> </span>{
+	<span class="hljs-keyword">mode_t</span> old_mode = this_core-&gt;current_process-&gt;<span class="hljs-built_in">process</span>-&gt;mask;
+	this_core-&gt;current_process-&gt;<span class="hljs-built_in">process</span>-&gt;mask = mode &amp; <span class="hljs-number">0777</span>;
+	<span class="hljs-keyword">return</span> old_mode;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_unlink</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * file)</span> </span>{
+	PTR_VALIDATE(file);
+	<span class="hljs-keyword">if</span> (!file) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">return</span> unlink_fs(file);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_execve</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * filename, <span class="hljs-keyword">char</span> *<span class="hljs-keyword">const</span> argv[], <span class="hljs-keyword">char</span> *<span class="hljs-keyword">const</span> envp[])</span> </span>{
+	PTR_VALIDATE(filename);
+	PTR_VALIDATE(argv);
+	PTR_VALIDATE(envp);
+
+	<span class="hljs-keyword">if</span> (!filename || !argv) <span class="hljs-keyword">return</span> -EFAULT;
+
+	<span class="hljs-keyword">int</span> argc = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> envc = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (argv[argc]) {
+		PTR_VALIDATE(argv[argc]);
+		++argc;
+	}
+
+	<span class="hljs-keyword">if</span> (envp) {
+		<span class="hljs-keyword">while</span> (envp[envc]) {
+			PTR_VALIDATE(envp[envc]);
+			++envc;
+		}
+	}
+
+	<span class="hljs-keyword">char</span> **argv_ = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span>*) * (argc + <span class="hljs-number">1</span>));
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; argc; ++j) {
+		argv_[j] = <span class="hljs-built_in">malloc</span>(<span class="hljs-built_in">strlen</span>(argv[j]) + <span class="hljs-number">1</span>);
+		<span class="hljs-built_in">memcpy</span>(argv_[j], argv[j], <span class="hljs-built_in">strlen</span>(argv[j]) + <span class="hljs-number">1</span>);
+	}
+	argv_[argc] = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> ** envp_;
+	<span class="hljs-keyword">if</span> (envp &amp;&amp; envc) {
+		envp_ = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span>*) * (envc + <span class="hljs-number">1</span>));
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; envc; ++j) {
+			envp_[j] = <span class="hljs-built_in">malloc</span>(<span class="hljs-built_in">strlen</span>(envp[j]) + <span class="hljs-number">1</span>);
+			<span class="hljs-built_in">memcpy</span>(envp_[j], envp[j], <span class="hljs-built_in">strlen</span>(envp[j]) + <span class="hljs-number">1</span>);
+		}
+		envp_[envc] = <span class="hljs-number">0</span>;
+	} <span class="hljs-keyword">else</span> {
+		envp_ = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span>*));
+		envp_[<span class="hljs-number">0</span>] = <span class="hljs-literal">NULL</span>;
+	}
+
+	this_core-&gt;current_process-&gt;cmdline = argv_;
+	<span class="hljs-keyword">return</span> exec(filename, argc, argv_, envp_, <span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_fork</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> fork();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_clone</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> new_stack, <span class="hljs-keyword">uintptr_t</span> thread_func, <span class="hljs-keyword">uintptr_t</span> arg)</span> </span>{
+	<span class="hljs-keyword">if</span> (!new_stack || !PTR_INRANGE(new_stack)) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">if</span> (!thread_func || !PTR_INRANGE(thread_func)) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">int</span>)clone(new_stack, thread_func, arg);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_waitpid</span><span class="hljs-params">(<span class="hljs-keyword">int</span> pid, <span class="hljs-keyword">int</span> * status, <span class="hljs-keyword">int</span> options)</span> </span>{
+	<span class="hljs-keyword">if</span> (status) PTRCHECK(status,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>),MMU_PTR_WRITE);
+	<span class="hljs-keyword">return</span> waitpid(pid, status, options);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_yield</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	switch_task(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_sleepabs</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> seconds, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> subseconds)</span> </span>{
+	<span class="hljs-comment">/* Mark us as asleep until &lt;some time period&gt; */</span>
+	sleep_until((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, seconds, subseconds);
+	switch_task(<span class="hljs-number">0</span>);
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> timer_ticks = <span class="hljs-number">0</span>, timer_subticks = <span class="hljs-number">0</span>;
+	relative_time(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,&amp;timer_ticks,&amp;timer_subticks);
+
+	<span class="hljs-keyword">if</span> (seconds &gt; timer_ticks || (seconds == timer_ticks &amp;&amp; subseconds &gt;= timer_subticks)) {
+		<span class="hljs-keyword">return</span> seconds - timer_ticks;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_sleep</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> seconds, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> subseconds)</span> </span>{
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> s, ss;
+	relative_time(seconds, subseconds * <span class="hljs-number">10000</span>, &amp;s, &amp;ss);
+	<span class="hljs-keyword">return</span> sys_sleepabs(s, ss);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_pipe2</span><span class="hljs-params">(<span class="hljs-keyword">int</span> pipes[<span class="hljs-number">2</span>], <span class="hljs-keyword">int</span> flag)</span> </span>{
+	<span class="hljs-keyword">if</span> (flag &amp; ~(O_NONBLOCK | O_CLOEXEC | O_CLOFORK)) <span class="hljs-keyword">return</span> -EINVAL;
+	PTRCHECK(pipes, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>) * <span class="hljs-number">2</span>, MMU_PTR_WRITE);
+	<span class="hljs-keyword">fs_node_t</span> * outpipes[<span class="hljs-number">2</span>];
+	make_unix_pipe(outpipes);
+
+	open_fs(outpipes[<span class="hljs-number">0</span>], <span class="hljs-number">0</span>);
+	open_fs(outpipes[<span class="hljs-number">1</span>], <span class="hljs-number">0</span>);
+
+	<span class="hljs-keyword">int</span> flags = PROC_FD_MODE__RW;
+	<span class="hljs-keyword">if</span> (flag &amp; O_CLOEXEC) flags |= PROC_FD_MODE_CLOEXEC;
+	<span class="hljs-keyword">if</span> (flag &amp; O_CLOFORK) flags |= PROC_FD_MODE_CLOFORK;
+
+	pipes[<span class="hljs-number">0</span>] = process_append_fd((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, outpipes[<span class="hljs-number">0</span>], flags);
+	pipes[<span class="hljs-number">1</span>] = process_append_fd((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, outpipes[<span class="hljs-number">1</span>], flags);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_pipe</span><span class="hljs-params">(<span class="hljs-keyword">int</span> pipes[<span class="hljs-number">2</span>])</span> </span>{
+	<span class="hljs-keyword">return</span> sys_pipe2(pipes, <span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_signal</span><span class="hljs-params">(<span class="hljs-keyword">long</span> signum, <span class="hljs-keyword">uintptr_t</span> handler)</span> </span>{
+	<span class="hljs-keyword">if</span> (signum &gt;= NUMSIGNALS || signum &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">if</span> (signum == SIGKILL || signum == SIGSTOP) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">uintptr_t</span> old = this_core-&gt;current_process-&gt;signals[signum].handler;
+	this_core-&gt;current_process-&gt;signals[signum].handler = handler;
+	this_core-&gt;current_process-&gt;signals[signum].flags = SA_RESTART;
+	<span class="hljs-keyword">return</span> old;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_sigaction</span><span class="hljs-params">(<span class="hljs-keyword">int</span> signum, struct sigaction *act, struct sigaction *oldact)</span> </span>{
+	<span class="hljs-keyword">if</span> (act) PTRCHECK(act,<span class="hljs-keyword">sizeof</span>(struct sigaction),<span class="hljs-number">0</span>);
+	<span class="hljs-keyword">if</span> (oldact) PTRCHECK(oldact,<span class="hljs-keyword">sizeof</span>(struct sigaction),MMU_PTR_WRITE);
+
+	<span class="hljs-keyword">if</span> (signum &gt;= NUMSIGNALS || signum &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">if</span> (signum == SIGKILL || signum == SIGSTOP) <span class="hljs-keyword">return</span> -EINVAL;
+
+	<span class="hljs-keyword">if</span> (oldact) {
+		oldact-&gt;sa_handler = (_sig_func_ptr)this_core-&gt;current_process-&gt;signals[signum].handler;
+		oldact-&gt;sa_mask    = this_core-&gt;current_process-&gt;signals[signum].mask;
+		oldact-&gt;sa_flags   = this_core-&gt;current_process-&gt;signals[signum].flags;
+	}
+
+	<span class="hljs-keyword">if</span> (act) {
+		this_core-&gt;current_process-&gt;signals[signum].handler = (<span class="hljs-keyword">uintptr_t</span>)act-&gt;sa_handler;
+		this_core-&gt;current_process-&gt;signals[signum].mask    = act-&gt;sa_mask;
+		this_core-&gt;current_process-&gt;signals[signum].flags   = act-&gt;sa_flags;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_sigpending</span><span class="hljs-params">(<span class="hljs-keyword">sigset_t</span> * <span class="hljs-built_in">set</span>)</span> </span>{
+	PTRCHECK(<span class="hljs-built_in">set</span>,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">sigset_t</span>),MMU_PTR_WRITE);
+	*<span class="hljs-built_in">set</span> = this_core-&gt;current_process-&gt;pending_signals;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_sigprocmask</span><span class="hljs-params">(<span class="hljs-keyword">int</span> how, <span class="hljs-keyword">sigset_t</span> *<span class="hljs-keyword">restrict</span> <span class="hljs-built_in">set</span>, <span class="hljs-keyword">sigset_t</span> * <span class="hljs-keyword">restrict</span> oset)</span> </span>{
+	<span class="hljs-keyword">if</span> (oset) {
+		PTRCHECK(oset,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">sigset_t</span>),MMU_PTR_WRITE);
+		*oset = this_core-&gt;current_process-&gt;blocked_signals;
+	}
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">set</span>) {
+		PTRCHECK(<span class="hljs-built_in">set</span>,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">sigset_t</span>),<span class="hljs-number">0</span>);
+		<span class="hljs-keyword">switch</span> (how) {
+			<span class="hljs-keyword">case</span> SIG_SETMASK:
+				this_core-&gt;current_process-&gt;blocked_signals = *<span class="hljs-built_in">set</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> SIG_BLOCK:
+				this_core-&gt;current_process-&gt;blocked_signals |= *<span class="hljs-built_in">set</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> SIG_UNBLOCK:
+				this_core-&gt;current_process-&gt;blocked_signals &amp;= ~*<span class="hljs-built_in">set</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">default</span>:
+				<span class="hljs-keyword">return</span> -EINVAL;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">signal_wait</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_sigsuspend</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">sigset_t</span> *<span class="hljs-built_in">set</span>)</span> </span>{
+	PTRCHECK(<span class="hljs-built_in">set</span>,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">sigset_t</span>),<span class="hljs-number">0</span>);
+
+	this_core-&gt;current_process-&gt;restored_signals = this_core-&gt;current_process-&gt;blocked_signals;
+	this_core-&gt;current_process-&gt;blocked_signals = *<span class="hljs-built_in">set</span>;
+
+	signal_wait();
+
+	__sync_or_and_fetch(&amp;this_core-&gt;current_process-&gt;flags, PROC_FLAG_RESTORE_SIGMASK);
+	<span class="hljs-keyword">return</span> -ERESTARTSIGSUSPEND;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_sigwait</span><span class="hljs-params">(<span class="hljs-keyword">sigset_t</span> * <span class="hljs-built_in">set</span>, <span class="hljs-keyword">int</span> * sig)</span> </span>{
+	PTRCHECK(<span class="hljs-built_in">set</span>,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">sigset_t</span>),<span class="hljs-number">0</span>);
+	PTRCHECK(sig,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>),MMU_PTR_WRITE);
+
+	<span class="hljs-comment">/* Silently ignore attempts to wait on KILL or STOP */</span>
+	<span class="hljs-keyword">sigset_t</span> awaited = *<span class="hljs-built_in">set</span> &amp; ~((<span class="hljs-number">1</span> &lt;&lt; SIGKILL) | (<span class="hljs-number">1</span> &lt;&lt; SIGSTOP));
+
+	<span class="hljs-comment">/* Don't let processes wait on unblocked signals */</span>
+	<span class="hljs-keyword">if</span> (awaited &amp; ~this_core-&gt;current_process-&gt;blocked_signals) <span class="hljs-keyword">return</span> -EINVAL;
+
+	<span class="hljs-keyword">return</span> signal_await(awaited, sig);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_fswait</span><span class="hljs-params">(<span class="hljs-keyword">int</span> c, <span class="hljs-keyword">int</span> fds[])</span> </span>{
+	PTR_VALIDATE(fds);
+	<span class="hljs-keyword">if</span> (!fds || c &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; c; ++i) {
+		<span class="hljs-keyword">if</span> (!FD_CHECK(fds[i])) <span class="hljs-keyword">return</span> -EBADF;
+	}
+	<span class="hljs-keyword">fs_node_t</span> ** nodes = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span> *)*(c+<span class="hljs-number">1</span>));
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; c; ++i) {
+		nodes[i] = FD_ENTRY(fds[i]);
+	}
+	nodes[c] = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">int</span> result = process_wait_nodes((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, nodes, <span class="hljs-number">-1</span>);
+	<span class="hljs-built_in">free</span>(nodes);
+	<span class="hljs-keyword">return</span> result;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_fswait_timeout</span><span class="hljs-params">(<span class="hljs-keyword">int</span> c, <span class="hljs-keyword">int</span> fds[], <span class="hljs-keyword">int</span> timeout)</span> </span>{
+	PTR_VALIDATE(fds);
+	<span class="hljs-keyword">if</span> (!fds || c &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; c; ++i) {
+		<span class="hljs-keyword">if</span> (!FD_CHECK(fds[i])) <span class="hljs-keyword">return</span> -EBADF;
+	}
+	<span class="hljs-keyword">fs_node_t</span> ** nodes = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span> *)*(c+<span class="hljs-number">1</span>));
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; c; ++i) {
+		nodes[i] = FD_ENTRY(fds[i]);
+	}
+	nodes[c] = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">int</span> result = process_wait_nodes((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, nodes, timeout);
+	<span class="hljs-built_in">free</span>(nodes);
+	<span class="hljs-keyword">return</span> result;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_fswait_multi</span><span class="hljs-params">(<span class="hljs-keyword">int</span> c, <span class="hljs-keyword">int</span> fds[], <span class="hljs-keyword">int</span> timeout, <span class="hljs-keyword">int</span> out[])</span> </span>{
+	PTR_VALIDATE(fds);
+	PTR_VALIDATE(out);
+	<span class="hljs-keyword">if</span> (!fds || !out || c &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">int</span> has_match = <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; c; ++i) {
+		<span class="hljs-keyword">if</span> (!FD_CHECK(fds[i])) {
+			<span class="hljs-keyword">return</span> -EBADF;
+		}
+		<span class="hljs-keyword">if</span> (selectcheck_fs(FD_ENTRY(fds[i])) == <span class="hljs-number">0</span>) {
+			out[i] = <span class="hljs-number">1</span>;
+			has_match = (has_match == <span class="hljs-number">-1</span>) ? i : has_match;
+		} <span class="hljs-keyword">else</span> {
+			out[i] = <span class="hljs-number">0</span>;
+		}
+	}
+
+	<span class="hljs-comment">/* Already found a match, return immediately with the first match */</span>
+	<span class="hljs-keyword">if</span> (has_match != <span class="hljs-number">-1</span>) <span class="hljs-keyword">return</span> has_match;
+
+	<span class="hljs-keyword">int</span> result = sys_fswait_timeout(c, fds, timeout);
+	<span class="hljs-keyword">if</span> (result &gt;= <span class="hljs-number">0</span> &amp;&amp; result &lt; c) out[result] = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> result;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_shm_obtain</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * path, <span class="hljs-keyword">size_t</span> * <span class="hljs-built_in">size</span>)</span> </span>{
+	PTR_VALIDATE(path);
+	PTR_VALIDATE(<span class="hljs-built_in">size</span>);
+	<span class="hljs-keyword">if</span> (!path || !<span class="hljs-built_in">size</span>) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">long</span>)shm_obtain(path, <span class="hljs-built_in">size</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_shm_release</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * path)</span> </span>{
+	PTR_VALIDATE(path);
+	<span class="hljs-keyword">if</span> (!path) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">return</span> shm_release(path);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_openpty</span><span class="hljs-params">(<span class="hljs-keyword">int</span> * master, <span class="hljs-keyword">int</span> * slave, <span class="hljs-keyword">char</span> * name, <span class="hljs-keyword">void</span> * _ign0, <span class="hljs-keyword">void</span> * <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-comment">/* We require a place to put these when we are done. */</span>
+	PTRCHECK(master,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>),MMU_PTR_WRITE);
+	PTRCHECK(slave,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>),MMU_PTR_WRITE);
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span>) PTRCHECK(<span class="hljs-built_in">size</span>,<span class="hljs-keyword">sizeof</span>(struct winsize),<span class="hljs-number">0</span>);
+
+	<span class="hljs-comment">/* Create a new pseudo terminal */</span>
+	<span class="hljs-keyword">fs_node_t</span> * fs_master;
+	<span class="hljs-keyword">fs_node_t</span> * fs_slave;
+
+	pty_create(<span class="hljs-built_in">size</span>, &amp;fs_master, &amp;fs_slave);
+
+	<span class="hljs-comment">/* Append the master and slave to the calling process */</span>
+	*master = process_append_fd((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, fs_master,PROC_FD_MODE__RW|PROC_FD_MODE_CLOEXEC);
+	*slave  = process_append_fd((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, fs_slave, PROC_FD_MODE__RW|PROC_FD_MODE_CLOEXEC);
+
+	open_fs(fs_master, <span class="hljs-number">0</span>);
+	open_fs(fs_slave, <span class="hljs-number">0</span>);
+
+	<span class="hljs-comment">/* Return success */</span>
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_kill</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> <span class="hljs-built_in">process</span>, <span class="hljs-keyword">int</span> signal)</span> </span>{
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">process</span> &lt; <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">return</span> group_send_signal(-<span class="hljs-built_in">process</span>, signal, <span class="hljs-number">0</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">process</span> == <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> group_send_signal(this_core-&gt;current_process-&gt;job, signal, <span class="hljs-number">0</span>);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">return</span> send_signal(<span class="hljs-built_in">process</span>, signal, <span class="hljs-number">0</span>);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_sigqueue</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> <span class="hljs-built_in">process</span>, <span class="hljs-keyword">int</span> signal, <span class="hljs-keyword">union</span> sigval value)</span> </span>{
+	<span class="hljs-comment">/* Unlike kill, this doesn't need to support groups or whatnot, just a single pid */</span>
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">process</span> &lt; <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> -ESRCH;
+
+	<span class="hljs-keyword">siginfo_t</span> cause = {<span class="hljs-number">0</span>};
+	cause.si_code  = SI_QUEUE;
+	cause.si_value = value;
+	<span class="hljs-keyword">return</span> send_signal_info(<span class="hljs-built_in">process</span>, signal, <span class="hljs-number">0</span>, &amp;cause);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_reboot</span><span class="hljs-params">(<span class="hljs-keyword">int</span> unused)</span> </span>{
+	(<span class="hljs-keyword">void</span>)unused;
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;user != USER_ROOT_UID) {
+		<span class="hljs-keyword">return</span> -EPERM;
+	}
+
+	<span class="hljs-keyword">return</span> arch_reboot();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_times</span><span class="hljs-params">(struct tms *buf)</span> </span>{
+	<span class="hljs-keyword">if</span> (buf) {
+		PTRCHECK(buf,<span class="hljs-keyword">sizeof</span>(struct tms),MMU_PTR_WRITE);
+
+		buf-&gt;tms_utime  = (this_core-&gt;current_process-&gt;time_total - this_core-&gt;current_process-&gt;time_sys) / arch_cpu_mhz();
+		buf-&gt;tms_stime  = this_core-&gt;current_process-&gt;time_sys          / arch_cpu_mhz();
+		buf-&gt;tms_cutime = (this_core-&gt;current_process-&gt;time_children - this_core-&gt;current_process-&gt;time_sys_children) / arch_cpu_mhz();
+		buf-&gt;tms_cstime = this_core-&gt;current_process-&gt;time_sys_children / arch_cpu_mhz();
+	}
+
+	<span class="hljs-keyword">return</span> arch_perf_timer() / arch_cpu_mhz();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_getrusage</span><span class="hljs-params">(<span class="hljs-keyword">int</span> who, struct rusage *buf)</span> </span>{
+	PTRCHECK(buf,<span class="hljs-keyword">sizeof</span>(struct rusage),MMU_PTR_WRITE);
+	<span class="hljs-keyword">if</span> (who != RUSAGE_SELF &amp;&amp; who != RUSAGE_CHILDREN) <span class="hljs-keyword">return</span> -EINVAL;
+
+	<span class="hljs-keyword">uint64_t</span> utime, stime;
+	<span class="hljs-keyword">if</span> (who == RUSAGE_SELF) {
+		utime = (this_core-&gt;current_process-&gt;time_total - this_core-&gt;current_process-&gt;time_sys) / arch_cpu_mhz();
+		stime = this_core-&gt;current_process-&gt;time_sys / arch_cpu_mhz();
+	} <span class="hljs-keyword">else</span> {
+		utime = (this_core-&gt;current_process-&gt;time_children - this_core-&gt;current_process-&gt;time_sys_children) / arch_cpu_mhz();
+		stime = this_core-&gt;current_process-&gt;time_sys_children / arch_cpu_mhz();
+	}
+
+	buf-&gt;ru_utime.tv_sec = utime / <span class="hljs-number">1000000U</span>L;
+	buf-&gt;ru_utime.tv_usec = utime % <span class="hljs-number">1000000U</span>L;
+	buf-&gt;ru_stime.tv_sec = stime / <span class="hljs-number">1000000U</span>L;
+	buf-&gt;ru_stime.tv_usec = stime % <span class="hljs-number">1000000U</span>L;
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_sbrk</span><span class="hljs-params">(<span class="hljs-keyword">ssize_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> mmap_sbrk(<span class="hljs-built_in">size</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_mmap</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> addr, <span class="hljs-keyword">size_t</span> length, <span class="hljs-keyword">int</span> prot, <span class="hljs-keyword">int</span> flags, <span class="hljs-keyword">int</span> fd, <span class="hljs-keyword">off_t</span> offset)</span> </span>{
+	<span class="hljs-comment">/* Exactly one of MAP_SHARED or MAP_PRIVATE must be set. */</span>
+	<span class="hljs-keyword">if</span> (!(flags &amp; (MAP_SHARED | MAP_PRIVATE))) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">if</span> ((flags &amp; MAP_SHARED) &amp;&amp; (flags &amp; MAP_PRIVATE)) <span class="hljs-keyword">return</span> -EINVAL;
+
+	<span class="hljs-comment">/* MAP_ANONYMOUS skips file checks */</span>
+	<span class="hljs-keyword">if</span> (flags &amp; MAP_ANONYMOUS) {
+		<span class="hljs-keyword">return</span> mmap_anon(addr, length, prot, flags);
+	}
+
+	<span class="hljs-keyword">if</span> (!FD_CHECK(fd)) <span class="hljs-keyword">return</span> -EBADF;
+
+	<span class="hljs-comment">/* File must be something we can actually map. */</span>
+	<span class="hljs-keyword">if</span> ((FD_ENTRY(fd)-&gt;flags &amp; FS_PIPE) || (FD_ENTRY(fd)-&gt;flags &amp; FS_CHARDEVICE) || (FD_ENTRY(fd)-&gt;flags &amp; FS_SOCKET)) <span class="hljs-keyword">return</span> -ENODEV;
+
+	<span class="hljs-comment">/* File must be open at least for reading. */</span>
+	<span class="hljs-keyword">if</span> (!(FD_MODE(fd) &amp; PROC_FD_MODE_READ)) <span class="hljs-keyword">return</span> -EACCES;
+
+	<span class="hljs-comment">/* SHARED + WRITE requires file was open for write access */</span>
+	<span class="hljs-keyword">if</span> ((flags &amp; MAP_SHARED) &amp;&amp; (prot &amp; PROT_WRITE) &amp;&amp; !(FD_MODE(fd) &amp; PROC_FD_MODE_WRITE)) <span class="hljs-keyword">return</span> -EACCES;
+
+	<span class="hljs-keyword">return</span> mmap_file(addr, length, prot, flags, FD_ENTRY(fd), offset);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_munmap</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> addr, <span class="hljs-keyword">size_t</span> length)</span> </span>{
+	<span class="hljs-keyword">if</span> (addr &amp; <span class="hljs-number">0xFFF</span>) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">if</span> (length == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">return</span> mmap_unmap(addr, length);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_nproc</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> processor_count;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_set_tls_base</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> addr)</span> </span>{
+	PTR_VALIDATE(addr);
+
+	this_core-&gt;current_process-&gt;thread.context.tls_base = addr;
+	arch_set_tls_base(this_core-&gt;current_process-&gt;thread.context.tls_base);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">int</span> <span class="hljs-title">elf_module</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * file, <span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> ** args)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sys_insmod</span><span class="hljs-params">(<span class="hljs-keyword">int</span> fd, <span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> **argv)</span> </span>{
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;user != USER_ROOT_UID) <span class="hljs-keyword">return</span> -EPERM;
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> -EINVAL;
+	PTRCHECK(argv, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span>*) * argc, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; argc; ++i) {
+		PTR_VALIDATE(argv[i]);
+	}
+	<span class="hljs-keyword">if</span> (!FD_CHECK(fd)) <span class="hljs-keyword">return</span> -EBADF;
+	<span class="hljs-keyword">if</span> (!(FD_MODE(fd) &amp; PROC_FD_MODE_READ)) <span class="hljs-keyword">return</span> -EBADF;
+	<span class="hljs-keyword">return</span> elf_module(FD_ENTRY(fd), argc, argv);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">long</span> <span class="hljs-title">ptrace_handle</span><span class="hljs-params">(<span class="hljs-keyword">long</span>,<span class="hljs-keyword">pid_t</span>,<span class="hljs-keyword">void</span>*,<span class="hljs-keyword">void</span>*)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">typedef</span> <span class="hljs-title">long</span> <span class="hljs-params">(*scall_func)</span><span class="hljs-params">(<span class="hljs-keyword">long</span>,<span class="hljs-keyword">long</span>,<span class="hljs-keyword">long</span>,<span class="hljs-keyword">long</span>,<span class="hljs-keyword">long</span>,<span class="hljs-keyword">long</span>)</span></span>;
+
+<span class="hljs-keyword">static</span> scall_func syscalls[] = {
+	<span class="hljs-comment">/* System Call Table */</span>
+	[SYS_EXT]          = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_exit,
+	[SYS_GETEUID]      = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_geteuid,
+	[SYS_OPEN]         = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_open,
+	[SYS_READ]         = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_read,
+	[SYS_WRITE]        = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_write,
+	[SYS_CLOSE]        = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_close,
+	[SYS_GETTIMEOFDAY] = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_gettimeofday,
+	[SYS_GETPID]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_getpid,
+	[SYS_SBRK]         = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_sbrk,
+	[SYS_UNAME]        = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_uname,
+	[SYS_SEEK]         = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_seek,
+	[SYS_STAT]         = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_stat,
+	[SYS_GETUID]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_getuid,
+	[SYS_SETUID]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_setuid,
+	[SYS_READDIR]      = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_readdir,
+	[SYS_CHDIR]        = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_chdir,
+	[SYS_GETCWD]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_getcwd,
+	[SYS_SETHOSTNAME]  = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_sethostname,
+	[SYS_GETHOSTNAME]  = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_gethostname,
+	[SYS_MKDIR]        = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_mkdir,
+	[SYS_GETTID]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_gettid,
+	[SYS_IOCTL]        = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_ioctl,
+	[SYS_ACCESS]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_access,
+	[SYS_EACCESS]      = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_eaccess,
+	[SYS_STATF]        = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_statf,
+	[SYS_CHMOD]        = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_chmod,
+	[SYS_UMASK]        = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_umask,
+	[SYS_UNLINK]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_unlink,
+	[SYS_MOUNT]        = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_mount,
+	[SYS_SYMLINK]      = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_symlink,
+	[SYS_READLINK]     = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_readlink,
+	[SYS_LSTAT]        = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_lstat,
+	[SYS_CHOWN]        = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_chown,
+	[SYS_SETSID]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_setsid,
+	[SYS_SETPGID]      = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_setpgid,
+	[SYS_GETPGID]      = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_getpgid,
+	[SYS_DUP2]         = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_dup2,
+	[SYS_EXECVE]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_execve,
+	[SYS_FORK]         = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_fork,
+	[SYS_WAITPID]      = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_waitpid,
+	[SYS_YIELD]        = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_yield,
+	[SYS_SLEEPABS]     = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_sleepabs,
+	[SYS_SLEEP]        = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_sleep,
+	[SYS_PIPE]         = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_pipe,
+	[SYS_PIPE2]        = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_pipe2,
+	[SYS_FSWAIT]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_fswait,
+	[SYS_FSWAIT2]      = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_fswait_timeout,
+	[SYS_FSWAIT3]      = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_fswait_multi,
+	[SYS_CLONE]        = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_clone,
+	[SYS_OPENPTY]      = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_openpty,
+	[SYS_SHM_OBTAIN]   = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_shm_obtain,
+	[SYS_SHM_RELEASE]  = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_shm_release,
+	[SYS_SIGNAL]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_signal,
+	[SYS_KILL]         = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_kill,
+	[SYS_REBOOT]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_reboot,
+	[SYS_GETGID]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_getgid,
+	[SYS_GETEGID]      = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_getegid,
+	[SYS_SETGID]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_setgid,
+	[SYS_GETGROUPS]    = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_getgroups,
+	[SYS_SETGROUPS]    = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_setgroups,
+	[SYS_TIMES]        = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_times,
+	[SYS_PTRACE]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)ptrace_handle,
+	[SYS_SETTIMEOFDAY] = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_settimeofday,
+	[SYS_SIGACTION]    = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_sigaction,
+	[SYS_SIGPENDING]   = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_sigpending,
+	[SYS_SIGPROCMASK]  = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_sigprocmask,
+	[SYS_SIGSUSPEND]   = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_sigsuspend,
+	[SYS_SIGWAIT]      = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_sigwait,
+	[SYS_PREAD]        = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_pread,
+	[SYS_PWRITE]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_pwrite,
+	[SYS_RENAME]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_rename,
+	[SYS_FCNTL]        = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_fcntl,
+	[SYS_FCHMOD]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_fchmod,
+	[SYS_FCHOWN]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_fchown,
+	[SYS_TRUNCATE]     = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_truncate,
+	[SYS_FTRUNCATE]    = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_ftruncate,
+	[SYS_GETPPID]      = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_getppid,
+	[SYS_LCHOWN]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_lchown,
+	[SYS_GETRUSAGE]    = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_getrusage,
+	[SYS_SIGQUEUE]     = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_sigqueue,
+	[SYS_SETRESUID]    = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_setresuid,
+	[SYS_SETREUID]     = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_setreuid,
+	[SYS_SETRESGID]    = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_setresgid,
+	[SYS_SETREGID]     = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_setregid,
+	[SYS_MMAP]         = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_mmap,
+	[SYS_MUNMAP]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_munmap,
+	[SYS_NPROC]        = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_nproc,
+	[SYS_SETTLSBASE]   = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_set_tls_base,
+	[SYS_INSMOD]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)sys_insmod,
+
+	[SYS_SOCKET]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)net_socket,
+	[SYS_SETSOCKOPT]   = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)net_setsockopt,
+	[SYS_BIND]         = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)net_bind,
+	[SYS_ACCEPT]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)net_accept,
+	[SYS_LISTEN]       = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)net_listen,
+	[SYS_CONNECT]      = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)net_connect,
+	[SYS_GETSOCKOPT]   = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)net_getsockopt,
+	[SYS_RECV]         = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)net_recv,
+	[SYS_SEND]         = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)net_send,
+	[SYS_SHUTDOWN]     = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)net_shutdown,
+	[SYS_GETSOCKNAME]  = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)net_getsockname,
+	[SYS_GETPEERNAME]  = (scall_func)(<span class="hljs-keyword">uintptr_t</span>)net_getpeername,
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> num_syscalls = <span class="hljs-keyword">sizeof</span>(syscalls) / <span class="hljs-keyword">sizeof</span>(*syscalls);
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">syscall_handler</span><span class="hljs-params">(struct regs * r)</span> </span>{
+
+	this_core-&gt;current_process-&gt;syscall_registers = r;
+
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;flags &amp; PROC_FLAG_TRACE_SYSCALLS) {
+		ptrace_signal(SIGTRAP, PTRACE_EVENT_SYSCALL_ENTER);
+	}
+
+	<span class="hljs-keyword">long</span> result;
+
+	<span class="hljs-keyword">if</span> (arch_syscall_number(r) &lt; <span class="hljs-number">0</span> || arch_syscall_number(r) &gt;= num_syscalls) {
+		result = -EINVAL;
+		<span class="hljs-keyword">goto</span> _finish_syscall;
+	}
+
+	scall_func func = syscalls[arch_syscall_number(r)];
+	result = func(
+		arch_syscall_arg0(r), arch_syscall_arg1(r), arch_syscall_arg2(r),
+		arch_syscall_arg3(r), arch_syscall_arg4(r), arch_syscall_arg5(r));
+
+	<span class="hljs-keyword">if</span> (result == -ERESTARTSYS || result == -ERESTARTSIGSUSPEND) {
+		this_core-&gt;current_process-&gt;interrupted_system_call = arch_syscall_number(r);
+	}
+
+_finish_syscall:
+	arch_syscall_return(r, result);
+
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;flags &amp; PROC_FLAG_TRACE_SYSCALLS) {
+		ptrace_signal(SIGTRAP, PTRACE_EVENT_SYSCALL_EXIT);
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

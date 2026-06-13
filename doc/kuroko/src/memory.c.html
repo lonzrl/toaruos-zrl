@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>memory.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\src\\memory.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>memory.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/memory.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/object.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/compiler.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/table.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"private.h"</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> FREE_OBJECT(t,p) krk_reallocate(p,sizeof(t),0)</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(KRK_EXTENSIVE_MEMORY_DEBUGGING)</span>
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Extensive Memory Debugging</p>
+</div>
+<div class="body">
+<p>When memory is allocated for Kuroko objects, it should be tracked.
+This tracking allows us to schedule garbage collection at reasonable
+periods based on memory load. In order for this to work correctly,
+allocation and deallocation, as well resizing, must correctly track
+the sizes of objects by both using the appropriate macros and by
+ensuring the right sizes are passed to those macros. This is a very
+easy thing to get wrong - allocate with @c malloc but free with the</p>
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">DHE</span> {</span>
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span>* ptr;
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">DHE</span> * <span class="hljs-title">next</span>;</span>
+} _dhe;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Use a power of two so we can make our hash
+just do quick bitmasking</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DHE_SIZE 256</span>
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">DHE</span> * _<span class="hljs-title">debug_mem</span>[<span class="hljs-title">DHE_SIZE</span>];</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> _debug_mem_hash(<span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> * ptr) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Pointers to objects are very often 16-byte aligned, and most
+allocations are of objects, so it would make sense to ignore
+the lower bits or we'll end up with a pretty bad hash.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">uintptr_t</span> p = (<span class="hljs-keyword">uintptr_t</span>)ptr;
+	<span class="hljs-keyword">return</span> (p &gt;&gt; <span class="hljs-number">4</span>) &amp; (DHE_SIZE<span class="hljs-number">-1</span>);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _debug_mem_set(<span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span>* ptr, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>) {
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> hash = _debug_mem_hash(ptr);
+	_dhe * x = _debug_mem[hash];
+	<span class="hljs-keyword">if</span> (!x) {
+		x = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(_dhe));
+		x-&gt;ptr = ptr;
+		x-&gt;<span class="hljs-built_in">size</span> = <span class="hljs-built_in">size</span>;
+		x-&gt;next = <span class="hljs-literal">NULL</span>;
+		_debug_mem[hash] = x;
+	} <span class="hljs-keyword">else</span> {
+		_dhe * p = <span class="hljs-literal">NULL</span>;
+		<span class="hljs-keyword">do</span> {
+			<span class="hljs-keyword">if</span> (x-&gt;ptr == ptr) {
+				x-&gt;<span class="hljs-built_in">size</span> = <span class="hljs-built_in">size</span>;
+				<span class="hljs-keyword">return</span>;
+			} <span class="hljs-keyword">else</span> {
+				p = x;
+				x = x-&gt;next;
+			}
+		} <span class="hljs-keyword">while</span> (x);
+		x = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(_dhe));
+		x-&gt;ptr = ptr;
+		x-&gt;<span class="hljs-built_in">size</span> = <span class="hljs-built_in">size</span>;
+		x-&gt;next = <span class="hljs-literal">NULL</span>;
+		p-&gt;next = x;
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> _debug_mem_get(<span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> * ptr) {
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> hash = _debug_mem_hash(ptr);
+	_dhe * x = _debug_mem[hash];
+	<span class="hljs-keyword">if</span> (!x) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">do</span> {
+		<span class="hljs-keyword">if</span> (x-&gt;ptr == ptr) <span class="hljs-keyword">return</span> x-&gt;<span class="hljs-built_in">size</span>;
+		x = x-&gt;next;
+	} <span class="hljs-keyword">while</span> (x);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _debug_mem_remove(<span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> *ptr) {
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> hash = _debug_mem_hash(ptr);
+	_dhe * x = _debug_mem[hash];
+	<span class="hljs-keyword">if</span> (!x) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-keyword">if</span> (x-&gt;ptr == ptr) {
+		_debug_mem[hash] = x-&gt;next;
+		<span class="hljs-built_in">free</span>(x);
+	} <span class="hljs-keyword">else</span> {
+		_dhe * p = x;
+		x = x-&gt;next;
+		<span class="hljs-keyword">do</span> {
+			<span class="hljs-keyword">if</span> (x-&gt;ptr == ptr) {
+				p-&gt;next = x-&gt;next;
+				<span class="hljs-built_in">free</span>(x);
+				<span class="hljs-keyword">return</span>;
+			}
+			p = x;
+			x = x-&gt;next;
+		} <span class="hljs-keyword">while</span> (x);
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> _debug_mem_has(<span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> *ptr) {
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> hash = _debug_mem_hash(ptr);
+	_dhe * x = _debug_mem[hash];
+	<span class="hljs-keyword">if</span> (!x) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">do</span> {
+		<span class="hljs-keyword">if</span> (x-&gt;ptr == ptr) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		x = x-&gt;next;
+	} <span class="hljs-keyword">while</span> (x);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_gcTakeBytes</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> * ptr, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(KRK_EXTENSIVE_MEMORY_DEBUGGING)</span>
+	_debug_mem_set(ptr, <span class="hljs-built_in">size</span>);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	vm.bytesAllocated += <span class="hljs-built_in">size</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> * <span class="hljs-title">krk_reallocate</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * ptr, <span class="hljs-keyword">size_t</span> old, <span class="hljs-keyword">size_t</span> <span class="hljs-keyword">new</span>)</span> </span>{
+
+	vm.bytesAllocated -= old;
+	vm.bytesAllocated += <span class="hljs-keyword">new</span>;
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-keyword">new</span> &gt; old &amp;&amp; ptr != krk_currentThread.<span class="hljs-built_in">stack</span> &amp;&amp; &amp;krk_currentThread == vm.threads &amp;&amp; !(vm.globalFlags &amp; KRK_GLOBAL_GC_PAUSED)) {
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_NO_STRESS_GC</span>
+		<span class="hljs-keyword">if</span> (vm.globalFlags &amp; KRK_GLOBAL_ENABLE_STRESS_GC) {
+			krk_collectGarbage();
+		}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+		<span class="hljs-keyword">if</span> (vm.bytesAllocated &gt; vm.nextGC) {
+			krk_collectGarbage();
+		}
+	}
+
+	<span class="hljs-keyword">void</span> * out;
+	<span class="hljs-keyword">if</span> (<span class="hljs-keyword">new</span> == <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">free</span>(ptr);
+		out = <span class="hljs-literal">NULL</span>;
+	} <span class="hljs-keyword">else</span> {
+		out = <span class="hljs-built_in">realloc</span>(ptr, <span class="hljs-keyword">new</span>);
+	}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(KRK_EXTENSIVE_MEMORY_DEBUGGING)</span>
+	<span class="hljs-keyword">if</span> (ptr) {
+		<span class="hljs-keyword">if</span> (!_debug_mem_has(ptr)) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Invalid reallocation of %p from %zu to %zu\n"</span>, ptr, old, <span class="hljs-keyword">new</span>);
+			<span class="hljs-built_in">abort</span>();
+		}
+
+		<span class="hljs-keyword">size_t</span> t = _debug_mem_get(ptr);
+		<span class="hljs-keyword">if</span> (t != old) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Invalid reallocation of %p from %zu - should be %zu - to %zu\n"</span>, ptr, old, t, <span class="hljs-keyword">new</span>);
+			<span class="hljs-built_in">abort</span>();
+		}
+
+		_debug_mem_remove(ptr);
+	}
+	<span class="hljs-keyword">if</span> (out) {
+		_debug_mem_set(out, <span class="hljs-keyword">new</span>);
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">freeObject</span><span class="hljs-params">(KrkObj * object)</span> </span>{
+	<span class="hljs-keyword">switch</span> (object-&gt;type) {
+		<span class="hljs-keyword">case</span> KRK_OBJ_STRING: {
+			KrkString * <span class="hljs-built_in">string</span> = (KrkString*)object;
+			KRK_FREE_ARRAY(<span class="hljs-keyword">char</span>, <span class="hljs-built_in">string</span>-&gt;chars, <span class="hljs-built_in">string</span>-&gt;length + <span class="hljs-number">1</span>);
+			<span class="hljs-keyword">if</span> (<span class="hljs-built_in">string</span>-&gt;codes &amp;&amp; <span class="hljs-built_in">string</span>-&gt;codes != <span class="hljs-built_in">string</span>-&gt;chars) <span class="hljs-built_in">free</span>(<span class="hljs-built_in">string</span>-&gt;codes);
+			FREE_OBJECT(KrkString, object);
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_CODEOBJECT: {
+			KrkCodeObject * function = (KrkCodeObject*)object;
+			krk_freeChunk(&amp;function-&gt;chunk);
+			krk_freeValueArray(&amp;function-&gt;positionalArgNames);
+			krk_freeValueArray(&amp;function-&gt;keywordArgNames);
+			KRK_FREE_ARRAY(KrkLocalEntry, function-&gt;localNames, function-&gt;localNameCount);
+			KRK_FREE_ARRAY(KrkExpressionsMap, function-&gt;expressions, function-&gt;expressionsCapacity);
+			KRK_FREE_ARRAY(KrkOverlongJump, function-&gt;overlongJumps, function-&gt;overlongJumpsCapacity);
+			function-&gt;localNameCount = <span class="hljs-number">0</span>;
+			FREE_OBJECT(KrkCodeObject, object);
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_NATIVE: {
+			FREE_OBJECT(KrkNative, object);
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_CLOSURE: {
+			KrkClosure * closure = (KrkClosure*)object;
+			KRK_FREE_ARRAY(KrkUpvalue*,closure-&gt;upvalues,closure-&gt;upvalueCount);
+			krk_freeTable(&amp;closure-&gt;fields);
+			FREE_OBJECT(KrkClosure, object);
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_UPVALUE: {
+			FREE_OBJECT(KrkUpvalue, object);
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_CLASS: {
+			KrkClass * _class = (KrkClass*)object;
+			krk_freeTable(&amp;_class-&gt;methods);
+			krk_freeTable(&amp;_class-&gt;subclasses);
+			<span class="hljs-keyword">if</span> (_class-&gt;base) {
+				krk_tableDeleteExact(&amp;_class-&gt;base-&gt;subclasses, OBJECT_VAL(object));
+			}
+			FREE_OBJECT(KrkClass, object);
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_INSTANCE: {
+			KrkInstance * inst = (KrkInstance*)object;
+			<span class="hljs-keyword">if</span> (inst-&gt;_class-&gt;_ongcsweep) {
+				inst-&gt;_class-&gt;_ongcsweep(inst);
+			}
+			krk_freeTable(&amp;inst-&gt;fields);
+			krk_reallocate(object,inst-&gt;_class-&gt;allocSize,<span class="hljs-number">0</span>);
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_BOUND_METHOD:
+			FREE_OBJECT(KrkBoundMethod, object);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> KRK_OBJ_TUPLE: {
+			KrkTuple * tuple = (KrkTuple*)object;
+			krk_freeValueArray(&amp;tuple-&gt;values);
+			FREE_OBJECT(KrkTuple, object);
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_BYTES: {
+			KrkBytes * bytes = (KrkBytes*)object;
+			KRK_FREE_ARRAY(<span class="hljs-keyword">uint8_t</span>, bytes-&gt;bytes, bytes-&gt;length);
+			FREE_OBJECT(KrkBytes, bytes);
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_freeObjects</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	KrkObj * object = vm.objects;
+	KrkObj * other = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">while</span> (object) {
+		KrkObj * next = object-&gt;next;
+		<span class="hljs-keyword">if</span> (object-&gt;type == KRK_OBJ_INSTANCE) {
+			freeObject(object);
+		} <span class="hljs-keyword">else</span> {
+			object-&gt;next = other;
+			other = object;
+		}
+		object = next;
+	}
+
+	<span class="hljs-keyword">while</span> (other) {
+		KrkObj * next = other-&gt;next;
+		<span class="hljs-keyword">if</span> (other-&gt;type == KRK_OBJ_CLASS) {
+			((KrkClass*)other)-&gt;base = <span class="hljs-literal">NULL</span>;
+		}
+		freeObject(other);
+		other = next;
+	}
+
+	<span class="hljs-built_in">free</span>(vm.grayStack);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_freeMemoryDebugger</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(KRK_EXTENSIVE_MEMORY_DEBUGGING)</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; DHE_SIZE; ++i) {
+		_dhe * x = _debug_mem[i];
+		_debug_mem[i] = <span class="hljs-literal">NULL</span>;
+		<span class="hljs-keyword">while</span> (x) {
+			_dhe * n = x-&gt;next;
+			<span class="hljs-built_in">free</span>(x);
+			x = n;
+		}
+	}
+	<span class="hljs-keyword">if</span> (vm.bytesAllocated != <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">abort</span>();
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_markObject</span><span class="hljs-params">(KrkObj * object)</span> </span>{
+	<span class="hljs-keyword">if</span> (!object) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">if</span> (object-&gt;flags &amp; KRK_OBJ_FLAGS_IS_MARKED) <span class="hljs-keyword">return</span>;
+	object-&gt;flags |= KRK_OBJ_FLAGS_IS_MARKED;
+
+	<span class="hljs-keyword">if</span> (vm.grayCapacity &lt; vm.grayCount + <span class="hljs-number">1</span>) {
+		vm.grayCapacity = KRK_GROW_CAPACITY(vm.grayCapacity);
+		vm.grayStack = <span class="hljs-built_in">realloc</span>(vm.grayStack, <span class="hljs-keyword">sizeof</span>(KrkObj*) * vm.grayCapacity);
+		<span class="hljs-keyword">if</span> (!vm.grayStack) <span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+	}
+	vm.grayStack[vm.grayCount++] = object;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_markValue</span><span class="hljs-params">(KrkValue value)</span> </span>{
+	<span class="hljs-keyword">if</span> (!IS_OBJECT(value)) <span class="hljs-keyword">return</span>;
+	krk_markObject(AS_OBJECT(value));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">markArray</span><span class="hljs-params">(KrkValueArray * <span class="hljs-built_in">array</span>)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">array</span>-&gt;count; ++i) {
+		krk_markValue(<span class="hljs-built_in">array</span>-&gt;values[i]);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">blackenObject</span><span class="hljs-params">(KrkObj * object)</span> </span>{
+	<span class="hljs-keyword">switch</span> (object-&gt;type) {
+		<span class="hljs-keyword">case</span> KRK_OBJ_CLOSURE: {
+			KrkClosure * closure = (KrkClosure *)object;
+			krk_markObject((KrkObj*)closure-&gt;function);
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; closure-&gt;upvalueCount; ++i) {
+				krk_markObject((KrkObj*)closure-&gt;upvalues[i]);
+			}
+			krk_markValue(closure-&gt;annotations);
+			krk_markTable(&amp;closure-&gt;fields);
+			krk_markValue(closure-&gt;globalsOwner);
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_CODEOBJECT: {
+			KrkCodeObject * function = (KrkCodeObject *)object;
+			krk_markObject((KrkObj*)function-&gt;name);
+			krk_markObject((KrkObj*)function-&gt;qualname);
+			krk_markObject((KrkObj*)function-&gt;docstring);
+			krk_markObject((KrkObj*)function-&gt;chunk.filename);
+			markArray(&amp;function-&gt;positionalArgNames);
+			markArray(&amp;function-&gt;keywordArgNames);
+			markArray(&amp;function-&gt;chunk.constants);
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; function-&gt;localNameCount; ++i) {
+				krk_markObject((KrkObj*)function-&gt;localNames[i].name);
+			}
+			krk_markValue(function-&gt;jumpTargets);
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_UPVALUE:
+			krk_markValue(((KrkUpvalue*)object)-&gt;closed);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> KRK_OBJ_CLASS: {
+			KrkClass * _class = (KrkClass *)object;
+			krk_markObject((KrkObj*)_class-&gt;name);
+			krk_markObject((KrkObj*)_class-&gt;filename);
+			krk_markObject((KrkObj*)_class-&gt;base);
+			krk_markObject((KrkObj*)_class-&gt;_class);
+			krk_markTable(&amp;_class-&gt;methods);
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_INSTANCE: {
+			krk_markObject((KrkObj*)((KrkInstance*)object)-&gt;_class);
+			<span class="hljs-keyword">if</span> (((KrkInstance*)object)-&gt;_class-&gt;_ongcscan) ((KrkInstance*)object)-&gt;_class-&gt;_ongcscan((KrkInstance*)object);
+			krk_markTable(&amp;((KrkInstance*)object)-&gt;fields);
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_BOUND_METHOD: {
+			KrkBoundMethod * bound = (KrkBoundMethod *)object;
+			krk_markValue(bound-&gt;receiver);
+			krk_markObject((KrkObj*)bound-&gt;method);
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_TUPLE: {
+			KrkTuple * tuple = (KrkTuple *)object;
+			markArray(&amp;tuple-&gt;values);
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> KRK_OBJ_NATIVE:
+		<span class="hljs-keyword">case</span> KRK_OBJ_STRING:
+		<span class="hljs-keyword">case</span> KRK_OBJ_BYTES:
+			<span class="hljs-keyword">break</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">traceReferences</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">while</span> (vm.grayCount &gt; <span class="hljs-number">0</span>) {
+		KrkObj * object = vm.grayStack[--vm.grayCount];
+		blackenObject(object);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> <span class="hljs-title">sweep</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	KrkObj * previous = <span class="hljs-literal">NULL</span>;
+	KrkObj * object = vm.objects;
+	<span class="hljs-keyword">size_t</span> count = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (object) {
+		<span class="hljs-keyword">if</span> (object-&gt;flags &amp; (KRK_OBJ_FLAGS_IMMORTAL | KRK_OBJ_FLAGS_IS_MARKED)) {
+			object-&gt;flags &amp;= ~(KRK_OBJ_FLAGS_IS_MARKED | KRK_OBJ_FLAGS_SECOND_CHANCE);
+			previous = object;
+			object = object-&gt;next;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (object-&gt;flags &amp; KRK_OBJ_FLAGS_SECOND_CHANCE) {
+			KrkObj * unreached = object;
+			object = object-&gt;next;
+			<span class="hljs-keyword">if</span> (previous != <span class="hljs-literal">NULL</span>) {
+				previous-&gt;next = object;
+			} <span class="hljs-keyword">else</span> {
+				vm.objects = object;
+			}
+			freeObject(unreached);
+			count++;
+		} <span class="hljs-keyword">else</span> {
+			object-&gt;flags |= KRK_OBJ_FLAGS_SECOND_CHANCE;
+			previous = object;
+			object = object-&gt;next;
+		}
+	}
+	<span class="hljs-keyword">return</span> count;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_markTable</span><span class="hljs-params">(KrkTable * table)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; table-&gt;used; ++i) {
+		KrkTableEntry * entry = &amp;table-&gt;entries[i];
+		krk_markValue(entry-&gt;key);
+		krk_markValue(entry-&gt;value);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">tableRemoveWhite</span><span class="hljs-params">(KrkTable * table)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; table-&gt;used; ++i) {
+		KrkTableEntry * entry = &amp;table-&gt;entries[i];
+		<span class="hljs-keyword">if</span> (IS_OBJECT(entry-&gt;key) &amp;&amp; !((AS_OBJECT(entry-&gt;key))-&gt;flags &amp; KRK_OBJ_FLAGS_IS_MARKED)) {
+			krk_tableDeleteExact(table, entry-&gt;key);
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">markThreadRoots</span><span class="hljs-params">(KrkThreadState * thread)</span> </span>{
+	<span class="hljs-keyword">for</span> (KrkValue * slot = thread-&gt;<span class="hljs-built_in">stack</span>; slot &amp;&amp; slot &lt; thread-&gt;stackTop; ++slot) {
+		krk_markValue(*slot);
+	}
+	<span class="hljs-keyword">for</span> (KrkUpvalue * upvalue = thread-&gt;openUpvalues; upvalue; upvalue = upvalue-&gt;next) {
+		krk_markObject((KrkObj*)upvalue);
+	}
+	krk_markValue(thread-&gt;currentException);
+
+	<span class="hljs-keyword">if</span> (thread-&gt;<span class="hljs-keyword">module</span>)  krk_markObject((KrkObj*)thread-&gt;<span class="hljs-keyword">module</span>);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; KRK_THREAD_SCRATCH_SIZE; ++i) {
+		krk_markValue(thread-&gt;scratchSpace[i]);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">markRoots</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	KrkThreadState * thread = vm.threads;
+	<span class="hljs-keyword">while</span> (thread) {
+		markThreadRoots(thread);
+		thread = thread-&gt;next;
+	}
+
+	krk_markObject((KrkObj*)vm.builtins);
+	krk_markTable(&amp;vm.modules);
+
+	<span class="hljs-keyword">if</span> (vm.specialMethodNames) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; METHOD__MAX; ++i) {
+			krk_markValue(vm.specialMethodNames[i]);
+		}
+	}
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_NO_GC_TRACING</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">smartSize</span><span class="hljs-params">(<span class="hljs-keyword">char</span> _out[<span class="hljs-number">100</span>], <span class="hljs-keyword">size_t</span> s)</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> UINTPTR_MAX == 0xFFFFFFFF</span>
+	<span class="hljs-keyword">size_t</span> count = <span class="hljs-number">3</span>;
+	<span class="hljs-keyword">char</span> * prefix = <span class="hljs-string">"GMK"</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+	<span class="hljs-keyword">size_t</span> count = <span class="hljs-number">5</span>;
+	<span class="hljs-keyword">char</span> * prefix = <span class="hljs-string">"PTGMK"</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	<span class="hljs-keyword">for</span> (; count &gt; <span class="hljs-number">0</span> &amp;&amp; *prefix; count--, prefix++) {
+		<span class="hljs-keyword">size_t</span> base = <span class="hljs-number">1U</span>L &lt;&lt; (count * <span class="hljs-number">10</span>);
+		<span class="hljs-keyword">if</span> (s &gt;= base) {
+			<span class="hljs-keyword">size_t</span> t = s / base;
+			<span class="hljs-keyword">return</span> <span class="hljs-built_in">snprintf</span>(_out, <span class="hljs-number">100</span>, <span class="hljs-string">"%zu.%1zu %ciB"</span>, t, (s - t * base) / (base / <span class="hljs-number">10</span>), *prefix);
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">snprintf</span>(_out, <span class="hljs-number">100</span>, <span class="hljs-string">"%d B"</span>, (<span class="hljs-keyword">int</span>)s);
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">size_t</span> <span class="hljs-title">krk_collectGarbage</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_NO_GC_TRACING</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timespec</span> <span class="hljs-title">outTime</span>, <span class="hljs-title">inTime</span>;</span>
+
+	<span class="hljs-keyword">if</span> (vm.globalFlags &amp; KRK_GLOBAL_REPORT_GC_COLLECTS) {
+		clock_gettime(CLOCK_MONOTONIC, &amp;inTime);
+	}
+
+	<span class="hljs-keyword">size_t</span> bytesBefore = vm.bytesAllocated;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	markRoots();
+	traceReferences();
+	tableRemoveWhite(&amp;vm.strings);
+	<span class="hljs-keyword">size_t</span> out = sweep();
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>The GC scheduling is in need of some improvement. The strategy at the moment
+is to schedule the next collect at double the current post-collection byte
+allocation size, up until that reaches 128MiB (64*2). Beyond that point,
+the next collection is scheduled for 64MiB after the current value.</p>
+</div>
+<div class="body">
+<p>Previously, we always doubled as that was what Lox did, but this rather
+quickly runs into issues when memory allocation climbs into the GiB range.
+64MiB seems to be a good switchover point.</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (vm.bytesAllocated &lt; <span class="hljs-number">0x4000000</span>) {
+		vm.nextGC = vm.bytesAllocated * <span class="hljs-number">2</span>;
+	} <span class="hljs-keyword">else</span> {
+		vm.nextGC = vm.bytesAllocated + <span class="hljs-number">0x4000000</span>;
+	}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_NO_GC_TRACING</span>
+	<span class="hljs-keyword">if</span> (vm.globalFlags &amp; KRK_GLOBAL_REPORT_GC_COLLECTS) {
+		clock_gettime(CLOCK_MONOTONIC, &amp;outTime);
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timespec</span> <span class="hljs-title">diff</span>;</span>
+		diff.tv_sec  = outTime.tv_sec  - inTime.tv_sec;
+		diff.tv_nsec = outTime.tv_nsec - inTime.tv_nsec;
+		<span class="hljs-keyword">if</span> (diff.tv_nsec &lt; <span class="hljs-number">0</span>) { diff.tv_sec--; diff.tv_nsec += <span class="hljs-number">1000000000L</span>; }
+
+		<span class="hljs-keyword">char</span> smartBefore[<span class="hljs-number">100</span>];
+		smartSize(smartBefore, bytesBefore);
+		<span class="hljs-keyword">char</span> smartAfter[<span class="hljs-number">100</span>];
+		smartSize(smartAfter, vm.bytesAllocated);
+		<span class="hljs-keyword">char</span> smartFreed[<span class="hljs-number">100</span>];
+		smartSize(smartFreed, bytesBefore - vm.bytesAllocated);
+		<span class="hljs-keyword">char</span> smartNext[<span class="hljs-number">100</span>];
+		smartSize(smartNext, vm.nextGC);
+
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"[gc] %lld.%.9lds %s before; %s after; freed %s in %llu objects; next collection at %s\n"</span>,
+			(<span class="hljs-keyword">long</span> <span class="hljs-keyword">long</span>)diff.tv_sec, diff.tv_nsec,
+			smartBefore,smartAfter,smartFreed,(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> <span class="hljs-keyword">long</span>)out, smartNext);
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	<span class="hljs-keyword">return</span> out;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

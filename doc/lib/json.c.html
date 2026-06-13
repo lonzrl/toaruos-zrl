@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>json.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "lib\\json.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>json.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;ctype.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;math.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/hashmap.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/json.h&gt;</span></span>
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">JSON_Value</span> <span class="hljs-title">Value</span>;</span>
+
+<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * json_lib_error = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-comment">/* Internal usage */</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">JSON_Context</span> {</span>
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * <span class="hljs-built_in">string</span>;
+	<span class="hljs-keyword">int</span> c;
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * error;
+	<span class="hljs-keyword">int</span> lenient;
+	<span class="hljs-keyword">int</span> last_line_start;
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">line</span>;
+};
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">json_free</span><span class="hljs-params">(Value * v)</span> </span>{
+	<span class="hljs-keyword">if</span> (v-&gt;type == JSON_TYPE_STRING) {
+		<span class="hljs-built_in">free</span>(v-&gt;<span class="hljs-built_in">string</span>);
+	}
+	<span class="hljs-keyword">if</span> (v-&gt;type == JSON_TYPE_OBJECT) {
+		hashmap_free(v-&gt;object);
+		<span class="hljs-built_in">free</span>(v-&gt;object);
+	}
+	<span class="hljs-keyword">if</span> (v-&gt;type == JSON_TYPE_ARRAY) {
+		foreach(node, v-&gt;<span class="hljs-built_in">array</span>) {
+			json_free(node-&gt;value);
+		}
+		list_free(v-&gt;<span class="hljs-built_in">array</span>);
+		<span class="hljs-built_in">free</span>(v-&gt;<span class="hljs-built_in">array</span>);
+	}
+	<span class="hljs-built_in">free</span>(v);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> Value * <span class="hljs-title">value</span><span class="hljs-params">(struct JSON_Context * ctx)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">peek</span><span class="hljs-params">(struct JSON_Context * ctx)</span> </span>{
+	<span class="hljs-keyword">return</span> ctx-&gt;<span class="hljs-built_in">string</span>[ctx-&gt;c];
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">advance</span><span class="hljs-params">(struct JSON_Context * ctx)</span> </span>{
+	ctx-&gt;c++;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">whitespace</span><span class="hljs-params">(struct JSON_Context * ctx)</span> </span>{
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">int</span> ch = <span class="hljs-built_in">peek</span>(ctx);
+		<span class="hljs-keyword">if</span> (ch == <span class="hljs-string">' '</span> || ch == <span class="hljs-string">'\r'</span> || ch == <span class="hljs-string">'\n'</span> || ch == <span class="hljs-string">'\t'</span>) {
+			advance(ctx);
+			<span class="hljs-keyword">if</span> (ch == <span class="hljs-string">'\n'</span>) {
+				ctx-&gt;last_line_start = ctx-&gt;c;
+				ctx-&gt;<span class="hljs-built_in">line</span>++;
+			}
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> Value * <span class="hljs-title">string</span><span class="hljs-params">(struct JSON_Context * ctx)</span> </span>{
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) != <span class="hljs-string">'"'</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	advance(ctx);
+
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">size</span> = <span class="hljs-number">4</span>;
+	<span class="hljs-keyword">char</span> * tmp = <span class="hljs-built_in">malloc</span>(<span class="hljs-number">4</span>);
+	tmp[<span class="hljs-number">0</span>] = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> used = <span class="hljs-number">0</span>;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> add(c) do { \
+	<span class="hljs-meta-keyword">if</span> (used + 1 == size) { \
+		size *= 2; \
+		tmp = realloc(tmp, size); \
+	} \
+	tmp[used] = c; \
+	tmp[used+1] = 0; \
+	used++; \
+} while (0)</span>
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">int</span> ch = <span class="hljs-built_in">peek</span>(ctx);
+		<span class="hljs-keyword">if</span> (ch == <span class="hljs-number">0</span>) <span class="hljs-keyword">goto</span> string_error;
+		<span class="hljs-keyword">if</span> (ch == <span class="hljs-string">'"'</span>) {
+			<span class="hljs-keyword">break</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ch == <span class="hljs-string">'\\'</span>) {
+			advance(ctx);
+			ch = <span class="hljs-built_in">peek</span>(ctx);
+			<span class="hljs-keyword">if</span> (ch == <span class="hljs-string">'"'</span>) add(<span class="hljs-string">'"'</span>);
+			<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ch == <span class="hljs-string">'\\'</span>) add(<span class="hljs-string">'\\'</span>);
+			<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ch == <span class="hljs-string">'/'</span>) add(<span class="hljs-string">'/'</span>);
+			<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ch == <span class="hljs-string">'b'</span>) add(<span class="hljs-string">'\b'</span>);
+			<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ch == <span class="hljs-string">'f'</span>) add(<span class="hljs-string">'\f'</span>);
+			<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ch == <span class="hljs-string">'n'</span>) add(<span class="hljs-string">'\n'</span>);
+			<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ch == <span class="hljs-string">'r'</span>) add(<span class="hljs-string">'\r'</span>);
+			<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ch == <span class="hljs-string">'t'</span>) add(<span class="hljs-string">'\t'</span>);
+			<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ch == <span class="hljs-string">'u'</span>) {
+				<span class="hljs-comment">/* Parse hex */</span>
+				advance(ctx);
+				<span class="hljs-keyword">char</span> hex_digits[<span class="hljs-number">5</span>];
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">isxdigit</span>(<span class="hljs-built_in">peek</span>(ctx))) <span class="hljs-keyword">goto</span> string_error;
+				hex_digits[<span class="hljs-number">0</span>] = <span class="hljs-built_in">peek</span>(ctx); advance(ctx);
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">isxdigit</span>(<span class="hljs-built_in">peek</span>(ctx))) <span class="hljs-keyword">goto</span> string_error;
+				hex_digits[<span class="hljs-number">1</span>] = <span class="hljs-built_in">peek</span>(ctx); advance(ctx);
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">isxdigit</span>(<span class="hljs-built_in">peek</span>(ctx))) <span class="hljs-keyword">goto</span> string_error;
+				hex_digits[<span class="hljs-number">2</span>] = <span class="hljs-built_in">peek</span>(ctx); advance(ctx);
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">isxdigit</span>(<span class="hljs-built_in">peek</span>(ctx))) <span class="hljs-keyword">goto</span> string_error;
+				hex_digits[<span class="hljs-number">3</span>] = <span class="hljs-built_in">peek</span>(ctx); <span class="hljs-comment">/* will be advanced later */</span>
+				hex_digits[<span class="hljs-number">4</span>] = <span class="hljs-number">0</span>;
+
+				<span class="hljs-keyword">uint32_t</span> val = strtoul(hex_digits, <span class="hljs-literal">NULL</span>, <span class="hljs-number">16</span>);
+				<span class="hljs-keyword">if</span> (val &lt; <span class="hljs-number">0x0080</span>) {
+					add(val);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (val &lt; <span class="hljs-number">0x0800</span>) {
+					add(<span class="hljs-number">0xC0</span> | (val &gt;&gt; <span class="hljs-number">6</span>));
+					add(<span class="hljs-number">0x80</span> | (val &amp; <span class="hljs-number">0x3F</span>));
+				} <span class="hljs-keyword">else</span> {
+					add(<span class="hljs-number">0xE0</span> | (val &gt;&gt; <span class="hljs-number">12</span>));
+					add(<span class="hljs-number">0x80</span> | ((val &gt;&gt; <span class="hljs-number">6</span>) &amp; <span class="hljs-number">0x3F</span>));
+					add(<span class="hljs-number">0x80</span> | (val &amp; <span class="hljs-number">0x3F</span>));
+				}
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">goto</span> string_error;
+			}
+			advance(ctx);
+		} <span class="hljs-keyword">else</span> {
+			add(ch);
+			advance(ctx);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) != <span class="hljs-string">'"'</span>) {
+		ctx-&gt;error = <span class="hljs-string">"Unexpected EOF?"</span>;
+		<span class="hljs-keyword">goto</span> string_error;
+	}
+	advance(ctx);
+
+	Value * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(Value));
+	out-&gt;type = JSON_TYPE_STRING;
+	out-&gt;<span class="hljs-built_in">string</span> = strdup(tmp);
+	<span class="hljs-built_in">free</span>(tmp);
+
+	<span class="hljs-keyword">return</span> out;
+
+string_error:
+	<span class="hljs-built_in">free</span>(tmp);
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> Value * <span class="hljs-title">object</span><span class="hljs-params">(struct JSON_Context * ctx)</span> </span>{
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) != <span class="hljs-string">'{'</span>) {
+		ctx-&gt;error = <span class="hljs-string">"Expected { (internal error)"</span>;
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+	advance(ctx);
+
+	Value * out;
+	<span class="hljs-keyword">hashmap_t</span> * output = hashmap_create(<span class="hljs-number">10</span>);
+	output-&gt;hash_val_free = (<span class="hljs-keyword">void</span> (*)(<span class="hljs-keyword">void</span> *))json_free;
+	whitespace(ctx);
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">'}'</span>) {
+		advance(ctx);
+		<span class="hljs-keyword">goto</span> _object_done;
+	}
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		whitespace(ctx);
+
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">'}'</span> &amp;&amp; ctx-&gt;lenient) {
+			advance(ctx);
+			<span class="hljs-keyword">goto</span> _object_done;
+		}
+
+		Value * s = <span class="hljs-built_in">string</span>(ctx);
+
+		<span class="hljs-keyword">if</span> (!s) {
+			ctx-&gt;error = <span class="hljs-string">"Expected string"</span>;
+			<span class="hljs-keyword">break</span>;
+		}
+
+		whitespace(ctx);
+
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) != <span class="hljs-string">':'</span>) {
+			ctx-&gt;error = <span class="hljs-string">"Expected :"</span>;
+			<span class="hljs-keyword">break</span>;
+		}
+		advance(ctx);
+
+		Value * v = value(ctx);
+		<span class="hljs-keyword">if</span> (!v) <span class="hljs-keyword">break</span>;
+
+		hashmap_set(output, s-&gt;<span class="hljs-built_in">string</span>, v);
+		json_free(s);
+
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">'}'</span>) {
+			advance(ctx);
+			<span class="hljs-keyword">goto</span> _object_done;
+		}
+
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) != <span class="hljs-string">','</span>) {
+			ctx-&gt;error = <span class="hljs-string">"Expected , or {"</span>;
+			<span class="hljs-keyword">break</span>;
+		}
+
+		advance(ctx);
+	}
+
+	hashmap_free(output);
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+
+_object_done:
+	out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(Value));
+	out-&gt;type = JSON_TYPE_OBJECT;
+	out-&gt;object = output;
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> Value * <span class="hljs-title">boolean</span><span class="hljs-params">(struct JSON_Context * ctx)</span> </span>{
+	<span class="hljs-keyword">int</span> value = <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">'t'</span>) {
+		advance(ctx);
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) != <span class="hljs-string">'r'</span>) { ctx-&gt;error = <span class="hljs-string">"Invalid literal while parsing bool"</span>; <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>; }
+		advance(ctx);
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) != <span class="hljs-string">'u'</span>) { ctx-&gt;error = <span class="hljs-string">"Invalid literal while parsing bool"</span>; <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>; }
+		advance(ctx);
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) != <span class="hljs-string">'e'</span>) { ctx-&gt;error = <span class="hljs-string">"Invalid literal while parsing bool"</span>; <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>; }
+		advance(ctx);
+		value = <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">'f'</span>) {
+		advance(ctx);
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) != <span class="hljs-string">'a'</span>) { ctx-&gt;error = <span class="hljs-string">"Invalid literal while parsing bool"</span>; <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>; }
+		advance(ctx);
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) != <span class="hljs-string">'l'</span>) { ctx-&gt;error = <span class="hljs-string">"Invalid literal while parsing bool"</span>; <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>; }
+		advance(ctx);
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) != <span class="hljs-string">'s'</span>) { ctx-&gt;error = <span class="hljs-string">"Invalid literal while parsing bool"</span>; <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>; }
+		advance(ctx);
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) != <span class="hljs-string">'e'</span>) { ctx-&gt;error = <span class="hljs-string">"Invalid literal while parsing bool"</span>; <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>; }
+		advance(ctx);
+		value = <span class="hljs-number">0</span>;
+	} <span class="hljs-keyword">else</span> { ctx-&gt;error = <span class="hljs-string">"Invalid literal while parsing bool"</span>; <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>; }
+
+	Value * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(Value));
+	out-&gt;type = JSON_TYPE_BOOL;
+	out-&gt;<span class="hljs-keyword">boolean</span> = value;
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> Value * <span class="hljs-title">null</span><span class="hljs-params">(struct JSON_Context * ctx)</span> </span>{
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) != <span class="hljs-string">'n'</span>) { ctx-&gt;error = <span class="hljs-string">"Invalid literal while parsing null"</span>; <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>; }
+	advance(ctx);
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) != <span class="hljs-string">'u'</span>) { ctx-&gt;error = <span class="hljs-string">"Invalid literal while parsing null"</span>; <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>; }
+	advance(ctx);
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) != <span class="hljs-string">'l'</span>) { ctx-&gt;error = <span class="hljs-string">"Invalid literal while parsing null"</span>; <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>; }
+	advance(ctx);
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) != <span class="hljs-string">'l'</span>) { ctx-&gt;error = <span class="hljs-string">"Invalid literal while parsing null"</span>; <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>; }
+	advance(ctx);
+
+	Value * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(Value));
+	out-&gt;type = JSON_TYPE_NULL;
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> Value * <span class="hljs-title">number</span><span class="hljs-params">(struct JSON_Context * ctx)</span> </span>{
+
+	<span class="hljs-keyword">double</span> value = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> sign = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">'-'</span>) {
+		<span class="hljs-comment">/* Negative */</span>
+		sign = <span class="hljs-number">-1</span>;
+		advance(ctx);
+	}
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">'0'</span>) {
+		advance(ctx);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">isdigit</span>(<span class="hljs-built_in">peek</span>(ctx))) {
+		<span class="hljs-comment">/* Read any digit */</span>
+		value = <span class="hljs-built_in">peek</span>(ctx) - <span class="hljs-string">'0'</span>;
+		advance(ctx);
+		<span class="hljs-keyword">while</span> (<span class="hljs-built_in">isdigit</span>(<span class="hljs-built_in">peek</span>(ctx))) {
+			value *= <span class="hljs-number">10</span>;
+			value += <span class="hljs-built_in">peek</span>(ctx) - <span class="hljs-string">'0'</span>;
+			advance(ctx);
+		}
+	} <span class="hljs-keyword">else</span> {
+		ctx-&gt;error = <span class="hljs-string">"Expected digit"</span>;
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">'.'</span>) {
+		<span class="hljs-comment">/* Read fractional part */</span>
+		advance(ctx);
+
+		<span class="hljs-keyword">double</span> multiplier = <span class="hljs-number">0.1</span>;
+		<span class="hljs-comment">/* read at least one digit */</span>
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">isdigit</span>(<span class="hljs-built_in">peek</span>(ctx))) {
+			ctx-&gt;error = <span class="hljs-string">"Expected digit"</span>;
+			<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+		}
+		<span class="hljs-keyword">while</span> (<span class="hljs-built_in">isdigit</span>(<span class="hljs-built_in">peek</span>(ctx))) {
+			value += multiplier * (<span class="hljs-built_in">peek</span>(ctx) - <span class="hljs-string">'0'</span>);
+			multiplier *= <span class="hljs-number">0.1</span>;
+			advance(ctx);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">'e'</span> || <span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">'E'</span>) {
+		<span class="hljs-comment">/* Read exponent */</span>
+		<span class="hljs-keyword">int</span> exp_sign = <span class="hljs-number">1</span>;
+		advance(ctx);
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">'+'</span>) advance(ctx);
+		<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">'-'</span>) {
+			exp_sign = <span class="hljs-number">-1</span>;
+			advance(ctx);
+		}
+
+		<span class="hljs-comment">/* read digits */</span>
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">isdigit</span>(<span class="hljs-built_in">peek</span>(ctx))) {
+			ctx-&gt;error = <span class="hljs-string">"Expected digit"</span>;
+			<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+		}
+		<span class="hljs-keyword">double</span> <span class="hljs-built_in">exp</span> = <span class="hljs-built_in">peek</span>(ctx) - <span class="hljs-string">'0'</span>;
+		advance(ctx);
+		<span class="hljs-keyword">while</span> (<span class="hljs-built_in">isdigit</span>(<span class="hljs-built_in">peek</span>(ctx))) {
+			<span class="hljs-built_in">exp</span> *= <span class="hljs-number">10</span>;
+			<span class="hljs-built_in">exp</span> += <span class="hljs-built_in">peek</span>(ctx) - <span class="hljs-string">'0'</span>;
+			advance(ctx);
+		}
+
+		value = value * <span class="hljs-built_in">pow</span>(<span class="hljs-number">10.0</span>,<span class="hljs-built_in">exp</span> * exp_sign);
+	}
+
+	Value * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(Value));
+	out-&gt;type = JSON_TYPE_NUMBER;
+	out-&gt;number = value * sign;
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> Value * <span class="hljs-title">array</span><span class="hljs-params">(struct JSON_Context * ctx)</span> </span>{
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) != <span class="hljs-string">'['</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	advance(ctx);
+
+	whitespace(ctx);
+
+	<span class="hljs-keyword">list_t</span> * output = list_create();
+	Value * out;
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">']'</span>) {
+		advance(ctx);
+		<span class="hljs-keyword">goto</span> _array_done;
+	}
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		whitespace(ctx);
+
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">']'</span> &amp;&amp; ctx-&gt;lenient) {
+			advance(ctx);
+			<span class="hljs-keyword">goto</span> _array_done;
+		}
+
+		Value * next = value(ctx);
+
+		<span class="hljs-keyword">if</span> (!next) <span class="hljs-keyword">break</span>;
+
+		list_insert(output, next);
+
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">']'</span>) {
+			advance(ctx);
+			<span class="hljs-keyword">goto</span> _array_done;
+		}
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) != <span class="hljs-string">','</span>) {
+			ctx-&gt;error = <span class="hljs-string">"Expected ,"</span>;
+			<span class="hljs-keyword">break</span>;
+		}
+
+		advance(ctx);
+	}
+
+	<span class="hljs-comment">/* uh oh */</span>
+	foreach(node, output) {
+		json_free(node-&gt;value);
+	}
+	list_free(output);
+	<span class="hljs-built_in">free</span>(output);
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+
+_array_done:
+	out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(Value));
+	out-&gt;type = JSON_TYPE_ARRAY;
+	out-&gt;<span class="hljs-built_in">array</span> = output;
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> WHITE(c) { \
+	Value * out = c; \
+	whitespace(ctx); \
+	return out; \
+}</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> Value * <span class="hljs-title">value</span><span class="hljs-params">(struct JSON_Context * ctx)</span> </span>{
+	whitespace(ctx);
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">'"'</span>) WHITE(<span class="hljs-built_in">string</span>(ctx))
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">'{'</span>) WHITE(object(ctx))
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">'['</span>) WHITE(<span class="hljs-built_in">array</span>(ctx))
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">'-'</span> || <span class="hljs-built_in">isdigit</span>(<span class="hljs-built_in">peek</span>(ctx))) WHITE(number(ctx))
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">'t'</span>) WHITE(<span class="hljs-keyword">boolean</span>(ctx))
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">'f'</span>) WHITE(<span class="hljs-keyword">boolean</span>(ctx))
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">peek</span>(ctx) == <span class="hljs-string">'n'</span>) WHITE(null(ctx))
+	ctx-&gt;error = <span class="hljs-string">"Expected a value"</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function">Value * <span class="hljs-title">json_parse_flags</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * str, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">JSON_Context</span> <span class="hljs-title">ctx</span> = {</span>str, <span class="hljs-number">0</span>, <span class="hljs-literal">NULL</span>, !!(flags &amp; TOARU_JSON_LENIENT), <span class="hljs-number">0</span>, <span class="hljs-number">0</span>};
+	json_lib_error = <span class="hljs-literal">NULL</span>; <span class="hljs-comment">/* No error yet */</span>
+	Value * out = value(&amp;ctx);
+	<span class="hljs-keyword">if</span> (!out) {
+		json_lib_error = ctx.error; <span class="hljs-comment">/* Pointer to static string, so this is fine. */</span>
+
+		<span class="hljs-keyword">if</span> (flags &amp; TOARU_JSON_PRINT_PARSE_ERRORS) {
+			<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * <span class="hljs-built_in">line</span> = &amp;ctx.<span class="hljs-built_in">string</span>[ctx.last_line_start];
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"JSON parse error: %s\n"</span>, ctx.error);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"At offset %d (line %d, col %d) '%c':\n"</span>,
+				ctx.c,
+				ctx.<span class="hljs-built_in">line</span> + <span class="hljs-number">1</span>,
+				ctx.c - ctx.last_line_start,
+				ctx.<span class="hljs-built_in">string</span>[ctx.c]);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"    %.*s\n"</span>, (<span class="hljs-keyword">int</span>)(strchrnul(<span class="hljs-built_in">line</span>, <span class="hljs-string">'\n'</span>) - <span class="hljs-built_in">line</span>), <span class="hljs-built_in">line</span>);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"    "</span>);
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; ctx.c - ctx.last_line_start; ++i) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, (<span class="hljs-built_in">line</span>[i] == <span class="hljs-string">'\t'</span>) ? <span class="hljs-string">"\t"</span> : <span class="hljs-string">" "</span>);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"^\n"</span>);
+		}
+	}
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function">Value * <span class="hljs-title">json_parse</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * str)</span> </span>{
+	<span class="hljs-keyword">return</span> json_parse_flags(str, <span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function">Value * <span class="hljs-title">json_parse_file_flags</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * filename, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	FILE * f = fopen(filename, <span class="hljs-string">"r"</span>);
+
+	<span class="hljs-keyword">if</span> (!f) {
+		json_lib_error = strerror(errno);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">sb</span>;</span>
+	fstat(fileno(f), &amp;sb);
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = sb.st_size;
+
+	<span class="hljs-keyword">char</span> * tmp = <span class="hljs-built_in">malloc</span>(<span class="hljs-built_in">size</span> + <span class="hljs-number">1</span>);
+	fread(tmp, <span class="hljs-built_in">size</span>, <span class="hljs-number">1</span>, f);
+	tmp[<span class="hljs-built_in">size</span>] = <span class="hljs-number">0</span>;
+
+	fclose(f);
+
+	Value * out = json_parse_flags(tmp, flags);
+	<span class="hljs-built_in">free</span>(tmp);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function">Value * <span class="hljs-title">json_parse_file</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * filename)</span> </span>{
+	<span class="hljs-keyword">return</span> json_parse_file_flags(filename, <span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">json_serialize</span><span class="hljs-params">(FILE * f, Value * thing, <span class="hljs-keyword">int</span> indent)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">json_serialize_string</span><span class="hljs-params">(FILE * f, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * str)</span> </span>{
+	fputc(<span class="hljs-string">'"'</span>, f);
+
+	<span class="hljs-keyword">while</span> (*str) {
+		<span class="hljs-keyword">switch</span> (*str) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<p>case '/': /* This is valid in the other direction, but serves little purpose, so we don't do it. */</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			<span class="hljs-keyword">case</span> <span class="hljs-string">'"'</span>:
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\\'</span>:
+				fputc(<span class="hljs-string">'\\'</span>, f);
+				fputc(*str, f);
+				<span class="hljs-keyword">break</span>;
+
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\r'</span>: <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"\\r"</span>); <span class="hljs-keyword">break</span>; 
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\n'</span>: <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"\\n"</span>); <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\b'</span>: <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"\\b"</span>); <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\f'</span>: <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"\\f"</span>); <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\t'</span>: <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"\\t"</span>); <span class="hljs-keyword">break</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>TODO unicode as \u sequences, but whatever, json
+can happily accept utf-8</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+			<span class="hljs-keyword">default</span>:
+				fputc(*str, f);
+				<span class="hljs-keyword">break</span>;
+		}
+		str++;
+	}
+
+	fputc(<span class="hljs-string">'"'</span>, f);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">json_serialize_array</span><span class="hljs-params">(FILE * f, <span class="hljs-keyword">list_t</span> * arr, <span class="hljs-keyword">int</span> indent)</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"["</span>);
+	<span class="hljs-keyword">size_t</span> c = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (arr-&gt;length &lt; <span class="hljs-number">2</span>) {
+		foreach(node, arr) {
+			<span class="hljs-keyword">int</span> ret = json_serialize(f, node-&gt;value, indent);
+			<span class="hljs-keyword">if</span> (ret) <span class="hljs-keyword">return</span> ret;
+			<span class="hljs-keyword">if</span> (c + <span class="hljs-number">1</span> &lt; arr-&gt;length) <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">", "</span>);
+			c++;
+		}
+
+		<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"]"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"\n"</span>);
+	foreach(node, arr) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; indent + <span class="hljs-number">1</span>; ++i) <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"  "</span>);
+		<span class="hljs-keyword">int</span> ret = json_serialize(f, node-&gt;value, indent + <span class="hljs-number">1</span>);
+		<span class="hljs-keyword">if</span> (ret) <span class="hljs-keyword">return</span> ret;
+		<span class="hljs-keyword">if</span> (c + <span class="hljs-number">1</span> &lt; arr-&gt;length) <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">",\n"</span>);
+		c++;
+	}
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; indent; ++i) <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"  "</span>);
+	<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"]"</span>);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">json_serialize_object</span><span class="hljs-params">(FILE * f, <span class="hljs-keyword">hashmap_t</span> * obj, <span class="hljs-keyword">int</span> indent)</span> </span>{
+	<span class="hljs-keyword">int</span> ret = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> printed = <span class="hljs-number">0</span>;
+	<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"{\n"</span>);
+
+	<span class="hljs-keyword">list_t</span> * keys = hashmap_keys(obj);
+	foreach (node, keys) {
+		<span class="hljs-keyword">if</span> (printed) <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">",\n"</span>);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; indent + <span class="hljs-number">1</span>; ++i) <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"  "</span>);
+		ret = json_serialize_string(f, (<span class="hljs-keyword">char</span>*)node-&gt;value);
+		<span class="hljs-keyword">if</span> (ret) <span class="hljs-keyword">goto</span> _bail;
+		<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">": "</span>);
+
+		Value * val = hashmap_get(obj, node-&gt;value);
+		ret = json_serialize(f, val, indent + <span class="hljs-number">1</span>);
+		printed = <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (printed) <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"\n"</span>);
+
+	list_free(keys);
+	<span class="hljs-built_in">free</span>(keys);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; indent; ++i) <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"  "</span>);
+	<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"}"</span>);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+_bail:
+	list_free(keys);
+	<span class="hljs-built_in">free</span>(keys);
+	<span class="hljs-keyword">return</span> ret;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">json_serialize</span><span class="hljs-params">(FILE * f, Value * thing, <span class="hljs-keyword">int</span> indent)</span> </span>{
+	<span class="hljs-keyword">switch</span> (thing-&gt;type) {
+		<span class="hljs-keyword">case</span> JSON_TYPE_NUMBER:
+			<span class="hljs-comment">/* Hope your double printing is good enough */</span>
+			<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"%f"</span>, thing-&gt;number);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+		<span class="hljs-keyword">case</span> JSON_TYPE_STRING:
+			<span class="hljs-keyword">return</span> json_serialize_string(f, thing-&gt;<span class="hljs-built_in">string</span>);
+
+		<span class="hljs-keyword">case</span> JSON_TYPE_BOOL:
+			<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"%s"</span>, thing-&gt;<span class="hljs-keyword">boolean</span> ? <span class="hljs-string">"true"</span> : <span class="hljs-string">"false"</span>);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+		<span class="hljs-keyword">case</span> JSON_TYPE_NULL:
+			<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"null"</span>);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+		<span class="hljs-keyword">case</span> JSON_TYPE_ARRAY:
+			<span class="hljs-keyword">return</span> json_serialize_array(f, thing-&gt;<span class="hljs-built_in">array</span>, indent);
+
+		<span class="hljs-keyword">case</span> JSON_TYPE_OBJECT:
+			<span class="hljs-keyword">return</span> json_serialize_object(f, thing-&gt;object, indent);
+
+		<span class="hljs-keyword">default</span>:
+			json_lib_error = <span class="hljs-string">"what"</span>;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">json_write_file</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * filename, Value * thing)</span> </span>{
+	FILE * f = fopen(filename, <span class="hljs-string">"w"</span>);
+	<span class="hljs-keyword">if</span> (!f) {
+		json_lib_error = strerror(errno);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">int</span> ret = json_serialize(f, thing, <span class="hljs-number">0</span>);
+
+	fputc(<span class="hljs-string">'\n'</span>, f);
+
+	fclose(f);
+	<span class="hljs-keyword">return</span> ret;
+}
+
+<span class="hljs-comment">/* For external use */</span>
+<span class="hljs-function">Value * <span class="hljs-title">json_create_number</span><span class="hljs-params">(<span class="hljs-keyword">double</span> val)</span> </span>{
+	Value * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(Value));
+	out-&gt;type = JSON_TYPE_NUMBER;
+	out-&gt;number = val;
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function">Value * <span class="hljs-title">json_create_string</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * orig)</span> </span>{
+	Value * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(Value));
+	out-&gt;type = JSON_TYPE_STRING;
+	out-&gt;<span class="hljs-built_in">string</span> = strdup(orig);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function">Value * <span class="hljs-title">json_take_string</span><span class="hljs-params">(<span class="hljs-keyword">char</span> *str)</span> </span>{
+	Value * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(Value));
+	out-&gt;type = JSON_TYPE_STRING;
+	out-&gt;<span class="hljs-built_in">string</span> = str;
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function">Value * <span class="hljs-title">json_create_bool</span><span class="hljs-params">(<span class="hljs-keyword">int</span> val)</span> </span>{
+	Value * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(Value));
+	out-&gt;type = JSON_TYPE_BOOL;
+	out-&gt;<span class="hljs-keyword">boolean</span> = val;
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function">Value * <span class="hljs-title">json_create_null</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	Value * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(Value));
+	out-&gt;type = JSON_TYPE_NULL;
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function">Value * <span class="hljs-title">json_create_empty_object</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	Value * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(Value));
+	out-&gt;type = JSON_TYPE_OBJECT;
+	out-&gt;object = hashmap_create(<span class="hljs-number">10</span>);
+	out-&gt;object-&gt;hash_val_free = (<span class="hljs-keyword">void</span> (*)(<span class="hljs-keyword">void</span> *))json_free;
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-comment">/* Casting convenience */</span>
+<span class="hljs-function">Value * <span class="hljs-title">json_object_get</span><span class="hljs-params">(Value * obj, <span class="hljs-keyword">char</span> * key)</span> </span>{
+	<span class="hljs-keyword">return</span> hashmap_get(obj-&gt;object, key);
+}
+
+<span class="hljs-function">Value * <span class="hljs-title">json_object_set</span><span class="hljs-params">(Value * obj, <span class="hljs-keyword">char</span> * key, Value * value)</span> </span>{
+	hashmap_set(obj-&gt;object, key, value);
+	<span class="hljs-keyword">return</span> value;
+}
+
+<span class="hljs-function">Value * <span class="hljs-title">json_create_empty_array</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	Value * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(Value));
+	out-&gt;type = JSON_TYPE_ARRAY;
+	out-&gt;<span class="hljs-built_in">array</span> = list_create();
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function">Value * <span class="hljs-title">json_array_append</span><span class="hljs-params">(Value * <span class="hljs-built_in">array</span>, Value * val)</span> </span>{
+	list_insert(<span class="hljs-built_in">array</span>-&gt;<span class="hljs-built_in">array</span>, val);
+	<span class="hljs-keyword">return</span> val;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

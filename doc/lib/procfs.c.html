@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>procfs.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "lib\\procfs.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>procfs.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;dirent.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/procfs.h&gt;</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">read_file</span><span class="hljs-params">(<span class="hljs-keyword">char</span> **<span class="hljs-keyword">restrict</span> data, FILE *<span class="hljs-keyword">restrict</span> f)</span> </span>{
+	<span class="hljs-keyword">size_t</span> c = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> n = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">int</span> i = fgetc(f);
+		<span class="hljs-keyword">if</span> (n &lt;= c + <span class="hljs-number">1</span>) {
+			<span class="hljs-keyword">size_t</span> nn = n &lt; <span class="hljs-number">20</span> ? <span class="hljs-number">20</span> : (n * <span class="hljs-number">2</span>);
+			<span class="hljs-keyword">if</span> (nn &gt; LONG_MAX) nn = LONG_MAX;
+			<span class="hljs-keyword">if</span> (nn &lt;= c + <span class="hljs-number">1</span>) {
+				<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+			}
+			<span class="hljs-keyword">char</span> * ndata = <span class="hljs-built_in">realloc</span>(*data, nn);
+			n = nn;
+			*data = ndata;
+		}
+
+		<span class="hljs-keyword">if</span> (i == EOF) {
+			(*data)[c] = <span class="hljs-string">'\0'</span>;
+			<span class="hljs-keyword">return</span> c;
+		}
+
+		(*data)[c++] = i;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">p_t</span> * <span class="hljs-title">build_entry</span><span class="hljs-params">(struct dirent * dent, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">char</span> *fname;
+	FILE * f;
+	<span class="hljs-keyword">char</span> *<span class="hljs-built_in">line</span> = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">size_t</span> avail = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">ssize_t</span> len = <span class="hljs-number">0</span>;
+
+	asprintf(&amp;fname, <span class="hljs-string">"/proc/%s/status"</span>, dent-&gt;d_name);
+	f = fopen(fname, <span class="hljs-string">"r"</span>);
+	<span class="hljs-built_in">free</span>(fname);
+
+	<span class="hljs-keyword">if</span> (!f) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">p_t</span> * proc = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">p_t</span>));
+
+	<span class="hljs-keyword">while</span> ((len = getline(&amp;<span class="hljs-built_in">line</span>, &amp;avail, f)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">if</span> (len &amp;&amp; <span class="hljs-built_in">line</span>[len<span class="hljs-number">-1</span>] == <span class="hljs-string">'\n'</span>) <span class="hljs-built_in">line</span>[len<span class="hljs-number">-1</span>] = <span class="hljs-string">'\0'</span>;
+		<span class="hljs-keyword">char</span> * tab = <span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>,<span class="hljs-string">"\t"</span>);
+		<span class="hljs-keyword">if</span> (tab) {
+			*tab = <span class="hljs-string">'\0'</span>;
+			tab++;
+		}
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">"Pid:"</span>) == <span class="hljs-built_in">line</span>) {
+			proc-&gt;pid = atoi(tab);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">"PPid:"</span>) == <span class="hljs-built_in">line</span>) {
+			proc-&gt;ppid = atoi(tab);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">"Tgid:"</span>) == <span class="hljs-built_in">line</span>) {
+			proc-&gt;tgid = atoi(tab);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">"Pgid:"</span>) == <span class="hljs-built_in">line</span>) {
+			proc-&gt;pgid = atoi(tab);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">"Name:"</span>) == <span class="hljs-built_in">line</span>) {
+			proc-&gt;name = strdup(tab);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">"Path:"</span>) == <span class="hljs-built_in">line</span>) {
+			proc-&gt;path = strdup(tab);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">"Uid:"</span>) == <span class="hljs-built_in">line</span>) {
+			proc-&gt;uid = atoi(tab);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">"VmSize:"</span>) == <span class="hljs-built_in">line</span>) {
+			proc-&gt;vsz = atoi(tab);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">"RssShmem:"</span>) == <span class="hljs-built_in">line</span>) {
+			proc-&gt;shm = atoi(tab);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">"MemPermille:"</span>) == <span class="hljs-built_in">line</span>) {
+			proc-&gt;mem = atoi(tab);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">"CpuPermille:"</span>) == <span class="hljs-built_in">line</span>) {
+			proc-&gt;cpu[<span class="hljs-number">0</span>] = strtoul(tab, &amp;tab, <span class="hljs-number">10</span>);
+			proc-&gt;cpu[<span class="hljs-number">1</span>] = strtoul(tab, &amp;tab, <span class="hljs-number">10</span>);
+			proc-&gt;cpu[<span class="hljs-number">2</span>] = strtoul(tab, &amp;tab, <span class="hljs-number">10</span>);
+			proc-&gt;cpu[<span class="hljs-number">3</span>] = strtoul(tab, &amp;tab, <span class="hljs-number">10</span>);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">"TotalTime:"</span>) == <span class="hljs-built_in">line</span>) {
+			proc-&gt;time = strtoul(tab,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">"State:"</span>) == <span class="hljs-built_in">line</span>) {
+			proc-&gt;state = strdup(tab);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">"Tty:"</span>) == <span class="hljs-built_in">line</span>) {
+			proc-&gt;tty = strdup(tab);
+		}
+	}
+
+	fclose(f);
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">line</span>) <span class="hljs-built_in">free</span>(<span class="hljs-built_in">line</span>);
+
+	<span class="hljs-keyword">if</span> (!proc-&gt;name) proc-&gt;name = strdup(<span class="hljs-string">""</span>);
+	<span class="hljs-keyword">if</span> (!proc-&gt;path) proc-&gt;path = strdup(<span class="hljs-string">""</span>);
+	<span class="hljs-keyword">if</span> (!proc-&gt;state) proc-&gt;state = strdup(<span class="hljs-string">""</span>);
+	<span class="hljs-keyword">if</span> (!proc-&gt;tty) proc-&gt;tty = strdup(<span class="hljs-string">""</span>);
+
+	<span class="hljs-keyword">if</span> (proc-&gt;tgid != proc-&gt;pid &amp;&amp; !(flags &amp; PROCFSLIB_NO_CURLY_THREADS)) {
+		<span class="hljs-keyword">char</span> * tmp;
+		asprintf(&amp;tmp, <span class="hljs-string">"{%s}"</span>, proc-&gt;name);
+		<span class="hljs-built_in">free</span>(proc-&gt;name);
+		proc-&gt;name = tmp;
+	}
+
+	<span class="hljs-keyword">if</span> (flags &amp; PROCFSLIB_COLLECT_COMMANDLINE) {
+		<span class="hljs-keyword">char</span> * tmp;
+		asprintf(&amp;tmp, <span class="hljs-string">"/proc/%s/cmdline"</span>, dent-&gt;d_name);
+		f = fopen(tmp, <span class="hljs-string">"r"</span>);
+		<span class="hljs-built_in">free</span>(tmp);
+
+		<span class="hljs-keyword">if</span> (f) {
+			<span class="hljs-keyword">char</span> * data = <span class="hljs-literal">NULL</span>;
+			<span class="hljs-keyword">ssize_t</span> len = read_file(&amp;data, f);
+			<span class="hljs-keyword">if</span> (len &gt;= <span class="hljs-number">0</span>) {
+				proc-&gt;cmdline = data;
+				proc-&gt;cmdline_len = len;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (data) {
+				<span class="hljs-built_in">free</span>(data);
+			}
+			fclose(f);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (flags &amp; PROCFSLIB_COLLECT_STARTTIME) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">st</span>;</span>
+		<span class="hljs-keyword">char</span> * tmp;
+		asprintf(&amp;tmp, <span class="hljs-string">"/proc/%s"</span>, dent-&gt;d_name);
+		<span class="hljs-keyword">if</span> (stat(tmp, &amp;st) == <span class="hljs-number">0</span>) {
+			proc-&gt;starttime = st.st_ctime;
+		}
+		<span class="hljs-built_in">free</span>(tmp);
+	}
+
+	<span class="hljs-keyword">return</span> proc;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">procfs_free</span><span class="hljs-params">(struct <span class="hljs-built_in">process</span> * proc)</span> </span>{
+	<span class="hljs-built_in">free</span>(proc-&gt;name);
+	<span class="hljs-built_in">free</span>(proc-&gt;path);
+	<span class="hljs-built_in">free</span>(proc-&gt;state);
+	<span class="hljs-built_in">free</span>(proc-&gt;tty);
+	<span class="hljs-keyword">if</span> (proc-&gt;cmdline) <span class="hljs-built_in">free</span>(proc-&gt;cmdline);
+	<span class="hljs-built_in">free</span>(proc);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">procfs_iterate</span><span class="hljs-params">(<span class="hljs-keyword">int</span> (*callback)(struct <span class="hljs-built_in">process</span> *,<span class="hljs-keyword">void</span>*), <span class="hljs-keyword">void</span> *ctx, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">int</span> ret = <span class="hljs-number">0</span>;
+	DIR * dirp = opendir(<span class="hljs-string">"/proc"</span>);
+
+	<span class="hljs-keyword">for</span> (struct dirent * ent = readdir(dirp); ent; ent = readdir(dirp)) {
+		<span class="hljs-keyword">if</span> (ent-&gt;d_name[<span class="hljs-number">0</span>] &gt;= <span class="hljs-string">'0'</span> &amp;&amp; ent-&gt;d_name[<span class="hljs-number">0</span>] &lt;= <span class="hljs-string">'9'</span>) {
+			<span class="hljs-keyword">p_t</span> * proc = build_entry(ent, flags);
+			<span class="hljs-keyword">if</span> (!proc) <span class="hljs-keyword">continue</span>;
+			<span class="hljs-keyword">if</span> ((flags &amp; PROCFSLIB_NO_THREADS) &amp;&amp; proc-&gt;pid != proc-&gt;tgid) {
+				procfs_free(proc);
+				<span class="hljs-keyword">continue</span>;
+			}
+			<span class="hljs-keyword">if</span> (callback(proc,ctx)) ret = <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">if</span> (!(flags &amp; PROCFSLIB_NO_FREE)) procfs_free(proc);
+		}
+		<span class="hljs-keyword">if</span> (ret) <span class="hljs-keyword">break</span>;
+	}
+	closedir(dirp);
+	<span class="hljs-keyword">return</span> ret;
+}
+
+<span class="hljs-function">struct <span class="hljs-built_in">process</span> * <span class="hljs-title">procfs_get_pid</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent</span> <span class="hljs-title">dent</span>;</span>
+	<span class="hljs-built_in">snprintf</span>(dent.d_name, <span class="hljs-keyword">sizeof</span>(dent.d_name), <span class="hljs-string">"%d"</span>, pid);
+	<span class="hljs-keyword">return</span> build_entry(&amp;dent, flags);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

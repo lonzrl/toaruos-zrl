@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>polygons.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\polygons.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>polygons.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/fswait.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/yutani.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/text.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/decorations.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> min(a,b) ((a) &lt; (b) ? (a) : (b))</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_t</span> * yctx;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_window_t</span> * wina;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">gfx_context_t</span> * _ctx;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">gfx_context_t</span> * ctx = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> should_exit = <span class="hljs-number">0</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Contour</span> * <span class="hljs-title">shape</span> = <span class="hljs-title">NULL</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Shape</span> * <span class="hljs-title">finalizedShape</span> = <span class="hljs-title">NULL</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> last_x, last_y;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> myColor = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> is_degenerate = <span class="hljs-number">1</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">draw</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	draw_fill(ctx, rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>));
+
+	<span class="hljs-keyword">if</span> (shape) {
+		<span class="hljs-keyword">if</span> (is_degenerate == <span class="hljs-number">2</span>) {
+			<span class="hljs-keyword">float</span> x1, y1, x2, y2;
+			<span class="hljs-keyword">if</span> (tt_contour_get_edge(shape, <span class="hljs-number">-1</span>, &amp;x1, &amp;y1, &amp;x2, &amp;y2) &gt;= <span class="hljs-number">0</span>) {
+				draw_line(ctx, x1, x2, y1, y2, rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+			}
+		}
+		<span class="hljs-keyword">if</span> (finalizedShape) {
+			<span class="hljs-comment">/* Oh boy */</span>
+			tt_path_paint(ctx, finalizedShape, myColor);
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">finish_draw</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	flip(_ctx);
+	yutani_flip(yctx, wina);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">redraw_borders</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	render_decorations(wina, _ctx, <span class="hljs-string">"polygons"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">reinit_subcontext</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (ctx) <span class="hljs-built_in">free</span>(ctx);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(wina, &amp;bounds);
+
+	ctx = init_graphics_subregion(_ctx, bounds.left_width, bounds.top_height, wina-&gt;<span class="hljs-built_in">width</span> - bounds.<span class="hljs-built_in">width</span>, wina-&gt;<span class="hljs-built_in">height</span> - bounds.<span class="hljs-built_in">height</span>);
+	redraw_borders();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">resize_finish</span><span class="hljs-params">(<span class="hljs-keyword">int</span> w, <span class="hljs-keyword">int</span> h)</span> </span>{
+	yutani_window_resize_accept(yctx, wina, w, h);
+	reinit_graphics_yutani(_ctx, wina);
+	reinit_subcontext();
+	draw();
+	finish_draw();
+	yutani_window_resize_done(yctx, wina);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span> <span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> ** argv)</span> </span>{
+	yctx = yutani_init();
+	<span class="hljs-keyword">if</span> (!yctx) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: failed to connect to compositor\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	init_decorations();
+
+	wina = yutani_window_create(yctx, <span class="hljs-number">500</span>, <span class="hljs-number">500</span>);
+	yutani_window_move(yctx, wina, <span class="hljs-number">100</span>, <span class="hljs-number">100</span>);
+	yutani_window_advertise_icon(yctx, wina, <span class="hljs-string">"polygons"</span>, <span class="hljs-string">"polygons"</span>);
+
+	_ctx = init_graphics_yutani_double_buffer(wina);
+	reinit_subcontext();
+	draw();
+	finish_draw();
+
+	<span class="hljs-keyword">while</span> (!should_exit) {
+		<span class="hljs-keyword">int</span> fds[<span class="hljs-number">1</span>] = {fileno(yctx-&gt;sock)};
+		<span class="hljs-keyword">int</span> index = fswait2(<span class="hljs-number">1</span>,fds,<span class="hljs-number">20</span>);
+		<span class="hljs-keyword">if</span> (index == <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">yutani_msg_t</span> * m = yutani_poll(yctx);
+			<span class="hljs-keyword">while</span> (m) {
+				<span class="hljs-keyword">switch</span> (decor_handle_event_flags(yctx, m, DECOR_HANDLE_SIMPLE)) {
+					<span class="hljs-keyword">case</span> DECOR_CLOSE:
+						should_exit = <span class="hljs-number">1</span>;
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> DECOR_REDRAW:
+						redraw_borders();
+						finish_draw();
+						<span class="hljs-keyword">break</span>;
+				}
+				<span class="hljs-keyword">switch</span> (m-&gt;type) {
+					<span class="hljs-keyword">case</span> YUTANI_MSG_KEY_EVENT:
+						{
+							<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_key_event</span> * <span class="hljs-title">ke</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+							<span class="hljs-keyword">if</span> (ke-&gt;wid == wina-&gt;wid) {
+								<span class="hljs-keyword">if</span> (ke-&gt;event.action == KEY_ACTION_DOWN &amp;&amp; ke-&gt;event.keycode == <span class="hljs-string">'q'</span>) {
+									should_exit = <span class="hljs-number">1</span>;
+								}
+							}
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_MOUSE_EVENT:
+						{
+							<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_mouse_event</span> * <span class="hljs-title">me</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+							<span class="hljs-keyword">if</span> (me-&gt;wid == wina-&gt;wid) {
+								<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+								decor_get_bounds(wina, &amp;bounds);
+								<span class="hljs-keyword">float</span> x = (<span class="hljs-keyword">float</span>)me-&gt;new_x - bounds.left_width;
+								<span class="hljs-keyword">float</span> y = (<span class="hljs-keyword">float</span>)me-&gt;new_y - bounds.top_height;
+								<span class="hljs-keyword">if</span> (x &lt; <span class="hljs-number">0.0</span> || y &lt; <span class="hljs-number">0.0</span> || x &gt;= wina-&gt;<span class="hljs-built_in">width</span> - bounds.<span class="hljs-built_in">width</span> || y &gt;= wina-&gt;<span class="hljs-built_in">height</span> - bounds.<span class="hljs-built_in">height</span>) <span class="hljs-keyword">break</span>;
+								<span class="hljs-keyword">if</span> (me-&gt;command == YUTANI_MOUSE_EVENT_DOWN &amp;&amp; me-&gt;buttons &amp; YUTANI_MOUSE_BUTTON_LEFT) {
+									<span class="hljs-keyword">if</span> (!shape) {
+										shape = tt_contour_start(x, y);
+										is_degenerate = <span class="hljs-number">1</span>;
+									} <span class="hljs-keyword">else</span> {
+										shape = tt_contour_line_to(shape, x, y);
+										<span class="hljs-keyword">if</span> (is_degenerate == <span class="hljs-number">1</span>) is_degenerate = <span class="hljs-number">2</span>;
+										<span class="hljs-keyword">else</span> is_degenerate = <span class="hljs-number">0</span>;
+									}
+									last_x = x;
+									last_y = y;
+									<span class="hljs-keyword">if</span> (finalizedShape) <span class="hljs-built_in">free</span>(finalizedShape);
+									finalizedShape = tt_contour_finish(shape);
+									myColor = rgb(rand() % <span class="hljs-number">255</span>,rand() % <span class="hljs-number">255</span>,rand() % <span class="hljs-number">255</span>);
+									draw();
+									finish_draw();
+								} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (me-&gt;buttons &amp; YUTANI_MOUSE_BUTTON_RIGHT) {
+									<span class="hljs-keyword">if</span> (!shape) <span class="hljs-keyword">break</span>;
+									shape = tt_contour_move_to(shape, x, y);
+									is_degenerate = <span class="hljs-number">1</span>;
+									last_x = x;
+									last_y = y;
+									myColor = rgb(rand() % <span class="hljs-number">255</span>,rand() % <span class="hljs-number">255</span>,rand() % <span class="hljs-number">255</span>);
+									draw();
+									finish_draw();
+								} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (shape) {
+									<span class="hljs-keyword">int</span> inside  = finalizedShape ? tt_path_contains(finalizedShape, x, y) : <span class="hljs-number">0</span>;
+									draw();
+									draw_line(ctx,
+										last_x,
+										x,
+										last_y,
+										y,
+										inside ? rgb(<span class="hljs-number">200</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>) : rgb(<span class="hljs-number">0</span>,<span class="hljs-number">200</span>,<span class="hljs-number">0</span>));
+									finish_draw();
+								}
+							}
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> YUTANI_MSG_RESIZE_OFFER:
+						{
+							<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_resize</span> * <span class="hljs-title">wr</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+							<span class="hljs-keyword">if</span> (wr-&gt;wid == wina-&gt;wid) {
+								resize_finish(wr-&gt;<span class="hljs-built_in">width</span>, wr-&gt;<span class="hljs-built_in">height</span>);
+							}
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_CLOSE:
+					<span class="hljs-keyword">case</span> YUTANI_MSG_SESSION_END:
+						should_exit = <span class="hljs-number">1</span>;
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">default</span>:
+						<span class="hljs-keyword">break</span>;
+				}
+				<span class="hljs-built_in">free</span>(m);
+				m = yutani_poll_async(yctx);
+			}
+		}
+	}
+
+	yutani_close(yctx, wina);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

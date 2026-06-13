@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>value.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\src\\value.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>value.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;limits.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/memory.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/value.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/object.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"opcode_enum.h"</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_initValueArray</span><span class="hljs-params">(KrkValueArray * <span class="hljs-built_in">array</span>)</span> </span>{
+	<span class="hljs-built_in">array</span>-&gt;values = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-built_in">array</span>-&gt;capacity = <span class="hljs-number">0</span>;
+	<span class="hljs-built_in">array</span>-&gt;count = <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_writeValueArray</span><span class="hljs-params">(KrkValueArray * <span class="hljs-built_in">array</span>, KrkValue value)</span> </span>{
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">array</span>-&gt;capacity &lt; <span class="hljs-built_in">array</span>-&gt;count + <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">int</span> old = <span class="hljs-built_in">array</span>-&gt;capacity;
+		<span class="hljs-built_in">array</span>-&gt;capacity = KRK_GROW_CAPACITY(old);
+		<span class="hljs-built_in">array</span>-&gt;values = KRK_GROW_ARRAY(KrkValue, <span class="hljs-built_in">array</span>-&gt;values, old, <span class="hljs-built_in">array</span>-&gt;capacity);
+	}
+
+	<span class="hljs-built_in">array</span>-&gt;values[<span class="hljs-built_in">array</span>-&gt;count] = value;
+	<span class="hljs-built_in">array</span>-&gt;count++;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_freeValueArray</span><span class="hljs-params">(KrkValueArray * <span class="hljs-built_in">array</span>)</span> </span>{
+	KRK_FREE_ARRAY(KrkValue, <span class="hljs-built_in">array</span>-&gt;values, <span class="hljs-built_in">array</span>-&gt;capacity);
+	krk_initValueArray(<span class="hljs-built_in">array</span>);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">int</span> _krk_method_equivalence(KrkValue a, KrkValue b) {
+	KrkClass * type = krk_getType(a);
+	<span class="hljs-keyword">if</span> (likely(type &amp;&amp; type-&gt;_eq)) {
+		krk_push(a);
+		krk_push(b);
+		KrkValue result = krk_callDirect(type-&gt;_eq,<span class="hljs-number">2</span>);
+		<span class="hljs-keyword">if</span> (unlikely(krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION)) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (IS_BOOLEAN(result)) <span class="hljs-keyword">return</span> AS_BOOLEAN(result);
+		<span class="hljs-keyword">if</span> (!IS_NOTIMPL(result)) <span class="hljs-keyword">return</span> !krk_isFalsey(result);
+	}
+
+	type = krk_getType(b);
+	<span class="hljs-keyword">if</span> (type &amp;&amp; type-&gt;_eq) {
+		krk_push(b);
+		krk_push(a);
+		KrkValue result = krk_callDirect(type-&gt;_eq,<span class="hljs-number">2</span>);
+		<span class="hljs-keyword">if</span> (unlikely(krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION)) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (IS_BOOLEAN(result)) <span class="hljs-keyword">return</span> AS_BOOLEAN(result);
+		<span class="hljs-keyword">if</span> (!IS_NOTIMPL(result)) <span class="hljs-keyword">return</span> !krk_isFalsey(result);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">int</span> _krk_same_type_equivalence(<span class="hljs-keyword">uint16_t</span> valtype, KrkValue a, KrkValue b) {
+	<span class="hljs-keyword">switch</span> (valtype) {
+		<span class="hljs-keyword">case</span> KRK_VAL_BOOLEAN:
+		<span class="hljs-keyword">case</span> KRK_VAL_INTEGER:
+		<span class="hljs-keyword">case</span> KRK_VAL_NONE:
+		<span class="hljs-keyword">case</span> KRK_VAL_NOTIMPL:
+		<span class="hljs-keyword">case</span> KRK_VAL_KWARGS:
+		<span class="hljs-keyword">case</span> KRK_VAL_HANDLER:
+			<span class="hljs-keyword">return</span> krk_valuesSame(a,b);
+		<span class="hljs-keyword">case</span> KRK_VAL_OBJECT:
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> _krk_method_equivalence(a,b);
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">int</span> _krk_same_type_equivalence_b(<span class="hljs-keyword">uint16_t</span> valtype, KrkValue a, KrkValue b) {
+	<span class="hljs-keyword">switch</span> (valtype) {
+		<span class="hljs-keyword">case</span> KRK_VAL_BOOLEAN:
+		<span class="hljs-keyword">case</span> KRK_VAL_INTEGER:
+		<span class="hljs-keyword">case</span> KRK_VAL_NONE:
+		<span class="hljs-keyword">case</span> KRK_VAL_NOTIMPL:
+		<span class="hljs-keyword">case</span> KRK_VAL_KWARGS:
+		<span class="hljs-keyword">case</span> KRK_VAL_HANDLER:
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">case</span> KRK_VAL_OBJECT:
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> _krk_method_equivalence(a,b);
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">int</span> _krk_diff_type_equivalence(<span class="hljs-keyword">uint16_t</span> val_a, <span class="hljs-keyword">uint16_t</span> val_b, KrkValue a, KrkValue b) {
+	<span class="hljs-comment">/* We do not want to let KWARGS leak to anything needs to, eg., examine types. */</span>
+	<span class="hljs-keyword">if</span> (val_b == KRK_VAL_KWARGS || val_a == KRK_VAL_KWARGS) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Fall back to methods */</span>
+	<span class="hljs-keyword">return</span> _krk_method_equivalence(a,b);
+}
+
+<span class="hljs-function">_hot
+<span class="hljs-keyword">int</span> <span class="hljs-title">krk_valuesSameOrEqual</span><span class="hljs-params">(KrkValue a, KrkValue b)</span> </span>{
+	<span class="hljs-keyword">if</span> (krk_valuesSame(a,b)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">uint16_t</span> val_a = KRK_VAL_TYPE(a);
+	<span class="hljs-keyword">uint16_t</span> val_b = KRK_VAL_TYPE(b);
+	<span class="hljs-keyword">return</span> (val_a == val_b)
+		? _krk_same_type_equivalence_b(val_a, a, b)
+		: _krk_diff_type_equivalence(val_a, val_b, a, b);
+}
+
+<span class="hljs-function">_hot
+<span class="hljs-keyword">int</span> <span class="hljs-title">krk_valuesEqual</span><span class="hljs-params">(KrkValue a, KrkValue b)</span> </span>{
+	<span class="hljs-keyword">uint16_t</span> val_a = KRK_VAL_TYPE(a);
+	<span class="hljs-keyword">uint16_t</span> val_b = KRK_VAL_TYPE(b);
+	<span class="hljs-keyword">return</span> (val_a == val_b)
+		? _krk_same_type_equivalence(val_a,a,b)
+		: _krk_diff_type_equivalence(val_a,val_b,a,b);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

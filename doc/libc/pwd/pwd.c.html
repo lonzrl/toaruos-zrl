@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>pwd.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "libc\\pwd\\pwd.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>pwd.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>getpwent, setpwent, endpwent, fgetpwent
+getpwuid, getpwnam</p>
+</div>
+<div class="body">
+<p>These functions manage entries in the password files.</p>
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;pwd.h&gt;</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>struct passwd {
+char * pw_name;    // username
+char * pw_passwd;  // password (not meaningful)
+uid_t  pw_uid;     // user id
+gid_t  pw_gid;     // group id
+char * pw_comment; // used for decoration settings in toaruos
+char * pw_gecos;   // full name
+char * pw_dir;     // home directory
+char * pw_shell;   // shell
+}</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+<span class="hljs-keyword">static</span> FILE * pwdb = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">open_it</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	pwdb = fopen(<span class="hljs-string">"/etc/passwd"</span>, <span class="hljs-string">"re"</span>);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> LINE_LEN 2048</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">passwd</span> <span class="hljs-title">pw_ent</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * pw_blob = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> pw_blob_avail = <span class="hljs-number">0</span>;
+
+<span class="hljs-function">struct passwd * <span class="hljs-title">fgetpwent</span><span class="hljs-params">(FILE * stream)</span> </span>{
+	<span class="hljs-keyword">size_t</span> len;
+	<span class="hljs-keyword">if</span> (!stream) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">if</span> ((len = getline(&amp;pw_blob, &amp;pw_blob_avail, stream)) &lt;= <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">if</span> (pw_blob[len<span class="hljs-number">-1</span>] == <span class="hljs-string">'\n'</span>) pw_blob[len<span class="hljs-number">-1</span>] = <span class="hljs-string">'\0'</span>;
+
+	<span class="hljs-comment">/* Tokenize */</span>
+	<span class="hljs-keyword">char</span> *p, *tokens[<span class="hljs-number">8</span>], *last;
+	<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> ((p = strtok_r(pw_blob, <span class="hljs-string">":"</span>, &amp;last)); p;
+			(p = strtok_r(<span class="hljs-literal">NULL</span>, <span class="hljs-string">":"</span>, &amp;last)), i++) {
+		tokens[i] = p;
+	}
+
+	<span class="hljs-keyword">if</span> (i &lt; <span class="hljs-number">8</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+
+	pw_ent.pw_name    = tokens[<span class="hljs-number">0</span>];
+	pw_ent.pw_passwd  = tokens[<span class="hljs-number">1</span>];
+	pw_ent.pw_uid     = atoi(tokens[<span class="hljs-number">2</span>]);
+	pw_ent.pw_gid     = atoi(tokens[<span class="hljs-number">3</span>]);
+	pw_ent.pw_gecos   = tokens[<span class="hljs-number">4</span>];
+	pw_ent.pw_dir     = tokens[<span class="hljs-number">5</span>];
+	pw_ent.pw_shell   = tokens[<span class="hljs-number">6</span>];
+	pw_ent.pw_comment = tokens[<span class="hljs-number">7</span>];
+
+	<span class="hljs-keyword">return</span> &amp;pw_ent;
+}
+
+<span class="hljs-function">struct passwd * <span class="hljs-title">getpwent</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (!pwdb) open_it();
+	<span class="hljs-keyword">if</span> (!pwdb) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">return</span> fgetpwent(pwdb);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">setpwent</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-comment">/* Reset stream to beginning */</span>
+	<span class="hljs-keyword">if</span> (!pwdb) open_it();
+	<span class="hljs-keyword">if</span> (pwdb) rewind(pwdb);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">endpwent</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-comment">/* Close stream */</span>
+	<span class="hljs-keyword">if</span> (pwdb) {
+		fclose(pwdb);
+		pwdb = <span class="hljs-literal">NULL</span>;
+	}
+	<span class="hljs-built_in">free</span>(pw_blob);
+	<span class="hljs-built_in">memset</span>(&amp;pw_ent, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(struct passwd));
+	pw_blob = <span class="hljs-literal">NULL</span>;
+	pw_blob_avail = <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function">struct passwd * <span class="hljs-title">getpwnam</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">passwd</span> * <span class="hljs-title">p</span>;</span>
+
+	setpwent();
+
+	<span class="hljs-keyword">while</span> ((p = getpwent())) {
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(p-&gt;pw_name, name)) {
+			<span class="hljs-keyword">return</span> p;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function">struct passwd * <span class="hljs-title">getpwuid</span><span class="hljs-params">(<span class="hljs-keyword">uid_t</span> uid)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">passwd</span> * <span class="hljs-title">p</span>;</span>
+
+	setpwent();
+
+	<span class="hljs-keyword">while</span> ((p = getpwent())) {
+		<span class="hljs-keyword">if</span> (p-&gt;pw_uid == uid) {
+			<span class="hljs-keyword">return</span> p;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

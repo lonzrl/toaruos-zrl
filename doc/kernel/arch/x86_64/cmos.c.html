@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>cmos.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kernel\\arch\\x86_64\\cmos.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>cmos.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/ports.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/irq.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/time.h&gt;</span></span>
+
+<span class="hljs-keyword">uint64_t</span> arch_boot_time = <span class="hljs-number">0</span>; <span class="hljs-comment">/**&lt; Time (in seconds) according to the CMOS right before we examine the TSC */</span>
+<span class="hljs-keyword">uint64_t</span> tsc_basis_time = <span class="hljs-number">0</span>; <span class="hljs-comment">/**&lt; Accumulated time (in microseconds) on the TSC, when we timed it; eg. how long did boot take */</span>
+<span class="hljs-keyword">uint64_t</span> tsc_mhz = <span class="hljs-number">3500</span>;     <span class="hljs-comment">/**&lt; MHz rating we determined for the TSC. Usually also the core speed? */</span>
+
+<span class="hljs-comment">/* Crusty old CMOS code follows. */</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> from_bcd(val)  ((val / 16) * 10 + (val &amp; 0xf))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CMOS_ADDRESS   0x70</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CMOS_DATA      0x71</span>
+
+<span class="hljs-keyword">enum</span> {
+	CMOS_SECOND = <span class="hljs-number">0</span>,
+	CMOS_MINUTE = <span class="hljs-number">2</span>,
+	CMOS_HOUR = <span class="hljs-number">4</span>,
+	CMOS_DAY = <span class="hljs-number">7</span>,
+	CMOS_MONTH = <span class="hljs-number">8</span>,
+	CMOS_YEAR = <span class="hljs-number">9</span>
+};
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">values</span>
+<span>(out) Where to stick the values read.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">cmos_dump</span><span class="hljs-params">(<span class="hljs-keyword">uint16_t</span> * values)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint16_t</span> index = <span class="hljs-number">0</span>; index &lt; <span class="hljs-number">128</span>; ++index) {
+		outportb(CMOS_ADDRESS, index);
+		values[index] = inportb(CMOS_DATA);
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">is_update_in_progress</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	outportb(CMOS_ADDRESS, <span class="hljs-number">0x0a</span>);
+	<span class="hljs-keyword">return</span> inportb(CMOS_DATA) &amp; <span class="hljs-number">0x80</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">years</span>
+<span>Years since 2000
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint64_t</span> <span class="hljs-title">secs_of_years</span><span class="hljs-params">(<span class="hljs-keyword">int</span> years)</span> </span>{
+	<span class="hljs-keyword">uint64_t</span> days = <span class="hljs-number">0</span>;
+	years += <span class="hljs-number">2000</span>;
+	<span class="hljs-keyword">while</span> (years &gt; <span class="hljs-number">1969</span>) {
+		days += <span class="hljs-number">365</span>;
+		<span class="hljs-keyword">if</span> (years % <span class="hljs-number">4</span> == <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">if</span> (years % <span class="hljs-number">100</span> == <span class="hljs-number">0</span>) {
+				<span class="hljs-keyword">if</span> (years % <span class="hljs-number">400</span> == <span class="hljs-number">0</span>) {
+					days++;
+				}
+			} <span class="hljs-keyword">else</span> {
+				days++;
+			}
+		}
+		years--;
+	}
+	<span class="hljs-keyword">return</span> days * <span class="hljs-number">86400</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">months</span>
+<span>1~12 calendar month
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">year</span>
+<span>Years since 2000
+</span>
+</div>
+<div class="dox_tag_title">Returns</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name"></span>
+<span>Number of seconds in that month.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint64_t</span> <span class="hljs-title">secs_of_month</span><span class="hljs-params">(<span class="hljs-keyword">int</span> months, <span class="hljs-keyword">int</span> year)</span> </span>{
+	year += <span class="hljs-number">2000</span>;
+
+	<span class="hljs-keyword">uint64_t</span> days = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">switch</span>(months) {
+		<span class="hljs-keyword">case</span> <span class="hljs-number">11</span>:
+			days += <span class="hljs-number">30</span>; <span class="hljs-comment">/* fallthrough */</span>
+		<span class="hljs-keyword">case</span> <span class="hljs-number">10</span>:
+			days += <span class="hljs-number">31</span>; <span class="hljs-comment">/* fallthrough */</span>
+		<span class="hljs-keyword">case</span> <span class="hljs-number">9</span>:
+			days += <span class="hljs-number">30</span>; <span class="hljs-comment">/* fallthrough */</span>
+		<span class="hljs-keyword">case</span> <span class="hljs-number">8</span>:
+			days += <span class="hljs-number">31</span>; <span class="hljs-comment">/* fallthrough */</span>
+		<span class="hljs-keyword">case</span> <span class="hljs-number">7</span>:
+			days += <span class="hljs-number">31</span>; <span class="hljs-comment">/* fallthrough */</span>
+		<span class="hljs-keyword">case</span> <span class="hljs-number">6</span>:
+			days += <span class="hljs-number">30</span>; <span class="hljs-comment">/* fallthrough */</span>
+		<span class="hljs-keyword">case</span> <span class="hljs-number">5</span>:
+			days += <span class="hljs-number">31</span>; <span class="hljs-comment">/* fallthrough */</span>
+		<span class="hljs-keyword">case</span> <span class="hljs-number">4</span>:
+			days += <span class="hljs-number">30</span>; <span class="hljs-comment">/* fallthrough */</span>
+		<span class="hljs-keyword">case</span> <span class="hljs-number">3</span>:
+			days += <span class="hljs-number">31</span>; <span class="hljs-comment">/* fallthrough */</span>
+		<span class="hljs-keyword">case</span> <span class="hljs-number">2</span>:
+			days += <span class="hljs-number">28</span>;
+			<span class="hljs-keyword">if</span> ((year % <span class="hljs-number">4</span> == <span class="hljs-number">0</span>) &amp;&amp; ((year % <span class="hljs-number">100</span> != <span class="hljs-number">0</span>) || (year % <span class="hljs-number">400</span> == <span class="hljs-number">0</span>))) {
+				days++;
+			} <span class="hljs-comment">/* fallthrough */</span>
+		<span class="hljs-keyword">case</span> <span class="hljs-number">1</span>:
+			days += <span class="hljs-number">31</span>; <span class="hljs-comment">/* fallthrough */</span>
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">break</span>;
+	}
+	<span class="hljs-keyword">return</span> days * <span class="hljs-number">86400</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Returns</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name"></span>
+<span>Current Unix time
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">uint64_t</span> <span class="hljs-title">read_cmos</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">uint16_t</span> values[<span class="hljs-number">128</span>];
+	<span class="hljs-keyword">uint16_t</span> old_values[<span class="hljs-number">128</span>];
+
+	<span class="hljs-keyword">while</span> (is_update_in_progress());
+	cmos_dump(values);
+
+	<span class="hljs-keyword">do</span> {
+		<span class="hljs-built_in">memcpy</span>(old_values, values, <span class="hljs-number">128</span>);
+		<span class="hljs-keyword">while</span> (is_update_in_progress());
+		cmos_dump(values);
+	} <span class="hljs-keyword">while</span> ((old_values[CMOS_SECOND] != values[CMOS_SECOND]) ||
+		(old_values[CMOS_MINUTE] != values[CMOS_MINUTE]) ||
+		(old_values[CMOS_HOUR] != values[CMOS_HOUR])     ||
+		(old_values[CMOS_DAY] != values[CMOS_DAY])       ||
+		(old_values[CMOS_MONTH] != values[CMOS_MONTH])   ||
+		(old_values[CMOS_YEAR] != values[CMOS_YEAR]));
+
+	<span class="hljs-comment">/* Math Time */</span>
+	<span class="hljs-keyword">uint64_t</span> time =
+		secs_of_years(from_bcd(values[CMOS_YEAR]) - <span class="hljs-number">1</span>) +
+		secs_of_month(from_bcd(values[CMOS_MONTH]) - <span class="hljs-number">1</span>,
+		from_bcd(values[CMOS_YEAR])) +
+		(from_bcd(values[CMOS_DAY]) - <span class="hljs-number">1</span>) * <span class="hljs-number">86400</span> +
+		(from_bcd(values[CMOS_HOUR])) * <span class="hljs-number">3600</span> +
+		(from_bcd(values[CMOS_MINUTE])) * <span class="hljs-number">60</span> +
+		from_bcd(values[CMOS_SECOND]) + <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">return</span> time;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint64_t</span> <span class="hljs-title">read_tsc</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> lo, hi;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">( <span class="hljs-string">"rdtsc"</span> : <span class="hljs-string">"=a"</span>(lo), <span class="hljs-string">"=d"</span>(hi) )</span></span>;
+	<span class="hljs-keyword">return</span> ((<span class="hljs-keyword">uint64_t</span>)hi &lt;&lt; <span class="hljs-number">32U</span>L) | (<span class="hljs-keyword">uint64_t</span>)lo;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">uint64_t</span> <span class="hljs-title">arch_perf_timer</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> read_tsc();
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">size_t</span> <span class="hljs-title">arch_cpu_mhz</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> tsc_mhz;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_clock_initialize</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	dprintf(<span class="hljs-string">"tsc: Calibrating system timestamp counter.\n"</span>);
+	arch_boot_time = read_cmos();
+	<span class="hljs-keyword">uintptr_t</span> end_lo, end_hi;
+	<span class="hljs-keyword">uint32_t</span> start_lo, start_hi;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-comment">/* Disables and sets gating for channel 2 */</span>
+		<span class="hljs-string">"inb   $0x61, %%al\n"</span>
+		<span class="hljs-string">"andb  $0xDD, %%al\n"</span>
+		<span class="hljs-string">"orb   $0x01, %%al\n"</span>
+		<span class="hljs-string">"outb  %%al, $0x61\n"</span>
+		<span class="hljs-comment">/* Configure channel 2 to one-shot, next two bytes are low/high */</span>
+		<span class="hljs-string">"movb  $0xB2, %%al\n"</span> <span class="hljs-comment">/* 0b10110010 */</span>
+		<span class="hljs-string">"outb  %%al, $0x43\n"</span>
+		<span class="hljs-comment">/* 0x__9b */</span>
+		<span class="hljs-string">"movb  $0x9B, %%al\n"</span>
+		<span class="hljs-string">"outb  %%al, $0x42\n"</span>
+		<span class="hljs-string">"inb   $0x60, %%al\n"</span>
+		<span class="hljs-comment">/*  0x2e__ */</span>
+		<span class="hljs-string">"movb  $0x2E, %%al\n"</span>
+		<span class="hljs-string">"outb  %%al, $0x42\n"</span>
+		<span class="hljs-comment">/* Re-enable */</span>
+		<span class="hljs-string">"inb   $0x61, %%al\n"</span>
+		<span class="hljs-string">"andb  $0xDE, %%al\n"</span>
+		<span class="hljs-string">"outb  %%al, $0x61\n"</span>
+		<span class="hljs-comment">/* Pulse high */</span>
+		<span class="hljs-string">"orb   $0x01, %%al\n"</span>
+		<span class="hljs-string">"outb  %%al, $0x61\n"</span>
+		<span class="hljs-comment">/* Read TSC and store in vars */</span>
+		<span class="hljs-string">"rdtsc\n"</span>
+		<span class="hljs-string">"movl  %%eax, %2\n"</span>
+		<span class="hljs-string">"movl  %%edx, %3\n"</span>
+</span></span></pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-11" id="section-11"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>In QEMU and VirtualBox, this seems to flip low.
+On real hardware and VMware it flips high.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		<span class="hljs-string">"inb   $0x61, %%al\n"</span>
+		<span class="hljs-string">"andb  $0x20, %%al\n"</span>
+		<span class="hljs-string">"jz   2f\n"</span>
+		<span class="hljs-comment">/* Loop until output goes low? */</span>
+	<span class="hljs-string">"1:\n"</span>
+		<span class="hljs-string">"inb   $0x61, %%al\n"</span>
+		<span class="hljs-string">"andb  $0x20, %%al\n"</span>
+		<span class="hljs-string">"jnz   1b\n"</span>
+		<span class="hljs-string">"rdtsc\n"</span>
+		<span class="hljs-string">"jmp   3f\n"</span>
+		<span class="hljs-comment">/* Loop until output goes high */</span>
+	<span class="hljs-string">"2:\n"</span>
+		<span class="hljs-string">"inb   $0x61, %%al\n"</span>
+		<span class="hljs-string">"andb  $0x20, %%al\n"</span>
+		<span class="hljs-string">"jz   2b\n"</span>
+		<span class="hljs-string">"rdtsc\n"</span>
+	<span class="hljs-string">"3:\n"</span>
+		: <span class="hljs-string">"=a"</span>(end_lo), <span class="hljs-string">"=d"</span>(end_hi), <span class="hljs-string">"=r"</span>(start_lo), <span class="hljs-string">"=r"</span>(start_hi)
+	);
+
+	<span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">end</span>   = ((end_hi &amp; <span class="hljs-number">0xFFFFffff</span>)   &lt;&lt; <span class="hljs-number">32</span>) | (end_lo &amp; <span class="hljs-number">0xFFFFffff</span>);
+	<span class="hljs-keyword">uintptr_t</span> start = ((<span class="hljs-keyword">uintptr_t</span>)(start_hi &amp; <span class="hljs-number">0xFFFFffff</span>) &lt;&lt; <span class="hljs-number">32</span>) | (start_lo &amp; <span class="hljs-number">0xFFFFffff</span>);
+	tsc_mhz = (<span class="hljs-built_in">end</span> - start) / <span class="hljs-number">10000</span>;
+	<span class="hljs-keyword">if</span> (tsc_mhz == <span class="hljs-number">0</span>) tsc_mhz = <span class="hljs-number">2000</span>; <span class="hljs-comment">/* uh oh */</span>
+	tsc_basis_time = start / tsc_mhz;
+
+	dprintf(<span class="hljs-string">"tsc: TSC timed at %lu MHz..\n"</span>, tsc_mhz);
+	dprintf(<span class="hljs-string">"tsc: Boot time is %lus.\n"</span>, arch_boot_time);
+	dprintf(<span class="hljs-string">"tsc: Initial TSC timestamp was %luus.\n"</span>, tsc_basis_time);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SUBSECONDS_PER_SECOND 1000000</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-12" id="section-12"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">update_ticks</span><span class="hljs-params">(<span class="hljs-keyword">uint64_t</span> ticks, <span class="hljs-keyword">uint64_t</span> *timer_ticks, <span class="hljs-keyword">uint64_t</span> *timer_subticks)</span> </span>{
+	*timer_subticks = ticks - tsc_basis_time;
+	*timer_ticks = *timer_subticks / SUBSECONDS_PER_SECOND;
+	*timer_subticks = *timer_subticks % SUBSECONDS_PER_SECOND;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-13" id="section-13"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">gettimeofday</span><span class="hljs-params">(struct timeval * t, <span class="hljs-keyword">void</span> *z)</span> </span>{
+	<span class="hljs-keyword">uint64_t</span> tsc = read_tsc();
+	<span class="hljs-keyword">uint64_t</span> timer_ticks, timer_subticks;
+	update_ticks(tsc / tsc_mhz, &amp;timer_ticks, &amp;timer_subticks);
+	t-&gt;tv_sec = arch_boot_time + timer_ticks;
+	t-&gt;tv_usec = timer_subticks;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-14" id="section-14"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Returns</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name"></span>
+<span>Wall clock time as a Unix timestamp (seconds since the epoch).
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">uint64_t</span> <span class="hljs-title">now</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timeval</span> <span class="hljs-title">t</span>;</span>
+	gettimeofday(&amp;t, <span class="hljs-literal">NULL</span>);
+	<span class="hljs-keyword">return</span> t.tv_sec;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> _time_set_lock;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-15" id="section-15"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Set the system clock time</p>
+</div>
+<div class="body">
+<p>TODO: A lot of this time stuff needs to be made more generic,
+it's shared pretty directly with aarch64...</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">settimeofday</span><span class="hljs-params">(struct timeval * t, <span class="hljs-keyword">void</span> *z)</span> </span>{
+	<span class="hljs-keyword">if</span> (!t) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">if</span> (t-&gt;tv_sec &lt; <span class="hljs-number">0</span> || t-&gt;tv_usec &lt; <span class="hljs-number">0</span> || t-&gt;tv_usec &gt; <span class="hljs-number">1000000</span>) <span class="hljs-keyword">return</span> -EINVAL;
+
+	spin_lock(_time_set_lock);
+	<span class="hljs-keyword">uint64_t</span> clock_time = now();
+	arch_boot_time += t-&gt;tv_sec - clock_time;
+	spin_unlock(_time_set_lock);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-16" id="section-16"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">relative_time</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> seconds, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> subseconds, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> * out_seconds, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> * out_subseconds)</span> </span>{
+	<span class="hljs-keyword">if</span> (!arch_boot_time) {
+		*out_seconds = <span class="hljs-number">0</span>;
+		*out_subseconds = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-keyword">uint64_t</span> tsc = read_tsc();
+	<span class="hljs-keyword">uint64_t</span> timer_ticks, timer_subticks;
+	update_ticks(tsc / tsc_mhz, &amp;timer_ticks, &amp;timer_subticks);
+	<span class="hljs-keyword">if</span> (subseconds + timer_subticks &gt;= SUBSECONDS_PER_SECOND) {
+		*out_seconds    = timer_ticks + seconds + (subseconds + timer_subticks) / SUBSECONDS_PER_SECOND;
+		*out_subseconds = (subseconds + timer_subticks) % SUBSECONDS_PER_SECOND;
+	} <span class="hljs-keyword">else</span> {
+		*out_seconds    = timer_ticks + seconds;
+		*out_subseconds = timer_subticks + subseconds;
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint64_t</span> time_slice_basis = <span class="hljs-number">0</span>; <span class="hljs-comment">/**&lt; When the last clock update happened */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> clock_lock = { <span class="hljs-number">0</span> }; <span class="hljs-comment">/**&lt; Allow only one core to do this */</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-17" id="section-17"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_update_clock</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	spin_lock(clock_lock);
+
+	<span class="hljs-comment">/* Obtain TSC timestamp, in microseconds */</span>
+	<span class="hljs-keyword">uint64_t</span> clock_ticks = read_tsc() / tsc_mhz;
+
+	<span class="hljs-comment">/* Convert it to seconds and subseconds */</span>
+	<span class="hljs-keyword">uint64_t</span> timer_ticks, timer_subticks;
+	update_ticks(clock_ticks, &amp;timer_ticks, &amp;timer_subticks);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-18" id="section-18"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Update per-process quarter-second usage statistics</p>
+</div>
+<div class="body">
+<p>XXX I think this was a bad idea and it should be removed.
+We store four quarter-second usage values in a sliding
+array and update them for every process, so that we can
+query CPU% without having to sample, but that's a lot
+more work in the kernel than we need...</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (time_slice_basis + SUBSECONDS_PER_SECOND/<span class="hljs-number">4</span> &lt;= clock_ticks) {
+		update_process_usage(clock_ticks - time_slice_basis, tsc_mhz);
+		time_slice_basis = clock_ticks;
+	}
+	spin_unlock(clock_lock);
+
+	<span class="hljs-comment">/* Wake up any processes that have expired timeouts */</span>
+	wakeup_sleepers(timer_ticks, timer_subticks);
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

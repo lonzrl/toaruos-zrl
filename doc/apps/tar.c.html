@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>tar.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\tar.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>tar.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;getopt.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/types.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/inflate.h&gt;</span></span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ustar</span> {</span>
+	<span class="hljs-keyword">char</span> filename[<span class="hljs-number">100</span>];
+	<span class="hljs-keyword">char</span> mode[<span class="hljs-number">8</span>];
+	<span class="hljs-keyword">char</span> ownerid[<span class="hljs-number">8</span>];
+	<span class="hljs-keyword">char</span> groupid[<span class="hljs-number">8</span>];
+
+	<span class="hljs-keyword">char</span> <span class="hljs-built_in">size</span>[<span class="hljs-number">12</span>];
+	<span class="hljs-keyword">char</span> mtime[<span class="hljs-number">12</span>];
+
+	<span class="hljs-keyword">char</span> checksum[<span class="hljs-number">8</span>];
+	<span class="hljs-keyword">char</span> type[<span class="hljs-number">1</span>];
+	<span class="hljs-keyword">char</span> link[<span class="hljs-number">100</span>];
+
+	<span class="hljs-keyword">char</span> ustar[<span class="hljs-number">6</span>];
+	<span class="hljs-keyword">char</span> version[<span class="hljs-number">2</span>];
+
+	<span class="hljs-keyword">char</span> owner[<span class="hljs-number">32</span>];
+	<span class="hljs-keyword">char</span> group[<span class="hljs-number">32</span>];
+
+	<span class="hljs-keyword">char</span> dev_major[<span class="hljs-number">8</span>];
+	<span class="hljs-keyword">char</span> dev_minor[<span class="hljs-number">8</span>];
+
+	<span class="hljs-keyword">char</span> prefix[<span class="hljs-number">155</span>];
+	<span class="hljs-keyword">char</span> padding[<span class="hljs-number">12</span>];
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> struct ustar * <span class="hljs-title">extract_file</span><span class="hljs-params">(FILE * f)</span> </span>{
+	<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ustar</span> _<span class="hljs-title">ustar</span>;</span>
+	<span class="hljs-keyword">if</span> (fread(&amp;_ustar, <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(struct ustar), f) != <span class="hljs-keyword">sizeof</span>(struct ustar)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"failed to read file\n"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (_ustar.filename[<span class="hljs-number">0</span>] == <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">return</span> &amp;_ustar;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> <span class="hljs-title">interpret_mode</span><span class="hljs-params">(struct ustar * file)</span> </span>{
+	<span class="hljs-keyword">return</span> 
+		((file-&gt;mode[<span class="hljs-number">0</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">18</span>) |
+		((file-&gt;mode[<span class="hljs-number">1</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">15</span>) |
+		((file-&gt;mode[<span class="hljs-number">2</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">12</span>) |
+		((file-&gt;mode[<span class="hljs-number">3</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">9</span>) |
+		((file-&gt;mode[<span class="hljs-number">4</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">6</span>) |
+		((file-&gt;mode[<span class="hljs-number">5</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">3</span>) |
+		((file-&gt;mode[<span class="hljs-number">6</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> <span class="hljs-title">interpret_size</span><span class="hljs-params">(struct ustar * file)</span> </span>{
+	<span class="hljs-keyword">if</span> (file-&gt;<span class="hljs-built_in">size</span>[<span class="hljs-number">0</span>] != <span class="hljs-string">'0'</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"\033[3;32mWarning:\033[0;3m File is too big.\033[0m\n"</span>);
+	}
+	<span class="hljs-keyword">return</span>
+		((file-&gt;<span class="hljs-built_in">size</span>[ <span class="hljs-number">0</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">30</span>) |
+		((file-&gt;<span class="hljs-built_in">size</span>[ <span class="hljs-number">1</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">27</span>) |
+		((file-&gt;<span class="hljs-built_in">size</span>[ <span class="hljs-number">2</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">24</span>) |
+		((file-&gt;<span class="hljs-built_in">size</span>[ <span class="hljs-number">3</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">21</span>) |
+		((file-&gt;<span class="hljs-built_in">size</span>[ <span class="hljs-number">4</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">18</span>) |
+		((file-&gt;<span class="hljs-built_in">size</span>[ <span class="hljs-number">5</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">15</span>) |
+		((file-&gt;<span class="hljs-built_in">size</span>[ <span class="hljs-number">6</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">12</span>) |
+		((file-&gt;<span class="hljs-built_in">size</span>[ <span class="hljs-number">7</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">9</span>) |
+		((file-&gt;<span class="hljs-built_in">size</span>[ <span class="hljs-number">8</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">6</span>) |
+		((file-&gt;<span class="hljs-built_in">size</span>[ <span class="hljs-number">9</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">3</span>) |
+		((file-&gt;<span class="hljs-built_in">size</span>[<span class="hljs-number">10</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">type_to_string</span><span class="hljs-params">(<span class="hljs-keyword">char</span> type)</span> </span>{
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> unknown[<span class="hljs-number">100</span>];
+	<span class="hljs-keyword">switch</span> (type) {
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'\0'</span>:
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'0'</span>:
+			<span class="hljs-keyword">return</span> <span class="hljs-string">"Normal file"</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'1'</span>:
+			<span class="hljs-keyword">return</span> <span class="hljs-string">"Hard link (unsupported)"</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'2'</span>:
+			<span class="hljs-keyword">return</span> <span class="hljs-string">"Symolic link"</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'3'</span>:
+			<span class="hljs-keyword">return</span> <span class="hljs-string">"Character special (unsupported)"</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'4'</span>:
+			<span class="hljs-keyword">return</span> <span class="hljs-string">"Block special (unsupported)"</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'5'</span>:
+			<span class="hljs-keyword">return</span> <span class="hljs-string">"Directory"</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'6'</span>:
+			<span class="hljs-keyword">return</span> <span class="hljs-string">"FIFO (unsupported)"</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'g'</span>:
+			<span class="hljs-keyword">return</span> <span class="hljs-string">"Extended header"</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'x'</span>:
+			<span class="hljs-keyword">return</span> <span class="hljs-string">"Extended preheader"</span>;
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-built_in">sprintf</span>(unknown, <span class="hljs-string">"Uknown: %c"</span>, type);
+			<span class="hljs-keyword">return</span> unknown;
+	}
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">dump_file</span><span class="hljs-params">(struct ustar * file)</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"\033[1m%.155s%.100s\033[0m\n"</span>, file-&gt;prefix, file-&gt;filename);
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%c - %s\n"</span>, file-&gt;type[<span class="hljs-number">0</span>], type_to_string(file-&gt;type[<span class="hljs-number">0</span>]));
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"File size: %u\n"</span>, interpret_size(file));
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CHUNK_SIZE 4096</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">write_file</span><span class="hljs-params">(struct ustar * file, FILE * f, FILE * mf, <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-keyword">size_t</span> length = interpret_size(file);
+	<span class="hljs-keyword">char</span> buf[CHUNK_SIZE];
+	<span class="hljs-keyword">while</span> (length &gt; CHUNK_SIZE) {
+		fread( buf, <span class="hljs-number">1</span>, CHUNK_SIZE, f);
+		fwrite(buf, <span class="hljs-number">1</span>, CHUNK_SIZE, mf);
+		length -= CHUNK_SIZE;
+	}
+	<span class="hljs-keyword">if</span> (length &gt; <span class="hljs-number">0</span>) {
+		fread( buf, <span class="hljs-number">1</span>, length, f);
+		fwrite(buf, <span class="hljs-number">1</span>, length, mf);
+	}
+	fflush(mf);
+	<span class="hljs-keyword">if</span> (mf != <span class="hljs-built_in">stdout</span>) {
+		fclose(mf);
+		chmod(name, interpret_mode(file));
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _seek_forward(FILE * f, <span class="hljs-keyword">size_t</span> amount) {
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; amount; ++i) {
+		fgetc(f);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_S <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_E <span class="hljs-meta-string">"\033[0m"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+			<span class="hljs-string">"%s - extract ustar archives\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"usage: %s [-ctxvOaf] ["</span> X_S <span class="hljs-string">"name"</span> X_E <span class="hljs-string">"...]\n"</span>
+			<span class="hljs-string">"       %s x[vzOf] [-vzOf] ["</span> X_S <span class="hljs-string">"name"</span> X_E <span class="hljs-string">"...]\n"</span>
+			<span class="hljs-string">"       %s t[vzOf] [-vzOf] ["</span> X_S <span class="hljs-string">"name"</span> X_E <span class="hljs-string">"...]\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" Actions can be supplied either through flags, or through a leading\n"</span>
+			<span class="hljs-string">" argument without a -. Options can be supplied either after actions\n"</span>
+			<span class="hljs-string">" or embedded with actions that were specified as flags.\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" Actions:\n"</span>
+			<span class="hljs-string">" x            "</span> X_S <span class="hljs-string">"extract"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" t            "</span> X_S <span class="hljs-string">"list"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" c            "</span> X_S <span class="hljs-string">"create (unsupported)"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" Options:\n"</span>
+			<span class="hljs-string">" -f "</span> X_S <span class="hljs-string">"ARCHIVE   file archive to open"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -v           "</span> X_S <span class="hljs-string">"be verbose"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -O           "</span> X_S <span class="hljs-string">"write to stdout"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -z           "</span> X_S <span class="hljs-string">"decompress archive through gunzip"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"\n"</span>, argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">matches_files</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[], <span class="hljs-keyword">int</span> optind, <span class="hljs-keyword">char</span> * filename)</span> </span>{
+	<span class="hljs-keyword">while</span> (optind &lt; argc) {
+		<span class="hljs-keyword">char</span> * maybe = <span class="hljs-built_in">strstr</span>(filename, argv[optind]);
+		<span class="hljs-keyword">if</span> (maybe == filename) {
+			<span class="hljs-keyword">size_t</span> s = <span class="hljs-built_in">strlen</span>(argv[optind]);
+			<span class="hljs-keyword">if</span> (maybe[s] == <span class="hljs-string">'\0'</span> || maybe[s] == <span class="hljs-string">'/'</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		optind++;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-keyword">enum</span> tar_action {
+	TAR_ACTION_EXTRACT = <span class="hljs-number">1</span>,
+	TAR_ACTION_CREATE,
+	TAR_ACTION_LIST,
+	TAR_ACTION_APPEND,
+	TAR_ACTION_UPDATE
+};
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+
+	<span class="hljs-keyword">int</span> opt;
+	<span class="hljs-keyword">char</span> * fname = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">int</span> verbose = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> action = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> compressed = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> to_stdout = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> only_matches = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span> &amp;&amp; argv[<span class="hljs-number">1</span>][<span class="hljs-number">0</span>] != <span class="hljs-string">'-'</span>) {
+		<span class="hljs-keyword">switch</span>(argv[<span class="hljs-number">1</span>][<span class="hljs-number">0</span>]) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'x'</span>:
+				action = TAR_ACTION_EXTRACT;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'c'</span>:
+				action = TAR_ACTION_CREATE;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'t'</span>:
+				action = TAR_ACTION_LIST;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'r'</span>:
+				action = TAR_ACTION_APPEND;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'u'</span>:
+				action = TAR_ACTION_UPDATE;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">default</span>:
+				<span class="hljs-keyword">return</span> usage(argv);
+		}
+
+		<span class="hljs-comment">/* Go through the rest of the argument */</span>
+		<span class="hljs-keyword">int</span> expect_file = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; argv[<span class="hljs-number">1</span>][i]; ++i) {
+			<span class="hljs-keyword">switch</span> (argv[<span class="hljs-number">1</span>][i]) {
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>:
+					expect_file = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'v'</span>:
+					verbose = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'z'</span>:
+					compressed = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'O'</span>:
+					to_stdout = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">default</span>:
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %c: unrecognized option\n"</span>, argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">1</span>][i]);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			}
+		}
+
+		optind = <span class="hljs-number">2</span>;
+
+		<span class="hljs-keyword">if</span> (expect_file) {
+			<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">3</span>) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: filename expected after arguments\n"</span>, argv[<span class="hljs-number">0</span>]);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			}
+			optind = <span class="hljs-number">3</span>;
+			fname = argv[<span class="hljs-number">2</span>];
+		}
+	}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> check_action(new_action) do { \
+	<span class="hljs-meta-keyword">if</span> (action &amp;&amp; action != new_action) { \
+		fprintf(stderr, <span class="hljs-meta-string">"%s: Only one action may be specified.\n"</span>, argv[0]); \
+		return 1; \
+	} <span class="hljs-meta-keyword">else</span> { action = new_action; } \
+} while (0)</span>
+
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"?ctxzvaf:Oru"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'c'</span>:
+				check_action(TAR_ACTION_CREATE);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>:
+				fname = optarg;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'x'</span>:
+				check_action(TAR_ACTION_EXTRACT);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'t'</span>:
+				check_action(TAR_ACTION_LIST);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'r'</span>:
+				check_action(TAR_ACTION_APPEND);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'u'</span>:
+				check_action(TAR_ACTION_UPDATE);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'v'</span>:
+				verbose = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'z'</span>:
+				compressed = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'O'</span>:
+				to_stdout = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> usage(argv);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!fname) {
+		<span class="hljs-keyword">if</span> (action == TAR_ACTION_UPDATE || action == TAR_ACTION_APPEND) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: -f is required for this mode\n"</span>, argv[<span class="hljs-number">0</span>]);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		fname = <span class="hljs-string">"-"</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (optind &lt; argc) {
+		only_matches = <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (action == TAR_ACTION_EXTRACT || action == TAR_ACTION_LIST) {
+
+		FILE * f;
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(fname,<span class="hljs-string">"-"</span>)) {
+			f = <span class="hljs-built_in">stdin</span>;
+		} <span class="hljs-keyword">else</span> {
+			f = fopen(fname,<span class="hljs-string">"re"</span>);
+		}
+		<span class="hljs-keyword">if</span> (!f) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], fname, strerror(errno));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (compressed) {
+			<span class="hljs-keyword">int</span> fds[<span class="hljs-number">2</span>];
+			pipe2(fds, O_CLOEXEC);
+
+			<span class="hljs-keyword">int</span> child = fork();
+			<span class="hljs-keyword">if</span> (child == <span class="hljs-number">0</span>) {
+				<span class="hljs-comment">/* Close the read end */</span>
+				<span class="hljs-built_in">close</span>(fds[<span class="hljs-number">0</span>]);
+				<span class="hljs-comment">/* Put f's fd into stdin */</span>
+				dup2(fileno(f), STDIN_FILENO);
+				<span class="hljs-comment">/* Make stdout the pipe */</span>
+				dup2(fds[<span class="hljs-number">1</span>], STDOUT_FILENO);
+				<span class="hljs-comment">/* Execeute gzunzip */</span>
+				<span class="hljs-keyword">char</span> * args[] = {<span class="hljs-string">"gunzip"</span>,<span class="hljs-string">"-c"</span>,<span class="hljs-literal">NULL</span>};
+				<span class="hljs-built_in">exit</span>(execvp(<span class="hljs-string">"gunzip"</span>,args));
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (child &lt; <span class="hljs-number">0</span>) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: failed to fork gunzip for compressed archive\n"</span>, argv[<span class="hljs-number">0</span>]);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			}
+
+			<span class="hljs-comment">/* Reattach f to pipe */</span>
+			<span class="hljs-built_in">close</span>(fds[<span class="hljs-number">1</span>]);
+			f = fdopen(fds[<span class="hljs-number">0</span>], <span class="hljs-string">"r"</span>);
+		}
+
+		<span class="hljs-keyword">char</span> tmpname[<span class="hljs-number">1024</span>] = {<span class="hljs-number">0</span>};
+		<span class="hljs-keyword">int</span>  last_was_long = <span class="hljs-number">0</span>;
+
+		<span class="hljs-keyword">while</span> (!feof(f)) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ustar</span> * <span class="hljs-title">file</span> = <span class="hljs-title">extract_file</span>(<span class="hljs-title">f</span>);</span>
+
+			<span class="hljs-keyword">if</span> (!file) {
+				<span class="hljs-keyword">break</span>;
+			}
+			<span class="hljs-keyword">char</span> name[<span class="hljs-number">1025</span>] = {<span class="hljs-number">0</span>};
+			<span class="hljs-keyword">if</span> (last_was_long) {
+				<span class="hljs-built_in">strncat</span>(name, tmpname, <span class="hljs-number">1024</span>);
+				last_was_long = <span class="hljs-number">0</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-built_in">strncat</span>(name, file-&gt;prefix, <span class="hljs-number">167</span>);
+				<span class="hljs-built_in">strncat</span>(name, file-&gt;filename, <span class="hljs-number">512</span>);
+			}
+
+			<span class="hljs-keyword">if</span> (action == TAR_ACTION_LIST) {
+				<span class="hljs-keyword">if</span> (!only_matches || matches_files(argc,argv,optind,name)) {
+					<span class="hljs-keyword">if</span> (verbose) {
+						<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%10d %c %s\n"</span>, interpret_size(file), file-&gt;type[<span class="hljs-number">0</span>], name);
+					} <span class="hljs-keyword">else</span> {
+						<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%s\n"</span>, name);
+					}
+				}
+				_seek_forward(f, interpret_size(file));
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (action == TAR_ACTION_EXTRACT) {
+				<span class="hljs-keyword">if</span> (verbose) {
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%.155s%.100s\n"</span>, file-&gt;prefix, file-&gt;filename);
+				}
+
+				<span class="hljs-keyword">if</span> (file-&gt;type[<span class="hljs-number">0</span>] == <span class="hljs-string">'0'</span> || file-&gt;type[<span class="hljs-number">0</span>] == <span class="hljs-number">0</span>) {
+					FILE * mf = to_stdout ? <span class="hljs-built_in">stdout</span> : fopen(name,<span class="hljs-string">"w"</span>);
+					<span class="hljs-keyword">if</span> (!mf) {
+						<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], fname, name, strerror(errno));
+						_seek_forward(f, interpret_size(file));
+					} <span class="hljs-keyword">else</span> {
+						<span class="hljs-keyword">if</span> (!only_matches || matches_files(argc,argv,optind,name)) {
+							write_file(file,f,mf,name);
+						}
+					}
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (file-&gt;type[<span class="hljs-number">0</span>] == <span class="hljs-string">'5'</span>) {
+					<span class="hljs-keyword">if</span> (!to_stdout) {
+						<span class="hljs-keyword">if</span> (name[<span class="hljs-built_in">strlen</span>(name)<span class="hljs-number">-1</span>] == <span class="hljs-string">'/'</span>) {
+							name[<span class="hljs-built_in">strlen</span>(name)<span class="hljs-number">-1</span>] = <span class="hljs-string">'\0'</span>;
+						}
+						<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strlen</span>(name)) {
+							<span class="hljs-keyword">if</span> (!only_matches || matches_files(argc,argv,optind,name)) {
+								<span class="hljs-keyword">if</span> (<span class="hljs-built_in">mkdir</span>(name, <span class="hljs-number">0777</span>) &lt; <span class="hljs-number">0</span>) {
+									<span class="hljs-keyword">if</span> (errno != EEXIST) {
+										<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], fname, name, strerror(errno));
+									}
+								}
+							}
+						}
+					}
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (file-&gt;type[<span class="hljs-number">0</span>] == <span class="hljs-string">'1'</span>) {
+					<span class="hljs-keyword">if</span> (!to_stdout &amp;&amp; (!only_matches || matches_files(argc,argv,optind,name))) {
+						<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">356</span>] = {<span class="hljs-number">0</span>};
+						<span class="hljs-built_in">strncat</span>(tmp, file-&gt;link, <span class="hljs-number">355</span>);
+						FILE * mf = fopen(name,<span class="hljs-string">"w"</span>);
+						<span class="hljs-keyword">if</span> (!mf) {
+							<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], fname, name, strerror(errno));
+						} <span class="hljs-keyword">else</span> {
+							FILE * source = fopen(tmp, <span class="hljs-string">"r"</span>);
+							<span class="hljs-keyword">if</span> (!source) {
+								<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], fname, tmp, strerror(errno));
+							} <span class="hljs-keyword">else</span> {
+								<span class="hljs-keyword">while</span> (!feof(source)) {
+									<span class="hljs-keyword">char</span> buf[<span class="hljs-number">4096</span>];
+									<span class="hljs-keyword">ssize_t</span> r = fread(buf, <span class="hljs-number">1</span>, <span class="hljs-number">4096</span>, source);
+									fwrite(buf, <span class="hljs-number">1</span>, r, mf);
+								}
+								fclose(source);
+							}
+							fclose(mf);
+							chmod(name, interpret_mode(file));
+						}
+					}
+					_seek_forward(f, interpret_size(file));
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (file-&gt;type[<span class="hljs-number">0</span>] == <span class="hljs-string">'2'</span>) {
+					<span class="hljs-keyword">if</span> (!to_stdout &amp;&amp; (!only_matches || matches_files(argc,argv,optind,name))) {
+						<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">356</span>] = {<span class="hljs-number">0</span>};
+						<span class="hljs-built_in">strncat</span>(tmp, file-&gt;link, <span class="hljs-number">355</span>);
+						<span class="hljs-keyword">if</span> (symlink(tmp, name) &lt; <span class="hljs-number">0</span>) {
+							<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], fname, name, tmp, strerror(errno));
+						}
+					}
+					_seek_forward(f, interpret_size(file));
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (file-&gt;type[<span class="hljs-number">0</span>] == <span class="hljs-string">'L'</span>) {
+					<span class="hljs-comment">/* This is a GNU Long Name block; store its contents as a file name */</span>
+					<span class="hljs-keyword">size_t</span> s = interpret_size(file);
+					fread(tmpname, <span class="hljs-number">1</span>, s, f);
+					tmpname[s] = <span class="hljs-string">'\0'</span>;
+					last_was_long = <span class="hljs-number">1</span>;
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], fname, name, type_to_string(file-&gt;type[<span class="hljs-number">0</span>]));
+					_seek_forward(f, interpret_size(file));
+				}
+			}
+
+			<span class="hljs-keyword">size_t</span> file_size = interpret_size(file);
+			<span class="hljs-keyword">if</span> (file_size % <span class="hljs-number">512</span>) {
+				_seek_forward(f, <span class="hljs-number">512</span> - (file_size % <span class="hljs-number">512</span>));
+			}
+		}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (action == TAR_ACTION_CREATE) {
+		<span class="hljs-keyword">if</span> (compressed) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: can not created compressed archives\n"</span>, argv[<span class="hljs-number">0</span>]);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+
+		FILE * f;
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(fname,<span class="hljs-string">"-"</span>)) {
+			f = <span class="hljs-built_in">stdout</span>;
+		} <span class="hljs-keyword">else</span> {
+			f = fopen(fname,<span class="hljs-string">"w"</span>);
+		}
+
+		<span class="hljs-keyword">if</span> (!f) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], fname, strerror(errno));
+		}
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = optind; i &lt; argc; ++i) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<p>...</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: unsupported action\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

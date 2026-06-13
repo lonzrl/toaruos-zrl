@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>user.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kernel\\arch\\x86_64\\user.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>user.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/regs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/ports.h&gt;</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">entrypoint</span>
+<span>Address to &quot;return&quot; to in userspace.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">argc</span>
+<span>Number of arguments to provide to the new process.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">argv</span>
+<span>Argument array to pass to the new process; make sure this is user-accessible!
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">envp</span>
+<span>Environment strings array
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">stack</span>
+<span>Userspace stack address.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_enter_user</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> entrypoint, <span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[], <span class="hljs-keyword">char</span> * envp[], <span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">stack</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">regs</span> <span class="hljs-title">ret</span>;</span>
+	ret.cs = <span class="hljs-number">0x28</span> | <span class="hljs-number">0x03</span>;
+	ret.ss = <span class="hljs-number">0x20</span> | <span class="hljs-number">0x03</span>;
+	ret.rip = entrypoint;
+	ret.rflags = (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">21</span>) | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">9</span>);
+	ret.rsp = <span class="hljs-built_in">stack</span>;
+
+	ret.rsp = (ret.rsp &amp; (<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-number">-16</span>) - <span class="hljs-number">8</span>;
+
+	update_process_times_on_exit();
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-string">"pushq %0\n"</span>
+		<span class="hljs-string">"pushq %1\n"</span>
+		<span class="hljs-string">"pushq %2\n"</span>
+		<span class="hljs-string">"pushq %3\n"</span>
+		<span class="hljs-string">"pushq %4\n"</span>
+		<span class="hljs-string">"swapgs\n"</span>
+		<span class="hljs-string">"iretq"</span>
+	: : <span class="hljs-string">"m"</span>(ret.ss), <span class="hljs-string">"m"</span>(ret.rsp), <span class="hljs-string">"m"</span>(ret.rflags), <span class="hljs-string">"m"</span>(ret.cs), <span class="hljs-string">"m"</span>(ret.rip),
+	    <span class="hljs-string">"D"</span>(argc), <span class="hljs-string">"S"</span>(argv), <span class="hljs-string">"d"</span>(envp))</span></span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _kill_it(<span class="hljs-keyword">void</span>) {
+	dprintf(<span class="hljs-string">"core %d (pid=%d %s): invalid stack for signal return\n"</span>,
+		this_core-&gt;cpu_id, this_core-&gt;current_process-&gt;id, this_core-&gt;current_process-&gt;name);
+	task_exit(((<span class="hljs-number">128</span> + SIGSEGV) &lt;&lt; <span class="hljs-number">8</span>) | SIGSEGV);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PUSH(stack, type, item) do { \
+	stack -= sizeof(type); \
+	<span class="hljs-meta-keyword">if</span> (!mmu_validate_user_pointer((void*)(uintptr_t)stack,sizeof(type),MMU_PTR_WRITE)) \
+		_kill_it(); \
+	*((volatile type *) stack) = item; \
+} while (0)</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> POP(stack, type, item) do { \
+	<span class="hljs-meta-keyword">if</span> (!mmu_validate_user_pointer((void*)(uintptr_t)stack,sizeof(type),0)) \
+		_kill_it(); \
+	item = *((volatile type *) stack); \
+	stack += sizeof(type); \
+} while (0)</span>
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">arch_return_from_signal_handler</span><span class="hljs-params">(struct regs *r)</span> </span>{
+
+	POP(r-&gt;rsp, <span class="hljs-keyword">sigset_t</span>, this_core-&gt;current_process-&gt;blocked_signals);
+	<span class="hljs-keyword">long</span> originalSignal;
+	POP(r-&gt;rsp, <span class="hljs-keyword">long</span>, originalSignal);
+
+	POP(r-&gt;rsp, <span class="hljs-keyword">long</span>, this_core-&gt;current_process-&gt;interrupted_system_call);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">64</span>; ++i) {
+		POP(r-&gt;rsp, <span class="hljs-keyword">uint64_t</span>, this_core-&gt;current_process-&gt;thread.fp_regs[<span class="hljs-number">63</span>-i]);
+	}
+
+	arch_restore_floating((<span class="hljs-keyword">process_t</span>*)this_core-&gt;current_process);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">regs</span> <span class="hljs-title">out</span>;</span>
+	POP(r-&gt;rsp, struct regs, out);
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> R(n) r-&gt; n = out. n</span>
+
+	R(r15); R(r14); R(r13); R(r12);
+	R(r11); R(r10); R(r9); R(r8);
+	R(rbp); R(rdi); R(rsi); R(rdx); R(rcx); R(rbx); R(rax);
+
+	R(rip);
+	R(rsp);
+
+	r-&gt;rflags = (out.rflags &amp; <span class="hljs-number">0xcd5</span>) | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">21</span>) | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">9</span>) | ((r-&gt;rflags &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">8</span>)) ? (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">8</span>) : <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">return</span> originalSignal;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">entrypoint</span>
+<span>Userspace address of the signal handler, set by the process.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">signum</span>
+<span>Signal number that caused this entry.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_enter_signal_handler</span><span class="hljs-params">(struct signal_config * <span class="hljs-built_in">config</span>, <span class="hljs-keyword">siginfo_t</span> * cause, struct regs *r)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">regs</span> <span class="hljs-title">ret</span>;</span>
+	ret.cs = <span class="hljs-number">0x28</span> | <span class="hljs-number">0x03</span>;
+	ret.ss = <span class="hljs-number">0x20</span> | <span class="hljs-number">0x03</span>;
+	ret.rip = <span class="hljs-built_in">config</span>-&gt;handler;
+	ret.rflags = (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">21</span>) | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">9</span>);
+	ret.rsp = ((r-&gt;rsp - <span class="hljs-number">128</span>) &amp; (<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-number">-16</span>) - <span class="hljs-number">8</span>; <span class="hljs-comment">/* ensure considerable alignment */</span>
+
+	<span class="hljs-keyword">uintptr_t</span> ucontext_addr = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uintptr_t</span> sainfo_addr = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">config</span>-&gt;flags &amp; SA_SIGINFO) {
+		PUSH(ret.rsp, <span class="hljs-keyword">siginfo_t</span>, *cause);
+		sainfo_addr = ret.rsp;
+
+		<span class="hljs-comment">/* Bottom of ucontext_t */</span>
+		PUSH(ret.rsp, <span class="hljs-keyword">uintptr_t</span>, <span class="hljs-number">0</span>); <span class="hljs-comment">/* TODO uc_link */</span>
+		ucontext_addr = ret.rsp;
+	}
+
+	PUSH(ret.rsp, struct regs, *r);
+
+	arch_save_floating((<span class="hljs-keyword">process_t</span>*)this_core-&gt;current_process);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">64</span>; ++i) {
+		PUSH(ret.rsp, <span class="hljs-keyword">uint64_t</span>, this_core-&gt;current_process-&gt;thread.fp_regs[i]);
+	}
+
+	<span class="hljs-comment">/* Common stuff */</span>
+	PUSH(ret.rsp, <span class="hljs-keyword">long</span>, this_core-&gt;current_process-&gt;interrupted_system_call);
+	this_core-&gt;current_process-&gt;interrupted_system_call = <span class="hljs-number">0</span>;
+
+	PUSH(ret.rsp, <span class="hljs-keyword">long</span>, cause-&gt;si_signo);
+	PUSH(ret.rsp, <span class="hljs-keyword">sigset_t</span>, this_core-&gt;current_process-&gt;blocked_signals);
+
+	this_core-&gt;current_process-&gt;blocked_signals |= <span class="hljs-built_in">config</span>-&gt;mask | (<span class="hljs-built_in">config</span>-&gt;flags &amp; SA_NODEFER ? <span class="hljs-number">0</span> : (<span class="hljs-number">1U</span>L &lt;&lt; cause-&gt;si_signo));
+
+	PUSH(ret.rsp, <span class="hljs-keyword">uintptr_t</span>, <span class="hljs-number">0x516</span>);
+
+	update_process_times_on_exit();
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span><span class="hljs-params">(
+		<span class="hljs-string">"pushq %0\n"</span>
+		<span class="hljs-string">"pushq %1\n"</span>
+		<span class="hljs-string">"pushq %2\n"</span>
+		<span class="hljs-string">"pushq %3\n"</span>
+		<span class="hljs-string">"pushq %4\n"</span>
+		<span class="hljs-string">"swapgs\n"</span>
+		<span class="hljs-string">"iretq"</span>
+	: : <span class="hljs-string">"m"</span>(ret.ss), <span class="hljs-string">"m"</span>(ret.rsp), <span class="hljs-string">"m"</span>(ret.rflags), <span class="hljs-string">"m"</span>(ret.cs), <span class="hljs-string">"m"</span>(ret.rip),
+	    <span class="hljs-string">"D"</span>(cause-&gt;si_signo),
+	    <span class="hljs-string">"S"</span>(sainfo_addr),
+	    <span class="hljs-string">"d"</span>(ucontext_addr))</span></span>;
+	__builtin_unreachable();
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">__attribute__((naked))
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_resume_user</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-string">"pop %r15\n"</span>
+		<span class="hljs-string">"pop %r14\n"</span>
+		<span class="hljs-string">"pop %r13\n"</span>
+		<span class="hljs-string">"pop %r12\n"</span>
+		<span class="hljs-string">"pop %r11\n"</span>
+		<span class="hljs-string">"pop %r10\n"</span>
+		<span class="hljs-string">"pop %r9\n"</span>
+		<span class="hljs-string">"pop %r8\n"</span>
+		<span class="hljs-string">"pop %rbp\n"</span>
+		<span class="hljs-string">"pop %rdi\n"</span>
+		<span class="hljs-string">"pop %rsi\n"</span>
+		<span class="hljs-string">"pop %rdx\n"</span>
+		<span class="hljs-string">"pop %rcx\n"</span>
+		<span class="hljs-string">"pop %rbx\n"</span>
+		<span class="hljs-string">"pop %rax\n"</span>
+		<span class="hljs-string">"add $16, %rsp\n"</span>
+		<span class="hljs-string">"swapgs\n"</span>
+		<span class="hljs-string">"iretq\n"</span>
+	)</span></span>;
+	__builtin_unreachable();
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_restore_floating</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc)</span> </span>{
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"fxrstor (%0)"</span> :: <span class="hljs-string">"r"</span>(&amp;proc-&gt;thread.fp_regs))</span></span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_save_floating</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc)</span> </span>{
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"fxsave (%0)"</span> :: <span class="hljs-string">"r"</span>(&amp;proc-&gt;thread.fp_regs))</span></span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_pause</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-string">"sti\n"</span>
+		<span class="hljs-string">"hlt\n"</span>
+		<span class="hljs-string">"cli\n"</span>
+	)</span></span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">lapic_send_ipi</span><span class="hljs-params">(<span class="hljs-keyword">int</span> i, <span class="hljs-keyword">uint32_t</span> val)</span></span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_fatal_prepare</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; processor_count; ++i) {
+		<span class="hljs-keyword">if</span> (i == this_core-&gt;cpu_id) <span class="hljs-keyword">continue</span>;
+		lapic_send_ipi(processor_local_data[i].lapic_id, <span class="hljs-number">0x447D</span>);
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">See</div>
+<div class="dox_tag_detail">
+<span class="dox_type">arch_fatal_prepare</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_fatal</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	arch_fatal_prepare();
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+			<span class="hljs-string">"cli\n"</span>
+			<span class="hljs-string">"hlt\n"</span>
+		)</span></span>;
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">arch_reboot</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-comment">/* load a null page as an IDT */</span>
+	<span class="hljs-keyword">uintptr_t</span> frame = mmu_allocate_a_frame();
+	<span class="hljs-keyword">uintptr_t</span> * idt = mmu_map_from_physical(frame &lt;&lt; <span class="hljs-number">12</span>);
+	<span class="hljs-built_in">memset</span>(idt, <span class="hljs-number">0</span>, <span class="hljs-number">0x1000</span>);
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-string">"lidt (%0)"</span>
+		: : <span class="hljs-string">"r"</span>(idt)
+	)</span></span>;
+	<span class="hljs-keyword">uint8_t</span> out = <span class="hljs-number">0x02</span>;
+	<span class="hljs-keyword">while</span> ((out &amp; <span class="hljs-number">0x02</span>) != <span class="hljs-number">0</span>) {
+		out = inportb(<span class="hljs-number">0x64</span>);
+	}
+	outportb(<span class="hljs-number">0x64</span>, <span class="hljs-number">0xFE</span>); <span class="hljs-comment">/* Reset */</span>
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-comment">/* Syscall parameter accessors */</span>
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_syscall_return</span><span class="hljs-params">(struct regs * r, <span class="hljs-keyword">long</span> retval)</span> </span>{ r-&gt;rax = retval; }
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">arch_syscall_number</span><span class="hljs-params">(struct regs * r)</span> </span>{ <span class="hljs-keyword">return</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)r-&gt;rax; }
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">arch_syscall_arg0</span><span class="hljs-params">(struct regs * r)</span> </span>{ <span class="hljs-keyword">return</span> r-&gt;rdi; }
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">arch_syscall_arg1</span><span class="hljs-params">(struct regs * r)</span> </span>{ <span class="hljs-keyword">return</span> r-&gt;rsi; }
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">arch_syscall_arg2</span><span class="hljs-params">(struct regs * r)</span> </span>{ <span class="hljs-keyword">return</span> r-&gt;rdx; }
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">arch_syscall_arg3</span><span class="hljs-params">(struct regs * r)</span> </span>{ <span class="hljs-keyword">return</span> r-&gt;r10; }
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">arch_syscall_arg4</span><span class="hljs-params">(struct regs * r)</span> </span>{ <span class="hljs-keyword">return</span> r-&gt;r8; }
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">arch_syscall_arg5</span><span class="hljs-params">(struct regs * r)</span> </span>{ <span class="hljs-keyword">return</span> r-&gt;r9; }
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">arch_stack_pointer</span><span class="hljs-params">(struct regs * r)</span> </span>{ <span class="hljs-keyword">return</span> r-&gt;rsp; }
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">arch_user_ip</span><span class="hljs-params">(struct regs * r)</span> </span>{ <span class="hljs-keyword">return</span> r-&gt;rip; }
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

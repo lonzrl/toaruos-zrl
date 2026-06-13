@@ -1,0 +1,1534 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>termemu.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "lib\\termemu.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>termemu.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;math.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;wchar.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/time.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/termemu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/decodeutf8.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/spinlock.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MAX_ARGS 1024</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_scroll</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> how_much)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_set_colors</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> *s, <span class="hljs-keyword">uint32_t</span> fg, <span class="hljs-keyword">uint32_t</span> bg)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_set_csr_show</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> on)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_set_csr</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_write</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">char</span> c)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_insert_delete_lines</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> how_many)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_set_cell</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y, <span class="hljs-keyword">uint32_t</span> c)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_mirror_set</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y, <span class="hljs-keyword">uint32_t</span> val, <span class="hljs-keyword">uint32_t</span> fg, <span class="hljs-keyword">uint32_t</span> bg, <span class="hljs-keyword">uint32_t</span> flags)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_mirror_copy</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y, <span class="hljs-keyword">term_cell_t</span> * from)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_mirror_copy_inverted</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y, <span class="hljs-keyword">term_cell_t</span> * from)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_cell_set</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y, <span class="hljs-keyword">uint32_t</span> c, <span class="hljs-keyword">uint32_t</span> fg, <span class="hljs-keyword">uint32_t</span> bg, <span class="hljs-keyword">uint32_t</span> flags)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_draw_cursor</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state)</span></span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">wchar_t</span> box_chars[] = <span class="hljs-string">L"▒␉␌␍␊°±␤␋┘┐┌└┼⎺⎻─⎼⎽├┤┴┬│≤≥"</span>;
+
+<span class="hljs-comment">/* Returns the lower of two shorts */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint16_t</span> <span class="hljs-title">min</span><span class="hljs-params">(<span class="hljs-keyword">uint16_t</span> a, <span class="hljs-keyword">uint16_t</span> b)</span> </span>{
+	<span class="hljs-keyword">return</span> (a &lt; b) ? a : b;
+}
+
+<span class="hljs-comment">/* Returns the higher of two shorts */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint16_t</span> <span class="hljs-title">max</span><span class="hljs-params">(<span class="hljs-keyword">uint16_t</span> a, <span class="hljs-keyword">uint16_t</span> b)</span> </span>{
+	<span class="hljs-keyword">return</span> (a &gt; b) ? a : b;
+}
+
+<span class="hljs-comment">/* Write the contents of the buffer, as they were all non-escaped data. */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ansi_dump_buffer</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * s)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; s-&gt;buflen; ++i) {
+		term_write(s, s-&gt;<span class="hljs-built_in">buffer</span>[i]);
+	}
+}
+
+<span class="hljs-comment">/* Add to the internal buffer for the ANSI parser */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ansi_buf_add</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * s, <span class="hljs-keyword">char</span> c)</span> </span>{
+	<span class="hljs-keyword">if</span> (s-&gt;buflen &gt;= TERM_BUF_LEN<span class="hljs-number">-1</span>) <span class="hljs-keyword">return</span>;
+	s-&gt;<span class="hljs-built_in">buffer</span>[s-&gt;buflen] = c;
+	s-&gt;buflen++;
+	s-&gt;<span class="hljs-built_in">buffer</span>[s-&gt;buflen] = <span class="hljs-string">'\0'</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">termemu_to_eight</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> codepoint, <span class="hljs-keyword">char</span> * out)</span> </span>{
+	<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-number">7</span>);
+
+	<span class="hljs-keyword">if</span> (codepoint &lt; <span class="hljs-number">0x0080</span>) {
+		out[<span class="hljs-number">0</span>] = (<span class="hljs-keyword">char</span>)codepoint;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (codepoint &lt; <span class="hljs-number">0x0800</span>) {
+		out[<span class="hljs-number">0</span>] = <span class="hljs-number">0xC0</span> | (codepoint &gt;&gt; <span class="hljs-number">6</span>);
+		out[<span class="hljs-number">1</span>] = <span class="hljs-number">0x80</span> | (codepoint &amp; <span class="hljs-number">0x3F</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (codepoint &lt; <span class="hljs-number">0x10000</span>) {
+		out[<span class="hljs-number">0</span>] = <span class="hljs-number">0xE0</span> | (codepoint &gt;&gt; <span class="hljs-number">12</span>);
+		out[<span class="hljs-number">1</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">6</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">2</span>] = <span class="hljs-number">0x80</span> | (codepoint &amp; <span class="hljs-number">0x3F</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (codepoint &lt; <span class="hljs-number">0x200000</span>) {
+		out[<span class="hljs-number">0</span>] = <span class="hljs-number">0xF0</span> | (codepoint &gt;&gt; <span class="hljs-number">18</span>);
+		out[<span class="hljs-number">1</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">12</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">2</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">6</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">3</span>] = <span class="hljs-number">0x80</span> | ((codepoint) &amp; <span class="hljs-number">0x3F</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (codepoint &lt; <span class="hljs-number">0x4000000</span>) {
+		out[<span class="hljs-number">0</span>] = <span class="hljs-number">0xF8</span> | (codepoint &gt;&gt; <span class="hljs-number">24</span>);
+		out[<span class="hljs-number">1</span>] = <span class="hljs-number">0x80</span> | (codepoint &gt;&gt; <span class="hljs-number">18</span>);
+		out[<span class="hljs-number">2</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">12</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">3</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">6</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">4</span>] = <span class="hljs-number">0x80</span> | ((codepoint) &amp; <span class="hljs-number">0x3F</span>);
+	} <span class="hljs-keyword">else</span> {
+		out[<span class="hljs-number">0</span>] = <span class="hljs-number">0xF8</span> | (codepoint &gt;&gt; <span class="hljs-number">30</span>);
+		out[<span class="hljs-number">1</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">24</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">2</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">18</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">3</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">12</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">4</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">6</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">5</span>] = <span class="hljs-number">0x80</span> | ((codepoint) &amp; <span class="hljs-number">0x3F</span>);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">strlen</span>(out);
+}
+
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _ansi_put(<span class="hljs-keyword">term_state_t</span> * s, <span class="hljs-keyword">char</span> c) {
+	<span class="hljs-keyword">term_callbacks_t</span> * callbacks = s-&gt;callbacks;
+	<span class="hljs-keyword">switch</span> (s-&gt;escape) {
+		<span class="hljs-keyword">case</span> <span class="hljs-number">0</span>:
+			<span class="hljs-comment">/* We are not escaped, check for escape character */</span>
+			<span class="hljs-keyword">if</span> (c == ANSI_ESCAPE) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Enable escape mode, setup a buffer,
+fill the buffer, get out of here.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				s-&gt;escape    = <span class="hljs-number">1</span>;
+				s-&gt;buflen    = <span class="hljs-number">0</span>;
+				ansi_buf_add(s, c);
+				<span class="hljs-keyword">return</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (c == <span class="hljs-number">0</span>) {
+				<span class="hljs-keyword">return</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">if</span> (s-&gt;box &amp;&amp; c &gt;= <span class="hljs-string">'a'</span> &amp;&amp; c &lt;= <span class="hljs-string">'z'</span>) {
+					<span class="hljs-keyword">char</span> buf[<span class="hljs-number">7</span>];
+					<span class="hljs-keyword">char</span> *w = (<span class="hljs-keyword">char</span> *)&amp;buf;
+					termemu_to_eight(box_chars[c-<span class="hljs-string">'a'</span>], w);
+					<span class="hljs-keyword">while</span> (*w) {
+						term_write(s, *w);
+						w++;
+					}
+				} <span class="hljs-keyword">else</span> {
+					term_write(s, c);
+				}
+			}
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">1</span>:
+			<span class="hljs-comment">/* We're ready for [ */</span>
+			<span class="hljs-keyword">if</span> (c == ANSI_BRACKET) {
+				s-&gt;escape = <span class="hljs-number">2</span>;
+				ansi_buf_add(s, c);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (c == ANSI_BRACKET_RIGHT) {
+				s-&gt;escape = <span class="hljs-number">3</span>;
+				ansi_buf_add(s, c);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (c == ANSI_OPEN_PAREN) {
+				s-&gt;escape = <span class="hljs-number">4</span>;
+				ansi_buf_add(s, c);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (c == <span class="hljs-string">'T'</span>) {
+				s-&gt;escape = <span class="hljs-number">5</span>;
+				ansi_buf_add(s, c);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (c == <span class="hljs-string">'7'</span>) {
+				s-&gt;escape = <span class="hljs-number">0</span>;
+				s-&gt;buflen = <span class="hljs-number">0</span>;
+				s-&gt;save_x = s-&gt;x;
+				s-&gt;save_y = s-&gt;y;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (c == <span class="hljs-string">'8'</span>) {
+				s-&gt;escape = <span class="hljs-number">0</span>;
+				s-&gt;buflen = <span class="hljs-number">0</span>;
+				term_set_csr(s, s-&gt;save_x, s-&gt;save_y);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (c == <span class="hljs-string">'c'</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>&quot;Full reset&quot;
+First, reset anything we own. Then call a callback
+to inform the app to reset things it owns (buffers, cursors).</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				termemu_full_reset(s);
+			} <span class="hljs-keyword">else</span> {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>This isn't a bracket, we're not actually escaped!
+Get out of here!</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				ansi_dump_buffer(s);
+				term_write(s, c);
+				s-&gt;escape = <span class="hljs-number">0</span>;
+				s-&gt;buflen = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">return</span>;
+			}
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">2</span>:
+			<span class="hljs-keyword">if</span> (c &gt;= ANSI_LOW &amp;&amp; c &lt;= ANSI_HIGH) {
+				<span class="hljs-comment">/* Woah, woah, let's see here. */</span>
+				<span class="hljs-keyword">char</span> * pch;  <span class="hljs-comment">/* tokenizer pointer */</span>
+				<span class="hljs-keyword">char</span> * save; <span class="hljs-comment">/* strtok_r pointer */</span>
+				<span class="hljs-keyword">char</span> * argv[MAX_ARGS]; <span class="hljs-comment">/* escape arguments */</span>
+				<span class="hljs-comment">/* Get rid of the front of the buffer */</span>
+				strtok_r(s-&gt;<span class="hljs-built_in">buffer</span>,<span class="hljs-string">"["</span>,&amp;save);
+				pch = strtok_r(<span class="hljs-literal">NULL</span>,<span class="hljs-string">";"</span>,&amp;save);
+				<span class="hljs-comment">/* argc = Number of arguments, obviously */</span>
+				<span class="hljs-keyword">int</span> argc = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">while</span> (pch != <span class="hljs-literal">NULL</span>) {
+					argv[argc] = (<span class="hljs-keyword">char</span> *)pch;
+					++argc;
+					<span class="hljs-keyword">if</span> (argc &gt; MAX_ARGS)
+						<span class="hljs-keyword">break</span>;
+					pch = strtok_r(<span class="hljs-literal">NULL</span>,<span class="hljs-string">";"</span>,&amp;save);
+				}
+				<span class="hljs-comment">/* Alright, let's do this */</span>
+				<span class="hljs-keyword">switch</span> (c) {
+					<span class="hljs-keyword">case</span> ANSI_EXT_IOCTL:
+						{
+							<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">0</span>) {
+								<span class="hljs-keyword">int</span> arg = atoi(argv[<span class="hljs-number">0</span>]);
+								<span class="hljs-keyword">switch</span> (arg) {
+									<span class="hljs-keyword">case</span> <span class="hljs-number">1</span>:
+										term_draw_cursor(s);
+										<span class="hljs-keyword">break</span>;
+									<span class="hljs-keyword">default</span>:
+										<span class="hljs-keyword">break</span>;
+								}
+							}
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> ANSI_SCP:
+						s-&gt;save_x = s-&gt;x;
+						s-&gt;save_y = s-&gt;y;
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> ANSI_RCP:
+						{
+							term_set_csr(s, s-&gt;save_x, s-&gt;save_y);
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> ANSI_SGR:
+						<span class="hljs-comment">/* Set Graphics Rendition */</span>
+						<span class="hljs-keyword">if</span> (argc == <span class="hljs-number">0</span>) {
+							<span class="hljs-comment">/* Default = 0 */</span>
+							argv[<span class="hljs-number">0</span>] = <span class="hljs-string">"0"</span>;
+							argc    = <span class="hljs-number">1</span>;
+						}
+						<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; argc; ++i) {
+							<span class="hljs-keyword">int</span> arg = atoi(argv[i]);
+							<span class="hljs-keyword">if</span> (arg &gt;= <span class="hljs-number">100</span> &amp;&amp; arg &lt; <span class="hljs-number">110</span>) {
+								<span class="hljs-comment">/* Bright background */</span>
+								s-&gt;bg = <span class="hljs-number">8</span> + (arg - <span class="hljs-number">100</span>);
+								s-&gt;flags |= ANSI_SPECBG;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (arg &gt;= <span class="hljs-number">90</span> &amp;&amp; arg &lt; <span class="hljs-number">100</span>) {
+								<span class="hljs-comment">/* Bright foreground */</span>
+								s-&gt;fg = <span class="hljs-number">8</span> + (arg - <span class="hljs-number">90</span>);
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (arg &gt;= <span class="hljs-number">40</span> &amp;&amp; arg &lt; <span class="hljs-number">49</span>) {
+								<span class="hljs-comment">/* Set background */</span>
+								s-&gt;bg = arg - <span class="hljs-number">40</span>;
+								s-&gt;flags |= ANSI_SPECBG;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (arg == <span class="hljs-number">49</span>) {
+								s-&gt;bg = TERM_DEFAULT_BG;
+								s-&gt;flags &amp;= ~ANSI_SPECBG;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (arg &gt;= <span class="hljs-number">30</span> &amp;&amp; arg &lt; <span class="hljs-number">39</span>) {
+								<span class="hljs-comment">/* Set Foreground */</span>
+								s-&gt;fg = arg - <span class="hljs-number">30</span>;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (arg == <span class="hljs-number">39</span>) {
+								<span class="hljs-comment">/* Default Foreground */</span>
+								s-&gt;fg = <span class="hljs-number">7</span>;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (arg == <span class="hljs-number">24</span>) {
+								<span class="hljs-comment">/* Underline off */</span>
+								s-&gt;flags &amp;= ~ANSI_UNDERLINE;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (arg == <span class="hljs-number">23</span>) {
+								<span class="hljs-comment">/* Oblique off */</span>
+								s-&gt;flags &amp;= ~ANSI_ITALIC;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (arg == <span class="hljs-number">21</span> || arg == <span class="hljs-number">22</span>) {
+								<span class="hljs-comment">/* Bold off */</span>
+								s-&gt;flags &amp;= ~ANSI_BOLD;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (arg == <span class="hljs-number">9</span>) {
+								<span class="hljs-comment">/* X-OUT */</span>
+								s-&gt;flags |= ANSI_CROSS;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (arg == <span class="hljs-number">29</span>) {
+								<span class="hljs-comment">/* not X-OUT */</span>
+								s-&gt;flags &amp;= ~ANSI_CROSS;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (arg == <span class="hljs-number">7</span>) {
+								<span class="hljs-comment">/* INVERT: Swap foreground / background */</span>
+								s-&gt;flags |= ANSI_INVERT;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (arg == <span class="hljs-number">27</span>) {
+								s-&gt;flags &amp;= ~ANSI_INVERT;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (arg == <span class="hljs-number">6</span>) {
+								<span class="hljs-comment">/* proprietary RGBA color support */</span>
+								<span class="hljs-keyword">if</span> (i == <span class="hljs-number">0</span>) { <span class="hljs-keyword">break</span>; }
+								<span class="hljs-keyword">if</span> (i &lt; argc) {
+									<span class="hljs-keyword">int</span> r = atoi(argv[i+<span class="hljs-number">1</span>]);
+									<span class="hljs-keyword">int</span> g = atoi(argv[i+<span class="hljs-number">2</span>]);
+									<span class="hljs-keyword">int</span> b = atoi(argv[i+<span class="hljs-number">3</span>]);
+									<span class="hljs-keyword">int</span> a = atoi(argv[i+<span class="hljs-number">4</span>]);
+									<span class="hljs-keyword">if</span> (a == <span class="hljs-number">0</span>) a = <span class="hljs-number">1</span>; <span class="hljs-comment">/* Override a = 0 */</span>
+									<span class="hljs-keyword">uint32_t</span> c = rgba(r,g,b,a);
+									<span class="hljs-keyword">if</span> (atoi(argv[i<span class="hljs-number">-1</span>]) == <span class="hljs-number">48</span>) {
+										s-&gt;bg = c;
+										s-&gt;flags |= ANSI_SPECBG;
+									} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (atoi(argv[i<span class="hljs-number">-1</span>]) == <span class="hljs-number">38</span>) {
+										s-&gt;fg = c;
+									}
+									i += <span class="hljs-number">4</span>;
+								}
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (arg == <span class="hljs-number">5</span>) {
+								<span class="hljs-comment">/* Supposed to be blink; instead, support X-term 256 colors */</span>
+								<span class="hljs-keyword">if</span> (i == <span class="hljs-number">0</span>) { <span class="hljs-keyword">break</span>; }
+								<span class="hljs-keyword">if</span> (i &lt; argc) {
+									<span class="hljs-keyword">if</span> (atoi(argv[i<span class="hljs-number">-1</span>]) == <span class="hljs-number">48</span>) {
+										<span class="hljs-comment">/* Background to i+1 */</span>
+										s-&gt;bg = atoi(argv[i+<span class="hljs-number">1</span>]);
+										s-&gt;flags |= ANSI_SPECBG;
+									} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (atoi(argv[i<span class="hljs-number">-1</span>]) == <span class="hljs-number">38</span>) {
+										<span class="hljs-comment">/* Foreground to i+1 */</span>
+										s-&gt;fg = atoi(argv[i+<span class="hljs-number">1</span>]);
+									}
+									++i;
+								}
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (arg == <span class="hljs-number">4</span>) {
+								<span class="hljs-comment">/* UNDERLINE */</span>
+								s-&gt;flags |= ANSI_UNDERLINE;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (arg == <span class="hljs-number">3</span>) {
+								<span class="hljs-comment">/* ITALIC: Oblique */</span>
+								s-&gt;flags |= ANSI_ITALIC;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (arg == <span class="hljs-number">2</span>) {
+								<span class="hljs-comment">/* Konsole RGB color support */</span>
+								<span class="hljs-keyword">if</span> (i == <span class="hljs-number">0</span>) { <span class="hljs-keyword">break</span>; }
+								<span class="hljs-keyword">if</span> (i &lt; argc - <span class="hljs-number">2</span>) {
+									<span class="hljs-keyword">int</span> r = atoi(argv[i+<span class="hljs-number">1</span>]);
+									<span class="hljs-keyword">int</span> g = atoi(argv[i+<span class="hljs-number">2</span>]);
+									<span class="hljs-keyword">int</span> b = atoi(argv[i+<span class="hljs-number">3</span>]);
+									<span class="hljs-keyword">uint32_t</span> c = rgb(r,g,b);
+									<span class="hljs-keyword">if</span> (atoi(argv[i<span class="hljs-number">-1</span>]) == <span class="hljs-number">48</span>) {
+										<span class="hljs-comment">/* Background to i+1 */</span>
+										s-&gt;bg = c;
+										s-&gt;flags |= ANSI_SPECBG;
+									} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (atoi(argv[i<span class="hljs-number">-1</span>]) == <span class="hljs-number">38</span>) {
+										<span class="hljs-comment">/* Foreground to i+1 */</span>
+										s-&gt;fg = c;
+									}
+									i += <span class="hljs-number">3</span>;
+								}
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (arg == <span class="hljs-number">1</span>) {
+								<span class="hljs-comment">/* BOLD/BRIGHT: Brighten the output color */</span>
+								s-&gt;flags |= ANSI_BOLD;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (arg == <span class="hljs-number">0</span>) {
+								<span class="hljs-comment">/* Reset everything */</span>
+								s-&gt;fg = TERM_DEFAULT_FG;
+								s-&gt;bg = TERM_DEFAULT_BG;
+								s-&gt;flags = TERM_DEFAULT_FLAGS;
+							}
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> ANSI_SHOW:
+						<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">0</span>) {
+							<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>], <span class="hljs-string">"?1049"</span>)) {
+								termemu_switch_buffer(s, <span class="hljs-number">1</span>);
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>], <span class="hljs-string">"?1000"</span>)) {
+								s-&gt;mouse_on |= TERMEMU_MOUSE_ENABLE;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>], <span class="hljs-string">"?1002"</span>)) {
+								s-&gt;mouse_on |= TERMEMU_MOUSE_DRAG;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>], <span class="hljs-string">"?1006"</span>)) {
+								s-&gt;mouse_on |= TERMEMU_MOUSE_SGR;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>], <span class="hljs-string">"?1007"</span>)) {
+								s-&gt;mouse_on |= TERMEMU_MOUSE_ALTSCRL;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>], <span class="hljs-string">"?25"</span>)) {
+								term_set_csr_show(s, <span class="hljs-number">1</span>);
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>], <span class="hljs-string">"?2004"</span>)) {
+								s-&gt;paste_mode = <span class="hljs-number">1</span>;
+							}
+							<span class="hljs-keyword">if</span> (callbacks-&gt;state_change) callbacks-&gt;state_change(s);
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> ANSI_HIDE:
+						<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">0</span>) {
+							<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>], <span class="hljs-string">"?1049"</span>)) {
+								termemu_switch_buffer(s, <span class="hljs-number">0</span>);
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>], <span class="hljs-string">"?1000"</span>)) {
+								s-&gt;mouse_on &amp;= ~TERMEMU_MOUSE_ENABLE;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>], <span class="hljs-string">"?1002"</span>)) {
+								s-&gt;mouse_on &amp;= ~TERMEMU_MOUSE_DRAG;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>],<span class="hljs-string">"?1006"</span>)) {
+								s-&gt;mouse_on &amp;= ~TERMEMU_MOUSE_SGR;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>], <span class="hljs-string">"?1007"</span>)) {
+								s-&gt;mouse_on &amp;= ~TERMEMU_MOUSE_ALTSCRL;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>], <span class="hljs-string">"?25"</span>)) {
+								term_set_csr_show(s, <span class="hljs-number">0</span>);
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>], <span class="hljs-string">"?2004"</span>)) {
+								s-&gt;paste_mode = <span class="hljs-number">0</span>;
+							}
+							<span class="hljs-keyword">if</span> (callbacks-&gt;state_change) callbacks-&gt;state_change(s);
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> ANSI_CUF:
+						{
+							<span class="hljs-keyword">int</span> i = argc ? atoi(argv[<span class="hljs-number">0</span>]) : <span class="hljs-number">1</span>;
+							term_set_csr(s, <span class="hljs-built_in">min</span>(s-&gt;x + i, s-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">1</span>), s-&gt;y);
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> ANSI_CUU:
+						{
+							<span class="hljs-keyword">int</span> i = argc ? atoi(argv[<span class="hljs-number">0</span>]) : <span class="hljs-number">1</span>;
+							term_set_csr(s, s-&gt;x, <span class="hljs-built_in">max</span>(s-&gt;y - i, <span class="hljs-number">0</span>));
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> ANSI_CUD:
+						{
+							<span class="hljs-keyword">int</span> i = argc ? atoi(argv[<span class="hljs-number">0</span>]) : <span class="hljs-number">1</span>;
+							term_set_csr(s, s-&gt;x, <span class="hljs-built_in">min</span>(s-&gt;y + i, s-&gt;<span class="hljs-built_in">height</span> - <span class="hljs-number">1</span>));
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> ANSI_CUB:
+						{
+							<span class="hljs-keyword">int</span> i = argc ? atoi(argv[<span class="hljs-number">0</span>]) : <span class="hljs-number">1</span>;
+							term_set_csr(s, <span class="hljs-built_in">max</span>(s-&gt;x - i,<span class="hljs-number">0</span>), s-&gt;y);
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> ANSI_CHA:
+						<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">1</span>) {
+							term_set_csr(s, <span class="hljs-number">0</span>, s-&gt;y);
+						} <span class="hljs-keyword">else</span> {
+							term_set_csr(s, <span class="hljs-built_in">min</span>(<span class="hljs-built_in">max</span>(atoi(argv[<span class="hljs-number">0</span>]), <span class="hljs-number">1</span>), s-&gt;<span class="hljs-built_in">width</span>) - <span class="hljs-number">1</span>, s-&gt;y);
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> ANSI_CUP:
+						<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">2</span>) {
+							term_set_csr(s, <span class="hljs-number">0</span>,<span class="hljs-number">0</span>);
+						} <span class="hljs-keyword">else</span> {
+							term_set_csr(s, <span class="hljs-built_in">min</span>(<span class="hljs-built_in">max</span>(atoi(argv[<span class="hljs-number">1</span>]), <span class="hljs-number">1</span>), s-&gt;<span class="hljs-built_in">width</span>) - <span class="hljs-number">1</span>, <span class="hljs-built_in">min</span>(<span class="hljs-built_in">max</span>(atoi(argv[<span class="hljs-number">0</span>]), <span class="hljs-number">1</span>), s-&gt;<span class="hljs-built_in">height</span>) - <span class="hljs-number">1</span>);
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> ANSI_ED:
+						termemu_clear(s, argc &lt; <span class="hljs-number">1</span> ? <span class="hljs-number">0</span> : atoi(argv[<span class="hljs-number">0</span>]));
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> ANSI_EL:
+						{
+							<span class="hljs-keyword">int</span> what = <span class="hljs-number">0</span>, x = <span class="hljs-number">0</span>, y = <span class="hljs-number">0</span>;
+							<span class="hljs-keyword">if</span> (argc &gt;= <span class="hljs-number">1</span>) {
+								what = atoi(argv[<span class="hljs-number">0</span>]);
+							}
+							<span class="hljs-keyword">if</span> (what == <span class="hljs-number">0</span>) {
+								x = s-&gt;x;
+								y = s-&gt;<span class="hljs-built_in">width</span>;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (what == <span class="hljs-number">1</span>) {
+								x = <span class="hljs-number">0</span>;
+								y = s-&gt;x;
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (what == <span class="hljs-number">2</span>) {
+								x = <span class="hljs-number">0</span>;
+								y = s-&gt;<span class="hljs-built_in">width</span>;
+							}
+							<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = x; i &lt; y; ++i) {
+								term_set_cell(s, i, s-&gt;y, <span class="hljs-string">' '</span>);
+							}
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> ANSI_DSR:
+						{
+							<span class="hljs-keyword">char</span> out[<span class="hljs-number">27</span>];
+							<span class="hljs-built_in">sprintf</span>(out, <span class="hljs-string">"\033[%d;%dR"</span>, s-&gt;y + <span class="hljs-number">1</span>, s-&gt;x + <span class="hljs-number">1</span>);
+							callbacks-&gt;input_buffer_stuff(s, out);
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> ANSI_SU:
+						term_scroll(s, argc ? atoi(argv[<span class="hljs-number">0</span>]) : <span class="hljs-number">1</span>);
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> ANSI_SD:
+						term_scroll(s, -(argc ? atoi(argv[<span class="hljs-number">0</span>]) : <span class="hljs-number">1</span>));
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> ANSI_IL:
+						term_insert_delete_lines(s, argc ? atoi(argv[<span class="hljs-number">0</span>]) : <span class="hljs-number">1</span>);
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> ANSI_DL:
+						term_insert_delete_lines(s, -(argc ? atoi(argv[<span class="hljs-number">0</span>]) : <span class="hljs-number">1</span>));
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> <span class="hljs-string">'X'</span>:
+						{
+							<span class="hljs-keyword">int</span> how_many = argc ? atoi(argv[<span class="hljs-number">0</span>]) : <span class="hljs-number">1</span>;
+							<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; how_many; ++i) {
+								term_write(s, <span class="hljs-string">' '</span>);
+							}
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> <span class="hljs-string">'d'</span>:
+						term_set_csr(s, s-&gt;x, argc &lt; <span class="hljs-number">1</span> ? <span class="hljs-number">0</span> : (atoi(argv[<span class="hljs-number">0</span>]) - <span class="hljs-number">1</span>));
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">default</span>:
+						<span class="hljs-comment">/* Meh */</span>
+						<span class="hljs-keyword">break</span>;
+				}
+				<span class="hljs-comment">/* Set the states */</span>
+				term_set_colors(s, (s-&gt;flags &amp; ANSI_BOLD &amp;&amp; s-&gt;fg &lt; <span class="hljs-number">9</span>) ? (s-&gt;fg % <span class="hljs-number">8</span> + <span class="hljs-number">8</span>) : s-&gt;fg, s-&gt;bg);
+				<span class="hljs-comment">/* Clear out the buffer */</span>
+				s-&gt;buflen = <span class="hljs-number">0</span>;
+				s-&gt;escape = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">return</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-comment">/* Still escaped */</span>
+				ansi_buf_add(s, c);
+			}
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">3</span>:
+			<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'\007'</span>) {
+				<span class="hljs-comment">/* Tokenize on semicolons, like we always do */</span>
+				<span class="hljs-keyword">char</span> * pch;  <span class="hljs-comment">/* tokenizer pointer */</span>
+				<span class="hljs-keyword">char</span> * save; <span class="hljs-comment">/* strtok_r pointer */</span>
+				<span class="hljs-keyword">char</span> * argv[MAX_ARGS]; <span class="hljs-comment">/* escape arguments */</span>
+				<span class="hljs-comment">/* Get rid of the front of the buffer */</span>
+				strtok_r(s-&gt;<span class="hljs-built_in">buffer</span>,<span class="hljs-string">"]"</span>,&amp;save);
+				pch = strtok_r(<span class="hljs-literal">NULL</span>,<span class="hljs-string">";"</span>,&amp;save);
+				<span class="hljs-comment">/* argc = Number of arguments, obviously */</span>
+				<span class="hljs-keyword">int</span> argc = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">while</span> (pch != <span class="hljs-literal">NULL</span>) {
+					argv[argc] = (<span class="hljs-keyword">char</span> *)pch;
+					++argc;
+					<span class="hljs-keyword">if</span> (argc &gt; MAX_ARGS) <span class="hljs-keyword">break</span>;
+					pch = strtok_r(<span class="hljs-literal">NULL</span>,<span class="hljs-string">";"</span>,&amp;save);
+				}
+				<span class="hljs-comment">/* Start testing the first argument for what command to use */</span>
+				<span class="hljs-keyword">if</span> (argc &amp;&amp; argv[<span class="hljs-number">0</span>]) {
+					<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>], <span class="hljs-string">"0"</span>) || !<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>], <span class="hljs-string">"2"</span>)) {
+						<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span> &amp;&amp; callbacks-&gt;set_title) callbacks-&gt;set_title(s, argv[<span class="hljs-number">1</span>]);
+					} <span class="hljs-comment">/* Currently, no other options */</span>
+				}
+				<span class="hljs-comment">/* Clear out the buffer */</span>
+				s-&gt;buflen = <span class="hljs-number">0</span>;
+				s-&gt;escape = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">return</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-comment">/* Still escaped */</span>
+				<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'\n'</span> || s-&gt;buflen == <span class="hljs-number">255</span>) {
+					ansi_dump_buffer(s);
+					term_write(s, c);
+					s-&gt;buflen = <span class="hljs-number">0</span>;
+					s-&gt;escape = <span class="hljs-number">0</span>;
+					<span class="hljs-keyword">return</span>;
+				}
+				ansi_buf_add(s, c);
+			}
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">4</span>:
+			<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'0'</span>) {
+				s-&gt;box = <span class="hljs-number">1</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (c == <span class="hljs-string">'B'</span>) {
+				s-&gt;box = <span class="hljs-number">0</span>;
+			} <span class="hljs-keyword">else</span> {
+				ansi_dump_buffer(s);
+				term_write(s, c);
+			}
+			s-&gt;escape = <span class="hljs-number">0</span>;
+			s-&gt;buflen = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">5</span>:
+			<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'q'</span>) {
+				<span class="hljs-keyword">char</span> out[<span class="hljs-number">24</span>];
+				<span class="hljs-built_in">sprintf</span>(out, <span class="hljs-string">"\033T%d;%dq"</span>, callbacks-&gt;get_cell_width(s), callbacks-&gt;get_cell_height(s));
+				callbacks-&gt;input_buffer_stuff(s, out);
+				s-&gt;escape = <span class="hljs-number">0</span>;
+				s-&gt;buflen = <span class="hljs-number">0</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (c == <span class="hljs-string">'s'</span>) {
+				s-&gt;img_collected = <span class="hljs-number">0</span>;
+				s-&gt;escape = <span class="hljs-number">6</span>;
+				s-&gt;img_size = <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>) * callbacks-&gt;get_cell_width(s) * callbacks-&gt;get_cell_height(s);
+				<span class="hljs-keyword">if</span> (!s-&gt;img_data) {
+					s-&gt;img_data = <span class="hljs-built_in">malloc</span>(s-&gt;img_size);
+				}
+				<span class="hljs-built_in">memset</span>(s-&gt;img_data, <span class="hljs-number">0x00</span>, s-&gt;img_size);
+			} <span class="hljs-keyword">else</span> {
+				ansi_dump_buffer(s);
+				term_write(s, c);
+				s-&gt;escape = <span class="hljs-number">0</span>;
+				s-&gt;buflen = <span class="hljs-number">0</span>;
+			}
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">6</span>:
+			s-&gt;img_data[s-&gt;img_collected++] = c;
+			<span class="hljs-keyword">if</span> (s-&gt;img_collected == s-&gt;img_size) {
+				<span class="hljs-keyword">if</span> (callbacks-&gt;set_cell_contents) callbacks-&gt;set_cell_contents(s, s-&gt;x, s-&gt;y, s-&gt;img_data);
+				term_set_csr(s, <span class="hljs-built_in">min</span>(s-&gt;x + <span class="hljs-number">1</span>, s-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">1</span>), s-&gt;y);
+				s-&gt;escape = <span class="hljs-number">0</span>;
+				s-&gt;buflen = <span class="hljs-number">0</span>;
+			}
+			<span class="hljs-keyword">break</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_put</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * s, <span class="hljs-keyword">char</span> c)</span> </span>{
+	spin_lock(&amp;s-&gt;lock);
+	_ansi_put(s, c);
+	spin_unlock(&amp;s-&gt;lock);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">term_state_t</span> * <span class="hljs-title">termemu_init</span><span class="hljs-params">(<span class="hljs-keyword">int</span> w, <span class="hljs-keyword">int</span> h, <span class="hljs-keyword">int</span> max_scrollback, <span class="hljs-keyword">term_callbacks_t</span> * callbacks_in)</span> </span>{
+	<span class="hljs-keyword">term_state_t</span> * s = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_state_t</span>));
+
+	<span class="hljs-comment">/* Terminal Defaults */</span>
+	s-&gt;fg     = TERM_DEFAULT_FG;    <span class="hljs-comment">/* Light grey */</span>
+	s-&gt;bg     = TERM_DEFAULT_BG;    <span class="hljs-comment">/* Black */</span>
+	s-&gt;flags  = TERM_DEFAULT_FLAGS; <span class="hljs-comment">/* Nothing fancy*/</span>
+	s-&gt;<span class="hljs-built_in">width</span>  = w;
+	s-&gt;<span class="hljs-built_in">height</span> = h;
+	s-&gt;box    = <span class="hljs-number">0</span>;
+	s-&gt;callbacks = callbacks_in;
+	term_set_colors(s, s-&gt;fg, s-&gt;bg);
+	s-&gt;mouse_on = <span class="hljs-number">0</span>;
+
+	s-&gt;term_buffer_a = <span class="hljs-built_in">calloc</span>(w * h, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_cell_t</span>));
+	s-&gt;term_buffer_b = <span class="hljs-built_in">calloc</span>(w * h, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_cell_t</span>));
+	s-&gt;term_mirror   = <span class="hljs-built_in">calloc</span>(w * h, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_cell_t</span>));
+	s-&gt;term_display  = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_cell_t</span>) * w * h);
+	<span class="hljs-built_in">memset</span>(s-&gt;term_display, <span class="hljs-number">0xFF</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_cell_t</span>) * w * h);
+	s-&gt;term_buffer = s-&gt;term_buffer_a;
+	s-&gt;cursor_on = <span class="hljs-number">1</span>;
+	s-&gt;focused = <span class="hljs-number">1</span>;
+	s-&gt;max_scrollback = max_scrollback;
+	s-&gt;scrollback_list = list_create();
+	s-&gt;scrollback_offset = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">return</span> s;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_free</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state)</span> </span>{
+	<span class="hljs-built_in">free</span>(state-&gt;term_buffer_a);
+	<span class="hljs-built_in">free</span>(state-&gt;term_buffer_b);
+	<span class="hljs-built_in">free</span>(state-&gt;term_mirror);
+	<span class="hljs-built_in">free</span>(state-&gt;term_display);
+	list_destroy(state-&gt;scrollback_list);
+	list_free(state-&gt;scrollback_list);
+	<span class="hljs-built_in">free</span>(state-&gt;scrollback_list);
+
+	<span class="hljs-keyword">if</span> (state-&gt;img_data) <span class="hljs-built_in">free</span>(state-&gt;img_data);
+
+	<span class="hljs-built_in">free</span>(state);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">term_cell_t</span> * <span class="hljs-title">copy_terminal</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> new_width, <span class="hljs-keyword">int</span> new_height, <span class="hljs-keyword">int</span> old_width, <span class="hljs-keyword">int</span> old_height, <span class="hljs-keyword">term_cell_t</span> * term_buffer)</span> </span>{
+	<span class="hljs-keyword">term_cell_t</span> * new_term_buffer = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_cell_t</span>) * new_width * new_height);
+
+	<span class="hljs-built_in">memset</span>(new_term_buffer, <span class="hljs-number">0x0</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_cell_t</span>) * new_width * new_height);
+
+	<span class="hljs-keyword">int</span> offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (state-&gt;<span class="hljs-built_in">height</span> &lt; old_height) {
+		<span class="hljs-keyword">while</span> (state-&gt;y &gt;= state-&gt;<span class="hljs-built_in">height</span>) {
+			offset++;
+			old_height--;
+			state-&gt;y--;
+		}
+	}
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> row = <span class="hljs-number">0</span>; row &lt; <span class="hljs-built_in">min</span>(old_height, new_height); ++row) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> col = <span class="hljs-number">0</span>; col &lt; <span class="hljs-built_in">min</span>(old_width, new_width); ++col) {
+			<span class="hljs-keyword">term_cell_t</span> * old_cell = &amp;term_buffer[(row+offset) * old_width + col];
+			<span class="hljs-keyword">term_cell_t</span> * new_cell = &amp;new_term_buffer[row * new_width + col];
+			*new_cell = *old_cell;
+		}
+	}
+	<span class="hljs-keyword">if</span> (state-&gt;x &gt;= new_width) {
+		state-&gt;x = new_width<span class="hljs-number">-1</span>;
+	}
+
+	<span class="hljs-keyword">return</span> new_term_buffer;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">termemu_reinit</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> w, <span class="hljs-keyword">int</span> h)</span> </span>{
+	<span class="hljs-keyword">term_cell_t</span> * new_a = copy_terminal(state, w, h, state-&gt;<span class="hljs-built_in">width</span>, state-&gt;<span class="hljs-built_in">height</span>, state-&gt;term_buffer_a);
+	<span class="hljs-keyword">term_cell_t</span> * new_b = copy_terminal(state, w, h, state-&gt;<span class="hljs-built_in">width</span>, state-&gt;<span class="hljs-built_in">height</span>, state-&gt;term_buffer_b);
+	<span class="hljs-built_in">free</span>(state-&gt;term_buffer_a);
+	state-&gt;term_buffer_a = new_a;
+	<span class="hljs-built_in">free</span>(state-&gt;term_buffer_b);
+	state-&gt;term_buffer_b = new_b;
+	state-&gt;term_buffer = (state-&gt;active_buffer == <span class="hljs-number">0</span>) ? new_a : new_b;
+	state-&gt;term_mirror = <span class="hljs-built_in">realloc</span>(state-&gt;term_mirror, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_cell_t</span>) * w * h);
+	<span class="hljs-built_in">memcpy</span>(state-&gt;term_mirror, state-&gt;term_buffer, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_cell_t</span>) * w * h);
+	state-&gt;term_display = <span class="hljs-built_in">realloc</span>(state-&gt;term_display, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_cell_t</span>) * w * h);
+	<span class="hljs-built_in">memset</span>(state-&gt;term_display, <span class="hljs-number">0xFF</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_cell_t</span>) * w * h);
+	state-&gt;<span class="hljs-built_in">width</span> = w;
+	state-&gt;<span class="hljs-built_in">height</span> = h;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-comment">/* Call a function for each selected cell */</span>
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_iterate_selection</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">void</span> (*func)(<span class="hljs-keyword">term_state_t</span> * s, <span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y))</span> </span>{
+	<span class="hljs-keyword">if</span> (!state-&gt;selection) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">if</span> (state-&gt;selection_end_y &lt; state-&gt;selection_start_y) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = state-&gt;selection_end_x; x &lt; state-&gt;<span class="hljs-built_in">width</span>; ++x) {
+			func(state, x, state-&gt;selection_end_y);
+		}
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> y = state-&gt;selection_end_y + <span class="hljs-number">1</span>; y &lt; state-&gt;selection_start_y; ++y) {
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; state-&gt;<span class="hljs-built_in">width</span>; ++x) {
+				func(state, x, y);
+			}
+		}
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt;= state-&gt;selection_start_xx; ++x) {
+			func(state, x, state-&gt;selection_start_y);
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (state-&gt;selection_start_y == state-&gt;selection_end_y) {
+		<span class="hljs-keyword">if</span> (state-&gt;selection_start_x &gt; state-&gt;selection_end_x) {
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = state-&gt;selection_end_x; x &lt;= state-&gt;selection_start_xx; ++x) {
+				func(state, x, state-&gt;selection_start_y);
+			}
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = state-&gt;selection_start_x; x &lt;= state-&gt;selection_end_x || x &lt;= state-&gt;selection_start_xx; ++x) {
+				func(state, x, state-&gt;selection_start_y);
+			}
+		}
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = state-&gt;selection_start_x; x &lt; state-&gt;<span class="hljs-built_in">width</span>; ++x) {
+			func(state, x, state-&gt;selection_start_y);
+		}
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> y = state-&gt;selection_start_y + <span class="hljs-number">1</span>; y &lt; state-&gt;selection_end_y; ++y) {
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; state-&gt;<span class="hljs-built_in">width</span>; ++x) {
+				func(state, x, y);
+			}
+		}
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt;= state-&gt;selection_end_x; ++x) {
+			func(state, x, state-&gt;selection_end_y);
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_cell_redraw_offset</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> _y)</span> </span>{
+	<span class="hljs-keyword">int</span> y = _y;
+	<span class="hljs-keyword">int</span> i = y;
+
+	y -= state-&gt;scrollback_offset;
+
+	<span class="hljs-keyword">if</span> (y &gt;= <span class="hljs-number">0</span>) {
+		term_mirror_copy(state, x,i,&amp;state-&gt;term_buffer[y * state-&gt;<span class="hljs-built_in">width</span> + x]);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">node_t</span> * node = state-&gt;scrollback_list-&gt;tail;
+		<span class="hljs-keyword">for</span> (; y &lt; <span class="hljs-number">-1</span>; y++) {
+			<span class="hljs-keyword">if</span> (!node) <span class="hljs-keyword">break</span>;
+			node = node-&gt;prev;
+		}
+		<span class="hljs-keyword">if</span> (node) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TermemuScrollbackRow</span> * <span class="hljs-title">row</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">TermemuScrollbackRow</span> *)<span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+			<span class="hljs-keyword">if</span> (row &amp;&amp; x &lt; row-&gt;<span class="hljs-built_in">width</span>) {
+				term_mirror_copy(state, x,i,&amp;row-&gt;cells[x]);
+			} <span class="hljs-keyword">else</span> {
+				term_mirror_set(state, x,i,<span class="hljs-string">' '</span>,TERM_DEFAULT_FG, TERM_DEFAULT_BG, TERM_DEFAULT_FLAGS);
+			}
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_cell_redraw_offset_inverted</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> _y)</span> </span>{
+	<span class="hljs-keyword">int</span> y = _y;
+	<span class="hljs-keyword">int</span> i = y;
+
+	y -= state-&gt;scrollback_offset;
+
+	<span class="hljs-keyword">if</span> (y &gt;= <span class="hljs-number">0</span>) {
+		term_mirror_copy_inverted(state, x,i,&amp;state-&gt;term_buffer[y * state-&gt;<span class="hljs-built_in">width</span> + x]);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">node_t</span> * node = state-&gt;scrollback_list-&gt;tail;
+		<span class="hljs-keyword">for</span> (; y &lt; <span class="hljs-number">-1</span>; y++) {
+			<span class="hljs-keyword">if</span> (!node) <span class="hljs-keyword">break</span>;
+			node = node-&gt;prev;
+		}
+		<span class="hljs-keyword">if</span> (node) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TermemuScrollbackRow</span> * <span class="hljs-title">row</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">TermemuScrollbackRow</span> *)<span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+			<span class="hljs-keyword">if</span> (row &amp;&amp; x &lt; row-&gt;<span class="hljs-built_in">width</span>) {
+				term_mirror_copy_inverted(state, x,i,&amp;row-&gt;cells[x]);
+			} <span class="hljs-keyword">else</span> {
+				term_mirror_set(state, x, i, <span class="hljs-string">' '</span>, TERM_DEFAULT_BG, TERM_DEFAULT_FG, TERM_DEFAULT_FLAGS|ANSI_SPECBG);
+			}
+		}
+	}
+}
+
+
+<span class="hljs-comment">/* Redraw the selection with the selection hint (inversion) */</span>
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_redraw_selection</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state)</span> </span>{
+	termemu_iterate_selection(state, term_cell_redraw_offset_inverted);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">term_cell_t</span> * <span class="hljs-title">termemu_cell_at</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> _y)</span> </span>{
+	<span class="hljs-keyword">int</span> y = _y;
+	y -= state-&gt;scrollback_offset;
+	<span class="hljs-keyword">if</span> (y &gt;= <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> &amp;state-&gt;term_buffer[y * state-&gt;<span class="hljs-built_in">width</span> + x];
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">node_t</span> * node = state-&gt;scrollback_list-&gt;tail;
+		<span class="hljs-keyword">for</span> (; y &lt; <span class="hljs-number">-1</span>; y++) {
+			<span class="hljs-keyword">if</span> (!node) <span class="hljs-keyword">break</span>;
+			node = node-&gt;prev;
+		}
+		<span class="hljs-keyword">if</span> (node) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TermemuScrollbackRow</span> * <span class="hljs-title">row</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">TermemuScrollbackRow</span> *)<span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+			<span class="hljs-keyword">if</span> (row &amp;&amp; x &lt; row-&gt;<span class="hljs-built_in">width</span>) {
+				<span class="hljs-keyword">return</span> &amp;row-&gt;cells[x];
+			}
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_mark_cell</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y)</span> </span>{
+	<span class="hljs-keyword">term_cell_t</span> * c = termemu_cell_at(state, x,y);
+	<span class="hljs-keyword">if</span> (c) {
+		c-&gt;flags |= ANSI_MARKED;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_mark_selection</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state)</span> </span>{
+	termemu_iterate_selection(state, termemu_mark_cell);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_red_cell</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y)</span> </span>{
+	<span class="hljs-keyword">term_cell_t</span> * c = termemu_cell_at(state, x,y);
+	<span class="hljs-keyword">if</span> (c) {
+		<span class="hljs-keyword">if</span> (c-&gt;flags &amp; ANSI_MARKED) {
+			c-&gt;flags &amp;= ~(ANSI_MARKED);
+		} <span class="hljs-keyword">else</span> {
+			c-&gt;flags |= ANSI_RED;
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_flip_selection</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state)</span> </span>{
+	termemu_iterate_selection(state, termemu_red_cell);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> y = <span class="hljs-number">0</span>; y &lt; state-&gt;<span class="hljs-built_in">height</span>; ++y) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; state-&gt;<span class="hljs-built_in">width</span>; ++x) {
+			<span class="hljs-keyword">term_cell_t</span> * c = termemu_cell_at(state, x,y);
+			<span class="hljs-keyword">if</span> (c) {
+				<span class="hljs-keyword">if</span> (c-&gt;flags &amp; ANSI_MARKED) term_cell_redraw_offset(state,x,y);
+				<span class="hljs-keyword">if</span> (c-&gt;flags &amp; ANSI_RED) term_cell_redraw_offset_inverted(state,x,y);
+				c-&gt;flags &amp;= ~(ANSI_MARKED | ANSI_RED);
+			}
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_redraw_scrollback</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state)</span> </span>{
+	<span class="hljs-keyword">if</span> (!state-&gt;scrollback_offset) {
+		termemu_redraw_all(state);
+		<span class="hljs-keyword">return</span>;
+	}
+	<span class="hljs-keyword">if</span> (state-&gt;scrollback_offset &lt; state-&gt;<span class="hljs-built_in">height</span>) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = state-&gt;scrollback_offset; i &lt; state-&gt;<span class="hljs-built_in">height</span>; i++) {
+			<span class="hljs-keyword">int</span> y = i - state-&gt;scrollback_offset;
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; state-&gt;<span class="hljs-built_in">width</span>; ++x) {
+				term_mirror_copy(state, x,i,&amp;state-&gt;term_buffer[y * state-&gt;<span class="hljs-built_in">width</span> + x]);
+			}
+		}
+
+		<span class="hljs-keyword">node_t</span> * node = state-&gt;scrollback_list-&gt;tail;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; state-&gt;scrollback_offset; ++i) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TermemuScrollbackRow</span> * <span class="hljs-title">row</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">TermemuScrollbackRow</span> *)<span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+
+			<span class="hljs-keyword">int</span> y = state-&gt;scrollback_offset - <span class="hljs-number">1</span> - i;
+			<span class="hljs-keyword">int</span> <span class="hljs-built_in">width</span> = row-&gt;<span class="hljs-built_in">width</span>;
+			<span class="hljs-keyword">if</span> (<span class="hljs-built_in">width</span> &gt; state-&gt;<span class="hljs-built_in">width</span>) {
+				<span class="hljs-built_in">width</span> = state-&gt;<span class="hljs-built_in">width</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = row-&gt;<span class="hljs-built_in">width</span>; x &lt; state-&gt;<span class="hljs-built_in">width</span>; ++x) {
+					term_mirror_set(state, x, y, <span class="hljs-string">' '</span>, TERM_DEFAULT_FG, TERM_DEFAULT_BG, TERM_DEFAULT_FLAGS);
+				}
+			}
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; <span class="hljs-built_in">width</span>; ++x) {
+				term_mirror_copy(state, x,y,&amp;row-&gt;cells[x]);
+			}
+
+			node = node-&gt;prev;
+		}
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">node_t</span> * node = state-&gt;scrollback_list-&gt;tail;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; state-&gt;scrollback_offset - state-&gt;<span class="hljs-built_in">height</span>; ++i) {
+			node = node-&gt;prev;
+		}
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = state-&gt;scrollback_offset - state-&gt;<span class="hljs-built_in">height</span>; i &lt; state-&gt;scrollback_offset; ++i) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TermemuScrollbackRow</span> * <span class="hljs-title">row</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">TermemuScrollbackRow</span> *)<span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+
+			<span class="hljs-keyword">int</span> y = state-&gt;scrollback_offset - <span class="hljs-number">1</span> - i;
+			<span class="hljs-keyword">int</span> <span class="hljs-built_in">width</span> = row-&gt;<span class="hljs-built_in">width</span>;
+			<span class="hljs-keyword">if</span> (<span class="hljs-built_in">width</span> &gt; state-&gt;<span class="hljs-built_in">width</span>) {
+				<span class="hljs-built_in">width</span> = state-&gt;<span class="hljs-built_in">width</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = row-&gt;<span class="hljs-built_in">width</span>; x &lt; state-&gt;<span class="hljs-built_in">width</span>; ++x) {
+					term_mirror_set(state, x, y, <span class="hljs-string">' '</span>, TERM_DEFAULT_FG, TERM_DEFAULT_BG, TERM_DEFAULT_FLAGS);
+				}
+			}
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; <span class="hljs-built_in">width</span>; ++x) {
+				term_mirror_copy(state, x,y,&amp;row-&gt;cells[x]);
+			}
+
+			node = node-&gt;prev;
+		}
+	}
+}
+
+
+<span class="hljs-comment">/* Scroll the view up (scrollback) */</span>
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_scroll_up</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> amount)</span> </span>{
+	<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (i &lt; amount &amp;&amp; state-&gt;scrollback_list &amp;&amp; state-&gt;scrollback_offset &lt; (<span class="hljs-keyword">ssize_t</span>)state-&gt;scrollback_list-&gt;length) {
+		state-&gt;scrollback_offset ++;
+		i++;
+	}
+	termemu_redraw_scrollback(state);
+}
+
+<span class="hljs-comment">/* Scroll the view down (scrollback) */</span>
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_scroll_down</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> amount)</span> </span>{
+	<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (i &lt; amount &amp;&amp; state-&gt;scrollback_list &amp;&amp; state-&gt;scrollback_offset != <span class="hljs-number">0</span>) {
+		state-&gt;scrollback_offset -= <span class="hljs-number">1</span>;
+		i++;
+	}
+	termemu_redraw_scrollback(state);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_cell_redraw</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y)</span> </span>{
+	<span class="hljs-keyword">if</span> (x &gt;= state-&gt;<span class="hljs-built_in">width</span> || y &gt;= state-&gt;<span class="hljs-built_in">height</span>) <span class="hljs-keyword">return</span>;
+	term_mirror_copy(state, x,y,&amp;state-&gt;term_buffer[y * state-&gt;<span class="hljs-built_in">width</span> + x]);
+}
+
+<span class="hljs-comment">/* Redraw text cell inverted. */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_cell_redraw_inverted</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y)</span> </span>{
+	<span class="hljs-comment">/* Avoid cells out of range. */</span>
+	<span class="hljs-keyword">if</span> (x &gt;= state-&gt;<span class="hljs-built_in">width</span> || y &gt;= state-&gt;<span class="hljs-built_in">height</span>) <span class="hljs-keyword">return</span>;
+	term_mirror_copy_inverted(state, x,y,&amp;state-&gt;term_buffer[y * state-&gt;<span class="hljs-built_in">width</span> + x]);
+}
+
+<span class="hljs-comment">/* Redraw text cell with a surrounding box (used by cursor) */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_cell_redraw_box</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y)</span> </span>{
+	<span class="hljs-keyword">if</span> (x &gt;= state-&gt;<span class="hljs-built_in">width</span> || y &gt;= state-&gt;<span class="hljs-built_in">height</span>) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">term_cell_t</span> cell = state-&gt;term_buffer[y * state-&gt;<span class="hljs-built_in">width</span> + x];
+	cell.flags |= ANSI_BORDER;
+	term_mirror_copy(state, x,y,&amp;cell);
+}
+
+<span class="hljs-comment">/* Draw the cursor cell */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">render_cursor</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state)</span> </span>{
+	<span class="hljs-keyword">if</span> (!state-&gt;cursor_on) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">if</span> (!state-&gt;focused) {
+		<span class="hljs-comment">/* An unfocused terminal should draw an unfilled box. */</span>
+		term_cell_redraw_box(state, state-&gt;x, state-&gt;y);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-comment">/* A focused terminal draws a solid box. */</span>
+		term_cell_redraw_inverted(state, state-&gt;x, state-&gt;y);
+	}
+}
+
+<span class="hljs-comment">/* A soft request to draw the cursor. */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_draw_cursor</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state)</span> </span>{
+	<span class="hljs-keyword">if</span> (!state-&gt;cursor_on) <span class="hljs-keyword">return</span>;
+	state-&gt;cursor_flipped = <span class="hljs-number">0</span>;
+	render_cursor(state);
+}
+
+<span class="hljs-comment">/* FIXME */</span>
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_draw_cursor</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state)</span> </span>{
+	term_draw_cursor(state);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_undraw_cursor</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state)</span> </span>{
+	term_cell_redraw(state, state-&gt;x, state-&gt;y);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint64_t</span> <span class="hljs-title">get_ticks</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timeval</span> <span class="hljs-title">now</span>;</span>
+	gettimeofday(&amp;now, <span class="hljs-literal">NULL</span>);
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">uint64_t</span>)now.tv_sec * <span class="hljs-number">1000000L</span>L + (<span class="hljs-keyword">uint64_t</span>)now.tv_usec;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_maybe_flip_cursor</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state)</span> </span>{
+	<span class="hljs-keyword">uint64_t</span> ticks = get_ticks();
+	<span class="hljs-keyword">if</span> (ticks &gt; state-&gt;mouse_ticks + <span class="hljs-number">600000L</span>L) {
+		state-&gt;mouse_ticks = ticks;
+		<span class="hljs-keyword">if</span> (state-&gt;scrollback_offset != <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">return</span>; <span class="hljs-comment">/* Don't flip cursor while drawing scrollback */</span>
+		}
+		<span class="hljs-keyword">if</span> (state-&gt;focused &amp;&amp; state-&gt;cursor_flipped) {
+			term_cell_redraw(state, state-&gt;x, state-&gt;y);
+		} <span class="hljs-keyword">else</span> {
+			render_cursor(state);
+		}
+		state-&gt;cursor_flipped = <span class="hljs-number">1</span> - state-&gt;cursor_flipped;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_save_scrollback</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> row_num)</span> </span>{
+	<span class="hljs-keyword">if</span> (state-&gt;active_buffer == <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-comment">/* If the scrollback is already full, remove the oldest element. */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TermemuScrollbackRow</span> * <span class="hljs-title">row</span> = <span class="hljs-title">NULL</span>;</span>
+	<span class="hljs-keyword">node_t</span> * n = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">if</span> (state-&gt;max_scrollback &amp;&amp; state-&gt;scrollback_list-&gt;length == state-&gt;max_scrollback) {
+		n = list_dequeue(state-&gt;scrollback_list);
+		row = n-&gt;value;
+		<span class="hljs-keyword">if</span> (row-&gt;<span class="hljs-built_in">width</span> &lt; state-&gt;<span class="hljs-built_in">width</span>) {
+			<span class="hljs-built_in">free</span>(row);
+			row = <span class="hljs-literal">NULL</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!row) {
+		row = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(struct TermemuScrollbackRow) + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_cell_t</span>) * state-&gt;<span class="hljs-built_in">width</span>);
+		row-&gt;<span class="hljs-built_in">width</span> = state-&gt;<span class="hljs-built_in">width</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (!n) {
+		list_insert(state-&gt;scrollback_list, row);
+	} <span class="hljs-keyword">else</span> {
+		n-&gt;value = row;
+		list_append(state-&gt;scrollback_list, n);
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; state-&gt;<span class="hljs-built_in">width</span>; ++i) {
+		<span class="hljs-keyword">term_cell_t</span> * cell = &amp;state-&gt;term_buffer[row_num * state-&gt;<span class="hljs-built_in">width</span> + i];
+		<span class="hljs-built_in">memcpy</span>(&amp;row-&gt;cells[i], cell, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_cell_t</span>));
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_normalize_x</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> setting_lcf)</span> </span>{
+	<span class="hljs-keyword">if</span> (state-&gt;x &gt;= state-&gt;<span class="hljs-built_in">width</span>) {
+		state-&gt;x = state-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">if</span> (setting_lcf) {
+			state-&gt;h = <span class="hljs-number">1</span>;
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_normalize_y</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state)</span> </span>{
+	<span class="hljs-keyword">if</span> (state-&gt;y == state-&gt;<span class="hljs-built_in">height</span>) {
+		term_save_scrollback(state, <span class="hljs-number">0</span>);
+		term_scroll(state, <span class="hljs-number">1</span>);
+		state-&gt;y = state-&gt;<span class="hljs-built_in">height</span> - <span class="hljs-number">1</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">is_wide</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> codepoint)</span> </span>{
+	<span class="hljs-keyword">if</span> (codepoint &lt; <span class="hljs-number">256</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> wcwidth(codepoint) == <span class="hljs-number">2</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_shift_region</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> top, <span class="hljs-keyword">int</span> <span class="hljs-built_in">height</span>, <span class="hljs-keyword">int</span> how_much)</span> </span>{
+	<span class="hljs-keyword">if</span> (how_much == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-keyword">int</span> destination, source;
+	<span class="hljs-keyword">int</span> count, new_top, new_bottom;
+	<span class="hljs-keyword">if</span> (how_much &gt; <span class="hljs-built_in">height</span>) {
+		count = <span class="hljs-number">0</span>;
+		new_top = top;
+		new_bottom = top + <span class="hljs-built_in">height</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (how_much &gt; <span class="hljs-number">0</span>) {
+		destination = state-&gt;<span class="hljs-built_in">width</span> * top;
+		source = state-&gt;<span class="hljs-built_in">width</span> * (top + how_much);
+		count = <span class="hljs-built_in">height</span> - how_much;
+		new_top = top + <span class="hljs-built_in">height</span> - how_much;
+		new_bottom = top + <span class="hljs-built_in">height</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (how_much &lt; <span class="hljs-number">0</span>) {
+		destination = state-&gt;<span class="hljs-built_in">width</span> * (top - how_much);
+		source = state-&gt;<span class="hljs-built_in">width</span> * top;
+		count = <span class="hljs-built_in">height</span> + how_much;
+		new_top = top;
+		new_bottom = top - how_much;
+	}
+
+	<span class="hljs-comment">/* Move from top+how_much to top */</span>
+	<span class="hljs-keyword">if</span> (count) memmove(state-&gt;term_buffer + destination, state-&gt;term_buffer + source, count * state-&gt;<span class="hljs-built_in">width</span> * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_cell_t</span>));
+
+	<span class="hljs-comment">/* Clear new lines at bottom */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = new_top; i &lt; new_bottom; ++i) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint16_t</span> x = <span class="hljs-number">0</span>; x &lt; state-&gt;<span class="hljs-built_in">width</span>; ++x) {
+			term_cell_set(state, x, i, <span class="hljs-string">' '</span>, state-&gt;current_fg, state-&gt;current_bg, state-&gt;flags);
+		}
+	}
+
+	termemu_redraw_all(state);
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_insert_delete_lines</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> how_many)</span> </span>{
+	<span class="hljs-keyword">if</span> (how_many == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-keyword">if</span> (how_many &gt; <span class="hljs-number">0</span>) {
+		<span class="hljs-comment">/* Insert lines is equivalent to scrolling from the current line */</span>
+		term_shift_region(state,state-&gt;y,state-&gt;<span class="hljs-built_in">height</span>-state-&gt;y,-how_many);
+	} <span class="hljs-keyword">else</span> {
+		term_shift_region(state,state-&gt;y,state-&gt;<span class="hljs-built_in">height</span>-state-&gt;y,-how_many);
+	}
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_write</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">char</span> c)</span> </span>{
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> unicode_state = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> codepoint = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (!decode(&amp;unicode_state, &amp;codepoint, (<span class="hljs-keyword">uint8_t</span>)c)) {
+		<span class="hljs-keyword">uint32_t</span> o = codepoint;
+		codepoint = <span class="hljs-number">0</span>;
+
+		<span class="hljs-keyword">switch</span> (c) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\a'</span>:
+				<span class="hljs-comment">/* boop */</span>
+				<span class="hljs-keyword">if</span> (state-&gt;callbacks-&gt;bell) state-&gt;callbacks-&gt;bell(state);
+				<span class="hljs-keyword">return</span>;
+
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\r'</span>:
+				term_undraw_cursor(state);
+				state-&gt;x = state-&gt;h = <span class="hljs-number">0</span>;
+				term_draw_cursor(state);
+				<span class="hljs-keyword">return</span>;
+
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\t'</span>:
+				term_undraw_cursor(state);
+				state-&gt;x += (<span class="hljs-number">8</span> - state-&gt;x % <span class="hljs-number">8</span>);
+				term_normalize_x(state, <span class="hljs-number">0</span>);
+				term_draw_cursor(state);
+				<span class="hljs-keyword">return</span>;
+
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\v'</span>:
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\f'</span>:
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\n'</span>:
+				term_undraw_cursor(state);
+				state-&gt;h = <span class="hljs-number">0</span>;
+				++state-&gt;y;
+				term_normalize_y(state);
+				term_draw_cursor(state);
+				<span class="hljs-keyword">return</span>;
+
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\b'</span>:
+				<span class="hljs-keyword">if</span> (state-&gt;x &gt; <span class="hljs-number">0</span>) {
+					term_undraw_cursor(state);
+					--state-&gt;x;
+					term_draw_cursor(state);
+				}
+				state-&gt;h = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">return</span>;
+
+			<span class="hljs-keyword">default</span>: {
+				<span class="hljs-keyword">int</span> wide = is_wide(o);
+				<span class="hljs-keyword">uint32_t</span> flags = state-&gt;flags;
+
+				term_undraw_cursor(state);
+
+				<span class="hljs-keyword">if</span> (state-&gt;h || (wide &amp;&amp; state-&gt;x == state-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">1</span>)) {
+					state-&gt;x = state-&gt;h = <span class="hljs-number">0</span>;
+					++state-&gt;y;
+					term_normalize_y(state);
+				}
+
+				<span class="hljs-keyword">if</span> (wide) {
+					flags = flags | ANSI_WIDE;
+				}
+
+				term_cell_set(state, state-&gt;x,state-&gt;y, o, state-&gt;current_fg, state-&gt;current_bg, flags);
+				term_cell_redraw(state, state-&gt;x,state-&gt;y);
+				state-&gt;x++;
+
+				<span class="hljs-keyword">if</span> (wide &amp;&amp; state-&gt;x != state-&gt;<span class="hljs-built_in">width</span>) {
+					term_cell_set(state, state-&gt;x, state-&gt;y, <span class="hljs-number">0xFFFF</span>, state-&gt;current_fg, state-&gt;current_bg, state-&gt;flags);
+					term_cell_redraw(state, state-&gt;x,state-&gt;y);
+					term_cell_redraw(state, state-&gt;x<span class="hljs-number">-1</span>,state-&gt;y);
+					state-&gt;x++;
+				}
+
+				term_normalize_x(state, <span class="hljs-number">1</span>);
+				term_draw_cursor(state);
+				<span class="hljs-keyword">return</span>;
+			}
+		}
+
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (unicode_state == UTF8_REJECT) {
+		unicode_state = <span class="hljs-number">0</span>;
+		codepoint = <span class="hljs-number">0</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_set_csr</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y)</span> </span>{
+	term_cell_redraw(state, state-&gt;x,state-&gt;y);
+	<span class="hljs-keyword">if</span> (x &lt; <span class="hljs-number">0</span>) x = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (x &gt;= state-&gt;<span class="hljs-built_in">width</span>) x = state-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (y &lt; <span class="hljs-number">0</span>) y = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (y &gt;= state-&gt;<span class="hljs-built_in">height</span>) y = state-&gt;<span class="hljs-built_in">height</span> - <span class="hljs-number">1</span>;
+	state-&gt;x = x;
+	state-&gt;y = y;
+	state-&gt;h = <span class="hljs-number">0</span>;
+	term_draw_cursor(state);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_set_csr_show</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> on)</span> </span>{
+	state-&gt;cursor_on = on;
+	<span class="hljs-keyword">if</span> (on) {
+		term_draw_cursor(state);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_set_colors</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> *s, <span class="hljs-keyword">uint32_t</span> fg, <span class="hljs-keyword">uint32_t</span> bg)</span> </span>{
+	s-&gt;current_fg = fg;
+	s-&gt;current_bg = bg;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_set_cell</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y, <span class="hljs-keyword">uint32_t</span> c)</span> </span>{
+	term_cell_set(state, x, y, c, state-&gt;current_fg, state-&gt;current_bg, state-&gt;flags);
+	term_cell_redraw(state, x, y);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_clear</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> i)</span> </span>{
+	<span class="hljs-keyword">if</span> (i == <span class="hljs-number">2</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Save everything up to and including the current line to scrollback,
+do not move the cursor, clear the whole screen.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt;= state-&gt;y; ++i) {
+			term_save_scrollback(state, i);
+		}
+		<span class="hljs-built_in">memset</span>((<span class="hljs-keyword">void</span> *)state-&gt;term_buffer, <span class="hljs-number">0x00</span>, state-&gt;<span class="hljs-built_in">width</span> * state-&gt;<span class="hljs-built_in">height</span> * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_cell_t</span>));
+		termemu_redraw_all(state);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (i == <span class="hljs-number">0</span>) {
+		<span class="hljs-comment">/* Clear after cursor */</span>
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = state-&gt;x; x &lt; state-&gt;<span class="hljs-built_in">width</span>; ++x) {
+			term_set_cell(state, x, state-&gt;y, <span class="hljs-string">' '</span>);
+		}
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> y = state-&gt;y + <span class="hljs-number">1</span>; y &lt; state-&gt;<span class="hljs-built_in">height</span>; ++y) {
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; state-&gt;<span class="hljs-built_in">width</span>; ++x) {
+				term_set_cell(state, x, y, <span class="hljs-string">' '</span>);
+			}
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (i == <span class="hljs-number">1</span>) {
+		<span class="hljs-comment">/* Clear before cursor */</span>
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> y = <span class="hljs-number">0</span>; y &lt; state-&gt;y; ++y) {
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; state-&gt;<span class="hljs-built_in">width</span>; ++x) {
+				term_set_cell(state, x, y, <span class="hljs-string">' '</span>);
+			}
+		}
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; state-&gt;x; ++x) {
+			term_set_cell(state, x, state-&gt;y, <span class="hljs-string">' '</span>);
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (i == <span class="hljs-number">3</span>) {
+		<span class="hljs-comment">/* Clear scrollback */</span>
+		<span class="hljs-keyword">if</span> (state-&gt;scrollback_list) {
+			<span class="hljs-keyword">while</span> (state-&gt;scrollback_list-&gt;length) {
+				<span class="hljs-keyword">node_t</span> * n = list_dequeue(state-&gt;scrollback_list);
+				<span class="hljs-built_in">free</span>(n-&gt;value);
+				<span class="hljs-built_in">free</span>(n);
+			}
+			state-&gt;scrollback_offset = <span class="hljs-number">0</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (state-&gt;callbacks-&gt;cls) state-&gt;callbacks-&gt;cls(state, i);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_switch_buffer</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> <span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">buffer</span> != <span class="hljs-number">0</span> &amp;&amp; <span class="hljs-built_in">buffer</span> != <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">buffer</span> != state-&gt;active_buffer) {
+		state-&gt;active_buffer = <span class="hljs-built_in">buffer</span>;
+		state-&gt;term_buffer = state-&gt;active_buffer == <span class="hljs-number">0</span> ? state-&gt;term_buffer_a : state-&gt;term_buffer_b;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SWAP(T,a,b) do { T _a = a; a = b; b = _a; } while(0);</span>
+
+		SWAP(<span class="hljs-keyword">int</span>, state-&gt;x, state-&gt;orig_x);
+		SWAP(<span class="hljs-keyword">int</span>, state-&gt;y, state-&gt;orig_y);
+		SWAP(<span class="hljs-keyword">uint32_t</span>, state-&gt;current_fg, state-&gt;orig_fg);
+		SWAP(<span class="hljs-keyword">uint32_t</span>, state-&gt;current_bg, state-&gt;orig_bg);
+
+		termemu_redraw_all(state);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_scroll</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> how_much)</span> </span>{
+	term_shift_region(state, <span class="hljs-number">0</span>, state-&gt;<span class="hljs-built_in">height</span>, how_much);
+	<span class="hljs-keyword">if</span> (state-&gt;callbacks-&gt;scroll) state-&gt;callbacks-&gt;scroll(state, how_much);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_mirror_set</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y, <span class="hljs-keyword">uint32_t</span> val, <span class="hljs-keyword">uint32_t</span> fg, <span class="hljs-keyword">uint32_t</span> bg, <span class="hljs-keyword">uint32_t</span> flags)</span> </span>{
+	<span class="hljs-keyword">if</span> (x &gt;= state-&gt;<span class="hljs-built_in">width</span> || y &gt;= state-&gt;<span class="hljs-built_in">height</span>) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">term_cell_t</span> * cell = &amp;state-&gt;term_mirror[y * state-&gt;<span class="hljs-built_in">width</span> + x];
+	cell-&gt;c = val;
+	cell-&gt;fg = fg;
+	cell-&gt;bg = bg;
+	cell-&gt;flags = flags;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_mirror_copy</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y, <span class="hljs-keyword">term_cell_t</span> * from)</span> </span>{
+	<span class="hljs-keyword">if</span> (x &gt;= state-&gt;<span class="hljs-built_in">width</span> || y &gt;= state-&gt;<span class="hljs-built_in">height</span>) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">term_cell_t</span> * cell = &amp;state-&gt;term_mirror[y * state-&gt;<span class="hljs-built_in">width</span> + x];
+	<span class="hljs-keyword">if</span> (!from-&gt;c &amp;&amp; !from-&gt;fg &amp;&amp; !from-&gt;bg) {
+		cell-&gt;c = <span class="hljs-string">' '</span>;
+		cell-&gt;fg = TERM_DEFAULT_FG;
+		cell-&gt;bg = TERM_DEFAULT_BG;
+		cell-&gt;flags = from-&gt;flags;
+	} <span class="hljs-keyword">else</span> {
+		*cell = *from;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_mirror_copy_inverted</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y, <span class="hljs-keyword">term_cell_t</span> * from)</span> </span>{
+	<span class="hljs-keyword">if</span> (x &gt;= state-&gt;<span class="hljs-built_in">width</span> || y &gt;= state-&gt;<span class="hljs-built_in">height</span>) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">term_cell_t</span> * cell = &amp;state-&gt;term_mirror[y * state-&gt;<span class="hljs-built_in">width</span> + x];
+	<span class="hljs-keyword">if</span> (!from-&gt;c &amp;&amp; !from-&gt;fg &amp;&amp; !from-&gt;bg) {
+		cell-&gt;c = <span class="hljs-string">' '</span>;
+		cell-&gt;fg = TERM_DEFAULT_BG;
+		cell-&gt;bg = TERM_DEFAULT_FG;
+		cell-&gt;flags = from-&gt;flags | ANSI_INVERTED;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (from-&gt;flags &amp; ANSI_EXT_IMG) {
+		cell-&gt;c = <span class="hljs-string">' '</span>;
+		cell-&gt;fg = from-&gt;fg;
+		cell-&gt;bg = from-&gt;bg;
+		cell-&gt;flags = from-&gt;flags | ANSI_SPECBG | ANSI_INVERTED;
+	} <span class="hljs-keyword">else</span> {
+		cell-&gt;c = from-&gt;c;
+		cell-&gt;fg = from-&gt;bg;
+		cell-&gt;bg = from-&gt;fg;
+		cell-&gt;flags = from-&gt;flags | ANSI_SPECBG | ANSI_INVERTED;
+	}
+}
+
+<span class="hljs-comment">/* Set a terminal cell */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_cell_set</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y, <span class="hljs-keyword">uint32_t</span> c, <span class="hljs-keyword">uint32_t</span> fg, <span class="hljs-keyword">uint32_t</span> bg, <span class="hljs-keyword">uint32_t</span> flags)</span> </span>{
+	<span class="hljs-comment">/* Avoid setting cells out of range. */</span>
+	<span class="hljs-keyword">if</span> (x &gt;= state-&gt;<span class="hljs-built_in">width</span> || y &gt;= state-&gt;<span class="hljs-built_in">height</span>) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-comment">/* Calculate the cell position in the terminal buffer */</span>
+	<span class="hljs-keyword">term_cell_t</span> * cell = &amp;state-&gt;term_buffer[y * state-&gt;<span class="hljs-built_in">width</span> + x];
+
+	<span class="hljs-comment">/* Set cell attributes */</span>
+	cell-&gt;c     = c;
+	cell-&gt;fg    = fg;
+	cell-&gt;bg    = bg;
+	cell-&gt;flags = flags;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_redraw_all</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; state-&gt;<span class="hljs-built_in">height</span>; i++) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; state-&gt;<span class="hljs-built_in">width</span>; ++x) {
+			term_mirror_copy(state, x,i,&amp;state-&gt;term_buffer[i * state-&gt;<span class="hljs-built_in">width</span> + x]);
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_unscroll</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state)</span> </span>{
+	<span class="hljs-keyword">if</span> (state-&gt;scrollback_offset != <span class="hljs-number">0</span>) {
+		state-&gt;scrollback_offset = <span class="hljs-number">0</span>;
+		termemu_redraw_all(state);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_scroll_top</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state)</span> </span>{
+	<span class="hljs-keyword">if</span> (state-&gt;scrollback_list) {
+		state-&gt;scrollback_offset = state-&gt;scrollback_list-&gt;length;
+		termemu_redraw_scrollback(state);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_selection_click</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> new_x, <span class="hljs-keyword">int</span> new_y)</span> </span>{
+	termemu_redraw_scrollback(state);
+	<span class="hljs-keyword">uint64_t</span> now = get_ticks();
+	<span class="hljs-keyword">if</span> (now - state-&gt;last_click &lt; <span class="hljs-number">500000U</span>L &amp;&amp; (new_x == state-&gt;selection_start_x &amp;&amp; new_y == state-&gt;selection_start_y)) {
+		<span class="hljs-comment">/* Double click */</span>
+		<span class="hljs-keyword">while</span> (state-&gt;selection_start_x &gt; <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">term_cell_t</span> * c = termemu_cell_at(state, state-&gt;selection_start_x<span class="hljs-number">-1</span>, state-&gt;selection_start_y);
+			<span class="hljs-keyword">if</span> (!c || c-&gt;c == <span class="hljs-string">' '</span> || !c-&gt;c) <span class="hljs-keyword">break</span>;
+			state-&gt;selection_start_x--;
+		}
+		<span class="hljs-keyword">while</span> (state-&gt;selection_end_x &lt; state-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">1</span>) {
+			<span class="hljs-keyword">term_cell_t</span> * c = termemu_cell_at(state, state-&gt;selection_end_x+<span class="hljs-number">1</span>, state-&gt;selection_end_y);
+			<span class="hljs-keyword">if</span> (!c || c-&gt;c == <span class="hljs-string">' '</span> || !c-&gt;c) <span class="hljs-keyword">break</span>;
+			state-&gt;selection_end_x++;
+		}
+		state-&gt;selection_start_xx = state-&gt;selection_end_x;
+		state-&gt;selection = <span class="hljs-number">2</span>;
+	} <span class="hljs-keyword">else</span> {
+		state-&gt;last_click = get_ticks();
+		state-&gt;selection_start_x = new_x;
+		state-&gt;selection_start_xx = new_x;
+		state-&gt;selection_start_y = new_y;
+		state-&gt;selection_end_x = new_x;
+		state-&gt;selection_end_y = new_y;
+		state-&gt;selection = <span class="hljs-number">0</span>;
+	}
+	termemu_redraw_selection(state);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_selection_drag</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> new_x, <span class="hljs-keyword">int</span> new_y)</span> </span>{
+	termemu_mark_selection(state);
+	<span class="hljs-keyword">if</span> (state-&gt;selection == <span class="hljs-number">2</span>) {
+		<span class="hljs-keyword">if</span> (new_y &lt; state-&gt;selection_start_y ||
+			(new_y == state-&gt;selection_start_y &amp;&amp;
+			 new_x &lt; state-&gt;selection_start_x)) {
+			<span class="hljs-keyword">while</span> (new_x &gt; <span class="hljs-number">0</span>) {
+				<span class="hljs-keyword">term_cell_t</span> * c = termemu_cell_at(state, new_x - <span class="hljs-number">1</span>, new_y);
+				<span class="hljs-keyword">if</span> (!c || c-&gt;c == <span class="hljs-string">' '</span> || !c-&gt;c) <span class="hljs-keyword">break</span>;
+				new_x--;
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (new_y &gt; state-&gt;selection_start_y ||
+			(new_y == state-&gt;selection_start_y &amp;&amp;
+			 new_x &gt; state-&gt;selection_start_xx)) {
+			<span class="hljs-keyword">while</span> (new_x &lt; state-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">1</span>) {
+				<span class="hljs-keyword">term_cell_t</span> * c = termemu_cell_at(state, new_x + <span class="hljs-number">1</span>, new_y);
+				<span class="hljs-keyword">if</span> (!c || c-&gt;c == <span class="hljs-string">' '</span> || !c-&gt;c) <span class="hljs-keyword">break</span>;
+				new_x++;
+			}
+		}
+	} <span class="hljs-keyword">else</span> {
+		state-&gt;selection = <span class="hljs-number">1</span>;
+	}
+	state-&gt;selection_end_x = new_x;
+	state-&gt;selection_end_y = new_y;
+	termemu_flip_selection(state);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">termemu_full_reset</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * s)</span> </span>{
+	s-&gt;escape = <span class="hljs-number">0</span>;
+	s-&gt;buflen = <span class="hljs-number">0</span>;
+	s-&gt;mouse_on = <span class="hljs-number">0</span>;
+	s-&gt;save_x = <span class="hljs-number">0</span>;
+	s-&gt;save_y = <span class="hljs-number">0</span>;
+	s-&gt;box = <span class="hljs-number">0</span>;
+	s-&gt;fg = TERM_DEFAULT_FG;
+	s-&gt;bg = TERM_DEFAULT_BG;
+	s-&gt;flags = TERM_DEFAULT_FLAGS;
+	s-&gt;current_fg = s-&gt;fg;
+	s-&gt;current_bg = s-&gt;bg;
+	s-&gt;x = <span class="hljs-number">0</span>;
+	s-&gt;y = <span class="hljs-number">0</span>;
+	s-&gt;h = <span class="hljs-number">0</span>;
+	s-&gt;orig_x = <span class="hljs-number">0</span>;
+	s-&gt;orig_y = <span class="hljs-number">0</span>;
+	s-&gt;orig_fg = s-&gt;fg;
+	s-&gt;orig_bg = s-&gt;bg;
+	s-&gt;active_buffer = <span class="hljs-number">0</span>;
+	s-&gt;term_buffer = s-&gt;term_buffer_a;
+	s-&gt;cursor_on = <span class="hljs-number">1</span>;
+	<span class="hljs-built_in">memset</span>(s-&gt;term_buffer_a, <span class="hljs-number">0x00</span>, s-&gt;<span class="hljs-built_in">width</span> * s-&gt;<span class="hljs-built_in">height</span> * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_cell_t</span>));
+	<span class="hljs-built_in">memset</span>(s-&gt;term_buffer_b, <span class="hljs-number">0x00</span>, s-&gt;<span class="hljs-built_in">width</span> * s-&gt;<span class="hljs-built_in">height</span> * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_cell_t</span>));
+	<span class="hljs-built_in">memset</span>(s-&gt;term_mirror,   <span class="hljs-number">0x00</span>, s-&gt;<span class="hljs-built_in">width</span> * s-&gt;<span class="hljs-built_in">height</span> * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_cell_t</span>));
+	<span class="hljs-keyword">if</span> (s-&gt;callbacks-&gt;full_reset) s-&gt;callbacks-&gt;full_reset(s);
+	<span class="hljs-keyword">if</span> (s-&gt;callbacks-&gt;state_change) s-&gt;callbacks-&gt;state_change(s);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

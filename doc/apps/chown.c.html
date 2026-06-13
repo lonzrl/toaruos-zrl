@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>chown.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\chown.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>chown.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;pwd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> verbosity = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> change_links = <span class="hljs-number">0</span>;   <span class="hljs-comment">/* -h */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> recurse = <span class="hljs-number">0</span>;        <span class="hljs-comment">/* -R  */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> recurse_mode = <span class="hljs-number">0</span>; <span class="hljs-comment">/* -H -L -P */</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"usage: %s [OWNER][:[GROUP]] FILE...\n"</span>, argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">parse_user_group</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[], <span class="hljs-keyword">char</span> * arg, <span class="hljs-keyword">uid_t</span> * user, <span class="hljs-keyword">gid_t</span> * group)</span> </span>{
+
+	<span class="hljs-comment">/* Does this look like a number? */</span>
+	<span class="hljs-keyword">if</span> (*arg &gt;= <span class="hljs-string">'0'</span> &amp;&amp; *arg &lt;= <span class="hljs-string">'9'</span>) {
+		<span class="hljs-comment">/* Try to extract */</span>
+		<span class="hljs-keyword">char</span> * endptr;
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> <span class="hljs-keyword">int</span> number = strtoul(arg, &amp;endptr, <span class="hljs-number">10</span>);
+		<span class="hljs-keyword">if</span> (*endptr != <span class="hljs-string">':'</span> &amp;&amp; *endptr != <span class="hljs-string">'\0'</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: Invalid user/group specification\n"</span>, argv[<span class="hljs-number">0</span>], arg);
+		}
+		*user = number;
+		arg = endptr;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (*arg == <span class="hljs-string">':'</span>) {
+		*user = <span class="hljs-number">-1</span>;
+		arg++;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">char</span> * colon = <span class="hljs-built_in">strstr</span>(arg, <span class="hljs-string">":"</span>);
+		<span class="hljs-keyword">if</span> (colon) {
+			*colon = <span class="hljs-string">'\0'</span>;
+		}
+		<span class="hljs-comment">/* Check name */</span>
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">passwd</span> * <span class="hljs-title">userEnt</span> = <span class="hljs-title">getpwnam</span>(<span class="hljs-title">arg</span>);</span>
+		<span class="hljs-keyword">if</span> (!userEnt) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: Invalid user\n"</span>, argv[<span class="hljs-number">0</span>], arg);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		*user = userEnt-&gt;pw_uid;
+		<span class="hljs-keyword">if</span> (colon) {
+			arg = colon + <span class="hljs-number">1</span>;
+		} <span class="hljs-keyword">else</span> {
+			arg = <span class="hljs-literal">NULL</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (arg &amp;&amp; *arg) {
+		<span class="hljs-keyword">if</span> (*arg &gt;= <span class="hljs-string">'0'</span> &amp;&amp; *arg &lt;= <span class="hljs-string">'9'</span>) {
+			<span class="hljs-keyword">char</span> * endptr;
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> <span class="hljs-keyword">int</span> number = strtoul(arg, &amp;endptr, <span class="hljs-number">10</span>);
+			<span class="hljs-keyword">if</span> (*endptr != <span class="hljs-string">'\0'</span>) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: Invalid group specification\n"</span>, argv[<span class="hljs-number">0</span>], arg);
+			}
+			*group = number;
+			arg = endptr;
+		} <span class="hljs-keyword">else</span> {
+			struct passwd * userEnt = getpwnam(arg);
+			<span class="hljs-keyword">if</span> (!userEnt) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: Invalid group\n"</span>, argv[<span class="hljs-number">0</span>], arg);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			}
+			*group = userEnt-&gt;pw_uid;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> do_error() return fprintf(stderr, <span class="hljs-meta-string">"%s: %s: %s\n"</span>, argv[0], thing, strerror(errno)), 1</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">change_thing</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[], <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * thing, <span class="hljs-keyword">uid_t</span> user, <span class="hljs-keyword">gid_t</span> group, <span class="hljs-keyword">int</span> dereference)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">st</span>;</span>
+
+	<span class="hljs-keyword">if</span> (dereference) {
+		<span class="hljs-keyword">if</span> (stat(thing, &amp;st)) do_error();
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">if</span> (lstat(thing, &amp;st)) do_error();
+	}
+
+	<span class="hljs-keyword">if</span> (dereference &amp;&amp; S_ISLNK(st.st_mode)) {
+		<span class="hljs-keyword">if</span> (lchown(thing, user, group)) do_error();
+		<span class="hljs-keyword">goto</span> report_results;
+	}
+
+	<span class="hljs-keyword">if</span> (chown(thing, user, group)) do_error();
+
+	<span class="hljs-keyword">if</span> (recurse &amp;&amp; S_ISDIR(st.st_mode)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: warning: recursion into '%s' ignored\n"</span>, argv[<span class="hljs-number">0</span>], thing);
+	}
+
+report_results:
+	<span class="hljs-keyword">if</span> (verbosity) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%s\n"</span>, thing);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">int</span> opt;
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc,argv,<span class="hljs-string">"hHLPRv"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'h'</span>:
+				change_links = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'H'</span>: <span class="hljs-comment">/* Follow links on the command line. */</span>
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'L'</span>: <span class="hljs-comment">/* Follow all links. */</span>
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'P'</span>: <span class="hljs-comment">/* Follow no links. */</span>
+				recurse_mode = opt;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'R'</span>:
+				recurse = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'v'</span>:
+				<span class="hljs-keyword">if</span> (verbosity) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: warning: extra verbosity not yet supported\n"</span>, argv[<span class="hljs-number">0</span>]);
+				verbosity++;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> usage(argv);
+		}
+	}
+
+	<span class="hljs-comment">/* Need at least the user/group spec and one file */</span>
+	<span class="hljs-keyword">if</span> (optind + <span class="hljs-number">1</span> &gt;= argc) <span class="hljs-keyword">return</span> usage(argv);
+	<span class="hljs-keyword">if</span> (recurse_mode &amp;&amp; !recurse) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: warning: -H/-L/-P are only meaningful with -R\n"</span>, argv[<span class="hljs-number">0</span>]); <span class="hljs-comment">/* warning, not error */</span>
+	<span class="hljs-keyword">if</span> (recurse &amp;&amp; !recurse_mode) recurse_mode = <span class="hljs-string">'P'</span>; <span class="hljs-comment">/* default */</span>
+
+	<span class="hljs-comment">/* XXX todo */</span>
+	<span class="hljs-keyword">if</span> (recurse) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: warning: recursion unsupported; each directory will yield an additional diagnostic\n"</span>, argv[<span class="hljs-number">0</span>]);
+
+	<span class="hljs-keyword">uid_t</span> user = <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">uid_t</span> group = <span class="hljs-number">-1</span>;
+
+	<span class="hljs-keyword">if</span> (parse_user_group(argv, argv[optind++], &amp;user, &amp;group)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (user == <span class="hljs-number">-1</span> &amp;&amp; group == <span class="hljs-number">-1</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">int</span> retval = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">for</span> (; optind &lt; argc; optind++) {
+		retval |= change_thing(argv, argv[optind], user, group, (!recurse &amp;&amp; !change_links) || (recurse_mode != <span class="hljs-string">'P'</span>));
+	}
+
+	<span class="hljs-keyword">return</span> retval;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

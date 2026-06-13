@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>realpath.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "libc\\stdlib\\realpath.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>realpath.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;limits.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> __toaru__</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> realpath</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> realpath _realpath_toaru</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SYMLINK_MAX 5</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _append_dir(<span class="hljs-keyword">char</span> *out, <span class="hljs-keyword">char</span> *element) {
+	<span class="hljs-built_in">strcat</span>(out,<span class="hljs-string">"/"</span>);
+	<span class="hljs-built_in">strcat</span>(out,element);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _remove_last(<span class="hljs-keyword">char</span> * out) {
+	<span class="hljs-keyword">char</span> * last = <span class="hljs-built_in">strrchr</span>(out,<span class="hljs-string">'/'</span>);
+	<span class="hljs-keyword">if</span> (last) {
+		*last = <span class="hljs-string">'\0'</span>;
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>This is accurate to how we handle paths in ToaruOS.
+It's not correct for real symbolic link handling,
+so it needs some work for that.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">char</span> *<span class="hljs-title">realpath</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *path, <span class="hljs-keyword">char</span> *resolved_path)</span> </span>{
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Basically the same as what we do in the kernel for canonicalize_path
+but slightly more complicated because of the requirement to check
+symlinks... this is going to get interesting.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (!path) {
+		errno = -EINVAL;
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (!resolved_path) {
+		resolved_path = <span class="hljs-built_in">malloc</span>(PATH_MAX+<span class="hljs-number">1</span>);
+	}
+
+	<span class="hljs-comment">/* If we're lucky, we can do this with no allocations, so let's start here... */</span>
+	<span class="hljs-keyword">char</span> working_path[PATH_MAX+<span class="hljs-number">1</span>];
+	<span class="hljs-built_in">memcpy</span>(working_path, path, <span class="hljs-built_in">strlen</span>(path)+<span class="hljs-number">1</span>);
+
+	*resolved_path = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (working_path[<span class="hljs-number">0</span>] != <span class="hljs-string">'/'</span>) {
+		<span class="hljs-comment">/* Begin by retreiving the current working directory */</span>
+		<span class="hljs-keyword">char</span> cwd[PATH_MAX+<span class="hljs-number">1</span>];
+		<span class="hljs-keyword">if</span> (!getcwd(cwd, PATH_MAX)) {
+			<span class="hljs-comment">/* Not actually sure if this is the right choice for this, but whatever. */</span>
+			errno = -ENOTDIR;
+			<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+		}
+
+		<span class="hljs-keyword">char</span> *save;
+		<span class="hljs-keyword">char</span> *tok = strtok_r(cwd,<span class="hljs-string">"/"</span>,&amp;save);
+		<span class="hljs-keyword">if</span> (tok) {
+			<span class="hljs-keyword">do</span> {
+				_append_dir(resolved_path, tok);
+			} <span class="hljs-keyword">while</span> ((tok = strtok_r(<span class="hljs-literal">NULL</span>,<span class="hljs-string">"/"</span>,&amp;save)));
+		}
+	}
+
+	<span class="hljs-keyword">char</span> *save;
+	<span class="hljs-keyword">char</span> *tok = strtok_r(working_path,<span class="hljs-string">"/"</span>,&amp;save);
+	<span class="hljs-keyword">if</span> (tok) {
+		<span class="hljs-keyword">do</span> {
+			<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(tok,<span class="hljs-string">"."</span>)) <span class="hljs-keyword">continue</span>;
+			<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(tok,<span class="hljs-string">".."</span>)) {
+				_remove_last(resolved_path);
+				<span class="hljs-keyword">continue</span>;
+			} <span class="hljs-keyword">else</span> {
+				_append_dir(resolved_path, tok);
+			}
+		} <span class="hljs-keyword">while</span> ((tok = strtok_r(<span class="hljs-literal">NULL</span>,<span class="hljs-string">"/"</span>,&amp;save)));
+	}
+
+	<span class="hljs-keyword">if</span> (resolved_path[<span class="hljs-number">0</span>] == <span class="hljs-string">'\0'</span>) {
+		<span class="hljs-built_in">strcat</span>(resolved_path,<span class="hljs-string">"/"</span>);
+	}
+
+	<span class="hljs-keyword">return</span> resolved_path;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> __toaru__</span>
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">char</span> tmp[PATH_MAX+<span class="hljs-number">1</span>];
+
+	<span class="hljs-keyword">if</span> (!realpath(argv[<span class="hljs-number">1</span>], tmp)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"invalid path, errno=%d\n"</span>, errno);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s=%s\n"</span>, argv[<span class="hljs-number">1</span>], tmp);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

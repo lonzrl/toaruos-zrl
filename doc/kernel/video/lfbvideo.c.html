@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>lfbvideo.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\video\\lfbvideo.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>lfbvideo.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pci.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/video.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/tokenize.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/multiboot.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/procfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/args.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/assert.h&gt;</span></span>
+
+<span class="hljs-comment">/* <span class="hljs-doctag">FIXME:</span> Not sure what to do with this; ifdef around it? */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/ports.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> PREFERRED_W = <span class="hljs-number">1440</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> PREFERRED_H = <span class="hljs-number">900</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PREFERRED_VY 4096</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PREFERRED_B 32</span>
+
+<span class="hljs-comment">/* Exported to other modules */</span>
+<span class="hljs-keyword">uint16_t</span> lfb_resolution_x = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">uint16_t</span> lfb_resolution_y = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">uint16_t</span> lfb_resolution_b = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">uint32_t</span> lfb_resolution_s = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">uint8_t</span> * lfb_vid_memory = (<span class="hljs-keyword">uint8_t</span> *)<span class="hljs-number">0xE0000000</span>;
+<span class="hljs-keyword">size_t</span> lfb_memsize = <span class="hljs-number">0xFF0000</span>;
+<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * lfb_driver_name = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">int</span> lfb_use_write_combining = <span class="hljs-number">0</span>;
+
+<span class="hljs-keyword">uintptr_t</span> lfb_qemu_mmio = <span class="hljs-number">0</span>;
+
+<span class="hljs-keyword">fs_node_t</span> * lfb_device = <span class="hljs-literal">NULL</span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">lfb_init</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * c)</span></span>;
+
+<span class="hljs-comment">/* Where to send display size change signals */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">pid_t</span> display_change_recipient = <span class="hljs-number">0</span>;
+
+<span class="hljs-comment">/* Driver-specific modesetting function */</span>
+<span class="hljs-keyword">void</span> (*lfb_resolution_impl)(<span class="hljs-keyword">uint16_t</span>,<span class="hljs-keyword">uint16_t</span>) = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-comment">/* Called by ioctl on /dev/fb0 */</span>
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">lfb_set_resolution</span><span class="hljs-params">(<span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y)</span> </span>{
+	<span class="hljs-keyword">if</span> (lfb_resolution_impl) {
+		lfb_resolution_impl(x,y);
+		<span class="hljs-keyword">if</span> (display_change_recipient) {
+			send_signal(display_change_recipient, SIGWINEVENT, <span class="hljs-number">1</span>);
+		}
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Framebuffer control ioctls.
+Used by the compositor to get display sizes and by the
+resolution changer to initiate modesetting.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ioctl_vid</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> request, <span class="hljs-keyword">void</span> * argp)</span> </span>{
+	<span class="hljs-keyword">switch</span> (request) {
+		<span class="hljs-keyword">case</span> IO_VID_WIDTH: {
+			<span class="hljs-comment">/* Get framebuffer width */</span>
+			<span class="hljs-keyword">if</span> (!mmu_validate_user_pointer(argp, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">size_t</span>), MMU_PTR_WRITE)) <span class="hljs-keyword">return</span> -EFAULT;
+			<span class="hljs-keyword">size_t</span> res_x = lfb_resolution_x;
+			<span class="hljs-built_in">memcpy</span>(argp, &amp;res_x, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">size_t</span>));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+		<span class="hljs-keyword">case</span> IO_VID_HEIGHT:
+			<span class="hljs-comment">/* Get framebuffer height */</span>
+			<span class="hljs-keyword">if</span> (!mmu_validate_user_pointer(argp, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">size_t</span>), MMU_PTR_WRITE)) <span class="hljs-keyword">return</span> -EFAULT;
+			<span class="hljs-keyword">size_t</span> res_y = lfb_resolution_y;
+			<span class="hljs-built_in">memcpy</span>(argp, &amp;res_y, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">size_t</span>));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">case</span> IO_VID_DEPTH:
+			<span class="hljs-comment">/* Get framebuffer bit depth */</span>
+			<span class="hljs-keyword">if</span> (!mmu_validate_user_pointer(argp, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">size_t</span>), MMU_PTR_WRITE)) <span class="hljs-keyword">return</span> -EFAULT;
+			<span class="hljs-keyword">size_t</span> res_b = lfb_resolution_b;
+			<span class="hljs-built_in">memcpy</span>(argp, &amp;res_b, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">size_t</span>));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">case</span> IO_VID_STRIDE:
+			<span class="hljs-comment">/* Get framebuffer scanline stride */</span>
+			<span class="hljs-keyword">if</span> (!mmu_validate_user_pointer(argp, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">size_t</span>), MMU_PTR_WRITE)) <span class="hljs-keyword">return</span> -EFAULT;
+			<span class="hljs-keyword">size_t</span> res_s = lfb_resolution_s;
+			<span class="hljs-built_in">memcpy</span>(argp, &amp;res_s, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">size_t</span>));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">case</span> IO_VID_ADDR:
+			<span class="hljs-comment">/* Map framebuffer into userspace process */</span>
+			{
+				<span class="hljs-keyword">if</span> (!mmu_validate_user_pointer(argp, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uintptr_t</span>), MMU_PTR_WRITE)) <span class="hljs-keyword">return</span> -EFAULT;
+				<span class="hljs-keyword">uintptr_t</span> lfb_user_offset;
+				<span class="hljs-keyword">if</span> (*(<span class="hljs-keyword">uintptr_t</span>*)argp == <span class="hljs-number">0</span>) {
+					<span class="hljs-comment">/* Pick an address and map it */</span>
+					lfb_user_offset = USER_DEVICE_MAP;
+				} <span class="hljs-keyword">else</span> {
+					lfb_user_offset = *(<span class="hljs-keyword">uintptr_t</span>*)argp;
+				}
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uintptr_t</span> i = <span class="hljs-number">0</span>; i &lt; lfb_memsize; i += <span class="hljs-number">0x1000</span>) {
+					<span class="hljs-keyword">union</span> PML * page = mmu_get_page(lfb_user_offset + i, MMU_GET_MAKE);
+					mmu_frame_map_address(page,MMU_FLAG_WRITABLE | (lfb_use_write_combining ? MMU_FLAG_WC : <span class="hljs-number">0</span>),((<span class="hljs-keyword">uintptr_t</span>)(lfb_vid_memory) &amp; <span class="hljs-number">0xFFFFFFFF</span>) + i);
+				}
+				<span class="hljs-built_in">memcpy</span>(argp, &amp;lfb_user_offset, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uintptr_t</span>));
+			}
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">case</span> IO_VID_SIGNAL:
+			<span class="hljs-comment">/* ioctl to register for a signal (vid device change? idk) on display change */</span>
+			display_change_recipient = this_core-&gt;current_process-&gt;id;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">case</span> IO_VID_SET:
+			<span class="hljs-comment">/* Initiate mode setting */</span>
+			<span class="hljs-keyword">if</span> (!mmu_validate_user_pointer(argp, <span class="hljs-keyword">sizeof</span>(struct vid_size), <span class="hljs-number">0</span>)) <span class="hljs-keyword">return</span> -EFAULT;
+			lfb_set_resolution(((struct vid_size *)argp)-&gt;<span class="hljs-built_in">width</span>, ((struct vid_size *)argp)-&gt;<span class="hljs-built_in">height</span>);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">case</span> IO_VID_REINIT:
+			<span class="hljs-comment">/* Try to switch to a different driver. */</span>
+			<span class="hljs-keyword">if</span> (!mmu_validate_user_pointer(argp, <span class="hljs-number">100</span>, <span class="hljs-number">0</span>)) <span class="hljs-keyword">return</span> -EFAULT; <span class="hljs-comment">/* XXX this is a string; userspace app has a 100 byte buffer */</span>
+			<span class="hljs-keyword">if</span> (lfb_init(argp)) <span class="hljs-keyword">return</span> -EINVAL;
+			<span class="hljs-keyword">if</span> (display_change_recipient) send_signal(display_change_recipient, SIGWINEVENT, <span class="hljs-number">1</span>);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> -ENOTTY;
+	}
+}
+
+<span class="hljs-comment">/* Framebuffer device file initializer */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">lfb_video_device_create</span><span class="hljs-params">(<span class="hljs-keyword">void</span> <span class="hljs-comment">/* TODO */</span>)</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> * fnode = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">memset</span>(fnode, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">snprintf</span>(fnode-&gt;name, <span class="hljs-number">100</span>, <span class="hljs-string">"fb0"</span>); <span class="hljs-comment">/* TODO */</span>
+	fnode-&gt;length  = <span class="hljs-number">0</span>;
+	fnode-&gt;flags   = FS_BLOCKDEVICE; <span class="hljs-comment">/* Framebuffers are block devices */</span>
+	fnode-&gt;mask    = <span class="hljs-number">0660</span>; <span class="hljs-comment">/* Only accessible to root user/group */</span>
+	fnode-&gt;ioctl   = ioctl_vid; <span class="hljs-comment">/* control function defined above */</span>
+	<span class="hljs-keyword">return</span> fnode;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">framebuffer_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node)</span> </span>{
+	<span class="hljs-keyword">if</span> (lfb_driver_name) {
+		procfs_printf(node,
+			<span class="hljs-string">"Driver:\t%s\n"</span>
+			<span class="hljs-string">"XRes:\t%d\n"</span>
+			<span class="hljs-string">"YRes:\t%d\n"</span>
+			<span class="hljs-string">"BitsPerPixel:\t%d\n"</span>
+			<span class="hljs-string">"Stride:\t%d\n"</span>
+			<span class="hljs-string">"Address:\t%p\n"</span>,
+			lfb_driver_name,
+			lfb_resolution_x,
+			lfb_resolution_y,
+			lfb_resolution_b,
+			lfb_resolution_s,
+			lfb_vid_memory);
+	} <span class="hljs-keyword">else</span> {
+		procfs_printf(node, <span class="hljs-string">"Driver:\tnone\n"</span>);
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">procfs_entry</span> <span class="hljs-title">framebuffer_entry</span> = {</span>
+	<span class="hljs-number">0</span>,
+	<span class="hljs-string">"framebuffer"</span>,
+	framebuffer_func,
+	<span class="hljs-number">0</span>
+};
+
+<span class="hljs-comment">/* Install framebuffer device */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">finalize_graphics</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * driver)</span> </span>{
+	lfb_driver_name = driver;
+	lfb_device = lfb_video_device_create();
+	lfb_device-&gt;length  = lfb_resolution_s * lfb_resolution_y; <span class="hljs-comment">/* Size is framebuffer size in bytes */</span>
+
+	<span class="hljs-keyword">char</span> info[<span class="hljs-number">100</span>];
+	<span class="hljs-built_in">snprintf</span>(info, <span class="hljs-number">99</span>, <span class="hljs-string">"%s,%ux%u"</span>, driver, lfb_resolution_x, lfb_resolution_y);
+
+	vfs_mount(<span class="hljs-string">"/dev/fb0"</span>, lfb_device, <span class="hljs-string">"lfb"</span>, info);
+
+	procfs_install(&amp;framebuffer_entry);
+}
+
+<span class="hljs-comment">/* QEMU support {{{ */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">qemu_scan_pci</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> device, <span class="hljs-keyword">uint16_t</span> v, <span class="hljs-keyword">uint16_t</span> d, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> * output = extra;
+	<span class="hljs-keyword">if</span> ((v == <span class="hljs-number">0x1234</span> &amp;&amp; d == <span class="hljs-number">0x1111</span>) ||
+	    (v == <span class="hljs-number">0x10de</span> &amp;&amp; d == <span class="hljs-number">0x0a20</span>))  {
+		<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> __x86_64__</span>
+		<span class="hljs-comment">/* we have to configure this thing ourselves */</span>
+		<span class="hljs-keyword">uintptr_t</span> t = <span class="hljs-number">0x10000008</span>;
+		<span class="hljs-keyword">uintptr_t</span> m = <span class="hljs-number">0x11000000</span>;
+		pci_write_field(device, PCI_BAR0, <span class="hljs-number">4</span>, t); <span class="hljs-comment">/* video memory? */</span>
+		pci_write_field(device, PCI_BAR2, <span class="hljs-number">4</span>, m); <span class="hljs-comment">/* MMIO? */</span>
+		pci_write_field(device, PCI_COMMAND, <span class="hljs-number">2</span>, <span class="hljs-number">4</span>|<span class="hljs-number">2</span>|<span class="hljs-number">1</span>);
+		<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+		<span class="hljs-keyword">uintptr_t</span> t = pci_read_field(device, PCI_BAR0, <span class="hljs-number">4</span>);
+		<span class="hljs-keyword">uintptr_t</span> m = pci_read_field(device, PCI_BAR2, <span class="hljs-number">4</span>);
+		<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+		<span class="hljs-keyword">if</span> (m == <span class="hljs-number">0</span>) {
+			<span class="hljs-comment">/* Shoot. */</span>
+			<span class="hljs-keyword">return</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (t &gt; <span class="hljs-number">0</span>) {
+			output[<span class="hljs-number">0</span>] = (<span class="hljs-keyword">uintptr_t</span>)mmu_map_from_physical(t &amp; <span class="hljs-number">0xFFFFFFF0</span>);
+			output[<span class="hljs-number">1</span>] = (<span class="hljs-keyword">uintptr_t</span>)mmu_map_from_physical(m &amp; <span class="hljs-number">0xFFFFFFF0</span>);
+			<span class="hljs-comment">/* Figure out size */</span>
+			pci_write_field(device, PCI_BAR0, <span class="hljs-number">4</span>, <span class="hljs-number">0xFFFFFFFF</span>);
+			<span class="hljs-keyword">uint32_t</span> s = pci_read_field(device, PCI_BAR0, <span class="hljs-number">4</span>);
+			s = ~(s &amp; <span class="hljs-number">-15</span>) + <span class="hljs-number">1</span>;
+			output[<span class="hljs-number">2</span>] = s;
+			pci_write_field(device, PCI_BAR0, <span class="hljs-number">4</span>, (<span class="hljs-keyword">uint32_t</span>)t);
+		}
+	}
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> QEMU_MMIO_ID       0x00</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> QEMU_MMIO_FBWIDTH  0x02</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> QEMU_MMIO_FBHEIGHT 0x04</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> QEMU_MMIO_BPP      0x06</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> QEMU_MMIO_ENABLED  0x08</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> QEMU_MMIO_VIRTX    0x0c</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> QEMU_MMIO_VIRTY    0x0e</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">qemu_mmio_out</span><span class="hljs-params">(<span class="hljs-keyword">int</span> off, <span class="hljs-keyword">uint16_t</span> val)</span> </span>{
+	*(<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span>*)(lfb_qemu_mmio + <span class="hljs-number">0x500</span> + off) = val;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint16_t</span> <span class="hljs-title">qemu_mmio_in</span><span class="hljs-params">(<span class="hljs-keyword">int</span> off)</span> </span>{
+	<span class="hljs-keyword">return</span> *(<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span>*)(lfb_qemu_mmio + <span class="hljs-number">0x500</span> + off);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">qemu_set_resolution</span><span class="hljs-params">(<span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y)</span> </span>{
+	qemu_mmio_out(QEMU_MMIO_ENABLED,  <span class="hljs-number">0</span>);
+	qemu_mmio_out(QEMU_MMIO_FBWIDTH,  x);
+	qemu_mmio_out(QEMU_MMIO_FBHEIGHT, y);
+	qemu_mmio_out(QEMU_MMIO_BPP, PREFERRED_B);
+	qemu_mmio_out(QEMU_MMIO_VIRTX, x);
+	qemu_mmio_out(QEMU_MMIO_VIRTY, y);
+	qemu_mmio_out(QEMU_MMIO_ENABLED,  <span class="hljs-number">0x41</span>); <span class="hljs-comment">/* 01h: enabled, 40h: lfb */</span>
+
+	<span class="hljs-comment">/* unblank vga; this should only be necessary on secondary displays */</span>
+	*(<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span>*)(lfb_qemu_mmio + <span class="hljs-number">0x400</span>) = <span class="hljs-number">0x20</span>;
+
+	lfb_resolution_x = qemu_mmio_in(QEMU_MMIO_FBWIDTH);
+	lfb_resolution_y = qemu_mmio_in(QEMU_MMIO_FBHEIGHT);
+	lfb_resolution_b = qemu_mmio_in(QEMU_MMIO_BPP);
+	lfb_resolution_s = qemu_mmio_in(QEMU_MMIO_VIRTX) * (lfb_resolution_b / <span class="hljs-number">8</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">graphics_install_bochs</span><span class="hljs-params">(<span class="hljs-keyword">uint16_t</span> resolution_x, <span class="hljs-keyword">uint16_t</span> resolution_y)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">graphics_install_qemu</span><span class="hljs-params">(<span class="hljs-keyword">uint16_t</span> resolution_x, <span class="hljs-keyword">uint16_t</span> resolution_y)</span> </span>{
+
+	<span class="hljs-keyword">uintptr_t</span> vals[<span class="hljs-number">3</span>] = {<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>};
+	pci_scan(qemu_scan_pci, <span class="hljs-number">-1</span>, vals);
+
+	<span class="hljs-keyword">if</span> (!vals[<span class="hljs-number">0</span>]) {
+		<span class="hljs-comment">/* Try port-IO interface */</span>
+		graphics_install_bochs(resolution_x, resolution_y);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	lfb_vid_memory = (<span class="hljs-keyword">uint8_t</span>*)vals[<span class="hljs-number">0</span>];
+	lfb_qemu_mmio = vals[<span class="hljs-number">1</span>];
+	lfb_memsize    = vals[<span class="hljs-number">2</span>];
+
+	<span class="hljs-keyword">uint16_t</span> i = qemu_mmio_in(QEMU_MMIO_ID);
+	<span class="hljs-keyword">if</span> (i &lt; <span class="hljs-number">0xB0C0</span> || i &gt; <span class="hljs-number">0xB0C6</span>) <span class="hljs-keyword">return</span>; <span class="hljs-comment">/* Unsupported qemu device. */</span>
+	qemu_mmio_out(QEMU_MMIO_ID, <span class="hljs-number">0xB0C4</span>); <span class="hljs-comment">/* We speak ver. 4 */</span>
+
+	qemu_set_resolution(resolution_x, resolution_y);
+	resolution_x = lfb_resolution_x; <span class="hljs-comment">/* may have changed */</span>
+
+	lfb_resolution_impl = &amp;qemu_set_resolution;
+
+	<span class="hljs-keyword">if</span> (!lfb_vid_memory) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"failed to locate video memory\n"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	finalize_graphics(<span class="hljs-string">"qemu"</span>);
+}
+
+<span class="hljs-comment">/* VirtualBox implements the portio-based interface, but not the MMIO one. */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">bochs_scan_pci</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> device, <span class="hljs-keyword">uint16_t</span> v, <span class="hljs-keyword">uint16_t</span> d, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-keyword">if</span> ((v == <span class="hljs-number">0x80EE</span> &amp;&amp; d == <span class="hljs-number">0xBEEF</span>) || (v == <span class="hljs-number">0x1234</span> &amp;&amp; d == <span class="hljs-number">0x1111</span>)) {
+		<span class="hljs-keyword">uintptr_t</span> t = pci_read_field(device, PCI_BAR0, <span class="hljs-number">4</span>);
+		<span class="hljs-keyword">if</span> (t &gt; <span class="hljs-number">0</span>) {
+			*((<span class="hljs-keyword">uint8_t</span> **)extra) = mmu_map_from_physical(t &amp; <span class="hljs-number">0xFFFFFFF0</span>);
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">bochs_set_resolution</span><span class="hljs-params">(<span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y)</span> </span>{
+	outports(<span class="hljs-number">0x1CE</span>, <span class="hljs-number">0x04</span>);
+	outports(<span class="hljs-number">0x1CF</span>, <span class="hljs-number">0x00</span>);
+	outports(<span class="hljs-number">0x1CE</span>, <span class="hljs-number">0x01</span>);
+	outports(<span class="hljs-number">0x1CF</span>, x);
+	outports(<span class="hljs-number">0x1CE</span>, <span class="hljs-number">0x02</span>);
+	outports(<span class="hljs-number">0x1CF</span>, y);
+	outports(<span class="hljs-number">0x1CE</span>, <span class="hljs-number">0x03</span>);
+	outports(<span class="hljs-number">0x1CF</span>, PREFERRED_B);
+	outports(<span class="hljs-number">0x1CE</span>, <span class="hljs-number">0x07</span>);
+	outports(<span class="hljs-number">0x1CF</span>, PREFERRED_VY);
+	outports(<span class="hljs-number">0x1CE</span>, <span class="hljs-number">0x04</span>);
+	outports(<span class="hljs-number">0x1CF</span>, <span class="hljs-number">0x41</span>);
+	outports(<span class="hljs-number">0x1CE</span>, <span class="hljs-number">0x01</span>);
+	x = inports(<span class="hljs-number">0x1CF</span>);
+	lfb_resolution_x = x;
+	lfb_resolution_s = x * <span class="hljs-number">4</span>;
+	lfb_resolution_y = y;
+	lfb_resolution_b = <span class="hljs-number">32</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">graphics_install_bochs</span><span class="hljs-params">(<span class="hljs-keyword">uint16_t</span> resolution_x, <span class="hljs-keyword">uint16_t</span> resolution_y)</span> </span>{
+	outports(<span class="hljs-number">0x1CE</span>, <span class="hljs-number">0x00</span>);
+	<span class="hljs-keyword">uint16_t</span> i = inports(<span class="hljs-number">0x1CF</span>);
+	<span class="hljs-keyword">if</span> (i &lt; <span class="hljs-number">0xB0C0</span> || i &gt; <span class="hljs-number">0xB0C6</span>) {
+		<span class="hljs-keyword">return</span>;
+	}
+	outports(<span class="hljs-number">0x1CF</span>, <span class="hljs-number">0xB0C4</span>);
+	i = inports(<span class="hljs-number">0x1CF</span>);
+	bochs_set_resolution(resolution_x, resolution_y);
+	resolution_x = lfb_resolution_x; <span class="hljs-comment">/* may have changed */</span>
+	pci_scan(bochs_scan_pci, <span class="hljs-number">-1</span>, &amp;lfb_vid_memory);
+	lfb_resolution_impl = &amp;bochs_set_resolution;
+	<span class="hljs-keyword">if</span> (!lfb_vid_memory) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"failed to locate video memory\n"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+	outports(<span class="hljs-number">0x1CE</span>, <span class="hljs-number">0x0a</span>);
+	i = inports(<span class="hljs-number">0x1CF</span>);
+	<span class="hljs-keyword">if</span> (i &gt; <span class="hljs-number">1</span>) {
+		lfb_memsize = (<span class="hljs-keyword">uint32_t</span>)i * <span class="hljs-number">64</span> * <span class="hljs-number">1024</span>;
+	} <span class="hljs-keyword">else</span> {
+		lfb_memsize = inportl(<span class="hljs-number">0x1CF</span>);
+	}
+	finalize_graphics(<span class="hljs-string">"bochs"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">arch_framebuffer_initialize</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">graphics_install_preset</span><span class="hljs-params">(<span class="hljs-keyword">uint16_t</span> w, <span class="hljs-keyword">uint16_t</span> h)</span> </span>{
+	<span class="hljs-comment">/* Make sure memsize is actually big enough */</span>
+	<span class="hljs-keyword">size_t</span> minsize = lfb_resolution_s * lfb_resolution_y * <span class="hljs-number">4</span>;
+	<span class="hljs-keyword">if</span> (lfb_memsize &lt; minsize) lfb_memsize = minsize;
+
+	finalize_graphics(<span class="hljs-string">"preset"</span>);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SVGA_IO_BASE (vmware_io)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SVGA_IO_MUL 1</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SVGA_INDEX_PORT 0</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SVGA_VALUE_PORT 1</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SVGA_REG_ID 0</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SVGA_REG_ENABLE 1</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SVGA_REG_WIDTH 2</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SVGA_REG_HEIGHT 3</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SVGA_REG_BITS_PER_PIXEL 7</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SVGA_REG_BYTES_PER_LINE 12</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SVGA_REG_FB_START 13</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> vmware_io = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">vmware_scan_pci</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> device, <span class="hljs-keyword">uint16_t</span> v, <span class="hljs-keyword">uint16_t</span> d, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-keyword">if</span> ((v == <span class="hljs-number">0x15ad</span> &amp;&amp; d == <span class="hljs-number">0x0405</span>)) {
+		<span class="hljs-keyword">uintptr_t</span> t = pci_read_field(device, PCI_BAR0, <span class="hljs-number">4</span>);
+		<span class="hljs-keyword">if</span> (t &gt; <span class="hljs-number">0</span>) {
+			*((<span class="hljs-keyword">uint8_t</span> **)extra) = (<span class="hljs-keyword">uint8_t</span> *)(t &amp; <span class="hljs-number">0xFFFFFFF0</span>);
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">vmware_write</span><span class="hljs-params">(<span class="hljs-keyword">int</span> reg, <span class="hljs-keyword">int</span> value)</span> </span>{
+	outportl(SVGA_IO_MUL * SVGA_INDEX_PORT + SVGA_IO_BASE, reg);
+	outportl(SVGA_IO_MUL * SVGA_VALUE_PORT + SVGA_IO_BASE, value);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">vmware_read</span><span class="hljs-params">(<span class="hljs-keyword">int</span> reg)</span> </span>{
+	outportl(SVGA_IO_MUL * SVGA_INDEX_PORT + SVGA_IO_BASE, reg);
+	<span class="hljs-keyword">return</span> inportl(SVGA_IO_MUL * SVGA_VALUE_PORT + SVGA_IO_BASE);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">vmware_set_resolution</span><span class="hljs-params">(<span class="hljs-keyword">uint16_t</span> w, <span class="hljs-keyword">uint16_t</span> h)</span> </span>{
+	vmware_write(SVGA_REG_ENABLE, <span class="hljs-number">0</span>);
+	vmware_write(SVGA_REG_ID, <span class="hljs-number">0</span>);
+	vmware_write(SVGA_REG_WIDTH, w);
+	vmware_write(SVGA_REG_HEIGHT, h);
+	vmware_write(SVGA_REG_BITS_PER_PIXEL, <span class="hljs-number">32</span>);
+	vmware_write(SVGA_REG_ENABLE, <span class="hljs-number">1</span>);
+
+	<span class="hljs-keyword">uint32_t</span> bpl = vmware_read(SVGA_REG_BYTES_PER_LINE);
+
+	lfb_resolution_x = w;
+	lfb_resolution_s = bpl;
+	lfb_resolution_y = h;
+	lfb_resolution_b = <span class="hljs-number">32</span>;
+
+	lfb_memsize = vmware_read(<span class="hljs-number">15</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">graphics_install_vmware</span><span class="hljs-params">(<span class="hljs-keyword">uint16_t</span> w, <span class="hljs-keyword">uint16_t</span> h)</span> </span>{
+	pci_scan(vmware_scan_pci, <span class="hljs-number">-1</span>, &amp;vmware_io);
+
+	<span class="hljs-keyword">if</span> (!vmware_io) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"vmware video, but no device found?\n"</span>);
+		<span class="hljs-keyword">return</span>;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"vmware io base: %p\n"</span>, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)vmware_io);
+	}
+
+	vmware_set_resolution(w,h);
+	lfb_resolution_impl = &amp;vmware_set_resolution;
+
+	<span class="hljs-keyword">uintptr_t</span> fb_addr = vmware_read(SVGA_REG_FB_START);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"vmware fb address: %p\n"</span>, (<span class="hljs-keyword">void</span>*)fb_addr);
+
+	lfb_memsize = vmware_read(<span class="hljs-number">15</span>);
+
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"vmware fb size: 0x%lx\n"</span>, lfb_memsize);
+
+	lfb_vid_memory = mmu_map_from_physical(fb_addr);
+
+	finalize_graphics(<span class="hljs-string">"vmware"</span>);
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">disp_mode</span> {</span>
+	<span class="hljs-keyword">int16_t</span> x;
+	<span class="hljs-keyword">int16_t</span> y;
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">set</span>;
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">auto_scan_pci</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> device, <span class="hljs-keyword">uint16_t</span> v, <span class="hljs-keyword">uint16_t</span> d, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">disp_mode</span> * <span class="hljs-title">mode</span> = <span class="hljs-title">extra</span>;</span>
+	<span class="hljs-keyword">if</span> (mode-&gt;<span class="hljs-built_in">set</span>) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">if</span> ((v == <span class="hljs-number">0x1234</span> &amp;&amp; d == <span class="hljs-number">0x1111</span>) ||
+	    (v == <span class="hljs-number">0x10de</span> &amp;&amp; d == <span class="hljs-number">0x0a20</span>))  {
+		mode-&gt;<span class="hljs-built_in">set</span> = <span class="hljs-number">1</span>;
+		graphics_install_qemu(mode-&gt;x, mode-&gt;y);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (v == <span class="hljs-number">0x80EE</span> &amp;&amp; d == <span class="hljs-number">0xBEEF</span>) {
+		mode-&gt;<span class="hljs-built_in">set</span> = <span class="hljs-number">1</span>;
+		graphics_install_bochs(mode-&gt;x, mode-&gt;y);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> ((v == <span class="hljs-number">0x15ad</span> &amp;&amp; d == <span class="hljs-number">0x0405</span>)) {
+		mode-&gt;<span class="hljs-built_in">set</span> = <span class="hljs-number">1</span>;
+		graphics_install_vmware(mode-&gt;x, mode-&gt;y);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">lfb_init</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * c)</span> </span>{
+	<span class="hljs-keyword">char</span> * arg = strdup(c);
+	<span class="hljs-keyword">char</span> * _argv[<span class="hljs-number">10</span>];
+	<span class="hljs-keyword">int</span> argc = tokenize(arg, <span class="hljs-string">","</span>, _argv);
+	<span class="hljs-keyword">char</span> ** argv = _argv;
+
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>],<span class="hljs-string">"text"</span>)) {
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> __x86_64__</span>
+		assert(<span class="hljs-number">0</span> &amp;&amp; <span class="hljs-string">"This platform does not support 'text'."</span>);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+		<span class="hljs-built_in">free</span>(arg);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">uint16_t</span> x, y;
+
+	<span class="hljs-comment">/* Extract framebuffer information from multiboot */</span>
+	arch_framebuffer_initialize();
+	x = lfb_resolution_x;
+	y = lfb_resolution_y;
+
+	<span class="hljs-keyword">if</span> (argc &gt;= <span class="hljs-number">3</span>) {
+		x = atoi(argv[<span class="hljs-number">1</span>]);
+		y = atoi(argv[<span class="hljs-number">2</span>]);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!lfb_resolution_x) {
+		x = PREFERRED_W;
+		y = PREFERRED_H;
+	}
+
+	<span class="hljs-keyword">if</span> (args_present(<span class="hljs-string">"lfbwc"</span>)) {
+		lfb_use_write_combining = <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">int</span> ret_val = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>], <span class="hljs-string">"auto"</span>)) {
+		<span class="hljs-comment">/* Attempt autodetection */</span>
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">disp_mode</span> <span class="hljs-title">mode</span> = {</span>x,y,<span class="hljs-number">0</span>};
+		pci_scan(auto_scan_pci, <span class="hljs-number">-1</span>, &amp;mode);
+		<span class="hljs-keyword">if</span> (!mode.<span class="hljs-built_in">set</span>) {
+			graphics_install_preset(x,y);
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>], <span class="hljs-string">"qemu"</span>)) {
+		<span class="hljs-comment">/* BGA with MMIO */</span>
+		graphics_install_qemu(x,y);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>], <span class="hljs-string">"bochs"</span>)) {
+		<span class="hljs-comment">/* BGA with no MMIO */</span>
+		graphics_install_bochs(x,y);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>],<span class="hljs-string">"vmware"</span>)) {
+		<span class="hljs-comment">/* VMware SVGA */</span>
+		graphics_install_vmware(x,y);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">0</span>],<span class="hljs-string">"preset"</span>)) {
+		<span class="hljs-comment">/* Set by bootloader (UEFI) */</span>
+		graphics_install_preset(x,y);
+	} <span class="hljs-keyword">else</span> {
+		ret_val = <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-built_in">free</span>(arg);
+	<span class="hljs-keyword">return</span> ret_val;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">framebuffer_initialize</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	lfb_init(args_present(<span class="hljs-string">"vid"</span>) ? args_value(<span class="hljs-string">"vid"</span>) : <span class="hljs-string">"auto"</span>);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

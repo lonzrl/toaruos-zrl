@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>vbox.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "modules\\vbox.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>vbox.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pci.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/video.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pipe.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mouse.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/args.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/module.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/regs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/ports.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/irq.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VBOX_VENDOR_ID 0x80EE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VBOX_DEVICE_ID 0xCAFE</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">vbox_scan_pci</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> device, <span class="hljs-keyword">uint16_t</span> v, <span class="hljs-keyword">uint16_t</span> d, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-keyword">if</span> (v == VBOX_VENDOR_ID &amp;&amp; d == VBOX_DEVICE_ID) {
+		*((<span class="hljs-keyword">uint32_t</span> *)extra) = device;
+	}
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VMM_GetMouseState 1</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VMM_SetMouseState 2</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VMM_SetPointerShape 3</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VMM_AcknowledgeEvents 41</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VMM_ReportGuestInfo 50</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VMM_GetDisplayChangeRequest 51</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VMM_ReportGuestCapabilities 55</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VMM_VideoSetVisibleRegion 72</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VMMCAP_SeamlessMode (1 &lt;&lt; 0)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VMMCAP_HostWindows (1 &lt;&lt; 1)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VMMCAP_Graphics (1 &lt;&lt; 2)</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VMMDEV_VERSION 0x00010003</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VBOX_REQUEST_HEADER_VERSION 0x10001</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_header</span> {</span>
+	<span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">size</span>;
+	<span class="hljs-keyword">uint32_t</span> version;
+	<span class="hljs-keyword">uint32_t</span> requestType;
+	<span class="hljs-keyword">int32_t</span>  rc;
+	<span class="hljs-keyword">uint32_t</span> reserved1;
+	<span class="hljs-keyword">uint32_t</span> reserved2;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_guest_info</span> {</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_header</span> <span class="hljs-title">header</span>;</span>
+	<span class="hljs-keyword">uint32_t</span> version;
+	<span class="hljs-keyword">uint32_t</span> ostype;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_guest_caps</span> {</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_header</span> <span class="hljs-title">header</span>;</span>
+	<span class="hljs-keyword">uint32_t</span> caps;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_ack_events</span> {</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_header</span> <span class="hljs-title">header</span>;</span>
+	<span class="hljs-keyword">uint32_t</span> events;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_display_change</span> {</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_header</span> <span class="hljs-title">header</span>;</span>
+	<span class="hljs-keyword">uint32_t</span> xres;
+	<span class="hljs-keyword">uint32_t</span> yres;
+	<span class="hljs-keyword">uint32_t</span> bpp;
+	<span class="hljs-keyword">uint32_t</span> eventack;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_mouse</span> {</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_header</span> <span class="hljs-title">header</span>;</span>
+	<span class="hljs-keyword">uint32_t</span> features;
+	<span class="hljs-keyword">int32_t</span> x;
+	<span class="hljs-keyword">int32_t</span> y;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_rtrect</span> {</span>
+	<span class="hljs-keyword">int32_t</span> xLeft;
+	<span class="hljs-keyword">int32_t</span> yTop;
+	<span class="hljs-keyword">int32_t</span> xRight;
+	<span class="hljs-keyword">int32_t</span> yBottom;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_visibleregion</span> {</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_header</span> <span class="hljs-title">header</span>;</span>
+	<span class="hljs-keyword">uint32_t</span> count;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_rtrect</span> <span class="hljs-title">rect</span>[1];</span>
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_pointershape</span> {</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_header</span> <span class="hljs-title">header</span>;</span>
+	<span class="hljs-keyword">uint32_t</span> flags;
+	<span class="hljs-keyword">uint32_t</span> xHot;
+	<span class="hljs-keyword">uint32_t</span> yHot;
+	<span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">width</span>;
+	<span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">height</span>;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> data[];
+};
+
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EARLY_LOG_DEVICE 0x504</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> _vbox_write(<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> * <span class="hljs-built_in">buffer</span>) {
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">size</span>; ++i) {
+		outportb(EARLY_LOG_DEVICE, <span class="hljs-built_in">buffer</span>[i]);
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">size</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">vbox_set_log</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	printf_output = &amp;_vbox_write;
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Hello world, using VBox machine log for kernel output\n"</span>);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> vbox_device = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> vbox_port = <span class="hljs-number">0x0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> vbox_irq = <span class="hljs-number">0</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">volatile</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_ack_events</span> * <span class="hljs-title">vbox_irq_ack</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> vbox_phys_ack;
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_display_change</span> * <span class="hljs-title">vbox_disp</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> vbox_phys_disp;
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_mouse</span> * <span class="hljs-title">vbox_m</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> vbox_phys_mouse;
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_mouse</span> * <span class="hljs-title">vbox_mg</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> vbox_phys_mouse_get;
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_visibleregion</span> * <span class="hljs-title">vbox_visibleregion</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> vbox_phys_visibleregion;
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_pointershape</span> * <span class="hljs-title">vbox_pointershape</span> = <span class="hljs-title">NULL</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> vbox_phys_pointershape;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> * vbox_vmmdev = <span class="hljs-number">0</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">process_t</span> * vbox_kthread = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * mouse_pipe;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * rect_pipe;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * pointer_pipe;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> mouse_state;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PACKETS_IN_PIPE 1024</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DISCARD_POINT 32</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VMM_Event_DisplayChange (1 &lt;&lt; 2)</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">vbox_do_modeset</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	outportl(vbox_port, vbox_phys_disp);
+	outportl(vbox_port, vbox_phys_disp);
+	<span class="hljs-keyword">if</span> (lfb_resolution_x &amp;&amp; vbox_disp-&gt;xres &amp;&amp; (vbox_disp-&gt;xres != lfb_resolution_x  || vbox_disp-&gt;yres != lfb_resolution_y)) {
+		lfb_set_resolution(vbox_disp-&gt;xres, vbox_disp-&gt;yres);
+	}
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VMM_Event_Mouse (1 &lt;&lt; 9)</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">vbox_do_mouse</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	outportl(vbox_port, vbox_phys_mouse_get);
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> x, y;
+
+	<span class="hljs-keyword">if</span> (lfb_vid_memory &amp;&amp; lfb_resolution_x &amp;&amp; lfb_resolution_y &amp;&amp; vbox_mg-&gt;x &amp;&amp; vbox_mg-&gt;y) {
+		x = ((<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)vbox_mg-&gt;x * lfb_resolution_x) / <span class="hljs-number">0xFFFF</span>;
+		y = ((<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)vbox_mg-&gt;y * lfb_resolution_y) / <span class="hljs-number">0xFFFF</span>;
+	} <span class="hljs-keyword">else</span> {
+		x = vbox_mg-&gt;x;
+		y = vbox_mg-&gt;y;
+	}
+
+	<span class="hljs-keyword">mouse_device_packet_t</span> packet;
+	packet.magic = MOUSE_MAGIC;
+	packet.x_difference = x;
+	packet.y_difference = y;
+	packet.buttons = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">mouse_device_packet_t</span> bitbucket;
+	<span class="hljs-keyword">while</span> (pipe_size(mouse_pipe) &gt; (<span class="hljs-keyword">int</span>)(DISCARD_POINT * <span class="hljs-keyword">sizeof</span>(packet))) {
+		read_fs(mouse_pipe, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(packet), (<span class="hljs-keyword">uint8_t</span> *)&amp;bitbucket);
+	}
+	write_fs(mouse_pipe, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(packet), (<span class="hljs-keyword">uint8_t</span> *)&amp;packet);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">delay_yield</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> subticks)</span> </span>{
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> s, ss;
+	relative_time(<span class="hljs-number">0</span>, subticks, &amp;s, &amp;ss);
+	sleep_until((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, s, ss);
+	switch_task(<span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">vbox_kthread_handler</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * data)</span> </span>{
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">uint32_t</span> events = vbox_vmmdev[<span class="hljs-number">2</span>];
+
+		<span class="hljs-keyword">if</span> (events) {
+			vbox_irq_ack-&gt;header.rc = <span class="hljs-number">-225</span>;
+			vbox_irq_ack-&gt;events = <span class="hljs-number">0</span>;
+			<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">""</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+			outportl(vbox_port, vbox_phys_ack);
+			<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">""</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+		}
+
+		<span class="hljs-keyword">if</span> (events &amp; VMM_Event_Mouse) vbox_do_mouse();
+		<span class="hljs-keyword">if</span> (events &amp; VMM_Event_DisplayChange) vbox_do_modeset();
+
+		delay_yield(<span class="hljs-number">10000</span>);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">vbox_irq_handler</span><span class="hljs-params">(struct regs *r)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> events = vbox_vmmdev[<span class="hljs-number">2</span>];
+	<span class="hljs-keyword">if</span> (!events) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (vbox_kthread) make_process_ready(vbox_kthread);
+	irq_ack(vbox_irq);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VBOX_MOUSE_ON (1 &lt;&lt; 0) | (1 &lt;&lt; 4)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VBOX_MOUSE_OFF (0)</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">mouse_on_off</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> status)</span> </span>{
+	mouse_state = status;
+
+	vbox_m-&gt;header.<span class="hljs-built_in">size</span> = <span class="hljs-keyword">sizeof</span>(struct vbox_mouse);
+	vbox_m-&gt;header.version = VBOX_REQUEST_HEADER_VERSION;
+	vbox_m-&gt;header.requestType = VMM_SetMouseState;
+	vbox_m-&gt;header.rc = <span class="hljs-number">0</span>;
+	vbox_m-&gt;header.reserved1 = <span class="hljs-number">0</span>;
+	vbox_m-&gt;header.reserved2 = <span class="hljs-number">0</span>;
+	vbox_m-&gt;features = status;
+	vbox_m-&gt;x = <span class="hljs-number">0</span>;
+	vbox_m-&gt;y = <span class="hljs-number">0</span>;
+	outportl(vbox_port, vbox_phys_mouse);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ioctl_mouse</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> request, <span class="hljs-keyword">void</span> * argp)</span> </span>{
+	<span class="hljs-keyword">if</span> (request == <span class="hljs-number">1</span>) {
+		<span class="hljs-comment">/* Disable */</span>
+		mouse_on_off(VBOX_MOUSE_OFF);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">if</span> (request == <span class="hljs-number">2</span>) {
+		<span class="hljs-comment">/* Enable */</span>
+		mouse_on_off(VBOX_MOUSE_ON);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">if</span> (request == <span class="hljs-number">3</span>) {
+		<span class="hljs-keyword">return</span> mouse_state == (VBOX_MOUSE_ON);
+	}
+	<span class="hljs-keyword">return</span> -ENOTTY;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">write_pointer</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (!mouse_state) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	}
+
+	<span class="hljs-built_in">memcpy</span>(&amp;vbox_pointershape-&gt;data[<span class="hljs-number">288</span>], <span class="hljs-built_in">buffer</span>, <span class="hljs-number">48</span>*<span class="hljs-number">48</span>*<span class="hljs-number">4</span>);
+	outportl(vbox_port, vbox_phys_pointershape);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">size</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">write_rectpipe</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	(<span class="hljs-keyword">void</span>)node;
+	(<span class="hljs-keyword">void</span>)offset;
+
+	<span class="hljs-comment">/* TODO should check size */</span>
+
+	<span class="hljs-comment">/* This is kinda special and always assumes everything was written at once. */</span>
+	<span class="hljs-keyword">uint32_t</span> count = ((<span class="hljs-keyword">uint32_t</span> *)<span class="hljs-built_in">buffer</span>)[<span class="hljs-number">0</span>];
+	vbox_visibleregion-&gt;count = count;
+
+	<span class="hljs-keyword">if</span> (count &gt; <span class="hljs-number">254</span>) count = <span class="hljs-number">254</span>; <span class="hljs-comment">/* enforce maximum */</span>
+
+	<span class="hljs-built_in">buffer</span> += <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+		<span class="hljs-built_in">memcpy</span>(&amp;vbox_visibleregion-&gt;<span class="hljs-built_in">rect</span>[i], <span class="hljs-built_in">buffer</span>, <span class="hljs-keyword">sizeof</span>(struct vbox_rtrect));
+		<span class="hljs-built_in">buffer</span> += <span class="hljs-keyword">sizeof</span>(struct vbox_rtrect);
+	}
+
+	vbox_visibleregion-&gt;header.<span class="hljs-built_in">size</span> = <span class="hljs-keyword">sizeof</span>(struct vbox_header) + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>) + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int32_t</span>) * count * <span class="hljs-number">4</span>;
+	outportl(vbox_port, vbox_phys_visibleregion);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">size</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> * <span class="hljs-title">kvmalloc_p</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint32_t</span> * outphys)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> index = mmu_allocate_n_frames(<span class="hljs-built_in">size</span> / <span class="hljs-number">0x1000</span>) &lt;&lt; <span class="hljs-number">12</span>;
+	*outphys = index;
+	<span class="hljs-keyword">return</span> mmu_map_from_physical(index);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">vbox_install</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">if</span> (args_present(<span class="hljs-string">"novbox"</span>)) <span class="hljs-keyword">return</span> -ENODEV;
+	pci_scan(vbox_scan_pci, <span class="hljs-number">-1</span>, &amp;vbox_device);
+	<span class="hljs-keyword">if</span> (!vbox_device) <span class="hljs-keyword">return</span> -ENODEV;
+
+	<span class="hljs-keyword">if</span> (!args_present(<span class="hljs-string">"novboxdebug"</span>)) {
+		vbox_set_log();
+	}
+
+	<span class="hljs-keyword">uintptr_t</span> t = pci_read_field(vbox_device, PCI_BAR0, <span class="hljs-number">4</span>);
+	<span class="hljs-keyword">if</span> (t &gt; <span class="hljs-number">0</span>) {
+		vbox_port = (t &amp; <span class="hljs-number">0xFFFFFFF0</span>);
+	}
+
+	<span class="hljs-keyword">uint16_t</span> c = pci_read_field(vbox_device, PCI_COMMAND, <span class="hljs-number">2</span>);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<p>fprintf(&amp;vb, &quot;Command register: 0x%4x\n&quot;, c);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (!!(c &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">10</span>))) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<p>fprintf(&amp;vb, &quot;Interrupts are disabled\n&quot;);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	}
+
+
+	mouse_pipe = make_pipe(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">mouse_device_packet_t</span>) * PACKETS_IN_PIPE);
+	mouse_pipe-&gt;flags = FS_CHARDEVICE;
+	mouse_pipe-&gt;ioctl = ioctl_mouse;
+
+	vfs_mount(<span class="hljs-string">"/dev/absmouse"</span>, mouse_pipe, <span class="hljs-string">"vbox-tablet"</span>, <span class="hljs-string">""</span>);
+
+	vbox_irq = pci_get_interrupt(vbox_device);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<p>fprintf(&amp;vb, &quot;irq line is %d\n&quot;, vbox_irq);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	irq_install_handler(vbox_irq, vbox_irq_handler, <span class="hljs-string">"vbox"</span>);
+
+	<span class="hljs-keyword">uint32_t</span> vbox_phys = <span class="hljs-number">0</span>;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_guest_info</span> * <span class="hljs-title">packet</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">kvmalloc_p</span>(0<span class="hljs-title">x1000</span>, &amp;<span class="hljs-title">vbox_phys</span>);</span>
+	packet-&gt;header.<span class="hljs-built_in">size</span> = <span class="hljs-keyword">sizeof</span>(struct vbox_guest_info);
+	packet-&gt;header.version = VBOX_REQUEST_HEADER_VERSION;
+	packet-&gt;header.requestType = VMM_ReportGuestInfo;
+	packet-&gt;header.rc = <span class="hljs-number">0</span>;
+	packet-&gt;header.reserved1 = <span class="hljs-number">0</span>;
+	packet-&gt;header.reserved2 = <span class="hljs-number">0</span>;
+	packet-&gt;version = VMMDEV_VERSION;
+	packet-&gt;ostype = <span class="hljs-number">0x00100</span>; <span class="hljs-comment">/* Unknown, x86-64 */</span>
+
+	outportl(vbox_port, vbox_phys);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vbox_guest_caps</span> * <span class="hljs-title">caps</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">kvmalloc_p</span>(0<span class="hljs-title">x1000</span>, &amp;<span class="hljs-title">vbox_phys</span>);</span>
+	caps-&gt;header.<span class="hljs-built_in">size</span> = <span class="hljs-keyword">sizeof</span>(struct vbox_guest_caps);
+	caps-&gt;header.version = VBOX_REQUEST_HEADER_VERSION;
+	caps-&gt;header.requestType = VMM_ReportGuestCapabilities;
+	caps-&gt;header.rc = <span class="hljs-number">0</span>;
+	caps-&gt;header.reserved1 = <span class="hljs-number">0</span>;
+	caps-&gt;header.reserved2 = <span class="hljs-number">0</span>;
+	caps-&gt;caps = VMMCAP_Graphics | (args_present(<span class="hljs-string">"novboxseamless"</span>) ? <span class="hljs-number">0</span> : VMMCAP_SeamlessMode);
+	outportl(vbox_port, vbox_phys);
+
+	vbox_irq_ack = (<span class="hljs-keyword">void</span>*)kvmalloc_p(<span class="hljs-number">0x1000</span>, &amp;vbox_phys_ack);
+	vbox_irq_ack-&gt;header.<span class="hljs-built_in">size</span> = <span class="hljs-keyword">sizeof</span>(struct vbox_ack_events);
+	vbox_irq_ack-&gt;header.version = VBOX_REQUEST_HEADER_VERSION;
+	vbox_irq_ack-&gt;header.requestType = VMM_AcknowledgeEvents;
+	vbox_irq_ack-&gt;header.rc = <span class="hljs-number">0</span>;
+	vbox_irq_ack-&gt;header.reserved1 = <span class="hljs-number">0</span>;
+	vbox_irq_ack-&gt;header.reserved2 = <span class="hljs-number">0</span>;
+	vbox_irq_ack-&gt;events = <span class="hljs-number">0</span>;
+
+
+	vbox_disp = (<span class="hljs-keyword">void</span>*)kvmalloc_p(<span class="hljs-number">0x1000</span>, &amp;vbox_phys_disp);
+	vbox_disp-&gt;header.<span class="hljs-built_in">size</span> = <span class="hljs-keyword">sizeof</span>(struct vbox_display_change);
+	vbox_disp-&gt;header.version = VBOX_REQUEST_HEADER_VERSION;
+	vbox_disp-&gt;header.requestType = VMM_GetDisplayChangeRequest;
+	vbox_disp-&gt;header.rc = <span class="hljs-number">0</span>;
+	vbox_disp-&gt;header.reserved1 = <span class="hljs-number">0</span>;
+	vbox_disp-&gt;header.reserved2 = <span class="hljs-number">0</span>;
+	vbox_disp-&gt;xres = <span class="hljs-number">0</span>;
+	vbox_disp-&gt;yres = <span class="hljs-number">0</span>;
+	vbox_disp-&gt;bpp = <span class="hljs-number">0</span>;
+	vbox_disp-&gt;eventack = <span class="hljs-number">1</span>;
+
+	vbox_m = (<span class="hljs-keyword">void</span>*)kvmalloc_p(<span class="hljs-number">0x1000</span>, &amp;vbox_phys_mouse);
+	mouse_on_off(VBOX_MOUSE_ON);
+
+	<span class="hljs-comment">/* For use with later receives */</span>
+	vbox_mg = (<span class="hljs-keyword">void</span>*)kvmalloc_p(<span class="hljs-number">0x1000</span>, &amp;vbox_phys_mouse_get);
+	vbox_mg-&gt;header.<span class="hljs-built_in">size</span> = <span class="hljs-keyword">sizeof</span>(struct vbox_mouse);
+	vbox_mg-&gt;header.version = VBOX_REQUEST_HEADER_VERSION;
+	vbox_mg-&gt;header.requestType = VMM_GetMouseState;
+	vbox_mg-&gt;header.rc = <span class="hljs-number">0</span>;
+	vbox_mg-&gt;header.reserved1 = <span class="hljs-number">0</span>;
+	vbox_mg-&gt;header.reserved2 = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (!args_present(<span class="hljs-string">"novboxpointer"</span>)) {
+		vbox_pointershape = (<span class="hljs-keyword">void</span>*)kvmalloc_p(<span class="hljs-number">0x4000</span>, &amp;vbox_phys_pointershape);
+
+		<span class="hljs-keyword">if</span> (vbox_pointershape) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<p>fprintf(&amp;vb, &quot;Got a valid set of pages to load up a cursor.\n&quot;);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			vbox_pointershape-&gt;header.version = VBOX_REQUEST_HEADER_VERSION;
+			vbox_pointershape-&gt;header.requestType = VMM_SetPointerShape;
+			vbox_pointershape-&gt;header.rc = <span class="hljs-number">0</span>;
+			vbox_pointershape-&gt;header.reserved1 = <span class="hljs-number">0</span>;
+			vbox_pointershape-&gt;header.reserved2 = <span class="hljs-number">0</span>;
+			vbox_pointershape-&gt;flags = (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">0</span>) | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">1</span>) | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">2</span>); <span class="hljs-comment">/* visible, alpha, shape */</span>
+			vbox_pointershape-&gt;xHot = <span class="hljs-number">26</span>;
+			vbox_pointershape-&gt;yHot = <span class="hljs-number">26</span>;
+			vbox_pointershape-&gt;<span class="hljs-built_in">width</span> = <span class="hljs-number">48</span>;
+			vbox_pointershape-&gt;<span class="hljs-built_in">height</span> = <span class="hljs-number">48</span>;
+
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> mask_bytes = ((vbox_pointershape-&gt;<span class="hljs-built_in">width</span> + <span class="hljs-number">7</span>) / <span class="hljs-number">8</span>) * vbox_pointershape-&gt;<span class="hljs-built_in">height</span>;
+
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint32_t</span> i = <span class="hljs-number">0</span>; i &lt; mask_bytes; ++i) {
+				vbox_pointershape-&gt;data[i] = <span class="hljs-number">0x00</span>;
+			}
+
+			<span class="hljs-keyword">while</span> (mask_bytes &amp; <span class="hljs-number">3</span>) {
+				mask_bytes++;
+			}
+			<span class="hljs-keyword">int</span> base = mask_bytes;
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<p>fprintf(&amp;vb, &quot;mask_bytes = %d\n&quot;, mask_bytes);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+			vbox_pointershape-&gt;header.<span class="hljs-built_in">size</span> = <span class="hljs-keyword">sizeof</span>(struct vbox_pointershape) + (<span class="hljs-number">48</span>*<span class="hljs-number">48</span>*<span class="hljs-number">4</span>)+mask_bytes; <span class="hljs-comment">/* update later */</span>
+
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">48</span> * <span class="hljs-number">48</span>; ++i) {
+				vbox_pointershape-&gt;data[base+i*<span class="hljs-number">4</span>] = <span class="hljs-number">0x00</span>; <span class="hljs-comment">/* blue */</span>
+				vbox_pointershape-&gt;data[base+i*<span class="hljs-number">4</span>+<span class="hljs-number">1</span>] = <span class="hljs-number">0x00</span>; <span class="hljs-comment">/* red */</span>
+				vbox_pointershape-&gt;data[base+i*<span class="hljs-number">4</span>+<span class="hljs-number">2</span>] = <span class="hljs-number">0x00</span>; <span class="hljs-comment">/* green */</span>
+				vbox_pointershape-&gt;data[base+i*<span class="hljs-number">4</span>+<span class="hljs-number">3</span>] = <span class="hljs-number">0x00</span>; <span class="hljs-comment">/* alpha */</span>
+			}
+			outportl(vbox_port, vbox_phys_pointershape);
+
+			<span class="hljs-keyword">if</span> (vbox_pointershape-&gt;header.rc &lt; <span class="hljs-number">0</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<p>fprintf(&amp;vb, &quot;Bad response code: -%d\n&quot;, -vbox_pointershape-&gt;header.rc);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-comment">/* Success, let's install the device file */</span>
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<p>fprintf(&amp;vb, &quot;Successfully initialized cursor, going to allow compositor to set it.\n&quot;);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				pointer_pipe = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+				<span class="hljs-built_in">memset</span>(pointer_pipe, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+				pointer_pipe-&gt;mask = <span class="hljs-number">0666</span>;
+				pointer_pipe-&gt;flags = FS_CHARDEVICE;
+				pointer_pipe-&gt;<span class="hljs-built_in">write</span> = write_pointer;
+
+				vfs_mount(<span class="hljs-string">"/dev/vboxpointer"</span>, pointer_pipe, <span class="hljs-string">"vbox-pointer"</span>, <span class="hljs-string">""</span>);
+			}
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!args_present(<span class="hljs-string">"novboxseamless"</span>)) {
+		vbox_visibleregion = (<span class="hljs-keyword">void</span>*)kvmalloc_p(<span class="hljs-number">0x1000</span>, &amp;vbox_phys_visibleregion);
+		vbox_visibleregion-&gt;header.<span class="hljs-built_in">size</span> = <span class="hljs-keyword">sizeof</span>(struct vbox_header) + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>) + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int32_t</span>) * <span class="hljs-number">4</span>; <span class="hljs-comment">/* TODO + more for additional rects? */</span>
+		vbox_visibleregion-&gt;header.version = VBOX_REQUEST_HEADER_VERSION;
+		vbox_visibleregion-&gt;header.requestType = VMM_VideoSetVisibleRegion;
+		vbox_visibleregion-&gt;header.rc = <span class="hljs-number">0</span>;
+		vbox_visibleregion-&gt;header.reserved1 = <span class="hljs-number">0</span>;
+		vbox_visibleregion-&gt;header.reserved2 = <span class="hljs-number">0</span>;
+		vbox_visibleregion-&gt;count = <span class="hljs-number">1</span>;
+		vbox_visibleregion-&gt;<span class="hljs-built_in">rect</span>[<span class="hljs-number">0</span>].xLeft = <span class="hljs-number">0</span>;
+		vbox_visibleregion-&gt;<span class="hljs-built_in">rect</span>[<span class="hljs-number">0</span>].yTop = <span class="hljs-number">0</span>;
+		vbox_visibleregion-&gt;<span class="hljs-built_in">rect</span>[<span class="hljs-number">0</span>].xRight = <span class="hljs-number">1440</span>;
+		vbox_visibleregion-&gt;<span class="hljs-built_in">rect</span>[<span class="hljs-number">0</span>].yBottom = <span class="hljs-number">900</span>;
+		outportl(vbox_port, vbox_phys_visibleregion);
+
+		rect_pipe = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+		<span class="hljs-built_in">memset</span>(rect_pipe, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+		rect_pipe-&gt;mask = <span class="hljs-number">0666</span>;
+		rect_pipe-&gt;flags = FS_CHARDEVICE;
+		rect_pipe-&gt;<span class="hljs-built_in">write</span> = write_rectpipe;
+
+		vfs_mount(<span class="hljs-string">"/dev/vboxrects"</span>, rect_pipe, <span class="hljs-string">"vbox-rects"</span>, <span class="hljs-string">""</span>);
+	}
+
+	<span class="hljs-comment">/* device memory region mapping? */</span>
+	{
+		<span class="hljs-keyword">uintptr_t</span> t = pci_read_field(vbox_device, PCI_BAR1, <span class="hljs-number">4</span>);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<p>fprintf(&amp;vb, &quot;mapping vmm_dev = 0x%x\n&quot;, t);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		<span class="hljs-keyword">if</span> (t &gt; <span class="hljs-number">0</span>) {
+			vbox_vmmdev =  mmu_map_from_physical(t &amp; <span class="hljs-number">0xFFFFFFF0</span>);
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Setting vbox mem device at %p\n"</span>, (<span class="hljs-keyword">void</span>*)vbox_vmmdev);
+		}
+	}
+
+	vbox_kthread = spawn_worker_thread(vbox_kthread_handler, <span class="hljs-string">"[vbox-guest]"</span>, <span class="hljs-literal">NULL</span>);
+
+	<span class="hljs-comment">/* Try a mode set */</span>
+	vbox_do_modeset();
+
+	vbox_vmmdev[<span class="hljs-number">3</span>] = VMM_Event_DisplayChange | VMM_Event_Mouse | <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">fini</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Module</span> <span class="hljs-title">metadata</span> = {</span>
+	.name = <span class="hljs-string">"vbox"</span>,
+	.init = vbox_install,
+	.fini = fini,
+};
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

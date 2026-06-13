@@ -1,0 +1,2288 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>process.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\sys\\process.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>process.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/assert.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/spinlock.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/tree.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/shm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/misc.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/ksym.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pty.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/ptrace.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/wait.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/signal_defs.h&gt;</span></span>
+
+<span class="hljs-comment">/* <span class="hljs-doctag">FIXME:</span> This only needs the size of the regs struct... */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__x86_64__)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/regs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">elif</span> defined(__aarch64__)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/aarch64/regs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">error</span> <span class="hljs-meta-string">"no regs"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-keyword">tree_t</span> * process_tree;  <span class="hljs-comment">/* Stores the parent-child process relationships; the root of this graph is 'init'. */</span>
+<span class="hljs-keyword">list_t</span> * process_list;  <span class="hljs-comment">/* Stores all existing processes. Mostly used for sanity checking or for places where iterating over all processes is useful. */</span>
+<span class="hljs-keyword">list_t</span> * process_queue; <span class="hljs-comment">/* Scheduler ready queue. This the round-robin source. The head is the next process to run. */</span>
+<span class="hljs-keyword">list_t</span> * sleep_queue;   <span class="hljs-comment">/* Ordered list of processes waiting to be awoken by timeouts. The head is the earliest thread to awaken. */</span>
+<span class="hljs-keyword">list_t</span> * reap_queue;    <span class="hljs-comment">/* Processes that could not be cleaned up and need to be deleted. */</span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ProcessorLocal</span> <span class="hljs-title">processor_local_data</span>[32] = {</span><span class="hljs-number">0</span>};
+<span class="hljs-keyword">int</span> processor_count = <span class="hljs-number">1</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>The following locks protect access to the process tree, scheduler queue,
+sleeping, and the very special wait queue...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> tree_lock = { <span class="hljs-number">0</span> };
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> process_queue_lock = { <span class="hljs-number">0</span> };
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> wait_lock_tmp = { <span class="hljs-number">0</span> };
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> sleep_lock = { <span class="hljs-number">0</span> };
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> reap_lock = { <span class="hljs-number">0</span> };
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Update both the total time and the system time when switching to a new thread
+or exiting the current thread.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">update_process_times</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">uint64_t</span> pTime = arch_perf_timer();
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;time_in &amp;&amp; this_core-&gt;current_process-&gt;time_in &lt; pTime) {
+		this_core-&gt;current_process-&gt;time_total +=  pTime - this_core-&gt;current_process-&gt;time_in;
+	}
+	this_core-&gt;current_process-&gt;time_in = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;time_switch &amp;&amp; this_core-&gt;current_process-&gt;time_switch &lt; pTime) {
+		this_core-&gt;current_process-&gt;time_sys += pTime - this_core-&gt;current_process-&gt;time_switch;
+	}
+	this_core-&gt;current_process-&gt;time_switch = <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Add time spent in kernel to time_sys when returning to userspace, such as through
+an interrupt return or entry into a signal handler.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">update_process_times_on_exit</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">uint64_t</span> pTime = arch_perf_timer();
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;time_switch &amp;&amp; this_core-&gt;current_process-&gt;time_switch &lt; pTime) {
+		this_core-&gt;current_process-&gt;time_sys += pTime - this_core-&gt;current_process-&gt;time_switch;
+	}
+	this_core-&gt;current_process-&gt;time_switch = <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> must_have_lock(lck) <span class="hljs-meta-keyword">if</span> (lck.owner != this_core-&gt;cpu_id+1) { arch_fatal_prepare(); printf(<span class="hljs-meta-string">"Failed lock check.\n"</span>); arch_dump_traceback(); arch_fatal(); }</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">switch_next</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	this_core-&gt;previous_process = this_core-&gt;current_process;
+	update_process_times();
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Get the next available process, discarded anything in the queue
+marked as finished.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">do</span> {
+		this_core-&gt;current_process = next_ready_process();
+	} <span class="hljs-keyword">while</span> (this_core-&gt;current_process-&gt;flags &amp; PROC_FLAG_FINISHED);
+
+	this_core-&gt;current_process-&gt;time_in = arch_perf_timer();
+	this_core-&gt;current_process-&gt;time_switch = this_core-&gt;current_process-&gt;time_in;
+
+	<span class="hljs-comment">/* Restore paging and task switch context. */</span>
+	mmu_set_directory(this_core-&gt;current_process-&gt;thread.page_directory-&gt;directory);
+	arch_set_kernel_stack(this_core-&gt;current_process-&gt;<span class="hljs-built_in">image</span>.<span class="hljs-built_in">stack</span>);
+
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;flags &amp; PROC_FLAG_FINISHED) {
+		arch_fatal_prepare();
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Should not have this process...\n"</span>);
+		<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;flags &amp; PROC_FLAG_FINISHED) <span class="hljs-built_in">printf</span>(<span class="hljs-string">"It is marked finished.\n"</span>);
+		arch_dump_traceback();
+		arch_fatal();
+		__builtin_unreachable();
+	}
+
+	<span class="hljs-comment">/* Mark the process as running and started. */</span>
+	__sync_or_and_fetch(&amp;this_core-&gt;current_process-&gt;flags, PROC_FLAG_STARTED);
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">""</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+	<span class="hljs-comment">/* Jump to next */</span>
+	arch_restore_context(&amp;this_core-&gt;current_process-&gt;thread);
+	__builtin_unreachable();
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">reschedule</span>
+<span>Non-zero if this process should be added to the ready queue.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">switch_task</span><span class="hljs-params">(<span class="hljs-keyword">uint8_t</span> reschedule)</span> </span>{
+
+	<span class="hljs-comment">/* switch_task() called but the scheduler isn't enabled? Resume... this is probably a bug. */</span>
+	<span class="hljs-keyword">if</span> (!this_core-&gt;current_process) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process == this_core-&gt;kernel_idle_task) {
+		arch_fatal_prepare();
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Context switch from kernel_idle_task triggered from somewhere other than pre-emption source. Halting.\n"</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"This generally means that a driver responding to interrupts has attempted to yield in its interrupt context.\n"</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Ensure that all device drivers which respond to interrupts do so with non-blocking data structures.\n"</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"   Return address of switch_task: %p\n"</span>, __builtin_return_address(<span class="hljs-number">0</span>));
+		arch_dump_traceback();
+		arch_fatal();
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If a process got to switch_task but was not marked as running, it must be exiting and we don't
+want to waste time saving context for it. Also, kidle is always resumed from the top of its
+loop function, so we don't save any context for it either.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (!(this_core-&gt;current_process-&gt;flags &amp; PROC_FLAG_RUNNING) || (this_core-&gt;current_process == this_core-&gt;kernel_idle_task)) {
+		switch_next();
+		<span class="hljs-keyword">return</span>;
+	}
+
+	arch_save_floating((<span class="hljs-keyword">process_t</span>*)this_core-&gt;current_process);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>'setjmp' - save the execution context. When this call returns '1' we are back
+from a task switch and have been awoken if we were sleeping.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (arch_save_context(&amp;this_core-&gt;current_process-&gt;thread) == <span class="hljs-number">1</span>) {
+		arch_restore_floating((<span class="hljs-keyword">process_t</span>*)this_core-&gt;current_process);
+		<span class="hljs-keyword">return</span>;
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If this is a normal yield, we reschedule.
+XXX: Is this going to work okay with SMP? I think this whole thing
+needs to be wrapped in a lock, but also what if we put the
+thread into a schedule queue previously but a different core
+picks it up before we saved the thread context or the FPU state...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (reschedule) {
+		make_process_ready((<span class="hljs-keyword">process_t</span>*)this_core-&gt;current_process);
+	}
+
+	<span class="hljs-comment">/* @ref switch_next() does not return. */</span>
+	switch_next();
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-11" id="section-11"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">initialize_process_tree</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	process_tree = tree_create();
+	process_list = list_create(<span class="hljs-string">"global process list"</span>,<span class="hljs-literal">NULL</span>);
+	process_queue = list_create(<span class="hljs-string">"global scheduler queue"</span>,<span class="hljs-literal">NULL</span>);
+	sleep_queue = list_create(<span class="hljs-string">"global timed sleep queue"</span>,<span class="hljs-literal">NULL</span>);
+	reap_queue = list_create(<span class="hljs-string">"processes awaiting later cleanup"</span>,<span class="hljs-literal">NULL</span>);
+
+	<span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> PID bitset? */</span>
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-12" id="section-12"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">process</span>
+<span>Process object to check.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">is_valid_process</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * <span class="hljs-built_in">process</span>)</span> </span>{
+	foreach(lnode, process_list) {
+		<span class="hljs-keyword">if</span> (lnode-&gt;value == <span class="hljs-built_in">process</span>) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-13" id="section-13"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">process_fds_grow</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc)</span> </span>{
+	proc-&gt;fds-&gt;capacity *= <span class="hljs-number">2</span>;
+	proc-&gt;fds-&gt;entries = <span class="hljs-built_in">realloc</span>(proc-&gt;fds-&gt;entries, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span> *) * proc-&gt;fds-&gt;capacity);
+	proc-&gt;fds-&gt;modes   = <span class="hljs-built_in">realloc</span>(proc-&gt;fds-&gt;modes,   <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>) * proc-&gt;fds-&gt;capacity);
+	proc-&gt;fds-&gt;offsets = <span class="hljs-built_in">realloc</span>(proc-&gt;fds-&gt;offsets, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint64_t</span>) * proc-&gt;fds-&gt;capacity);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-14" id="section-14"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">process_fds_copy</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc, <span class="hljs-keyword">long</span> src, <span class="hljs-keyword">long</span> dest, <span class="hljs-keyword">int</span> extra_mode)</span> </span>{
+	proc-&gt;fds-&gt;entries[dest] = clone_fs(proc-&gt;fds-&gt;entries[src]);
+	proc-&gt;fds-&gt;modes[dest] = (proc-&gt;fds-&gt;modes[src] &amp; PROC_FD_MODE__RW) | extra_mode;
+	proc-&gt;fds-&gt;offsets[dest] = proc-&gt;fds-&gt;offsets[src];
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-15" id="section-15"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">proc</span>
+<span>Process whose file descriptor should be modified.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">node</span>
+<span>VFS object to add a reference to.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> <span class="hljs-title">process_append_fd</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc, <span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">int</span> mode)</span> </span>{
+	spin_lock(proc-&gt;fds-&gt;lock);
+	<span class="hljs-comment">/* Fill gaps */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> i = <span class="hljs-number">0</span>; i &lt; proc-&gt;fds-&gt;length; ++i) {
+		<span class="hljs-keyword">if</span> (!proc-&gt;fds-&gt;entries[i]) {
+			proc-&gt;fds-&gt;entries[i] = node;
+			<span class="hljs-comment">/* modes, offsets must be set by caller */</span>
+			proc-&gt;fds-&gt;modes[i] = mode;
+			proc-&gt;fds-&gt;offsets[i] = <span class="hljs-number">0</span>;
+			spin_unlock(proc-&gt;fds-&gt;lock);
+			<span class="hljs-keyword">return</span> i;
+		}
+	}
+	<span class="hljs-comment">/* No gaps, expand */</span>
+	<span class="hljs-keyword">if</span> (proc-&gt;fds-&gt;length == proc-&gt;fds-&gt;capacity) {
+		process_fds_grow(proc);
+	}
+	proc-&gt;fds-&gt;entries[proc-&gt;fds-&gt;length] = node;
+	proc-&gt;fds-&gt;modes[proc-&gt;fds-&gt;length] = mode;
+	proc-&gt;fds-&gt;offsets[proc-&gt;fds-&gt;length] = <span class="hljs-number">0</span>;
+	proc-&gt;fds-&gt;length++;
+	spin_unlock(proc-&gt;fds-&gt;lock);
+	<span class="hljs-keyword">return</span> proc-&gt;fds-&gt;length<span class="hljs-number">-1</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-16" id="section-16"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">proc</span>
+<span>Process to modify.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">oldfd</span>
+<span>File descriptor to copy from.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">newfd</span>
+<span>Minimum value of new file descriptor.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">process_fd_dup_least</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc, <span class="hljs-keyword">long</span> oldfd, <span class="hljs-keyword">long</span> newfd, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	spin_lock(proc-&gt;fds-&gt;lock);
+
+	<span class="hljs-comment">/* Ensure there is at least enough space for for newfd itself */</span>
+	<span class="hljs-keyword">while</span> (proc-&gt;fds-&gt;capacity &lt;= (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)newfd) {
+		process_fds_grow(proc);
+	}
+
+	<span class="hljs-comment">/* Then ensure length is at least newfds */</span>
+	<span class="hljs-keyword">while</span> (proc-&gt;fds-&gt;length &lt;= (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)newfd) {
+		proc-&gt;fds-&gt;entries[proc-&gt;fds-&gt;length] = <span class="hljs-literal">NULL</span>;
+		proc-&gt;fds-&gt;length++;
+	}
+
+	<span class="hljs-comment">/* Then check if anything is available already */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = newfd; i &lt; proc-&gt;fds-&gt;length; ++i) {
+		<span class="hljs-keyword">if</span> (proc-&gt;fds-&gt;entries[i] == <span class="hljs-literal">NULL</span>) {
+			<span class="hljs-comment">/* Found a hit, copy */</span>
+			process_fds_copy(proc, oldfd, i, flags);
+			spin_unlock(proc-&gt;fds-&gt;lock);
+			<span class="hljs-keyword">return</span> i;
+		}
+	}
+
+	<span class="hljs-comment">/* Otherwise we need to keep expanding */</span>
+	<span class="hljs-keyword">if</span> (proc-&gt;fds-&gt;length == proc-&gt;fds-&gt;capacity) {
+		process_fds_grow(proc);
+	}
+
+	<span class="hljs-keyword">long</span> i = proc-&gt;fds-&gt;length;
+	process_fds_copy(proc, oldfd, i, flags);
+	proc-&gt;fds-&gt;length++;
+	spin_unlock(proc-&gt;fds-&gt;lock);
+
+	<span class="hljs-keyword">return</span> i;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-17" id="section-17"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">pid_t</span> <span class="hljs-title">get_next_pid</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">pid_t</span> _next_pid = <span class="hljs-number">2</span>;
+	<span class="hljs-keyword">return</span> __sync_fetch_and_add(&amp;_next_pid,<span class="hljs-number">1</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-18" id="section-18"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _kidle(<span class="hljs-keyword">void</span>) {
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		arch_pause();
+		switch_next();
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-19" id="section-19"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">process_release_directory</span><span class="hljs-params">(<span class="hljs-keyword">page_directory_t</span> * dir)</span> </span>{
+	spin_lock(dir-&gt;lock);
+	dir-&gt;refcount--;
+	<span class="hljs-keyword">if</span> (dir-&gt;refcount &lt; <span class="hljs-number">1</span>) {
+		mmu_free(dir-&gt;directory);
+		<span class="hljs-built_in">free</span>(dir);
+	} <span class="hljs-keyword">else</span> {
+		spin_unlock(dir-&gt;lock);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">process_t</span> * <span class="hljs-title">spawn_kidle</span><span class="hljs-params">(<span class="hljs-keyword">int</span> bsp)</span> </span>{
+	<span class="hljs-keyword">process_t</span> * idle = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">process_t</span>));
+	idle-&gt;<span class="hljs-built_in">process</span> = idle;
+	idle-&gt;id = <span class="hljs-number">-1</span>;
+	idle-&gt;name = strdup(<span class="hljs-string">"[kidle]"</span>);
+	idle-&gt;flags = PROC_FLAG_IS_TASKLET | PROC_FLAG_STARTED | PROC_FLAG_RUNNING;
+	idle-&gt;<span class="hljs-built_in">image</span>.<span class="hljs-built_in">stack</span> = (<span class="hljs-keyword">uintptr_t</span>)valloc(KERNEL_STACK_SIZE)+ KERNEL_STACK_SIZE;
+	mmu_frame_allocate(
+		mmu_get_page(idle-&gt;<span class="hljs-built_in">image</span>.<span class="hljs-built_in">stack</span> - KERNEL_STACK_SIZE, <span class="hljs-number">0</span>),
+		MMU_FLAG_KERNEL);
+
+	<span class="hljs-comment">/* TODO arch_initialize_context(uintptr_t) ? */</span>
+	idle-&gt;thread.context.ip = (<span class="hljs-keyword">uintptr_t</span>)&amp;_kidle;
+	idle-&gt;thread.context.sp = idle-&gt;<span class="hljs-built_in">image</span>.<span class="hljs-built_in">stack</span>;
+	idle-&gt;thread.context.bp = idle-&gt;<span class="hljs-built_in">image</span>.<span class="hljs-built_in">stack</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-20" id="section-20"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>FIXME Why does the idle thread have wait queues and shm mappings?
+Can we make sure these are never referenced and not allocate them?</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	idle-&gt;wait_queue = list_create(<span class="hljs-string">"process wait queue (kidle)"</span>,idle);
+	idle-&gt;shm_mappings = list_create(<span class="hljs-string">"process shm mappings (kidle)"</span>,idle);
+	gettimeofday(&amp;idle-&gt;start, <span class="hljs-literal">NULL</span>);
+	idle-&gt;thread.page_directory = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">page_directory_t</span>));
+	idle-&gt;thread.page_directory-&gt;refcount = <span class="hljs-number">1</span>;
+	idle-&gt;thread.page_directory-&gt;directory = mmu_clone(this_core-&gt;current_pml);
+	idle-&gt;signals = <span class="hljs-literal">NULL</span>;
+	spin_init(idle-&gt;thread.page_directory-&gt;lock);
+	<span class="hljs-keyword">return</span> idle;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">process_t</span> * <span class="hljs-title">spawn_init</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">process_t</span> * init = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">process_t</span>));
+	tree_set_root(process_tree, (<span class="hljs-keyword">void</span>*)init);
+
+	init-&gt;<span class="hljs-built_in">process</span> = init;
+	init-&gt;tree_entry = process_tree-&gt;root;
+	init-&gt;id         = <span class="hljs-number">1</span>;
+	init-&gt;tgid       = <span class="hljs-number">1</span>;
+	init-&gt;job        = <span class="hljs-number">1</span>;
+	init-&gt;session    = <span class="hljs-number">1</span>;
+	init-&gt;name       = strdup(<span class="hljs-string">"init"</span>);
+	init-&gt;cmdline    = <span class="hljs-literal">NULL</span>;
+	init-&gt;user = init-&gt;real_user = init-&gt;saved_user = USER_ROOT_UID;
+	init-&gt;user_group = init-&gt;real_user_group = init-&gt;saved_user_group = USER_ROOT_UID;
+	init-&gt;mask       = <span class="hljs-number">022</span>;
+	init-&gt;status     = <span class="hljs-number">0</span>;
+	init-&gt;signals    = <span class="hljs-built_in">calloc</span>(NUMSIGNALS+<span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(struct signal_config));
+
+	init-&gt;fds           = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fd_table_t</span>));
+	init-&gt;fds-&gt;refs     = <span class="hljs-number">1</span>;
+	init-&gt;fds-&gt;length   = <span class="hljs-number">0</span>;
+	init-&gt;fds-&gt;capacity = <span class="hljs-number">4</span>;
+	init-&gt;fds-&gt;entries  = <span class="hljs-built_in">malloc</span>(init-&gt;fds-&gt;capacity * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span> *));
+	init-&gt;fds-&gt;modes    = <span class="hljs-built_in">malloc</span>(init-&gt;fds-&gt;capacity * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>));
+	init-&gt;fds-&gt;offsets  = <span class="hljs-built_in">malloc</span>(init-&gt;fds-&gt;capacity * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint64_t</span>));
+	spin_init(init-&gt;fds-&gt;lock);
+
+	init-&gt;wd_node = clone_fs(fs_root);
+	init-&gt;wd_name = strdup(<span class="hljs-string">"/"</span>);
+
+	init-&gt;<span class="hljs-built_in">image</span>.entry    = <span class="hljs-number">0</span>;
+	init-&gt;<span class="hljs-built_in">image</span>.heap     = <span class="hljs-number">0</span>;
+	init-&gt;<span class="hljs-built_in">image</span>.<span class="hljs-built_in">stack</span>    = (<span class="hljs-keyword">uintptr_t</span>)valloc(KERNEL_STACK_SIZE) + KERNEL_STACK_SIZE;
+	mmu_frame_allocate(
+		mmu_get_page(init-&gt;<span class="hljs-built_in">image</span>.<span class="hljs-built_in">stack</span> - KERNEL_STACK_SIZE, <span class="hljs-number">0</span>),
+		MMU_FLAG_KERNEL);
+	init-&gt;<span class="hljs-built_in">image</span>.shm_heap = USER_SHM_LOW;
+
+	init-&gt;flags         = PROC_FLAG_STARTED | PROC_FLAG_RUNNING;
+	init-&gt;wait_queue    = list_create(<span class="hljs-string">"process wait queue (init)"</span>, init);
+	init-&gt;shm_mappings  = list_create(<span class="hljs-string">"process shm mapping (init)"</span>, init);
+
+	init-&gt;sched_node.prev = <span class="hljs-literal">NULL</span>;
+	init-&gt;sched_node.next = <span class="hljs-literal">NULL</span>;
+	init-&gt;sched_node.value = init;
+
+	init-&gt;sleep_node.prev = <span class="hljs-literal">NULL</span>;
+	init-&gt;sleep_node.next = <span class="hljs-literal">NULL</span>;
+	init-&gt;sleep_node.value = init;
+
+	init-&gt;timed_sleep_node = <span class="hljs-literal">NULL</span>;
+
+	init-&gt;thread.page_directory = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">page_directory_t</span>));
+	init-&gt;thread.page_directory-&gt;refcount = <span class="hljs-number">1</span>;
+	init-&gt;thread.page_directory-&gt;directory = this_core-&gt;current_pml;
+	spin_init(init-&gt;thread.page_directory-&gt;lock);
+	list_insert(process_list, (<span class="hljs-keyword">void</span>*)init);
+
+	<span class="hljs-keyword">return</span> init;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">process_t</span> * <span class="hljs-title">spawn_process</span><span class="hljs-params">(<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">process_t</span> * parent, <span class="hljs-keyword">int</span> flags, <span class="hljs-keyword">int</span> close_at_fork)</span> </span>{
+	<span class="hljs-keyword">process_t</span> * proc = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">process_t</span>));
+
+	proc-&gt;id          = get_next_pid();
+	proc-&gt;tgid        = proc-&gt;id;
+	proc-&gt;name        = strdup(parent-&gt;name);
+	proc-&gt;cmdline     = parent-&gt;cmdline; <span class="hljs-comment">/* FIXME dup it? */</span>
+
+	proc-&gt;user        = parent-&gt;user;
+	proc-&gt;real_user   = parent-&gt;real_user;
+	proc-&gt;user_group  = parent-&gt;user_group;
+	proc-&gt;real_user_group = parent-&gt;real_user_group;
+	proc-&gt;saved_user = parent-&gt;saved_user;
+	proc-&gt;saved_user_group = parent-&gt;saved_user_group;
+	proc-&gt;mask        = parent-&gt;mask;
+	proc-&gt;job         = parent-&gt;job;
+	proc-&gt;session     = parent-&gt;session;
+
+	<span class="hljs-keyword">if</span> (parent-&gt;supplementary_group_count) {
+		proc-&gt;supplementary_group_count = parent-&gt;supplementary_group_count;
+		proc-&gt;supplementary_group_list = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">gid_t</span>) * proc-&gt;supplementary_group_count);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; proc-&gt;supplementary_group_count; ++i) {
+			proc-&gt;supplementary_group_list[i] = parent-&gt;supplementary_group_list[i];
+		}
+	}
+
+	proc-&gt;thread.context.sp = <span class="hljs-number">0</span>;
+	proc-&gt;thread.context.bp = <span class="hljs-number">0</span>;
+	proc-&gt;thread.context.ip = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Entry is only stored for reference. */</span>
+	proc-&gt;<span class="hljs-built_in">image</span>.entry       = parent-&gt;<span class="hljs-built_in">image</span>.entry;
+	proc-&gt;<span class="hljs-built_in">image</span>.heap        = parent-&gt;<span class="hljs-built_in">image</span>.heap;
+	proc-&gt;<span class="hljs-built_in">image</span>.<span class="hljs-built_in">stack</span>       = (<span class="hljs-keyword">uintptr_t</span>)valloc(KERNEL_STACK_SIZE) + KERNEL_STACK_SIZE;
+	mmu_frame_allocate(
+		mmu_get_page(proc-&gt;<span class="hljs-built_in">image</span>.<span class="hljs-built_in">stack</span> - KERNEL_STACK_SIZE, <span class="hljs-number">0</span>),
+		MMU_FLAG_KERNEL);
+	proc-&gt;<span class="hljs-built_in">image</span>.shm_heap    = USER_SHM_LOW;
+
+	<span class="hljs-keyword">if</span> (flags &amp; PROC_REUSE_FDS) {
+		spin_lock(parent-&gt;fds-&gt;lock);
+		proc-&gt;fds = parent-&gt;fds;
+		proc-&gt;fds-&gt;refs++;
+		spin_unlock(parent-&gt;fds-&gt;lock);
+	} <span class="hljs-keyword">else</span> {
+		proc-&gt;fds = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fd_table_t</span>));
+		spin_init(proc-&gt;fds-&gt;lock);
+		proc-&gt;fds-&gt;refs = <span class="hljs-number">1</span>;
+		spin_lock(parent-&gt;fds-&gt;lock);
+		proc-&gt;fds-&gt;length = parent-&gt;fds-&gt;length;
+		proc-&gt;fds-&gt;capacity = parent-&gt;fds-&gt;capacity;
+		proc-&gt;fds-&gt;entries = <span class="hljs-built_in">calloc</span>(proc-&gt;fds-&gt;capacity, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span> *));
+		proc-&gt;fds-&gt;modes   = <span class="hljs-built_in">calloc</span>(proc-&gt;fds-&gt;capacity, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>));
+		proc-&gt;fds-&gt;offsets = <span class="hljs-built_in">calloc</span>(proc-&gt;fds-&gt;capacity, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint64_t</span>));
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint32_t</span> i = <span class="hljs-number">0</span>; i &lt; parent-&gt;fds-&gt;length; ++i) {
+			<span class="hljs-keyword">if</span> (close_at_fork &amp;&amp; (parent-&gt;fds-&gt;modes[i] &amp; PROC_FD_MODE_CLOFORK)) <span class="hljs-keyword">continue</span>;
+			proc-&gt;fds-&gt;entries[i] = clone_fs(parent-&gt;fds-&gt;entries[i]);
+			proc-&gt;fds-&gt;modes[i]   = parent-&gt;fds-&gt;modes[i];
+			proc-&gt;fds-&gt;offsets[i] = parent-&gt;fds-&gt;offsets[i];
+		}
+		spin_unlock(parent-&gt;fds-&gt;lock);
+	}
+
+	proc-&gt;wd_node = clone_fs(parent-&gt;wd_node);
+	proc-&gt;wd_name = strdup(parent-&gt;wd_name);
+
+	proc-&gt;wait_queue   = list_create(<span class="hljs-string">"process wait queue"</span>,proc);
+	proc-&gt;shm_mappings = list_create(<span class="hljs-string">"process shm mappings"</span>,proc);
+
+	proc-&gt;sched_node.value = proc;
+	proc-&gt;sleep_node.value = proc;
+
+	gettimeofday(&amp;proc-&gt;start, <span class="hljs-literal">NULL</span>);
+	<span class="hljs-keyword">tree_node_t</span> * entry = tree_node_create(proc);
+	proc-&gt;tree_entry = entry;
+
+	spin_lock(tree_lock);
+	tree_node_insert_child_node(process_tree, parent-&gt;tree_entry, entry);
+	list_insert(process_list, (<span class="hljs-keyword">void</span>*)proc);
+	spin_unlock(tree_lock);
+	<span class="hljs-keyword">return</span> proc;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">tree_remove_reparent_root</span><span class="hljs-params">(<span class="hljs-keyword">tree_t</span> * tree, <span class="hljs-keyword">tree_node_t</span> * node)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">process_reap</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc)</span> </span>{
+	<span class="hljs-keyword">if</span> (proc-&gt;tracees) {
+		<span class="hljs-keyword">while</span> (proc-&gt;tracees-&gt;length) {
+			<span class="hljs-built_in">free</span>(list_pop(proc-&gt;tracees));
+		}
+		<span class="hljs-built_in">free</span>(proc-&gt;tracees);
+	}
+
+	<span class="hljs-keyword">if</span> (proc == proc-&gt;<span class="hljs-built_in">process</span>) {
+		<span class="hljs-built_in">free</span>(proc-&gt;signals);
+	}
+
+	<span class="hljs-comment">/* Unmark the stack bottom's fault detector */</span>
+	mmu_frame_allocate(
+		mmu_get_page(proc-&gt;<span class="hljs-built_in">image</span>.<span class="hljs-built_in">stack</span> - KERNEL_STACK_SIZE, <span class="hljs-number">0</span>),
+		MMU_FLAG_KERNEL | MMU_FLAG_WRITABLE);
+
+	<span class="hljs-built_in">free</span>((<span class="hljs-keyword">void</span> *)(proc-&gt;<span class="hljs-built_in">image</span>.<span class="hljs-built_in">stack</span> - KERNEL_STACK_SIZE));
+	process_release_directory(proc-&gt;thread.page_directory);
+
+	<span class="hljs-keyword">if</span> (proc-&gt;sig_queue) {
+		list_destroy(proc-&gt;sig_queue);
+		list_free(proc-&gt;sig_queue);
+		<span class="hljs-built_in">free</span>(proc-&gt;sig_queue);
+	}
+
+	<span class="hljs-built_in">free</span>(proc-&gt;name);
+	<span class="hljs-built_in">free</span>(proc);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">process_is_owned</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; processor_count; ++i) {
+		<span class="hljs-keyword">if</span> (processor_local_data[i].previous_process == proc ||
+		    processor_local_data[i].current_process == proc) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">process_reap_later</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc)</span> </span>{
+	spin_lock(reap_lock);
+	<span class="hljs-comment">/* See if we can delete anything */</span>
+	<span class="hljs-keyword">while</span> (reap_queue-&gt;head) {
+		<span class="hljs-keyword">process_t</span> * proc = reap_queue-&gt;head-&gt;value;
+		<span class="hljs-keyword">if</span> (!process_is_owned(proc)) {
+			<span class="hljs-built_in">free</span>(list_dequeue(reap_queue));
+			process_reap(proc);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+	<span class="hljs-comment">/* And delete this thing later */</span>
+	list_insert(reap_queue, proc);
+	spin_unlock(reap_lock);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">process_acquire_big_lock</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	spin_lock(reap_lock);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">process_release_big_lock</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	spin_unlock(reap_lock);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-21" id="section-21"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">process_delete</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc)</span> </span>{
+	assert(proc != this_core-&gt;current_process);
+
+	<span class="hljs-keyword">tree_node_t</span> * entry = proc-&gt;tree_entry;
+	<span class="hljs-keyword">if</span> (!entry) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Tried to delete process with no tree entry?\n"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+	<span class="hljs-keyword">if</span> (process_tree-&gt;root == entry) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Tried to delete process init...\n"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	spin_lock(tree_lock);
+	<span class="hljs-keyword">int</span> has_children = entry-&gt;children-&gt;length;
+	tree_remove_reparent_root(process_tree, entry);
+	list_delete(process_list, list_find(process_list, proc));
+	spin_unlock(tree_lock);
+
+	<span class="hljs-keyword">if</span> (has_children) {
+		<span class="hljs-comment">/* Wake up init */</span>
+		<span class="hljs-keyword">process_t</span> * init = process_tree-&gt;root-&gt;value;
+		wakeup_queue(init-&gt;wait_queue);
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-22" id="section-22"></a>
+</div>
+<p>FIXME bitset_clear(&amp;pid_set, proc-&gt;id);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	proc-&gt;tree_entry = <span class="hljs-literal">NULL</span>;
+
+	shm_release_all(proc);
+	<span class="hljs-built_in">free</span>(proc-&gt;shm_mappings);
+
+	<span class="hljs-keyword">if</span> (proc-&gt;supplementary_group_list) {
+		proc-&gt;supplementary_group_count = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">free</span>(proc-&gt;supplementary_group_list);
+	}
+
+	<span class="hljs-comment">/* Is someone using this process? */</span>
+	process_reap_later(proc);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-23" id="section-23"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">make_process_ready</span><span class="hljs-params">(<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">process_t</span> * proc)</span> </span>{
+	<span class="hljs-keyword">int</span> sleep_lock_is_mine = sleep_lock.owner == (this_core-&gt;cpu_id + <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (!sleep_lock_is_mine) spin_lock(sleep_lock);
+	<span class="hljs-keyword">if</span> (proc-&gt;sleep_node.owner != <span class="hljs-literal">NULL</span>) {
+		<span class="hljs-keyword">if</span> (proc-&gt;sleep_node.owner == sleep_queue) {
+			<span class="hljs-comment">/* The sleep queue is slightly special... */</span>
+			<span class="hljs-keyword">if</span> (proc-&gt;timed_sleep_node) {
+				list_delete(sleep_queue, proc-&gt;timed_sleep_node);
+				proc-&gt;sleep_node.owner = <span class="hljs-literal">NULL</span>;
+				<span class="hljs-built_in">free</span>(proc-&gt;timed_sleep_node-&gt;value);
+			}
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-comment">/* This was blocked on a semaphore we can interrupt. */</span>
+			__sync_or_and_fetch(&amp;proc-&gt;flags, PROC_FLAG_SLEEP_INT);
+			list_delete((<span class="hljs-keyword">list_t</span>*)proc-&gt;sleep_node.owner, (<span class="hljs-keyword">node_t</span>*)&amp;proc-&gt;sleep_node);
+		}
+	}
+	<span class="hljs-keyword">if</span> (!sleep_lock_is_mine) spin_unlock(sleep_lock);
+
+	spin_lock(process_queue_lock);
+	<span class="hljs-keyword">if</span> (proc-&gt;sched_node.owner) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-24" id="section-24"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>There's only one ready queue, so this means the process was already ready, which
+is indicative of a bug somewhere as we shouldn't be added processes to the ready
+queue multiple times.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		spin_unlock(process_queue_lock);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	list_append(process_queue, (<span class="hljs-keyword">node_t</span>*)&amp;proc-&gt;sched_node);
+	spin_unlock(process_queue_lock);
+
+	arch_wakeup_others();
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-25" id="section-25"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">volatile</span> <span class="hljs-keyword">process_t</span> * <span class="hljs-title">next_ready_process</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	spin_lock(process_queue_lock);
+
+	<span class="hljs-keyword">if</span> (!process_queue-&gt;head) {
+		<span class="hljs-keyword">if</span> (process_queue-&gt;length) {
+			arch_fatal_prepare();
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Queue has a length but head is NULL\n"</span>);
+			arch_dump_traceback();
+			arch_fatal();
+		}
+		spin_unlock(process_queue_lock);
+		<span class="hljs-keyword">return</span> this_core-&gt;kernel_idle_task;
+	}
+
+	<span class="hljs-keyword">node_t</span> * np = list_dequeue(process_queue);
+
+	<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">uintptr_t</span>)np &lt; <span class="hljs-number">0xFFFFff0000000000</span>UL || (<span class="hljs-keyword">uintptr_t</span>)np &gt; <span class="hljs-number">0xFFFFfff000000000</span>UL) {
+		arch_fatal_prepare();
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Suspicious pointer in queue: %#zx\n"</span>, (<span class="hljs-keyword">uintptr_t</span>)np);
+		arch_dump_traceback();
+		arch_fatal();
+	}
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">process_t</span> * next = np-&gt;value;
+
+	<span class="hljs-keyword">if</span> ((next-&gt;flags &amp; PROC_FLAG_RUNNING) &amp;&amp; (next-&gt;owner != this_core-&gt;cpu_id)) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-26" id="section-26"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>We pulled a process too soon, switch to idle for a bit so the
+core that marked this process as ready can finish switching away from it.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		list_append(process_queue, (<span class="hljs-keyword">node_t</span>*)&amp;next-&gt;sched_node);
+		spin_unlock(process_queue_lock);
+		<span class="hljs-keyword">return</span> this_core-&gt;kernel_idle_task;
+	}
+
+	spin_unlock(process_queue_lock);
+
+	<span class="hljs-keyword">if</span> (!(next-&gt;flags &amp; PROC_FLAG_FINISHED)) {
+		__sync_or_and_fetch(&amp;next-&gt;flags, PROC_FLAG_RUNNING);
+	}
+
+	next-&gt;owner = this_core-&gt;cpu_id;
+
+	<span class="hljs-keyword">return</span> next;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-27" id="section-27"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">queue</span>
+<span>The semaphore to signal
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">wakeup_queue</span><span class="hljs-params">(<span class="hljs-keyword">list_t</span> * <span class="hljs-built_in">queue</span>)</span> </span>{
+	<span class="hljs-keyword">int</span> awoken_processes = <span class="hljs-number">0</span>;
+	spin_lock(wait_lock_tmp);
+	<span class="hljs-keyword">while</span> (<span class="hljs-built_in">queue</span>-&gt;length &gt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">node_t</span> * node = list_pop(<span class="hljs-built_in">queue</span>);
+		spin_unlock(wait_lock_tmp);
+		<span class="hljs-keyword">if</span> (!(((<span class="hljs-keyword">process_t</span> *)node-&gt;value)-&gt;flags &amp; PROC_FLAG_FINISHED)) {
+			make_process_ready(node-&gt;value);
+		}
+		spin_lock(wait_lock_tmp);
+		awoken_processes++;
+	}
+	spin_unlock(wait_lock_tmp);
+	<span class="hljs-keyword">return</span> awoken_processes;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-28" id="section-28"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">wakeup_queue_interrupted</span><span class="hljs-params">(<span class="hljs-keyword">list_t</span> * <span class="hljs-built_in">queue</span>)</span> </span>{
+	<span class="hljs-keyword">int</span> awoken_processes = <span class="hljs-number">0</span>;
+	spin_lock(wait_lock_tmp);
+	<span class="hljs-keyword">while</span> (<span class="hljs-built_in">queue</span>-&gt;length &gt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">node_t</span> * node = list_pop(<span class="hljs-built_in">queue</span>);
+		spin_unlock(wait_lock_tmp);
+		<span class="hljs-keyword">if</span> (!(((<span class="hljs-keyword">process_t</span> *)node-&gt;value)-&gt;flags &amp; PROC_FLAG_FINISHED)) {
+			<span class="hljs-keyword">process_t</span> * proc = node-&gt;value;
+			__sync_or_and_fetch(&amp;proc-&gt;flags, PROC_FLAG_SLEEP_INT);
+			make_process_ready(proc);
+		}
+		spin_lock(wait_lock_tmp);
+		awoken_processes++;
+	}
+	spin_unlock(wait_lock_tmp);
+	<span class="hljs-keyword">return</span> awoken_processes;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">wakeup_queue_one</span><span class="hljs-params">(<span class="hljs-keyword">list_t</span> * <span class="hljs-built_in">queue</span>)</span> </span>{
+	<span class="hljs-keyword">int</span> awoken_processes = <span class="hljs-number">0</span>;
+	spin_lock(wait_lock_tmp);
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">queue</span>-&gt;length &gt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">node_t</span> * node = list_pop(<span class="hljs-built_in">queue</span>);
+		spin_unlock(wait_lock_tmp);
+		<span class="hljs-keyword">if</span> (!(((<span class="hljs-keyword">process_t</span> *)node-&gt;value)-&gt;flags &amp; PROC_FLAG_FINISHED)) {
+			make_process_ready(node-&gt;value);
+		}
+		spin_lock(wait_lock_tmp);
+		awoken_processes++;
+	}
+	spin_unlock(wait_lock_tmp);
+	<span class="hljs-keyword">return</span> awoken_processes;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-29" id="section-29"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">sleep_on</span><span class="hljs-params">(<span class="hljs-keyword">list_t</span> * <span class="hljs-built_in">queue</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;sleep_node.owner) {
+		switch_task(<span class="hljs-number">0</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	__sync_and_and_fetch(&amp;this_core-&gt;current_process-&gt;flags, ~(PROC_FLAG_SLEEP_INT));
+	spin_lock(wait_lock_tmp);
+	list_append(<span class="hljs-built_in">queue</span>, (<span class="hljs-keyword">node_t</span>*)&amp;this_core-&gt;current_process-&gt;sleep_node);
+	spin_unlock(wait_lock_tmp);
+	switch_task(<span class="hljs-number">0</span>);
+	<span class="hljs-keyword">return</span> !!(this_core-&gt;current_process-&gt;flags &amp; PROC_FLAG_SLEEP_INT);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">sleep_on_unlocking</span><span class="hljs-params">(<span class="hljs-keyword">list_t</span> * <span class="hljs-built_in">queue</span>, <span class="hljs-keyword">spin_lock_t</span> * <span class="hljs-built_in">release</span>)</span> </span>{
+	__sync_and_and_fetch(&amp;this_core-&gt;current_process-&gt;flags, ~(PROC_FLAG_SLEEP_INT));
+	spin_lock(wait_lock_tmp);
+	list_append(<span class="hljs-built_in">queue</span>, (<span class="hljs-keyword">node_t</span>*)&amp;this_core-&gt;current_process-&gt;sleep_node);
+	spin_unlock(wait_lock_tmp);
+
+	spin_unlock(*<span class="hljs-built_in">release</span>);
+
+	switch_task(<span class="hljs-number">0</span>);
+	<span class="hljs-keyword">return</span> !!(this_core-&gt;current_process-&gt;flags &amp; PROC_FLAG_SLEEP_INT);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-30" id="section-30"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">process_is_ready</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc)</span> </span>{
+	<span class="hljs-keyword">return</span> (proc-&gt;sched_node.owner != <span class="hljs-literal">NULL</span> &amp;&amp; !(proc-&gt;flags &amp; PROC_FLAG_RUNNING));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">process_alert_node_locked</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * <span class="hljs-built_in">process</span>, <span class="hljs-keyword">void</span> * value)</span></span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-31" id="section-31"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">wakeup_sleepers</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> seconds, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> subseconds)</span> </span>{
+	spin_lock(sleep_lock);
+	<span class="hljs-keyword">if</span> (sleep_queue-&gt;length) {
+		<span class="hljs-keyword">sleeper_t</span> * proc = ((<span class="hljs-keyword">sleeper_t</span> *)sleep_queue-&gt;head-&gt;value);
+		<span class="hljs-keyword">while</span> (proc &amp;&amp; (proc-&gt;end_tick &lt; seconds || (proc-&gt;end_tick == seconds &amp;&amp; proc-&gt;end_subtick &lt;= subseconds))) {
+
+			<span class="hljs-keyword">if</span> (proc-&gt;is_fswait) {
+				proc-&gt;is_fswait = <span class="hljs-number">-1</span>;
+				process_alert_node_locked(proc-&gt;<span class="hljs-built_in">process</span>,proc);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">process_t</span> * <span class="hljs-built_in">process</span> = proc-&gt;<span class="hljs-built_in">process</span>;
+				<span class="hljs-built_in">process</span>-&gt;sleep_node.owner = <span class="hljs-literal">NULL</span>;
+				<span class="hljs-built_in">process</span>-&gt;timed_sleep_node = <span class="hljs-literal">NULL</span>;
+				<span class="hljs-keyword">if</span> (!process_is_ready(<span class="hljs-built_in">process</span>)) {
+					make_process_ready(<span class="hljs-built_in">process</span>);
+				}
+			}
+			<span class="hljs-built_in">free</span>(proc);
+			<span class="hljs-built_in">free</span>(list_dequeue(sleep_queue));
+			<span class="hljs-keyword">if</span> (sleep_queue-&gt;length) {
+				proc = ((<span class="hljs-keyword">sleeper_t</span> *)sleep_queue-&gt;head-&gt;value);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">break</span>;
+			}
+		}
+	}
+	spin_unlock(sleep_lock);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-32" id="section-32"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">sleep_until</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * <span class="hljs-built_in">process</span>, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> seconds, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> subseconds)</span> </span>{
+	spin_lock(sleep_lock);
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;sleep_node.owner) {
+		spin_unlock(sleep_lock);
+		<span class="hljs-comment">/* Can't sleep, sleeping already */</span>
+		<span class="hljs-keyword">return</span>;
+	}
+	<span class="hljs-built_in">process</span>-&gt;sleep_node.owner = sleep_queue;
+
+	<span class="hljs-keyword">node_t</span> * before = <span class="hljs-literal">NULL</span>;
+	foreach(node, sleep_queue) {
+		<span class="hljs-keyword">sleeper_t</span> * candidate = ((<span class="hljs-keyword">sleeper_t</span> *)node-&gt;value);
+		<span class="hljs-keyword">if</span> (!candidate) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"null candidate?\n"</span>);
+			<span class="hljs-keyword">continue</span>;
+		}
+		<span class="hljs-keyword">if</span> (candidate-&gt;end_tick &gt; seconds || (candidate-&gt;end_tick == seconds &amp;&amp; candidate-&gt;end_subtick &gt; subseconds)) {
+			<span class="hljs-keyword">break</span>;
+		}
+		before = node;
+	}
+	<span class="hljs-keyword">sleeper_t</span> * proc = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">sleeper_t</span>));
+	proc-&gt;<span class="hljs-built_in">process</span>     = <span class="hljs-built_in">process</span>;
+	proc-&gt;end_tick    = seconds;
+	proc-&gt;end_subtick = subseconds;
+	proc-&gt;is_fswait = <span class="hljs-number">0</span>;
+	<span class="hljs-built_in">process</span>-&gt;timed_sleep_node = list_insert_after(sleep_queue, before, proc);
+	spin_unlock(sleep_lock);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint8_t</span> <span class="hljs-title">process_compare</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * proc_v, <span class="hljs-keyword">void</span> * pid_v)</span> </span>{
+	<span class="hljs-keyword">pid_t</span> pid = (*(<span class="hljs-keyword">pid_t</span> *)pid_v);
+	<span class="hljs-keyword">process_t</span> * proc = (<span class="hljs-keyword">process_t</span> *)proc_v;
+
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">uint8_t</span>)(proc-&gt;id == pid);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">process_t</span> * <span class="hljs-title">process_from_pid</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid)</span> </span>{
+	<span class="hljs-keyword">if</span> (pid &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+
+	spin_lock(tree_lock);
+	<span class="hljs-keyword">tree_node_t</span> * entry = tree_find(process_tree,&amp;pid,process_compare);
+	spin_unlock(tree_lock);
+	<span class="hljs-keyword">if</span> (entry) {
+		<span class="hljs-keyword">return</span> (<span class="hljs-keyword">process_t</span> *)entry-&gt;value;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">process_move_fd</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc, <span class="hljs-keyword">long</span> src, <span class="hljs-keyword">long</span> dest, <span class="hljs-keyword">int</span> forbid_noop, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">size_t</span>)src &gt;= proc-&gt;fds-&gt;length || (dest != <span class="hljs-number">-1</span> &amp;&amp; (<span class="hljs-keyword">size_t</span>)dest &gt;= proc-&gt;fds-&gt;length)) {
+		<span class="hljs-keyword">return</span> -EBADF;
+	}
+	<span class="hljs-keyword">if</span> (dest == src) <span class="hljs-keyword">return</span> forbid_noop ? -EINVAL : dest;
+	<span class="hljs-keyword">if</span> (dest == <span class="hljs-number">-1</span>) dest = process_append_fd(proc, <span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">if</span> (proc-&gt;fds-&gt;entries[dest]) {
+		close_fs(proc-&gt;fds-&gt;entries[dest]);
+		proc-&gt;fds-&gt;entries[dest] = <span class="hljs-literal">NULL</span>;
+	}
+	process_fds_copy(proc, src, dest, flags);
+	<span class="hljs-keyword">return</span> dest;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">tasking_start</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	this_core-&gt;current_process = spawn_init();
+	this_core-&gt;kernel_idle_task = spawn_kidle(<span class="hljs-number">1</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">wait_candidate</span><span class="hljs-params">(<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">process_t</span> * parent, <span class="hljs-keyword">int</span> pid, <span class="hljs-keyword">int</span> options, <span class="hljs-keyword">volatile</span> <span class="hljs-keyword">process_t</span> * proc)</span> </span>{
+	<span class="hljs-keyword">if</span> (!proc) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (options &amp; WNOKERN) {
+		<span class="hljs-comment">/* Skip kernel processes */</span>
+		<span class="hljs-keyword">if</span> (proc-&gt;flags &amp; PROC_FLAG_IS_TASKLET) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (pid &lt; <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">if</span> (proc-&gt;job == -pid || proc-&gt;id == -pid) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (pid == <span class="hljs-number">0</span>) {
+		<span class="hljs-comment">/* Matches our group ID */</span>
+		<span class="hljs-keyword">if</span> (proc-&gt;job == parent-&gt;job) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (pid &gt; <span class="hljs-number">0</span>) {
+		<span class="hljs-comment">/* Specific pid */</span>
+		<span class="hljs-keyword">if</span> (proc-&gt;id == pid) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">waitpid</span><span class="hljs-params">(<span class="hljs-keyword">int</span> pid, <span class="hljs-keyword">int</span> * status, <span class="hljs-keyword">int</span> options)</span> </span>{
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">process_t</span> * <span class="hljs-keyword">volatile</span> proc = (<span class="hljs-keyword">process_t</span>*)this_core-&gt;current_process;
+
+	<span class="hljs-keyword">do</span> {
+		<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">process_t</span> * candidate = <span class="hljs-literal">NULL</span>;
+		<span class="hljs-keyword">int</span> has_children = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">int</span> is_parent = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">int</span> candidate_from_trace = <span class="hljs-number">0</span>;
+
+		spin_lock(proc-&gt;wait_lock);
+
+		<span class="hljs-comment">/* First, find out if there is anyone to reap */</span>
+		foreach(node, proc-&gt;<span class="hljs-built_in">process</span>-&gt;tree_entry-&gt;children) {
+			<span class="hljs-keyword">if</span> (!node-&gt;value) {
+				<span class="hljs-keyword">continue</span>;
+			}
+			<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">process_t</span> * <span class="hljs-keyword">volatile</span> child = ((<span class="hljs-keyword">tree_node_t</span> *)node-&gt;value)-&gt;value;
+
+			<span class="hljs-keyword">if</span> (child == proc) <span class="hljs-keyword">continue</span>; <span class="hljs-comment">/* Don't allow a thread to wait on itself */</span>
+
+			<span class="hljs-keyword">if</span> (wait_candidate(proc-&gt;<span class="hljs-built_in">process</span>, pid, options, child)) {
+				has_children = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">if</span> (child-&gt;flags &amp; PROC_FLAG_FINISHED) {
+					is_parent = <span class="hljs-number">1</span>;
+					candidate = child;
+					<span class="hljs-keyword">break</span>;
+				}
+				<span class="hljs-keyword">if</span> ((child-&gt;flags &amp; PROC_FLAG_SUSPENDED) &amp;&amp; ((child-&gt;status &amp; <span class="hljs-number">0xFF</span>) == <span class="hljs-number">0x7F</span>)) {
+					<span class="hljs-keyword">int</span> reason = (child-&gt;status &gt;&gt; <span class="hljs-number">16</span>) &amp; <span class="hljs-number">0xFF</span>;
+					<span class="hljs-keyword">if</span> ((options &amp; WSTOPPED) || (reason == <span class="hljs-number">0xFF</span> &amp;&amp; (options &amp; WUNTRACED))) {
+						is_parent = <span class="hljs-number">1</span>;
+						candidate = child;
+						<span class="hljs-keyword">break</span>;
+					}
+				}
+			}
+		}
+
+		<span class="hljs-keyword">if</span> (!candidate &amp;&amp; proc-&gt;tracees) {
+			foreach(node, proc-&gt;tracees) {
+				<span class="hljs-keyword">process_t</span> * child = node-&gt;value;
+				<span class="hljs-keyword">if</span> (wait_candidate(proc,pid,options,child)) {
+					has_children = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">if</span> (child-&gt;flags &amp; (PROC_FLAG_SUSPENDED | PROC_FLAG_FINISHED)) {
+						candidate_from_trace = <span class="hljs-number">1</span>;
+						candidate = child;
+						<span class="hljs-keyword">break</span>;
+					}
+				}
+			}
+		}
+
+		<span class="hljs-keyword">if</span> (!has_children) {
+			<span class="hljs-comment">/* No valid children matching this description */</span>
+			spin_unlock(proc-&gt;wait_lock);
+			<span class="hljs-keyword">return</span> -ECHILD;
+		}
+
+		<span class="hljs-keyword">if</span> (candidate) {
+			spin_unlock(proc-&gt;wait_lock);
+			<span class="hljs-keyword">if</span> (status) {
+				*status = candidate-&gt;status;
+			}
+			<span class="hljs-keyword">int</span> pid = candidate-&gt;id;
+			<span class="hljs-keyword">if</span> (is_parent) candidate-&gt;status &amp;= ~<span class="hljs-number">0xFF</span>;
+			<span class="hljs-keyword">if</span> (is_parent &amp;&amp; (candidate-&gt;flags &amp; PROC_FLAG_FINISHED)) {
+				<span class="hljs-keyword">while</span> (*((<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">int</span> *)&amp;candidate-&gt;flags) &amp; PROC_FLAG_RUNNING);
+				proc-&gt;time_children += candidate-&gt;time_children + candidate-&gt;time_total;
+				proc-&gt;time_sys_children += candidate-&gt;time_sys_children + candidate-&gt;time_sys;
+				process_delete((<span class="hljs-keyword">process_t</span>*)candidate);
+			}
+			<span class="hljs-keyword">if</span> (candidate_from_trace &amp;&amp; candidate-&gt;tracer != proc-&gt;id) {
+				ptrace_untrace((<span class="hljs-keyword">process_t</span>*)proc, (<span class="hljs-keyword">process_t</span>*)candidate);
+			}
+			<span class="hljs-keyword">return</span> pid;
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">if</span> (options &amp; WNOHANG) {
+				spin_unlock(proc-&gt;wait_lock);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			}
+			<span class="hljs-comment">/* Wait */</span>
+			<span class="hljs-keyword">if</span> (sleep_on_unlocking(proc-&gt;<span class="hljs-built_in">process</span>-&gt;wait_queue, &amp;proc-&gt;wait_lock) != <span class="hljs-number">0</span>) {
+				<span class="hljs-keyword">return</span> -EINTR;
+			}
+		}
+	} <span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">process_timeout_sleep</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * <span class="hljs-built_in">process</span>, <span class="hljs-keyword">int</span> timeout)</span> </span>{
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> s, ss;
+	relative_time(<span class="hljs-number">0</span>, timeout * <span class="hljs-number">1000</span>, &amp;s, &amp;ss);
+
+	<span class="hljs-keyword">node_t</span> * before = <span class="hljs-literal">NULL</span>;
+	foreach(node, sleep_queue) {
+		<span class="hljs-keyword">sleeper_t</span> * candidate = ((<span class="hljs-keyword">sleeper_t</span> *)node-&gt;value);
+		<span class="hljs-keyword">if</span> (candidate-&gt;end_tick &gt; s || (candidate-&gt;end_tick == s &amp;&amp; candidate-&gt;end_subtick &gt; ss)) {
+			<span class="hljs-keyword">break</span>;
+		}
+		before = node;
+	}
+	<span class="hljs-keyword">sleeper_t</span> * proc = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">sleeper_t</span>));
+	proc-&gt;<span class="hljs-built_in">process</span>     = <span class="hljs-built_in">process</span>;
+	proc-&gt;end_tick    = s;
+	proc-&gt;end_subtick = ss;
+	proc-&gt;is_fswait = <span class="hljs-number">1</span>;
+	list_insert(((<span class="hljs-keyword">process_t</span> *)<span class="hljs-built_in">process</span>)-&gt;node_waits, proc);
+	<span class="hljs-built_in">process</span>-&gt;timeout_node = list_insert_after(sleep_queue, before, proc);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">process_wait_nodes</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * <span class="hljs-built_in">process</span>,<span class="hljs-keyword">fs_node_t</span> * nodes[], <span class="hljs-keyword">int</span> timeout)</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> ** n = nodes;
+	<span class="hljs-keyword">int</span> index = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (*n) {
+		<span class="hljs-keyword">do</span> {
+			<span class="hljs-keyword">int</span> result = selectcheck_fs(*n);
+			<span class="hljs-keyword">if</span> (result &lt; <span class="hljs-number">0</span>) {
+				<span class="hljs-keyword">return</span> -EBADF;
+			}
+			<span class="hljs-keyword">if</span> (result == <span class="hljs-number">0</span>) {
+				<span class="hljs-keyword">return</span> index;
+			}
+			n++;
+			index++;
+		} <span class="hljs-keyword">while</span> (*n);
+	}
+
+	<span class="hljs-keyword">if</span> (timeout == <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> index;
+	}
+
+	n = nodes;
+
+	spin_lock(sleep_lock);
+	spin_lock(<span class="hljs-built_in">process</span>-&gt;sched_lock);
+	<span class="hljs-built_in">process</span>-&gt;node_waits = list_create(<span class="hljs-string">"process fswaiters"</span>,<span class="hljs-built_in">process</span>);
+	<span class="hljs-keyword">if</span> (*n) {
+		<span class="hljs-keyword">do</span> {
+			<span class="hljs-keyword">if</span> (selectwait_fs(*n, <span class="hljs-built_in">process</span>) &lt; <span class="hljs-number">0</span>) {
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"bad selectwait?\n"</span>);
+			}
+			n++;
+		} <span class="hljs-keyword">while</span> (*n);
+	}
+
+	<span class="hljs-keyword">if</span> (timeout &gt; <span class="hljs-number">0</span>) {
+		process_timeout_sleep(<span class="hljs-built_in">process</span>, timeout);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">process</span>-&gt;timeout_node = <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-built_in">process</span>-&gt;awoken_index = <span class="hljs-number">-1</span>;
+	spin_unlock(<span class="hljs-built_in">process</span>-&gt;sched_lock);
+	spin_unlock(sleep_lock);
+
+	<span class="hljs-comment">/* Wait. */</span>
+	switch_task(<span class="hljs-number">0</span>);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">process</span>-&gt;awoken_index;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">process_awaken_from_fswait</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * <span class="hljs-built_in">process</span>, <span class="hljs-keyword">int</span> index)</span> </span>{
+	must_have_lock(sleep_lock);
+
+	<span class="hljs-built_in">process</span>-&gt;awoken_index = index;
+	list_free(<span class="hljs-built_in">process</span>-&gt;node_waits);
+	<span class="hljs-built_in">free</span>(<span class="hljs-built_in">process</span>-&gt;node_waits);
+	<span class="hljs-built_in">process</span>-&gt;node_waits = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">process</span>-&gt;timeout_node &amp;&amp; <span class="hljs-built_in">process</span>-&gt;timeout_node-&gt;owner == sleep_queue) {
+		<span class="hljs-keyword">sleeper_t</span> * proc = <span class="hljs-built_in">process</span>-&gt;timeout_node-&gt;value;
+		<span class="hljs-keyword">if</span> (proc-&gt;is_fswait != <span class="hljs-number">-1</span>) {
+			list_delete(sleep_queue, <span class="hljs-built_in">process</span>-&gt;timeout_node);
+			<span class="hljs-built_in">free</span>(<span class="hljs-built_in">process</span>-&gt;timeout_node-&gt;value);
+			<span class="hljs-built_in">free</span>(<span class="hljs-built_in">process</span>-&gt;timeout_node);
+		}
+	}
+	<span class="hljs-built_in">process</span>-&gt;timeout_node = <span class="hljs-literal">NULL</span>;
+
+	make_process_ready(<span class="hljs-built_in">process</span>);
+	spin_unlock(<span class="hljs-built_in">process</span>-&gt;sched_lock);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">process_awaken_signal</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * <span class="hljs-built_in">process</span>)</span> </span>{
+	spin_lock(sleep_lock);
+	spin_lock(<span class="hljs-built_in">process</span>-&gt;sched_lock);
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">process</span>-&gt;node_waits) {
+		process_awaken_from_fswait(<span class="hljs-built_in">process</span>, -EINTR);
+	} <span class="hljs-keyword">else</span> {
+		spin_unlock(<span class="hljs-built_in">process</span>-&gt;sched_lock);
+	}
+	spin_unlock(sleep_lock);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">process_alert_node_locked</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * <span class="hljs-built_in">process</span>, <span class="hljs-keyword">void</span> * value)</span> </span>{
+	must_have_lock(sleep_lock);
+
+	<span class="hljs-keyword">if</span> (!is_valid_process(<span class="hljs-built_in">process</span>)) {
+		dprintf(<span class="hljs-string">"core %d (pid=%d %s) attempted to alert invalid process %#zx\n"</span>,
+			this_core-&gt;cpu_id, this_core-&gt;current_process-&gt;id, this_core-&gt;current_process-&gt;name,
+			(<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-built_in">process</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	spin_lock(<span class="hljs-built_in">process</span>-&gt;sched_lock);
+
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">process</span>-&gt;node_waits) {
+		spin_unlock(<span class="hljs-built_in">process</span>-&gt;sched_lock);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>; <span class="hljs-comment">/* Possibly already returned. Wait for another call. */</span>
+	}
+
+	<span class="hljs-keyword">int</span> index = <span class="hljs-number">0</span>;
+	foreach(node, <span class="hljs-built_in">process</span>-&gt;node_waits) {
+		<span class="hljs-keyword">if</span> (value == node-&gt;value) {
+			<span class="hljs-keyword">return</span> process_awaken_from_fswait(<span class="hljs-built_in">process</span>, index);
+		}
+		index++;
+	}
+
+	spin_unlock(<span class="hljs-built_in">process</span>-&gt;sched_lock);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">process_alert_node</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * <span class="hljs-built_in">process</span>, <span class="hljs-keyword">void</span> * value)</span> </span>{
+	spin_lock(sleep_lock);
+	<span class="hljs-keyword">int</span> result = process_alert_node_locked(<span class="hljs-built_in">process</span>, value);
+	spin_unlock(sleep_lock);
+	<span class="hljs-keyword">return</span> result;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">process_t</span> * <span class="hljs-title">process_get_parent</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * <span class="hljs-built_in">process</span>)</span> </span>{
+	<span class="hljs-keyword">process_t</span> * result = <span class="hljs-literal">NULL</span>;
+	spin_lock(tree_lock);
+
+	<span class="hljs-keyword">tree_node_t</span> * entry = <span class="hljs-built_in">process</span>-&gt;tree_entry;
+
+	<span class="hljs-keyword">if</span> (entry-&gt;parent) {
+		result = entry-&gt;parent-&gt;value;
+	}
+
+	spin_unlock(tree_lock);
+	<span class="hljs-keyword">return</span> result;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">task_exit</span><span class="hljs-params">(<span class="hljs-keyword">long</span> retval)</span> </span>{
+	this_core-&gt;current_process-&gt;status = retval &amp; <span class="hljs-number">0xFFFF</span>;
+
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;<span class="hljs-built_in">process</span> == this_core-&gt;current_process) {
+		<span class="hljs-comment">/* If is thread leader, kill threads */</span>
+		<span class="hljs-keyword">pid_t</span> * children = <span class="hljs-literal">NULL</span>;
+		<span class="hljs-keyword">size_t</span> thread_count = process_collect_by(offsetof(<span class="hljs-keyword">process_t</span>,tgid), <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">pid_t</span>), (<span class="hljs-keyword">void</span>*)&amp;this_core-&gt;current_process-&gt;tgid, &amp;children, <span class="hljs-number">1</span>);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; thread_count; ++i) {
+			<span class="hljs-keyword">if</span> (children[i] == this_core-&gt;current_process-&gt;tgid) <span class="hljs-keyword">continue</span>;
+			send_signal(children[i], SIGKILL, <span class="hljs-number">1</span>);
+		}
+		<span class="hljs-keyword">if</span> (children) <span class="hljs-built_in">free</span>(children);
+	}
+
+	<span class="hljs-comment">/* free whatever we can */</span>
+	list_free(this_core-&gt;current_process-&gt;wait_queue);
+	<span class="hljs-built_in">free</span>(this_core-&gt;current_process-&gt;wait_queue);
+	<span class="hljs-built_in">free</span>(this_core-&gt;current_process-&gt;wd_name);
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;node_waits) {
+		list_free(this_core-&gt;current_process-&gt;node_waits);
+		<span class="hljs-built_in">free</span>(this_core-&gt;current_process-&gt;node_waits);
+		this_core-&gt;current_process-&gt;node_waits = <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;fds) {
+		spin_lock(this_core-&gt;current_process-&gt;fds-&gt;lock);
+		this_core-&gt;current_process-&gt;fds-&gt;refs--;
+		<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;fds-&gt;refs == <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint32_t</span> i = <span class="hljs-number">0</span>; i &lt; this_core-&gt;current_process-&gt;fds-&gt;length; ++i) {
+				<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;fds-&gt;entries[i]) {
+					close_fs(this_core-&gt;current_process-&gt;fds-&gt;entries[i]);
+					this_core-&gt;current_process-&gt;fds-&gt;entries[i] = <span class="hljs-literal">NULL</span>;
+				}
+			}
+			<span class="hljs-built_in">free</span>(this_core-&gt;current_process-&gt;fds-&gt;entries);
+			<span class="hljs-built_in">free</span>(this_core-&gt;current_process-&gt;fds-&gt;offsets);
+			<span class="hljs-built_in">free</span>(this_core-&gt;current_process-&gt;fds-&gt;modes);
+			<span class="hljs-built_in">free</span>(this_core-&gt;current_process-&gt;fds);
+			this_core-&gt;current_process-&gt;fds = <span class="hljs-literal">NULL</span>;
+		} <span class="hljs-keyword">else</span> {
+			spin_unlock(this_core-&gt;current_process-&gt;fds-&gt;lock);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;wd_node) {
+		close_fs(this_core-&gt;current_process-&gt;wd_node);
+	}
+
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;tracees) {
+		spin_lock(this_core-&gt;current_process-&gt;wait_lock);
+		<span class="hljs-keyword">while</span> (this_core-&gt;current_process-&gt;tracees-&gt;length) {
+			<span class="hljs-keyword">node_t</span> * n = list_pop(this_core-&gt;current_process-&gt;tracees);
+			<span class="hljs-keyword">process_t</span> * tracee = n-&gt;value;
+			<span class="hljs-built_in">free</span>(n);
+			<span class="hljs-keyword">if</span> (is_valid_process(tracee)) {
+				<span class="hljs-keyword">if</span> (tracee-&gt;tracer == this_core-&gt;current_process-&gt;id) {
+					tracee-&gt;tracer = <span class="hljs-number">0</span>;
+					__sync_and_and_fetch(&amp;tracee-&gt;flags, ~(PROC_FLAGS_TRACE));
+					<span class="hljs-keyword">if</span> (tracee-&gt;flags &amp; PROC_FLAG_SUSPENDED) {
+						__sync_and_and_fetch(&amp;tracee-&gt;flags, ~(PROC_FLAG_SUSPENDED));
+						make_process_ready(tracee);
+					}
+				}
+			}
+		}
+		spin_unlock(this_core-&gt;current_process-&gt;wait_lock);
+	}
+
+	update_process_times();
+
+	<span class="hljs-keyword">process_t</span> * parent = process_get_parent((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process);
+	__sync_or_and_fetch(&amp;this_core-&gt;current_process-&gt;flags, PROC_FLAG_FINISHED);
+
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;tracer) {
+		<span class="hljs-keyword">process_t</span> * tracer = process_from_pid(this_core-&gt;current_process-&gt;tracer);
+		this_core-&gt;current_process-&gt;tracer = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (tracer &amp;&amp; tracer != parent) {
+			spin_lock(tracer-&gt;wait_lock);
+			wakeup_queue(tracer-&gt;wait_queue);
+			spin_unlock(tracer-&gt;wait_lock);
+		}
+	}
+
+	process_send_sigchld((<span class="hljs-keyword">process_t</span>*)this_core-&gt;current_process, parent,
+		(retval &amp; <span class="hljs-number">0xFF</span>) ? CLD_KILLED : CLD_EXITED,
+		(retval &amp; <span class="hljs-number">0xFF</span>) ? (retval &amp; <span class="hljs-number">0xFF</span>) : (retval &gt;&gt; <span class="hljs-number">8</span>));
+
+	switch_next();
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PUSH(stack, type, item) stack -= sizeof(type); \
+							*((volatile type *) stack) = item</span>
+
+<span class="hljs-function"><span class="hljs-keyword">pid_t</span> <span class="hljs-title">fork</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> sp, bp;
+	<span class="hljs-keyword">process_t</span> * parent = (<span class="hljs-keyword">process_t</span>*)this_core-&gt;current_process;
+	<span class="hljs-keyword">union</span> PML * directory = mmu_clone(parent-&gt;thread.page_directory-&gt;directory);
+	<span class="hljs-keyword">process_t</span> * new_proc = spawn_process(parent-&gt;<span class="hljs-built_in">process</span>, <span class="hljs-number">0</span>, <span class="hljs-number">1</span>);
+	new_proc-&gt;<span class="hljs-built_in">process</span> = new_proc;
+	new_proc-&gt;pty = parent-&gt;<span class="hljs-built_in">process</span>-&gt;pty;
+	new_proc-&gt;thread.page_directory = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">page_directory_t</span>));
+	new_proc-&gt;thread.page_directory-&gt;refcount = <span class="hljs-number">1</span>;
+	new_proc-&gt;thread.page_directory-&gt;directory = directory;
+	spin_init(new_proc-&gt;thread.page_directory-&gt;lock);
+
+	new_proc-&gt;signals = <span class="hljs-built_in">calloc</span>(NUMSIGNALS + <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(struct signal_config));
+	<span class="hljs-built_in">memcpy</span>(new_proc-&gt;signals, parent-&gt;signals, <span class="hljs-keyword">sizeof</span>(struct signal_config) * (NUMSIGNALS+<span class="hljs-number">1</span>));
+	new_proc-&gt;blocked_signals = parent-&gt;blocked_signals;
+
+	arch_save_floating(new_proc);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">regs</span> <span class="hljs-title">r</span>;</span>
+	<span class="hljs-built_in">memcpy</span>(&amp;r, parent-&gt;syscall_registers, <span class="hljs-keyword">sizeof</span>(struct regs));
+	sp = new_proc-&gt;<span class="hljs-built_in">image</span>.<span class="hljs-built_in">stack</span>;
+	bp = sp;
+
+	arch_syscall_return(&amp;r, <span class="hljs-number">0</span>);
+	PUSH(sp, struct regs, r);
+
+	new_proc-&gt;syscall_registers = (<span class="hljs-keyword">void</span>*)sp;
+	new_proc-&gt;thread.context.sp = sp;
+	new_proc-&gt;thread.context.bp = bp;
+	new_proc-&gt;thread.context.tls_base = parent-&gt;thread.context.tls_base;
+	new_proc-&gt;thread.context.ip = (<span class="hljs-keyword">uintptr_t</span>)&amp;arch_resume_user;
+	arch_save_context(&amp;parent-&gt;thread);
+	<span class="hljs-built_in">memcpy</span>(new_proc-&gt;thread.context.saved, parent-&gt;thread.context.saved, <span class="hljs-keyword">sizeof</span>(parent-&gt;thread.context.saved));
+
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"fork(): resuming with register context\n"</span>);
+	<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">aarch64_regs</span><span class="hljs-params">(struct regs *)</span></span>;
+	aarch64_regs(&amp;r);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"fork(): and arch context:\n"</span>);
+	<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">aarch64_context</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc)</span></span>;
+	aarch64_context(new_proc);
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	<span class="hljs-keyword">if</span> (parent-&gt;flags &amp; PROC_FLAG_IS_TASKLET) new_proc-&gt;flags |= PROC_FLAG_IS_TASKLET;
+	<span class="hljs-keyword">if</span> ((parent-&gt;flags &amp; PROC_FLAG_TRACE_FORK) &amp;&amp; parent-&gt;tracer) ptrace_trace(process_from_pid(parent-&gt;tracer), new_proc);
+
+	make_process_ready(new_proc);
+	<span class="hljs-keyword">return</span> new_proc-&gt;id;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">pid_t</span> <span class="hljs-title">clone</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> new_stack, <span class="hljs-keyword">uintptr_t</span> thread_func, <span class="hljs-keyword">uintptr_t</span> arg)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> sp, bp;
+	<span class="hljs-keyword">process_t</span> * parent = (<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process;
+	<span class="hljs-keyword">process_t</span> * new_proc = spawn_process(parent-&gt;<span class="hljs-built_in">process</span>, <span class="hljs-number">1</span>, <span class="hljs-number">0</span>);
+	new_proc-&gt;<span class="hljs-built_in">process</span> = parent-&gt;<span class="hljs-built_in">process</span>;
+	new_proc-&gt;tgid = parent-&gt;<span class="hljs-built_in">process</span>-&gt;id;
+	new_proc-&gt;thread.page_directory = this_core-&gt;current_process-&gt;thread.page_directory;
+	spin_lock(new_proc-&gt;thread.page_directory-&gt;lock);
+	new_proc-&gt;thread.page_directory-&gt;refcount++;
+	spin_unlock(new_proc-&gt;thread.page_directory-&gt;lock);
+
+	new_proc-&gt;signals = parent-&gt;<span class="hljs-built_in">process</span>-&gt;signals;
+	new_proc-&gt;blocked_signals = parent-&gt;blocked_signals;
+
+	arch_save_floating(new_proc);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">regs</span> <span class="hljs-title">r</span>;</span>
+	<span class="hljs-built_in">memcpy</span>(&amp;r, parent-&gt;syscall_registers, <span class="hljs-keyword">sizeof</span>(struct regs));
+	sp = new_proc-&gt;<span class="hljs-built_in">image</span>.<span class="hljs-built_in">stack</span>;
+	bp = sp;
+
+	<span class="hljs-comment">/* different calling convention */</span>
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__x86_64__)</span>
+	r.rdi = arg;
+	PUSH(new_stack, <span class="hljs-keyword">uintptr_t</span>, (<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-number">0</span>);
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">elif</span> defined(__aarch64__)</span>
+	r.x0 = arg;
+	r.x30 = <span class="hljs-number">0</span>;
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	PUSH(sp, struct regs, r);
+	new_proc-&gt;syscall_registers = (<span class="hljs-keyword">void</span>*)sp;
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__x86_64__)</span>
+	new_proc-&gt;syscall_registers-&gt;rsp = new_stack;
+	new_proc-&gt;syscall_registers-&gt;rbp = new_stack;
+	new_proc-&gt;syscall_registers-&gt;rip = thread_func;
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">elif</span> defined(__aarch64__)</span>
+	new_proc-&gt;syscall_registers-&gt;user_sp = new_stack;
+	new_proc-&gt;syscall_registers-&gt;x29 = new_stack;
+	new_proc-&gt;thread.context.saved[<span class="hljs-number">10</span>] = thread_func;
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	new_proc-&gt;thread.context.sp = sp;
+	new_proc-&gt;thread.context.bp = bp;
+	new_proc-&gt;thread.context.tls_base = this_core-&gt;current_process-&gt;thread.context.tls_base;
+	new_proc-&gt;thread.context.ip = (<span class="hljs-keyword">uintptr_t</span>)&amp;arch_resume_user;
+
+	<span class="hljs-keyword">if</span> (parent-&gt;flags &amp; PROC_FLAG_IS_TASKLET) new_proc-&gt;flags |= PROC_FLAG_IS_TASKLET;
+	<span class="hljs-keyword">if</span> ((parent-&gt;flags &amp; PROC_FLAG_TRACE_CLONE) &amp;&amp; parent-&gt;tracer) ptrace_trace(process_from_pid(parent-&gt;tracer), new_proc);
+
+	make_process_ready(new_proc);
+	<span class="hljs-keyword">return</span> new_proc-&gt;id;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">process_t</span> * <span class="hljs-title">spawn_worker_thread</span><span class="hljs-params">(<span class="hljs-keyword">void</span> (*entrypoint)(<span class="hljs-keyword">void</span> * argp), <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name, <span class="hljs-keyword">void</span> * argp)</span> </span>{
+	<span class="hljs-keyword">process_t</span> * proc = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">process_t</span>));
+
+	proc-&gt;flags = PROC_FLAG_IS_TASKLET | PROC_FLAG_STARTED;
+
+	proc-&gt;<span class="hljs-built_in">process</span>     = proc;
+	proc-&gt;id          = get_next_pid();
+	proc-&gt;tgid        = proc-&gt;id;
+	proc-&gt;name        = strdup(name);
+	proc-&gt;cmdline     = <span class="hljs-literal">NULL</span>;
+
+	proc-&gt;job         = proc-&gt;id;
+	proc-&gt;session     = proc-&gt;id;
+
+	proc-&gt;signals = <span class="hljs-built_in">calloc</span>(NUMSIGNALS+<span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(struct signal_config));
+
+	proc-&gt;thread.page_directory = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">page_directory_t</span>));
+	proc-&gt;thread.page_directory-&gt;refcount = <span class="hljs-number">1</span>;
+	proc-&gt;thread.page_directory-&gt;directory = mmu_clone(mmu_get_kernel_directory());
+	spin_init(proc-&gt;thread.page_directory-&gt;lock);
+
+	proc-&gt;<span class="hljs-built_in">image</span>.<span class="hljs-built_in">stack</span>       = (<span class="hljs-keyword">uintptr_t</span>)valloc(KERNEL_STACK_SIZE) + KERNEL_STACK_SIZE;
+	PUSH(proc-&gt;<span class="hljs-built_in">image</span>.<span class="hljs-built_in">stack</span>, <span class="hljs-keyword">uintptr_t</span>, (<span class="hljs-keyword">uintptr_t</span>)entrypoint);
+	PUSH(proc-&gt;<span class="hljs-built_in">image</span>.<span class="hljs-built_in">stack</span>, <span class="hljs-keyword">void</span>*, argp);
+
+	proc-&gt;thread.context.sp = proc-&gt;<span class="hljs-built_in">image</span>.<span class="hljs-built_in">stack</span>;
+	proc-&gt;thread.context.bp = proc-&gt;<span class="hljs-built_in">image</span>.<span class="hljs-built_in">stack</span>;
+	proc-&gt;thread.context.ip = (<span class="hljs-keyword">uintptr_t</span>)&amp;arch_enter_tasklet;
+
+
+	proc-&gt;wait_queue   = list_create(<span class="hljs-string">"worker thread wait queue"</span>,proc);
+	proc-&gt;shm_mappings = list_create(<span class="hljs-string">"worker thread shm mappings"</span>,proc);
+
+	proc-&gt;sched_node.value = proc;
+	proc-&gt;sleep_node.value = proc;
+
+	gettimeofday(&amp;proc-&gt;start, <span class="hljs-literal">NULL</span>);
+	<span class="hljs-keyword">tree_node_t</span> * entry = tree_node_create(proc);
+	proc-&gt;tree_entry = entry;
+
+	spin_lock(tree_lock);
+	tree_node_insert_child_node(process_tree, this_core-&gt;current_process-&gt;tree_entry, entry);
+	list_insert(process_list, (<span class="hljs-keyword">void</span>*)proc);
+	spin_unlock(tree_lock);
+
+	make_process_ready(proc);
+
+	<span class="hljs-keyword">return</span> proc;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">update_one_process</span><span class="hljs-params">(<span class="hljs-keyword">uint64_t</span> clock_ticks, <span class="hljs-keyword">uint64_t</span> perf_scale, <span class="hljs-keyword">process_t</span> * proc)</span> </span>{
+	proc-&gt;usage[<span class="hljs-number">3</span>] = proc-&gt;usage[<span class="hljs-number">2</span>];
+	proc-&gt;usage[<span class="hljs-number">2</span>] = proc-&gt;usage[<span class="hljs-number">1</span>];
+	proc-&gt;usage[<span class="hljs-number">1</span>] = proc-&gt;usage[<span class="hljs-number">0</span>];
+	proc-&gt;usage[<span class="hljs-number">0</span>] = (<span class="hljs-number">1000</span> * (proc-&gt;time_total - proc-&gt;time_prev)) / (clock_ticks * perf_scale);
+	proc-&gt;time_prev = proc-&gt;time_total;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">update_process_usage</span><span class="hljs-params">(<span class="hljs-keyword">uint64_t</span> clock_ticks, <span class="hljs-keyword">uint64_t</span> perf_scale)</span> </span>{
+	spin_lock(tree_lock);
+	foreach(lnode, process_list) {
+		<span class="hljs-keyword">process_t</span> * proc = lnode-&gt;value;
+		update_one_process(clock_ticks, perf_scale, proc);
+	}
+	spin_unlock(tree_lock);
+	<span class="hljs-comment">/* Now use idle tasks to calculator processor activity? */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; processor_count; ++i) {
+		<span class="hljs-keyword">process_t</span> * proc = processor_local_data[i].kernel_idle_task;
+		update_one_process(clock_ticks, perf_scale, proc);
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-33" id="section-33"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">field</span>
+<span>Offset of the field in procces_t to compare against.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">fieldSize</span>
+<span>Size of the field to compare against.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">target</span>
+<span>Field value you want to match.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">into</span>
+<span>Place you want the resulting array pointer to be stored.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">threads</span>
+<span>Whether to include threads.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">size_t</span> <span class="hljs-title">process_collect_by</span><span class="hljs-params">(<span class="hljs-keyword">off_t</span> field, <span class="hljs-keyword">size_t</span> fieldSize, <span class="hljs-keyword">void</span> * target, <span class="hljs-keyword">pid_t</span> ** into, <span class="hljs-keyword">int</span> threads)</span> </span>{
+	<span class="hljs-keyword">size_t</span> count = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> cap = <span class="hljs-number">0</span>;
+	*into = <span class="hljs-literal">NULL</span>;
+
+	spin_lock(tree_lock);
+	foreach(node, process_list) {
+		<span class="hljs-keyword">process_t</span> * proc = node-&gt;value;
+		<span class="hljs-keyword">if</span> (!threads &amp;&amp; proc-&gt;tgid != proc-&gt;id) <span class="hljs-keyword">continue</span>; <span class="hljs-comment">/* Only collect thread group leaders */</span>
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">memcmp</span>((<span class="hljs-keyword">char</span>*)proc + field, target, fieldSize)) {
+			<span class="hljs-keyword">if</span> (count == cap) {
+				cap = cap ? cap * <span class="hljs-number">2</span> : <span class="hljs-number">16</span>;
+				*into = <span class="hljs-built_in">realloc</span>(*into, cap * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">pid_t</span>));
+			}
+			(*into)[count++] = proc-&gt;id;
+		}
+	}
+	spin_unlock(tree_lock);
+
+	<span class="hljs-keyword">return</span> count;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-34" id="section-34"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">group</span>
+<span>The group process ID. Positive PID, not negative.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">signal</span>
+<span>Signal number to deliver.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">force_root</span>
+<span>See explanation in @c send_signal
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">group_send_signal</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> group, <span class="hljs-keyword">int</span> signal, <span class="hljs-keyword">int</span> force_root)</span> </span>{
+	<span class="hljs-keyword">int</span> kill_self = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> killed_something = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (signal &gt;= NUMSIGNALS || signal &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -EINVAL;
+
+	<span class="hljs-comment">/* First collect a list of things to signal */</span>
+	<span class="hljs-keyword">pid_t</span> * pids = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">size_t</span> count = process_collect_by(offsetof(<span class="hljs-keyword">process_t</span>,job),<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">pid_t</span>),&amp;group,&amp;pids, <span class="hljs-number">0</span>);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+		<span class="hljs-keyword">if</span> (pids[i] == this_core-&gt;current_process-&gt;tgid) kill_self = <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (send_signal(pids[i], signal, force_root) == <span class="hljs-number">0</span>) killed_something = <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (pids) <span class="hljs-built_in">free</span>(pids);
+
+	<span class="hljs-keyword">if</span> (kill_self &amp;&amp; send_signal(this_core-&gt;current_process-&gt;tgid, signal, force_root) == <span class="hljs-number">0</span>) killed_something = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> killed_something ? <span class="hljs-number">0</span> : -ESRCH;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-35" id="section-35"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">session</span>
+<span>The session ID to send to.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">signal</span>
+<span>Signal number to deliver.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">force_root</span>
+<span>See explanation in @c send_signal
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">session_send_signal</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> session, <span class="hljs-keyword">int</span> signal, <span class="hljs-keyword">int</span> force_root)</span> </span>{
+	<span class="hljs-keyword">int</span> kill_self = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> killed_something = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (signal &gt;= NUMSIGNALS || signal &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -EINVAL;
+
+	<span class="hljs-comment">/* First collect a list of things to signal */</span>
+	<span class="hljs-keyword">pid_t</span> * pids = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">size_t</span> count = process_collect_by(offsetof(<span class="hljs-keyword">process_t</span>,session),<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">pid_t</span>),&amp;session,&amp;pids, <span class="hljs-number">0</span>);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+		<span class="hljs-keyword">if</span> (pids[i] == this_core-&gt;current_process-&gt;tgid) kill_self = <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (send_signal(pids[i], signal, force_root) == <span class="hljs-number">0</span>) killed_something = <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (pids) <span class="hljs-built_in">free</span>(pids);
+
+	<span class="hljs-keyword">if</span> (kill_self &amp;&amp; send_signal(this_core-&gt;current_process-&gt;tgid, signal, force_root) == <span class="hljs-number">0</span>) killed_something = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> killed_something ? <span class="hljs-number">0</span> : -ESRCH;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">process_close_fds</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc, <span class="hljs-keyword">int</span> for_what)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; proc-&gt;fds-&gt;length; ++i) {
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> MISAKA_DEBUG_CLOEXEC_MISMATCHES</span>
+		<span class="hljs-keyword">if</span> (i &gt;= <span class="hljs-number">3</span> &amp;&amp; proc-&gt;fds-&gt;entries[i] &amp;&amp; !(proc-&gt;fds-&gt;modes[i] &amp; for_what)) {
+			<span class="hljs-keyword">char</span> * name = <span class="hljs-literal">NULL</span>, * wname = <span class="hljs-literal">NULL</span>, * dname = <span class="hljs-literal">NULL</span>;
+			<span class="hljs-keyword">uintptr_t</span> addr = (<span class="hljs-keyword">uintptr_t</span>)proc-&gt;fds-&gt;entries[i]-&gt;<span class="hljs-built_in">read</span> - ksym_closest((<span class="hljs-keyword">uintptr_t</span>)proc-&gt;fds-&gt;entries[i]-&gt;<span class="hljs-built_in">read</span>, &amp;name);
+			<span class="hljs-keyword">uintptr_t</span> waddr = (<span class="hljs-keyword">uintptr_t</span>)proc-&gt;fds-&gt;entries[i]-&gt;<span class="hljs-built_in">write</span> - ksym_closest((<span class="hljs-keyword">uintptr_t</span>)proc-&gt;fds-&gt;entries[i]-&gt;<span class="hljs-built_in">write</span>, &amp;wname);
+			<span class="hljs-keyword">uintptr_t</span> daddr = (<span class="hljs-keyword">uintptr_t</span>)proc-&gt;fds-&gt;entries[i]-&gt;readdir - ksym_closest((<span class="hljs-keyword">uintptr_t</span>)proc-&gt;fds-&gt;entries[i]-&gt;readdir, &amp;dname);
+			dprintf(<span class="hljs-string">"probably unintended leak of file descriptor %d execing in pid %d (%s) (read:%s+%#zx) (wread:%s+%#zx) (readdir:%s+%#zx) (name:%s)\n"</span>, i, proc-&gt;id, proc-&gt;name,
+				name, addr, wname, waddr, dname, daddr, proc-&gt;fds-&gt;entries[i]-&gt;name);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (i &lt; <span class="hljs-number">3</span> &amp;&amp; proc-&gt;fds-&gt;entries[i] &amp;&amp; (proc-&gt;fds-&gt;modes[i] &amp; for_what)) {
+			dprintf(<span class="hljs-string">"probably unintended CLOEXEC of file descriptor %d execing in pid %d\n"</span>, i, proc-&gt;id);
+		}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+		<span class="hljs-keyword">if</span> (proc-&gt;fds-&gt;entries[i] &amp;&amp; (proc-&gt;fds-&gt;modes[i] &amp; for_what)) {
+			close_fs(proc-&gt;fds-&gt;entries[i]);
+			proc-&gt;fds-&gt;entries[i] = <span class="hljs-literal">NULL</span>;
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">process_send_sigchld</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc, <span class="hljs-keyword">process_t</span> * parent, <span class="hljs-keyword">int</span> reason, <span class="hljs-keyword">int</span> status)</span> </span>{
+	<span class="hljs-keyword">if</span> (parent &amp;&amp; !(parent-&gt;flags &amp; PROC_FLAG_FINISHED)) {
+		spin_lock(parent-&gt;wait_lock);
+		<span class="hljs-keyword">siginfo_t</span> cause = {<span class="hljs-number">0</span>};
+		cause.si_code = reason;
+		cause.si_pid = proc-&gt;id;
+		cause.si_uid = proc-&gt;real_user;
+		cause.si_status = status;
+
+		send_signal_info(parent-&gt;tgid, SIGCHLD, <span class="hljs-number">1</span>, &amp;cause);
+		wakeup_queue(parent-&gt;wait_queue);
+		spin_unlock(parent-&gt;wait_lock);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">size_t</span> <span class="hljs-title">process_erase_field</span><span class="hljs-params">(<span class="hljs-keyword">off_t</span> field, <span class="hljs-keyword">size_t</span> fieldSize, <span class="hljs-keyword">void</span> * target)</span> </span>{
+	<span class="hljs-keyword">size_t</span> count = <span class="hljs-number">0</span>;
+	spin_lock(tree_lock);
+	foreach(node, process_list) {
+		<span class="hljs-keyword">process_t</span> * proc = node-&gt;value;
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">memcmp</span>((<span class="hljs-keyword">char</span>*)proc + field, target, fieldSize)) {
+			<span class="hljs-built_in">memset</span>((<span class="hljs-keyword">char</span>*)proc + field, <span class="hljs-number">0</span>, fieldSize);
+			count++;
+		}
+	}
+	spin_unlock(tree_lock);
+
+	<span class="hljs-keyword">return</span> count;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">size_t</span> <span class="hljs-title">process_get_tty</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc, <span class="hljs-keyword">size_t</span> len, <span class="hljs-keyword">char</span> * out)</span> </span>{
+	spin_lock(tree_lock);
+	<span class="hljs-keyword">size_t</span> ret = proc-&gt;<span class="hljs-built_in">process</span>-&gt;pty ? proc-&gt;<span class="hljs-built_in">process</span>-&gt;pty-&gt;fill_name(proc-&gt;<span class="hljs-built_in">process</span>-&gt;pty, len, out) : <span class="hljs-number">0</span>;
+	spin_unlock(tree_lock);
+	<span class="hljs-keyword">return</span> ret;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

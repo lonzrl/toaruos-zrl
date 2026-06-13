@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>vmware.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "modules\\vmware.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>vmware.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stddef.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/video.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pipe.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mouse.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/args.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/module.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/ports.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VMWARE_MAGIC  0x564D5868 <span class="hljs-comment">/* hXMV */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VMWARE_PORT   0x5658</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VMWARE_PORTHB 0x5659</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PACKETS_IN_PIPE 1024</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DISCARD_POINT 32</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CMD_GETVERSION         10</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CMD_MESSAGE            30</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CMD_ABSPOINTER_DATA    39</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CMD_ABSPOINTER_STATUS  40</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CMD_ABSPOINTER_COMMAND 41</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ABSPOINTER_ENABLE   0x45414552 <span class="hljs-comment">/* Q E A E */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ABSPOINTER_RELATIVE 0xF5</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ABSPOINTER_ABSOLUTE 0x53424152 <span class="hljs-comment">/* R A B S */</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MESSAGE_RPCI   0x49435052 <span class="hljs-comment">/* R P C I */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MESSAGE_TCLO   0x4f4c4354 <span class="hljs-comment">/* T C L O */</span></span>
+
+<span class="hljs-comment">/* -Wpedantic complains about unnamed unions */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">pragma</span> GCC diagnostic ignored <span class="hljs-meta-string">"-Wpedantic"</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-title">void</span> <span class="hljs-params">(*ps2_mouse_alternate)</span><span class="hljs-params">(<span class="hljs-keyword">uint8_t</span>)</span></span>; <span class="hljs-comment">/* modules/mouse.c */</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * mouse_pipe;
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+	<span class="hljs-keyword">union</span> {
+		<span class="hljs-keyword">uint32_t</span> ax;
+		<span class="hljs-keyword">uint32_t</span> magic;
+	};
+	<span class="hljs-keyword">union</span> {
+		<span class="hljs-keyword">uint32_t</span> bx;
+		<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>;
+	};
+	<span class="hljs-keyword">union</span> {
+		<span class="hljs-keyword">uint32_t</span> cx;
+		<span class="hljs-keyword">uint16_t</span> command;
+	};
+	<span class="hljs-keyword">union</span> {
+		<span class="hljs-keyword">uint32_t</span> dx;
+		<span class="hljs-keyword">uint16_t</span> port;
+	};
+	<span class="hljs-keyword">uintptr_t</span> si;
+	<span class="hljs-keyword">uintptr_t</span> di;
+} vmware_cmd;
+
+<span class="hljs-comment">/** Low bandwidth backdoor */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">vmware_send</span><span class="hljs-params">(vmware_cmd * cmd)</span> </span>{
+	cmd-&gt;magic = VMWARE_MAGIC;
+	cmd-&gt;port = VMWARE_PORT;
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span><span class="hljs-params">(<span class="hljs-string">"in %%dx, %0"</span> : <span class="hljs-string">"+a"</span>(cmd-&gt;ax), <span class="hljs-string">"+b"</span>(cmd-&gt;bx), <span class="hljs-string">"+c"</span>(cmd-&gt;cx), <span class="hljs-string">"+d"</span>(cmd-&gt;dx), <span class="hljs-string">"+S"</span>(cmd-&gt;si), <span class="hljs-string">"+D"</span>(cmd-&gt;di))</span></span>;
+}
+
+<span class="hljs-comment">/** Output to high bandwidth backdoor */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">vmware_send_hb</span><span class="hljs-params">(vmware_cmd * cmd)</span> </span>{
+	cmd-&gt;magic = VMWARE_MAGIC;
+	cmd-&gt;port = VMWARE_PORTHB;
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span><span class="hljs-params">(<span class="hljs-string">"cld; rep; outsb"</span> : <span class="hljs-string">"+a"</span>(cmd-&gt;ax), <span class="hljs-string">"+b"</span>(cmd-&gt;bx), <span class="hljs-string">"+c"</span>(cmd-&gt;cx), <span class="hljs-string">"+d"</span>(cmd-&gt;dx), <span class="hljs-string">"+S"</span>(cmd-&gt;si), <span class="hljs-string">"+D"</span>(cmd-&gt;di))</span></span>;
+}
+
+<span class="hljs-comment">/** Input from high bandwidth backdoor */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">vmware_get_hb</span><span class="hljs-params">(vmware_cmd * cmd)</span> </span>{
+	cmd-&gt;magic = VMWARE_MAGIC;
+	cmd-&gt;port = VMWARE_PORTHB;
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span><span class="hljs-params">(<span class="hljs-string">"cld; rep; insb"</span> : <span class="hljs-string">"+a"</span>(cmd-&gt;ax), <span class="hljs-string">"+b"</span>(cmd-&gt;bx), <span class="hljs-string">"+c"</span>(cmd-&gt;cx), <span class="hljs-string">"+d"</span>(cmd-&gt;dx), <span class="hljs-string">"+S"</span>(cmd-&gt;si), <span class="hljs-string">"+D"</span>(cmd-&gt;di))</span></span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">mouse_off</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-comment">/* Disable the absolute mouse */</span>
+	vmware_cmd cmd = {<span class="hljs-number">0</span>};
+	cmd.bx = ABSPOINTER_RELATIVE;
+	cmd.command = CMD_ABSPOINTER_COMMAND;
+	vmware_send(&amp;cmd);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">mouse_absolute</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Set the mouse to absolute.</p>
+</div>
+<div class="body">
+<p>You can also set a relative mode, but there's not
+a lot of use in that as disabling the device just
+falls back to the PS/2 (or USB, I guess) device anyway,
+so instead of using that we just... turn it off.</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	vmware_cmd cmd = {<span class="hljs-number">0</span>};
+
+	<span class="hljs-comment">/* Enable */</span>
+	cmd.bx = ABSPOINTER_ENABLE;
+	cmd.command = CMD_ABSPOINTER_COMMAND;
+	vmware_send(&amp;cmd);
+
+	<span class="hljs-comment">/* Status */</span>
+	cmd.bx = <span class="hljs-number">0</span>;
+	cmd.command = CMD_ABSPOINTER_STATUS;
+	vmware_send(&amp;cmd);
+
+	<span class="hljs-comment">/* Read data (1) */</span>
+	cmd.bx = <span class="hljs-number">1</span>;
+	cmd.command = CMD_ABSPOINTER_DATA;
+	vmware_send(&amp;cmd);
+
+	<span class="hljs-comment">/* Enable absolute */</span>
+	cmd.bx = ABSPOINTER_ABSOLUTE;
+	cmd.command = CMD_ABSPOINTER_COMMAND;
+	vmware_send(&amp;cmd);
+}
+
+<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">int8_t</span> vmware_mouse_byte = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">vmware_mouse</span><span class="hljs-params">(<span class="hljs-keyword">uint8_t</span> <span class="hljs-keyword">byte</span>)</span> </span>{
+	<span class="hljs-comment">/* unused, but we need to read the fake mouse event bytes from the PS/2 device. */</span>
+	vmware_mouse_byte = <span class="hljs-keyword">byte</span>;
+
+	<span class="hljs-comment">/* Read status byte. */</span>
+	vmware_cmd cmd = {<span class="hljs-number">0</span>};
+	cmd.bx = <span class="hljs-number">0</span>;
+	cmd.command = CMD_ABSPOINTER_STATUS;
+	vmware_send(&amp;cmd);
+
+	<span class="hljs-keyword">if</span> (cmd.ax == <span class="hljs-number">0xffff0000</span>) {
+		<span class="hljs-comment">/* Device error; turn it off and back on again. */</span>
+		mouse_off();
+		mouse_absolute();
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-keyword">int</span> words = cmd.ax &amp; <span class="hljs-number">0xFFFF</span>;
+
+	<span class="hljs-keyword">if</span> (!words || words % <span class="hljs-number">4</span>) {
+		<span class="hljs-comment">/* If we don't have data, or for some reason data isn't a multiple of 4... bail */</span>
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-comment">/* Read 4 bytes of data */</span>
+	cmd.bx = <span class="hljs-number">4</span>; <span class="hljs-comment">/* how many */</span>
+	cmd.command = CMD_ABSPOINTER_DATA; <span class="hljs-comment">/* read */</span>
+	vmware_send(&amp;cmd);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>I guess the flags tell you if this was relative or absolute, so if we
+actually used the relative mode, we'd want to check that, but...</p>
+</div>
+<div class="body">
+</div>
+</div>
+int flags   = (cmd.ax & 0xFFFF0000) >> 16;
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">int</span> buttons = (cmd.ax &amp; <span class="hljs-number">0x0000FFFF</span>);
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> y = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (lfb_vid_memory &amp;&amp; lfb_resolution_x &amp;&amp; lfb_resolution_y) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Just like the virtualbox stuff, this is based on a mapping
+to the display resolution, independently scaled in
+each dimension...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		x = ((<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)cmd.bx * lfb_resolution_x) / <span class="hljs-number">0xFFFF</span>;
+		y = ((<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)cmd.cx * lfb_resolution_y) / <span class="hljs-number">0xFFFF</span>;
+	} <span class="hljs-keyword">else</span> {
+		x = cmd.bx;
+		y = cmd.cx;
+	}
+
+	<span class="hljs-keyword">mouse_device_packet_t</span> packet;
+	packet.magic = MOUSE_MAGIC;
+	packet.x_difference = x;
+	packet.y_difference = y;
+	packet.buttons = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* The particular bits for the buttons seem weird, but okay... */</span>
+	<span class="hljs-keyword">if</span> (buttons &amp; <span class="hljs-number">0x20</span>) {
+		packet.buttons |= LEFT_CLICK;
+	}
+	<span class="hljs-keyword">if</span> (buttons &amp; <span class="hljs-number">0x10</span>) {
+		packet.buttons |= RIGHT_CLICK;
+	}
+	<span class="hljs-keyword">if</span> (buttons &amp; <span class="hljs-number">0x08</span>) {
+		packet.buttons |= MIDDLE_CLICK;
+	}
+
+	<span class="hljs-comment">/* dx = z = scroll amount */</span>
+	<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">int8_t</span>)cmd.dx &gt; <span class="hljs-number">0</span>) {
+		packet.buttons |= MOUSE_SCROLL_DOWN;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> ((<span class="hljs-keyword">int8_t</span>)cmd.dx &lt; <span class="hljs-number">0</span>) {
+		packet.buttons |= MOUSE_SCROLL_UP;
+	}
+
+	<span class="hljs-keyword">mouse_device_packet_t</span> bitbucket;
+	<span class="hljs-keyword">while</span> (pipe_size(mouse_pipe) &gt; (<span class="hljs-keyword">int</span>)(DISCARD_POINT * <span class="hljs-keyword">sizeof</span>(packet))) {
+		read_fs(mouse_pipe, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(packet), (<span class="hljs-keyword">uint8_t</span> *)&amp;bitbucket);
+	}
+	write_fs(mouse_pipe, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(packet), (<span class="hljs-keyword">uint8_t</span> *)&amp;packet);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">detect_device</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	vmware_cmd cmd = {<span class="hljs-number">0</span>};
+
+	<span class="hljs-comment">/* read version */</span>
+	cmd.bx = ~VMWARE_MAGIC;
+	cmd.command = CMD_GETVERSION;
+	vmware_send(&amp;cmd);
+
+	<span class="hljs-keyword">if</span> (cmd.bx != VMWARE_MAGIC || cmd.ax == <span class="hljs-number">0xFFFFFFFF</span>) {
+		<span class="hljs-comment">/* Not a vmware device... */</span>
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-comment">/* Good to go! */</span>
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">open_msg_channel</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> proto)</span> </span>{
+	vmware_cmd cmd = {<span class="hljs-number">0</span>};
+	cmd.cx = CMD_MESSAGE | <span class="hljs-number">0x00000000</span>; <span class="hljs-comment">/* CMD_MESSAGE */</span>
+	cmd.bx = proto;
+	vmware_send(&amp;cmd);
+
+	<span class="hljs-keyword">if</span> ((cmd.cx &amp; <span class="hljs-number">0x10000</span>) == <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	}
+
+	<span class="hljs-keyword">return</span> cmd.dx &gt;&gt; <span class="hljs-number">16</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">msg_close</span><span class="hljs-params">(<span class="hljs-keyword">int</span> channel)</span> </span>{
+	vmware_cmd cmd = {<span class="hljs-number">0</span>};
+	cmd.cx = CMD_MESSAGE | <span class="hljs-number">0x00060000</span>;
+	cmd.bx = <span class="hljs-number">0</span>;
+	cmd.dx = channel &lt;&lt; <span class="hljs-number">16</span>;
+
+	vmware_send(&amp;cmd);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">open_rpci_channel</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> open_msg_channel(MESSAGE_RPCI);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> tclo_channel = <span class="hljs-number">-1</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">open_tclo_channel</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (tclo_channel != <span class="hljs-number">-1</span>) {
+		msg_close(tclo_channel);
+	}
+	tclo_channel = open_msg_channel(MESSAGE_TCLO);
+	<span class="hljs-keyword">return</span> tclo_channel;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">msg_send</span><span class="hljs-params">(<span class="hljs-keyword">int</span> channel, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * msg, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	{
+		vmware_cmd cmd = {<span class="hljs-number">0</span>};
+		cmd.cx = CMD_MESSAGE | <span class="hljs-number">0x00010000</span>; <span class="hljs-comment">/* CMD_MESSAGE size */</span>
+		cmd.<span class="hljs-built_in">size</span> = <span class="hljs-built_in">size</span>;
+		cmd.dx   = channel &lt;&lt; <span class="hljs-number">16</span>;
+		vmware_send(&amp;cmd);
+
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+		<span class="hljs-keyword">if</span> (((cmd.cx &gt;&gt; <span class="hljs-number">16</span>) &amp; <span class="hljs-number">0x0081</span>) != <span class="hljs-number">0x0081</span>) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">-2</span>;
+		}
+	}
+
+	{
+		vmware_cmd cmd = {<span class="hljs-number">0</span>};
+		cmd.bx = <span class="hljs-number">0x0010000</span>;
+		cmd.cx = <span class="hljs-built_in">size</span>;
+		cmd.dx = channel &lt;&lt; <span class="hljs-number">16</span>;
+		cmd.si = (<span class="hljs-keyword">uintptr_t</span>)msg;
+		vmware_send_hb(&amp;cmd);
+
+		<span class="hljs-keyword">if</span> (!(cmd.bx &amp; <span class="hljs-number">0x0010000</span>)) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">-3</span>;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">msg_recv</span><span class="hljs-params">(<span class="hljs-keyword">int</span> channel, <span class="hljs-keyword">char</span> * buf, <span class="hljs-keyword">size_t</span> bufsize)</span> </span>{
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>;
+	{
+		vmware_cmd cmd = {<span class="hljs-number">0</span>};
+		cmd.cx = CMD_MESSAGE | <span class="hljs-number">0x00030000</span>; <span class="hljs-comment">/* CMD_MESSAGE receive ize */</span>
+		cmd.dx   = channel &lt;&lt; <span class="hljs-number">16</span>;
+		vmware_send(&amp;cmd);
+
+		<span class="hljs-built_in">size</span> = cmd.bx;
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (((cmd.cx &gt;&gt; <span class="hljs-number">16</span>) &amp; <span class="hljs-number">0x0083</span>) != <span class="hljs-number">0x0083</span>) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">-2</span>;
+		}
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &gt; bufsize) <span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	}
+
+	{
+		vmware_cmd cmd = {<span class="hljs-number">0</span>};
+		cmd.bx = <span class="hljs-number">0x00010000</span>;
+		cmd.cx = <span class="hljs-built_in">size</span>;
+		cmd.dx = channel &lt;&lt; <span class="hljs-number">16</span>;
+		cmd.di = (<span class="hljs-keyword">uintptr_t</span>)buf;
+
+		vmware_get_hb(&amp;cmd);
+		<span class="hljs-keyword">if</span> (!(cmd.bx &amp; <span class="hljs-number">0x00010000</span>)) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">-3</span>;
+		}
+	}
+
+	{
+		vmware_cmd cmd = {<span class="hljs-number">0</span>};
+		cmd.cx = CMD_MESSAGE | <span class="hljs-number">0x00050000</span>;
+		cmd.bx = <span class="hljs-number">0x0001</span>;
+		cmd.dx = channel &lt;&lt; <span class="hljs-number">16</span>;
+
+		vmware_send(&amp;cmd);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">size</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">rpci_string</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * request)</span> </span>{
+	<span class="hljs-comment">/* Open channel */</span>
+	<span class="hljs-keyword">int</span> channel = open_rpci_channel();
+	<span class="hljs-keyword">if</span> (channel &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> channel;
+
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = <span class="hljs-built_in">strlen</span>(request) + <span class="hljs-number">1</span>;
+	msg_send(channel, request, <span class="hljs-built_in">size</span>);
+
+	<span class="hljs-keyword">char</span> buf[<span class="hljs-number">16</span>];
+	<span class="hljs-keyword">int</span> recv_size = msg_recv(channel, buf, <span class="hljs-number">16</span>);
+
+	msg_close(channel);
+
+	<span class="hljs-keyword">if</span> (recv_size &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> recv_size;
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">attempt_scale</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+
+	<span class="hljs-keyword">int</span> i;
+	<span class="hljs-keyword">int</span> c = open_tclo_channel();
+	<span class="hljs-keyword">if</span> (c &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">char</span> buf[<span class="hljs-number">256</span>];
+	<span class="hljs-keyword">if</span> ((i = msg_send(c, buf, <span class="hljs-number">0</span>)) &lt; <span class="hljs-number">0</span>) { <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>; }
+
+	<span class="hljs-keyword">int</span> resend = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		i = msg_recv(c, buf, <span class="hljs-number">256</span>);
+		<span class="hljs-keyword">if</span> (i &lt; <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (i == <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">if</span> (resend) {
+				<span class="hljs-keyword">if</span> ((i = rpci_string(<span class="hljs-string">"tools.capability.resolution_set 1"</span>)) &lt; <span class="hljs-number">0</span>) { <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>; }
+				<span class="hljs-keyword">if</span> ((i = rpci_string(<span class="hljs-string">"tools.capability.resolution_server toolbox 1"</span>)) &lt; <span class="hljs-number">0</span>) { <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>; }
+				<span class="hljs-keyword">if</span> ((i = rpci_string(<span class="hljs-string">"tools.capability.display_topology_set 1"</span>)) &lt; <span class="hljs-number">0</span>) { <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>; }
+				<span class="hljs-keyword">if</span> ((i = rpci_string(<span class="hljs-string">"tools.capability.color_depth_set 1"</span>)) &lt; <span class="hljs-number">0</span>) { <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>; }
+				<span class="hljs-keyword">if</span> ((i = rpci_string(<span class="hljs-string">"tools.capability.resolution_min 0 0"</span>)) &lt; <span class="hljs-number">0</span>) { <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>; }
+				<span class="hljs-keyword">if</span> ((i = rpci_string(<span class="hljs-string">"tools.capability.unity 1"</span>)) &lt; <span class="hljs-number">0</span>) { <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>; }
+				resend = <span class="hljs-number">0</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> s, ss;
+				relative_time(<span class="hljs-number">0</span>, <span class="hljs-number">10000</span>, &amp;s, &amp;ss);
+				sleep_until((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, s, ss);
+				switch_task(<span class="hljs-number">0</span>);
+			}
+			<span class="hljs-keyword">if</span> ((i = msg_send(c, buf, <span class="hljs-number">0</span>)) &lt; <span class="hljs-number">0</span>) { <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>; }
+		} <span class="hljs-keyword">else</span> {
+			buf[i] = <span class="hljs-string">'\0'</span>;
+			<span class="hljs-keyword">if</span> (startswith(buf, <span class="hljs-string">"reset"</span>)) {
+				<span class="hljs-keyword">if</span> ((i = msg_send(c, <span class="hljs-string">"OK ATR toolbox"</span>, <span class="hljs-built_in">strlen</span>(<span class="hljs-string">"OK ATR toolbox"</span>))) &lt; <span class="hljs-number">0</span>) {
+					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+				}
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (startswith(buf, <span class="hljs-string">"ping"</span>)) {
+				<span class="hljs-keyword">if</span> ((i = msg_send(c, <span class="hljs-string">"OK "</span>, <span class="hljs-built_in">strlen</span>(<span class="hljs-string">"OK "</span>))) &lt; <span class="hljs-number">0</span>) {
+					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+				}
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (startswith(buf, <span class="hljs-string">"Capabilities_Register"</span>)) {
+				<span class="hljs-keyword">if</span> ((i = msg_send(c, <span class="hljs-string">"OK "</span>, <span class="hljs-built_in">strlen</span>(<span class="hljs-string">"OK "</span>))) &lt; <span class="hljs-number">0</span>) {
+					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+				}
+				resend = <span class="hljs-number">1</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (startswith(buf, <span class="hljs-string">"Resolution_Set"</span>)) {
+				<span class="hljs-keyword">char</span> * x = &amp;buf[<span class="hljs-number">15</span>];
+				<span class="hljs-keyword">char</span> * y = <span class="hljs-built_in">strstr</span>(x,<span class="hljs-string">" "</span>);
+				<span class="hljs-keyword">if</span> (!y) {
+					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+				}
+				*y = <span class="hljs-string">'\0'</span>;
+				y++;
+				<span class="hljs-keyword">int</span> _x = atoi(x);
+				<span class="hljs-keyword">int</span> _y = atoi(y);
+
+				<span class="hljs-keyword">if</span> (lfb_resolution_x &amp;&amp; _x &amp;&amp; (_x != lfb_resolution_x  || _y != lfb_resolution_y)) {
+					lfb_set_resolution(_x, _y);
+				}
+
+				<span class="hljs-keyword">if</span> ((i = msg_send(c, <span class="hljs-string">"OK "</span>, <span class="hljs-built_in">strlen</span>(<span class="hljs-string">"OK "</span>))) &lt; <span class="hljs-number">0</span>) {
+					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+				}
+
+				msg_close(c);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">if</span> ((i = msg_send(c, <span class="hljs-string">"ERROR Unknown command"</span>, <span class="hljs-built_in">strlen</span>(<span class="hljs-string">"ERROR Unknown command"</span>))) &lt; <span class="hljs-number">0</span>) {
+					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+				}
+			}
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">vmware_resize</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * data)</span> </span>{
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		attempt_scale();
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> s, ss;
+		relative_time(<span class="hljs-number">1</span>, <span class="hljs-number">0</span>, &amp;s, &amp;ss);
+		sleep_until((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, s, ss);
+		switch_task(<span class="hljs-number">0</span>);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ioctl_mouse</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> request, <span class="hljs-keyword">void</span> * argp)</span> </span>{
+	<span class="hljs-keyword">switch</span> (request) {
+		<span class="hljs-keyword">case</span> <span class="hljs-number">1</span>:
+			<span class="hljs-comment">/* Disable */</span>
+			mouse_off();
+			ps2_mouse_alternate = <span class="hljs-literal">NULL</span>;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">2</span>:
+			<span class="hljs-comment">/* Enable */</span>
+			ps2_mouse_alternate = vmware_mouse;
+			mouse_absolute();
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">3</span>:
+			<span class="hljs-keyword">return</span> ps2_mouse_alternate == vmware_mouse;
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> -ENOTTY;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">vmware_initialize</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">if</span> (!detect_device()) <span class="hljs-keyword">return</span> -ENODEV;
+
+	mouse_pipe = make_pipe(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">mouse_device_packet_t</span>) * PACKETS_IN_PIPE);
+	mouse_pipe-&gt;flags = FS_CHARDEVICE;
+
+	vfs_mount(<span class="hljs-string">"/dev/vmmouse"</span>, mouse_pipe, <span class="hljs-string">"vmware-mouse"</span>, <span class="hljs-string">""</span>);
+
+	mouse_pipe-&gt;flags = FS_CHARDEVICE;
+	mouse_pipe-&gt;ioctl = ioctl_mouse;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>We have a hack in the PS/2 mouse driver that lets us
+take over for the normal mouse driver and essential
+intercept the interrputs when they are valid.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	ps2_mouse_alternate = vmware_mouse;
+
+	mouse_absolute();
+
+	<span class="hljs-keyword">if</span> (lfb_driver_name &amp;&amp; !<span class="hljs-built_in">strcmp</span>(lfb_driver_name, <span class="hljs-string">"vmware"</span>) &amp;&amp; !args_present(<span class="hljs-string">"novmwareresset"</span>)) {
+		spawn_worker_thread(vmware_resize, <span class="hljs-string">"[vmware]"</span>, <span class="hljs-literal">NULL</span>);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">fini</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Module</span> <span class="hljs-title">metadata</span> = {</span>
+	.name = <span class="hljs-string">"vmware"</span>,
+	.init = vmware_initialize,
+	.fini = fini,
+};
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

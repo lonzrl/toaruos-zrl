@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>tmpfs.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\vfs\\tmpfs.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>tmpfs.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/tokenize.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/tmpfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/spinlock.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/procfs.h&gt;</span></span>
+
+<span class="hljs-comment">/* 4KB */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BLOCKSIZE 0x1000</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TMPFS_TYPE_FILE 1</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TMPFS_TYPE_DIR  2</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TMPFS_TYPE_LINK 3</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">volatile</span> <span class="hljs-keyword">intptr_t</span> tmpfs_total_blocks = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">tmpfs_from_dir</span><span class="hljs-params">(struct tmpfs_dir * d)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> struct tmpfs_file * <span class="hljs-title">tmpfs_file_new</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">t</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_file</span>));</span>
+	spin_init(t-&gt;lock);
+	t-&gt;name = strdup(name);
+	t-&gt;type = TMPFS_TYPE_FILE;
+	t-&gt;length = <span class="hljs-number">0</span>;
+	t-&gt;pointers = <span class="hljs-number">2</span>;
+	t-&gt;block_count = <span class="hljs-number">0</span>;
+	t-&gt;mask = <span class="hljs-number">0</span>;
+	t-&gt;uid = <span class="hljs-number">0</span>;
+	t-&gt;gid = <span class="hljs-number">0</span>;
+	t-&gt;atime = now();
+	t-&gt;mtime = t-&gt;atime;
+	t-&gt;ctime = t-&gt;atime;
+	t-&gt;blocks = <span class="hljs-built_in">malloc</span>(t-&gt;pointers * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span> *));
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; t-&gt;pointers; ++i) {
+		t-&gt;blocks[i] = <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">return</span> t;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">symlink_tmpfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * parent, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * target, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_dir</span> * <span class="hljs-title">d</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_dir</span> *)<span class="hljs-title">parent</span>-&gt;<span class="hljs-title">inode</span>;</span>
+
+	spin_lock(d-&gt;lock);
+	foreach(f, d-&gt;files) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">t</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_file</span> *)<span class="hljs-title">f</span>-&gt;<span class="hljs-title">value</span>;</span>
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(name, t-&gt;name)) {
+			spin_unlock(d-&gt;lock);
+			<span class="hljs-keyword">return</span> -EEXIST; <span class="hljs-comment">/* Already exists */</span>
+		}
+	}
+	spin_unlock(d-&gt;lock);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">t</span> = <span class="hljs-title">tmpfs_file_new</span>(<span class="hljs-title">name</span>);</span>
+	t-&gt;mount = parent-&gt;mount;
+	t-&gt;type = TMPFS_TYPE_LINK;
+	t-&gt;target = strdup(target);
+	t-&gt;length = <span class="hljs-built_in">strlen</span>(target);
+
+	t-&gt;mask = <span class="hljs-number">0777</span>;
+	t-&gt;uid = this_core-&gt;current_process-&gt;user;
+	t-&gt;gid = this_core-&gt;current_process-&gt;user;
+
+	spin_lock(d-&gt;lock);
+	list_insert(d-&gt;files, t);
+	spin_unlock(d-&gt;lock);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">readlink_tmpfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">char</span> * buf, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">t</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_file</span> *)(<span class="hljs-title">node</span>-&gt;<span class="hljs-title">inode</span>);</span>
+
+	spin_lock(t-&gt;lock);
+	<span class="hljs-keyword">if</span> (t-&gt;type != TMPFS_TYPE_LINK) {
+		spin_unlock(t-&gt;lock);
+		<span class="hljs-keyword">return</span> -EINVAL;
+	}
+
+	<span class="hljs-keyword">size_t</span> len = <span class="hljs-built_in">strlen</span>(t-&gt;target);
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &lt; len) len = <span class="hljs-built_in">size</span>;
+	<span class="hljs-built_in">memcpy</span>(buf, t-&gt;target, len);
+	spin_unlock(t-&gt;lock);
+	<span class="hljs-keyword">return</span> len;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> struct tmpfs_dir * <span class="hljs-title">tmpfs_dir_new</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name, struct tmpfs_dir * parent)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_dir</span> * <span class="hljs-title">d</span> = <span class="hljs-title">calloc</span>(1, <span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_dir</span>));</span>
+	spin_init(d-&gt;lock);
+	spin_init(d-&gt;nest_lock);
+	d-&gt;mount = parent ? parent-&gt;mount : <span class="hljs-literal">NULL</span>;
+	d-&gt;parent = parent;
+	d-&gt;name = strdup(name);
+	d-&gt;type = TMPFS_TYPE_DIR;
+	d-&gt;mask = <span class="hljs-number">0</span>;
+	d-&gt;uid = <span class="hljs-number">0</span>;
+	d-&gt;gid = <span class="hljs-number">0</span>;
+	d-&gt;atime = now();
+	d-&gt;mtime = d-&gt;atime;
+	d-&gt;ctime = d-&gt;atime;
+	d-&gt;files = list_create(<span class="hljs-string">"tmpfs directory entries"</span>,d);
+	<span class="hljs-keyword">return</span> d;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">tmpfs_file_free</span><span class="hljs-params">(struct tmpfs_file * t)</span> </span>{
+	spin_lock(t-&gt;lock);
+	<span class="hljs-keyword">if</span> (t-&gt;type == TMPFS_TYPE_LINK) {
+		<span class="hljs-comment">/* free target string */</span>
+		<span class="hljs-built_in">free</span>(t-&gt;target);
+	}
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; t-&gt;block_count; ++i) {
+		mmu_frame_release((<span class="hljs-keyword">uintptr_t</span>)t-&gt;blocks[i] * <span class="hljs-number">0x1000</span>);
+		tmpfs_total_blocks--;
+	}
+	spin_unlock(t-&gt;lock);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">tmpfs_file_blocks_embiggen</span><span class="hljs-params">(struct tmpfs_file * t)</span> </span>{
+	t-&gt;pointers *= <span class="hljs-number">2</span>;
+	t-&gt;blocks = <span class="hljs-built_in">realloc</span>(t-&gt;blocks, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span> *) * t-&gt;pointers);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">tmpfs_file_getset_block</span><span class="hljs-params">(struct tmpfs_file * t, <span class="hljs-keyword">size_t</span> blockid, <span class="hljs-keyword">int</span> create)</span> </span>{
+	<span class="hljs-keyword">if</span> (create) {
+		<span class="hljs-keyword">while</span> (blockid &gt;= t-&gt;pointers) {
+			tmpfs_file_blocks_embiggen(t);
+		}
+		<span class="hljs-keyword">while</span> (blockid &gt;= t-&gt;block_count) {
+			<span class="hljs-keyword">uintptr_t</span> index = mmu_allocate_a_frame();
+			tmpfs_total_blocks++;
+			<span class="hljs-keyword">if</span> (create == <span class="hljs-number">2</span>) {
+				<span class="hljs-built_in">memset</span>((<span class="hljs-keyword">char</span>*)mmu_map_from_physical(index &lt;&lt; <span class="hljs-number">12</span>), <span class="hljs-number">0</span>, BLOCKSIZE);
+			}
+			t-&gt;blocks[t-&gt;block_count] = index;
+			t-&gt;block_count += <span class="hljs-number">1</span>;
+		}
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">if</span> (blockid &gt;= t-&gt;block_count) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tmpfs: not enough blocks?\n"</span>);
+			<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">char</span> *)mmu_map_from_physical(t-&gt;blocks[blockid] &lt;&lt; <span class="hljs-number">12</span>);
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">read_tmpfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">t</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_file</span> *)(<span class="hljs-title">node</span>-&gt;<span class="hljs-title">inode</span>);</span>
+
+	spin_lock(t-&gt;lock);
+
+	t-&gt;atime = now();
+
+	<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">size_t</span>)offset &gt;= t-&gt;length) {
+		spin_unlock(t-&gt;lock);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">uint64_t</span> <span class="hljs-built_in">end</span>;
+	<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">size_t</span>)offset + <span class="hljs-built_in">size</span> &gt; t-&gt;length) {
+		<span class="hljs-built_in">end</span> = t-&gt;length;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">end</span> = offset + <span class="hljs-built_in">size</span>;
+	}
+	<span class="hljs-keyword">uint64_t</span> start_block  = offset / BLOCKSIZE;
+	<span class="hljs-keyword">uint64_t</span> end_block    = <span class="hljs-built_in">end</span> / BLOCKSIZE;
+	<span class="hljs-keyword">uint64_t</span> end_size     = <span class="hljs-built_in">end</span> - end_block * BLOCKSIZE;
+	<span class="hljs-keyword">uint64_t</span> size_to_read = <span class="hljs-built_in">end</span> - offset;
+	<span class="hljs-keyword">if</span> (start_block == end_block &amp;&amp; (<span class="hljs-keyword">size_t</span>)offset == <span class="hljs-built_in">end</span>) {
+		spin_unlock(t-&gt;lock);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">if</span> (start_block == end_block) {
+		<span class="hljs-keyword">void</span> *buf = tmpfs_file_getset_block(t, start_block, <span class="hljs-number">0</span>);
+		<span class="hljs-built_in">memcpy</span>(<span class="hljs-built_in">buffer</span>, (<span class="hljs-keyword">uint8_t</span> *)(((<span class="hljs-keyword">uintptr_t</span>)buf) + ((<span class="hljs-keyword">uintptr_t</span>)offset % BLOCKSIZE)), size_to_read);
+		spin_unlock(t-&gt;lock);
+		<span class="hljs-keyword">return</span> size_to_read;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">uint64_t</span> block_offset;
+		<span class="hljs-keyword">uint64_t</span> blocks_read = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">for</span> (block_offset = start_block; block_offset &lt; end_block; block_offset++, blocks_read++) {
+			<span class="hljs-keyword">if</span> (block_offset == start_block) {
+				<span class="hljs-keyword">void</span> *buf = tmpfs_file_getset_block(t, block_offset, <span class="hljs-number">0</span>);
+				<span class="hljs-built_in">memcpy</span>(<span class="hljs-built_in">buffer</span>, (<span class="hljs-keyword">uint8_t</span> *)(((<span class="hljs-keyword">uint64_t</span>)buf) + ((<span class="hljs-keyword">uintptr_t</span>)offset % BLOCKSIZE)), BLOCKSIZE - (offset % BLOCKSIZE));
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">void</span> *buf = tmpfs_file_getset_block(t, block_offset, <span class="hljs-number">0</span>);
+				<span class="hljs-built_in">memcpy</span>(<span class="hljs-built_in">buffer</span> + BLOCKSIZE * blocks_read - (offset % BLOCKSIZE), buf, BLOCKSIZE);
+			}
+		}
+		<span class="hljs-keyword">if</span> (end_size) {
+			<span class="hljs-keyword">void</span> *buf = tmpfs_file_getset_block(t, end_block, <span class="hljs-number">0</span>);
+			<span class="hljs-built_in">memcpy</span>(<span class="hljs-built_in">buffer</span> + BLOCKSIZE * blocks_read - (offset % BLOCKSIZE), buf, end_size);
+		}
+	}
+	spin_unlock(t-&gt;lock);
+	<span class="hljs-keyword">return</span> size_to_read;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">write_tmpfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">t</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_file</span> *)(<span class="hljs-title">node</span>-&gt;<span class="hljs-title">inode</span>);</span>
+
+	spin_lock(t-&gt;lock);
+	t-&gt;atime = now();
+	t-&gt;mtime = t-&gt;atime;
+
+	<span class="hljs-keyword">uint64_t</span> <span class="hljs-built_in">end</span>;
+	<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">size_t</span>)offset + <span class="hljs-built_in">size</span> &gt; t-&gt;length) {
+		t-&gt;length = offset + <span class="hljs-built_in">size</span>;
+	}
+	<span class="hljs-built_in">end</span> = offset + <span class="hljs-built_in">size</span>;
+	<span class="hljs-keyword">uint64_t</span> start_block  = offset / BLOCKSIZE;
+	<span class="hljs-keyword">uint64_t</span> end_block    = <span class="hljs-built_in">end</span> / BLOCKSIZE;
+	<span class="hljs-keyword">uint64_t</span> end_size     = <span class="hljs-built_in">end</span> - end_block * BLOCKSIZE;
+	<span class="hljs-keyword">uint64_t</span> size_to_read = <span class="hljs-built_in">end</span> - offset;
+	<span class="hljs-keyword">if</span> (start_block == end_block) {
+		<span class="hljs-keyword">void</span> *buf = tmpfs_file_getset_block(t, start_block, <span class="hljs-number">1</span>);
+		<span class="hljs-built_in">memcpy</span>((<span class="hljs-keyword">uint8_t</span> *)(((<span class="hljs-keyword">uint64_t</span>)buf) + ((<span class="hljs-keyword">uintptr_t</span>)offset % BLOCKSIZE)), <span class="hljs-built_in">buffer</span>, size_to_read);
+		spin_unlock(t-&gt;lock);
+		<span class="hljs-keyword">return</span> size_to_read;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">uint64_t</span> block_offset;
+		<span class="hljs-keyword">uint64_t</span> blocks_read = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">for</span> (block_offset = start_block; block_offset &lt; end_block; block_offset++, blocks_read++) {
+			<span class="hljs-keyword">if</span> (block_offset == start_block) {
+				<span class="hljs-keyword">void</span> *buf = tmpfs_file_getset_block(t, block_offset, <span class="hljs-number">1</span>);
+				<span class="hljs-built_in">memcpy</span>((<span class="hljs-keyword">uint8_t</span> *)(((<span class="hljs-keyword">uint64_t</span>)buf) + ((<span class="hljs-keyword">uintptr_t</span>)offset % BLOCKSIZE)), <span class="hljs-built_in">buffer</span>, BLOCKSIZE - (offset % BLOCKSIZE));
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">void</span> *buf = tmpfs_file_getset_block(t, block_offset, <span class="hljs-number">1</span>);
+				<span class="hljs-built_in">memcpy</span>(buf, <span class="hljs-built_in">buffer</span> + BLOCKSIZE * blocks_read - (offset % BLOCKSIZE), BLOCKSIZE);
+			}
+		}
+		<span class="hljs-keyword">if</span> (end_size) {
+			<span class="hljs-keyword">void</span> *buf = tmpfs_file_getset_block(t, end_block, <span class="hljs-number">1</span>);
+			<span class="hljs-built_in">memcpy</span>(buf, <span class="hljs-built_in">buffer</span> + BLOCKSIZE * blocks_read - (offset % BLOCKSIZE), end_size);
+		}
+	}
+	spin_unlock(t-&gt;lock);
+	<span class="hljs-keyword">return</span> size_to_read;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">chmod_tmpfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">int</span> mode)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">t</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_file</span> *)(<span class="hljs-title">node</span>-&gt;<span class="hljs-title">inode</span>);</span>
+
+	<span class="hljs-comment">/* XXX permissions */</span>
+	t-&gt;mask = mode;
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">chown_tmpfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">int</span> uid, <span class="hljs-keyword">int</span> gid)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">t</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_file</span> *)(<span class="hljs-title">node</span>-&gt;<span class="hljs-title">inode</span>);</span>
+
+	spin_lock(t-&gt;lock);
+	<span class="hljs-keyword">if</span> (uid != <span class="hljs-number">-1</span>) t-&gt;uid = uid;
+	<span class="hljs-keyword">if</span> (gid != <span class="hljs-number">-1</span>) t-&gt;gid = gid;
+	spin_unlock(t-&gt;lock);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">truncate_tmpfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">t</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_file</span> *)(<span class="hljs-title">node</span>-&gt;<span class="hljs-title">inode</span>);</span>
+	spin_lock(t-&gt;lock);
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == t-&gt;length) <span class="hljs-keyword">goto</span> _exit_truncate;
+
+	<span class="hljs-keyword">uint64_t</span> old_end_block = (t-&gt;length / BLOCKSIZE);
+	<span class="hljs-keyword">uint64_t</span> old_end_size  = t-&gt;length - old_end_block * BLOCKSIZE;
+	<span class="hljs-keyword">uint64_t</span> old_blocks = old_end_block + !!old_end_size;
+	<span class="hljs-keyword">uint64_t</span> new_end_block = (<span class="hljs-built_in">size</span> / BLOCKSIZE);
+	<span class="hljs-keyword">uint64_t</span> new_end_size  = <span class="hljs-built_in">size</span> - new_end_block * BLOCKSIZE;
+	<span class="hljs-keyword">uint64_t</span> new_blocks = new_end_block + !!new_end_size;
+
+
+	<span class="hljs-comment">/* Is the target size bigger or smaller? */</span>
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &gt; t-&gt;length) {
+		<span class="hljs-keyword">if</span> (old_end_block == new_end_block) {
+			<span class="hljs-keyword">char</span> *buf = tmpfs_file_getset_block(t, old_end_block, old_end_size ? <span class="hljs-number">0</span> : <span class="hljs-number">2</span>);
+			<span class="hljs-built_in">memset</span>(buf + old_end_size, <span class="hljs-number">0</span>, new_end_size - old_end_size);
+		} <span class="hljs-keyword">else</span> {
+			tmpfs_file_getset_block(t, new_end_block, <span class="hljs-number">2</span>);
+			<span class="hljs-keyword">char</span> *buf = tmpfs_file_getset_block(t, old_end_block, <span class="hljs-number">0</span>);
+			<span class="hljs-built_in">memset</span>(buf + old_end_size, <span class="hljs-number">0</span>, BLOCKSIZE - old_end_size);
+		}
+		t-&gt;length = <span class="hljs-built_in">size</span>;
+		<span class="hljs-keyword">goto</span> _exit_truncate;
+	}
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; t-&gt;block_count; ++i) {
+			mmu_frame_release((<span class="hljs-keyword">uintptr_t</span>)t-&gt;blocks[i] * <span class="hljs-number">0x1000</span>);
+			tmpfs_total_blocks--;
+			t-&gt;blocks[i] = <span class="hljs-number">0</span>;
+		}
+		t-&gt;block_count = <span class="hljs-number">0</span>;
+		t-&gt;length = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">goto</span> _exit_truncate;
+	}
+
+	<span class="hljs-comment">/* Size is less than current but &gt; 0 */</span>
+	<span class="hljs-keyword">if</span> (new_blocks &lt; old_blocks) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint64_t</span> i = new_blocks; i &lt; old_blocks; ++i) {
+			mmu_frame_release((<span class="hljs-keyword">uintptr_t</span>)t-&gt;blocks[i] * <span class="hljs-number">0x1000</span>);
+			tmpfs_total_blocks--;
+			t-&gt;blocks[i] = <span class="hljs-number">0</span>;
+		}
+		t-&gt;block_count = new_blocks;
+	}
+
+	t-&gt;length = <span class="hljs-built_in">size</span>;
+
+_exit_truncate:
+	t-&gt;mtime = node-&gt;atime;
+	spin_unlock(t-&gt;lock);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">open_tmpfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">t</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_file</span> *)(<span class="hljs-title">node</span>-&gt;<span class="hljs-title">inode</span>);</span>
+
+	t-&gt;atime = now();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">get_size_tmpfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">t</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_file</span> *)(<span class="hljs-title">node</span>-&gt;<span class="hljs-title">inode</span>);</span>
+	<span class="hljs-keyword">return</span> t-&gt;length;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">tmpfs_from_file</span><span class="hljs-params">(struct tmpfs_file * t)</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> * fnode = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	spin_lock(t-&gt;lock);
+	<span class="hljs-built_in">memset</span>(fnode, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">strcpy</span>(fnode-&gt;name, t-&gt;name);
+	fnode-&gt;inode = (<span class="hljs-keyword">uintptr_t</span>)t;
+	fnode-&gt;mask = t-&gt;mask;
+	fnode-&gt;uid = t-&gt;uid;
+	fnode-&gt;gid = t-&gt;gid;
+	fnode-&gt;atime = t-&gt;atime;
+	fnode-&gt;ctime = t-&gt;ctime;
+	fnode-&gt;mtime = t-&gt;mtime;
+	fnode-&gt;flags   = FS_FILE;
+	fnode-&gt;<span class="hljs-built_in">read</span>    = read_tmpfs;
+	fnode-&gt;<span class="hljs-built_in">write</span>   = write_tmpfs;
+	fnode-&gt;<span class="hljs-built_in">open</span>    = open_tmpfs;
+	fnode-&gt;<span class="hljs-built_in">close</span>   = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;readdir = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;finddir = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;chmod   = chmod_tmpfs;
+	fnode-&gt;chown   = chown_tmpfs;
+	fnode-&gt;length  = t-&gt;length;
+	fnode-&gt;truncate = truncate_tmpfs;
+	fnode-&gt;nlink   = <span class="hljs-number">1</span>;
+	fnode-&gt;mount   = t-&gt;mount;
+	fnode-&gt;device  = t-&gt;mount;
+	fnode-&gt;get_size = get_size_tmpfs;
+	spin_unlock(t-&gt;lock);
+	<span class="hljs-keyword">return</span> fnode;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">tmpfs_from_link</span><span class="hljs-params">(struct tmpfs_file * t)</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> * fnode = tmpfs_from_file(t);
+	fnode-&gt;flags   |= FS_SYMLINK;
+	fnode-&gt;readlink = readlink_tmpfs;
+	fnode-&gt;<span class="hljs-built_in">read</span>     = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;<span class="hljs-built_in">write</span>    = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;create   = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;<span class="hljs-built_in">mkdir</span>    = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;readdir  = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;finddir  = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">return</span> fnode;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">readdir_tmpfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">uint64_t</span> index, struct dirent * out)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_dir</span> * <span class="hljs-title">d</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_dir</span> *)<span class="hljs-title">node</span>-&gt;<span class="hljs-title">inode</span>;</span>
+	<span class="hljs-keyword">uint64_t</span> i = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (index == <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+		out-&gt;d_ino = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">strcpy</span>(out-&gt;d_name, <span class="hljs-string">"."</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (index == <span class="hljs-number">1</span>) {
+		<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+		out-&gt;d_ino = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">strcpy</span>(out-&gt;d_name, <span class="hljs-string">".."</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	index -= <span class="hljs-number">2</span>;
+
+	<span class="hljs-keyword">if</span> (index &gt;= d-&gt;files-&gt;length) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	foreach(f, d-&gt;files) {
+		<span class="hljs-keyword">if</span> (i == index) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">t</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_file</span> *)<span class="hljs-title">f</span>-&gt;<span class="hljs-title">value</span>;</span>
+			<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+			out-&gt;d_ino = (<span class="hljs-keyword">uint64_t</span>)t;
+			<span class="hljs-built_in">strcpy</span>(out-&gt;d_name, t-&gt;name);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		} <span class="hljs-keyword">else</span> {
+			++i;
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">finddir_tmpfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-keyword">if</span> (!name) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_dir</span> * <span class="hljs-title">d</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_dir</span> *)<span class="hljs-title">node</span>-&gt;<span class="hljs-title">inode</span>;</span>
+
+	spin_lock(d-&gt;lock);
+
+	foreach(f, d-&gt;files) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">t</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_file</span> *)<span class="hljs-title">f</span>-&gt;<span class="hljs-title">value</span>;</span>
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(name, t-&gt;name)) {
+			<span class="hljs-keyword">fs_node_t</span> * out = <span class="hljs-literal">NULL</span>;
+			<span class="hljs-keyword">switch</span> (t-&gt;type) {
+				<span class="hljs-keyword">case</span> TMPFS_TYPE_FILE:
+					out = tmpfs_from_file(t);
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> TMPFS_TYPE_LINK:
+					out = tmpfs_from_link(t);
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> TMPFS_TYPE_DIR:
+					out = tmpfs_from_dir((struct tmpfs_dir *)t);
+					<span class="hljs-keyword">break</span>;
+			}
+			spin_unlock(d-&gt;lock);
+			<span class="hljs-keyword">return</span> out;
+		}
+	}
+
+	spin_unlock(d-&gt;lock);
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">try_free_dir</span><span class="hljs-params">(struct tmpfs_dir * d)</span> </span>{
+	spin_lock(d-&gt;lock);
+	<span class="hljs-keyword">if</span> (d-&gt;files &amp;&amp; d-&gt;files-&gt;length != <span class="hljs-number">0</span>) {
+		spin_unlock(d-&gt;lock);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-built_in">free</span>(d-&gt;files);
+	spin_unlock(d-&gt;lock);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">unlink_tmpfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_dir</span> * <span class="hljs-title">d</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_dir</span> *)<span class="hljs-title">node</span>-&gt;<span class="hljs-title">inode</span>;</span>
+	<span class="hljs-keyword">int</span> i = <span class="hljs-number">-1</span>, j = <span class="hljs-number">0</span>;
+
+	spin_lock(d-&gt;lock);
+	foreach(f, d-&gt;files) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">t</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_file</span> *)<span class="hljs-title">f</span>-&gt;<span class="hljs-title">value</span>;</span>
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(name, t-&gt;name)) {
+			<span class="hljs-keyword">if</span> (t-&gt;type == TMPFS_TYPE_DIR) {
+				<span class="hljs-keyword">if</span> (try_free_dir((<span class="hljs-keyword">void</span>*)t)) {
+					spin_unlock(d-&gt;lock);
+					<span class="hljs-keyword">return</span> -ENOTEMPTY;
+				}
+			} <span class="hljs-keyword">else</span> {
+				tmpfs_file_free(t);
+			}
+			<span class="hljs-built_in">free</span>(t);
+			i = j;
+			<span class="hljs-keyword">break</span>;
+		}
+		j++;
+	}
+
+	<span class="hljs-keyword">if</span> (i &gt;= <span class="hljs-number">0</span>) {
+		list_remove(d-&gt;files, i);
+	} <span class="hljs-keyword">else</span> {
+		spin_unlock(d-&gt;lock);
+		<span class="hljs-keyword">return</span> -ENOENT;
+	}
+
+	spin_unlock(d-&gt;lock);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">create_tmpfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *parent, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *name, <span class="hljs-keyword">mode_t</span> permission, <span class="hljs-keyword">fs_node_t</span> ** out)</span> </span>{
+	<span class="hljs-keyword">if</span> (!name) <span class="hljs-keyword">return</span> -EINVAL;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_dir</span> * <span class="hljs-title">d</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_dir</span> *)<span class="hljs-title">parent</span>-&gt;<span class="hljs-title">inode</span>;</span>
+
+	spin_lock(d-&gt;lock);
+	foreach(f, d-&gt;files) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">t</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_file</span> *)<span class="hljs-title">f</span>-&gt;<span class="hljs-title">value</span>;</span>
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(name, t-&gt;name)) {
+			spin_unlock(d-&gt;lock);
+			<span class="hljs-keyword">return</span> -EEXIST; <span class="hljs-comment">/* Already exists */</span>
+		}
+	}
+	spin_unlock(d-&gt;lock);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">t</span> = <span class="hljs-title">tmpfs_file_new</span>(<span class="hljs-title">name</span>);</span>
+	t-&gt;mount = parent-&gt;mount;
+	t-&gt;mask = permission;
+	t-&gt;uid = this_core-&gt;current_process-&gt;user;
+	t-&gt;gid = this_core-&gt;current_process-&gt;user_group;
+
+	spin_lock(d-&gt;lock);
+	list_insert(d-&gt;files, t);
+	*out = tmpfs_from_file(t);
+	spin_unlock(d-&gt;lock);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">mkdir_tmpfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * parent, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name, <span class="hljs-keyword">mode_t</span> permission, <span class="hljs-keyword">fs_node_t</span> ** out_node)</span> </span>{
+	<span class="hljs-keyword">if</span> (!name) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strlen</span>(name)) <span class="hljs-keyword">return</span> -EINVAL;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_dir</span> * <span class="hljs-title">d</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_dir</span> *)<span class="hljs-title">parent</span>-&gt;<span class="hljs-title">inode</span>;</span>
+
+	spin_lock(d-&gt;lock);
+	foreach(f, d-&gt;files) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">t</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_file</span> *)<span class="hljs-title">f</span>-&gt;<span class="hljs-title">value</span>;</span>
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(name, t-&gt;name)) {
+			spin_unlock(d-&gt;lock);
+			<span class="hljs-keyword">return</span> -EEXIST; <span class="hljs-comment">/* Already exists */</span>
+		}
+	}
+	spin_unlock(d-&gt;lock);
+
+	<span class="hljs-comment">/* Need both exec and write on the parent to create a new entry */</span>
+	<span class="hljs-keyword">if</span> (!has_permission(parent, W_OK|X_OK)) {
+		<span class="hljs-keyword">return</span> -EACCES;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_dir</span> * <span class="hljs-title">out</span> = <span class="hljs-title">tmpfs_dir_new</span>(<span class="hljs-title">name</span>, <span class="hljs-title">d</span>);</span>
+	out-&gt;mask = permission;
+	out-&gt;uid  = this_core-&gt;current_process-&gt;user;
+	out-&gt;gid  = this_core-&gt;current_process-&gt;user;
+
+	spin_lock(d-&gt;lock);
+	list_insert(d-&gt;files, out);
+	<span class="hljs-keyword">if</span> (out_node) *out_node = tmpfs_from_dir(out);
+	spin_unlock(d-&gt;lock);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">path_comp</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * a, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * b)</span> </span>{
+	<span class="hljs-keyword">while</span> (*a &amp;&amp; *b &amp;&amp; *a != <span class="hljs-string">'/'</span> &amp;&amp; *b != <span class="hljs-string">'/'</span>) {
+		<span class="hljs-keyword">if</span> (*a != *b) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		a++;
+		b++;
+	}
+
+	<span class="hljs-keyword">if</span> ((*a == <span class="hljs-string">'/'</span> || !*a) &amp;&amp; (*b == <span class="hljs-string">'/'</span> || !*b)) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">endswith</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * str, <span class="hljs-keyword">char</span> ch)</span> </span>{
+	<span class="hljs-keyword">size_t</span> len = <span class="hljs-built_in">strlen</span>(str);
+	<span class="hljs-keyword">if</span> (len &gt; <span class="hljs-number">1</span> &amp;&amp; str[len<span class="hljs-number">-1</span>] == ch) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">path_dup</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path)</span> </span>{
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * n = path;
+	<span class="hljs-keyword">while</span> (*n &amp;&amp; *n != <span class="hljs-string">'/'</span>) n++;
+	<span class="hljs-keyword">char</span> * out = <span class="hljs-built_in">malloc</span>(n - path + <span class="hljs-number">1</span>);
+	<span class="hljs-built_in">memcpy</span>(out, path, n - path);
+	out[n-path] = <span class="hljs-string">'\0'</span>;
+	<span class="hljs-keyword">return</span> out;
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">rename_tmpfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * mount_root, <span class="hljs-keyword">fs_node_t</span> * src_dir, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * src_name, <span class="hljs-keyword">fs_node_t</span> * dest_dir, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * dest_name)</span> </span>{
+	<span class="hljs-comment">/* src_dir and dest_dir are definitely from us, no worries there */</span>
+	<span class="hljs-keyword">int</span> ret = <span class="hljs-number">0</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_dir</span> * <span class="hljs-title">root</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_dir</span>*)<span class="hljs-title">mount_root</span>-&gt;<span class="hljs-title">inode</span>;</span>
+	spin_lock(root-&gt;nest_lock);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_dir</span> * <span class="hljs-title">ds</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_dir</span> *)<span class="hljs-title">src_dir</span>-&gt;<span class="hljs-title">inode</span>;</span>
+	spin_lock(ds-&gt;lock);
+
+	<span class="hljs-comment">/* First, get the source file */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">src_file</span> = <span class="hljs-title">NULL</span>;</span>
+	<span class="hljs-keyword">node_t</span> * src_node = <span class="hljs-literal">NULL</span>;
+	foreach(f, ds-&gt;files) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">t</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_file</span> *)<span class="hljs-title">f</span>-&gt;<span class="hljs-title">value</span>;</span>
+		<span class="hljs-keyword">if</span> (!path_comp(src_name, t-&gt;name)) {
+			src_file = t;
+			src_node = f;
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!src_file) {
+		ret = -ENOENT;
+		<span class="hljs-keyword">goto</span> _cleanup_src;
+	}
+
+	<span class="hljs-keyword">if</span> (src_file-&gt;type != TMPFS_TYPE_DIR &amp;&amp; endswith(src_name, <span class="hljs-string">'/'</span>)) {
+		<span class="hljs-comment">/* Source ended with trailing slashes, but was not a directory. */</span>
+		ret = -ENOTDIR;
+		<span class="hljs-keyword">goto</span> _cleanup_src;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_dir</span> * <span class="hljs-title">dd</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_dir</span> *)<span class="hljs-title">dest_dir</span>-&gt;<span class="hljs-title">inode</span>;</span>
+	<span class="hljs-keyword">if</span> (dd != ds) spin_lock(dd-&gt;lock);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">dest_file</span> = <span class="hljs-title">NULL</span>;</span>
+	<span class="hljs-keyword">node_t</span> * dest_node = <span class="hljs-literal">NULL</span>;
+	foreach(f, dd-&gt;files) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_file</span> * <span class="hljs-title">t</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_file</span> *)<span class="hljs-title">f</span>-&gt;<span class="hljs-title">value</span>;</span>
+		<span class="hljs-keyword">if</span> (!path_comp(dest_name, t-&gt;name)) {
+			dest_file = t;
+			dest_node = f;
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (dest_file &amp;&amp; dest_file-&gt;type != TMPFS_TYPE_DIR &amp;&amp; endswith(dest_name, <span class="hljs-string">'/'</span>)) {
+		<span class="hljs-comment">/* Destination ended with trailing slashes, but was not a directory. */</span>
+		ret = -ENOTDIR;
+		<span class="hljs-keyword">goto</span> _cleanup;
+	}
+
+	<span class="hljs-comment">/* Check that src_file isn't a parent of dest_file */</span>
+	<span class="hljs-keyword">if</span> (src_file-&gt;type == TMPFS_TYPE_DIR) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_dir</span> * <span class="hljs-title">pd</span> = <span class="hljs-title">dd</span>;</span>
+		<span class="hljs-keyword">while</span> (pd) {
+			<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">void</span>*)pd == (<span class="hljs-keyword">void</span>*)src_file) {
+				ret = -EINVAL;
+				<span class="hljs-keyword">goto</span> _cleanup;
+			}
+			pd = pd-&gt;parent;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!dest_file) {
+		<span class="hljs-keyword">if</span> (endswith(dest_name,<span class="hljs-string">'/'</span>) &amp;&amp; src_file-&gt;type != TMPFS_TYPE_DIR) {
+			<span class="hljs-comment">/* Destination did not exist, ended with trailing slashes, but the source was not a directory. */</span>
+			ret = -ENOTDIR;
+			<span class="hljs-keyword">goto</span> _cleanup;
+		}
+		<span class="hljs-keyword">char</span> * old_name = src_file-&gt;name;
+		src_file-&gt;name = path_dup(dest_name);
+		<span class="hljs-built_in">free</span>(old_name);
+
+		list_insert(dd-&gt;files, src_file);
+		list_delete(ds-&gt;files, src_node);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (src_file == dest_file) {
+		<span class="hljs-comment">/* Do nothing */</span>
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">if</span> (dest_file-&gt;type == TMPFS_TYPE_DIR) {
+			struct tmpfs_dir * dest = (struct tmpfs_dir*)dest_file;
+			<span class="hljs-keyword">if</span> (dest-&gt;files &amp;&amp; dest-&gt;files-&gt;length) {
+				<span class="hljs-comment">/* Destination is not empty */</span>
+				ret = -ENOTEMPTY;
+				<span class="hljs-keyword">goto</span> _cleanup;
+			}
+			<span class="hljs-keyword">if</span> (src_file-&gt;type != TMPFS_TYPE_DIR) {
+				<span class="hljs-comment">/* Source is not a directory but destination is */</span>
+				ret = -EISDIR;
+				<span class="hljs-keyword">goto</span> _cleanup;
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (src_file-&gt;type == TMPFS_TYPE_DIR) {
+			<span class="hljs-comment">/* Source is a directory, but destination is not */</span>
+			ret = -ENOTDIR;
+			<span class="hljs-keyword">goto</span> _cleanup;
+		}
+
+		<span class="hljs-comment">/* Rename src */</span>
+		<span class="hljs-keyword">char</span> * old_name = src_file-&gt;name;
+		src_file-&gt;name = path_dup(dest_name);
+		<span class="hljs-built_in">free</span>(old_name);
+
+		list_delete(ds-&gt;files, src_node);
+		dest_node-&gt;value = src_file;
+
+		<span class="hljs-comment">/* Unlink the original destination file */</span>
+		<span class="hljs-keyword">if</span> (dest_file-&gt;type == TMPFS_TYPE_DIR) {
+			try_free_dir((<span class="hljs-keyword">void</span>*)dest_file);
+		} <span class="hljs-keyword">else</span> {
+			tmpfs_file_free(dest_file);
+		}
+	}
+
+_cleanup:
+	<span class="hljs-keyword">if</span> (dd != ds) spin_unlock(dd-&gt;lock);
+_cleanup_src:
+	spin_unlock(ds-&gt;lock);
+	spin_unlock(root-&gt;nest_lock);
+	<span class="hljs-keyword">return</span> ret;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">get_size_tmpfsdir</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_dir</span> * <span class="hljs-title">d</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tmpfs_dir</span> *)<span class="hljs-title">node</span>-&gt;<span class="hljs-title">inode</span>;</span>
+	<span class="hljs-keyword">return</span> <span class="hljs-keyword">sizeof</span>(struct dirent) * (d-&gt;files-&gt;length + <span class="hljs-number">2</span>);
+
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">tmpfs_from_dir</span><span class="hljs-params">(struct tmpfs_dir * d)</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> * fnode = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	spin_lock(d-&gt;lock);
+	<span class="hljs-built_in">memset</span>(fnode, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	fnode-&gt;inode = <span class="hljs-number">0</span>;
+	<span class="hljs-built_in">strcpy</span>(fnode-&gt;name, <span class="hljs-string">"tmp"</span>);
+	fnode-&gt;mount = d-&gt;mount;
+	fnode-&gt;device = d-&gt;mount;
+	fnode-&gt;mask = d-&gt;mask;
+	fnode-&gt;uid  = d-&gt;uid;
+	fnode-&gt;gid  = d-&gt;gid;
+	fnode-&gt;inode   = (<span class="hljs-keyword">uintptr_t</span>)d;
+	fnode-&gt;atime   = d-&gt;atime;
+	fnode-&gt;mtime   = d-&gt;mtime;
+	fnode-&gt;ctime   = d-&gt;ctime;
+	fnode-&gt;flags   = FS_DIRECTORY;
+	fnode-&gt;<span class="hljs-built_in">read</span>    = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;<span class="hljs-built_in">write</span>   = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;<span class="hljs-built_in">open</span>    = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;<span class="hljs-built_in">close</span>   = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;readdir = readdir_tmpfs;
+	fnode-&gt;finddir = finddir_tmpfs;
+	fnode-&gt;create  = create_tmpfs;
+	fnode-&gt;unlink  = unlink_tmpfs;
+	fnode-&gt;<span class="hljs-built_in">mkdir</span>   = mkdir_tmpfs;
+	fnode-&gt;nlink   = <span class="hljs-number">1</span>; <span class="hljs-comment">/* should be "number of children that are directories + 1" */</span>
+	fnode-&gt;symlink = symlink_tmpfs;
+	fnode-&gt;get_size = get_size_tmpfsdir;
+
+	fnode-&gt;chown   = chown_tmpfs;
+	fnode-&gt;chmod   = chmod_tmpfs;
+	fnode-&gt;rename  = rename_tmpfs;
+	spin_unlock(d-&gt;lock);
+
+	<span class="hljs-keyword">return</span> fnode;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">tmpfs_create</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tmpfs_dir</span> * <span class="hljs-title">tmpfs_root</span> = <span class="hljs-title">tmpfs_dir_new</span>(<span class="hljs-title">name</span>, <span class="hljs-title">NULL</span>);</span>
+	tmpfs_root-&gt;mask = <span class="hljs-number">0777</span>;
+	tmpfs_root-&gt;uid  = <span class="hljs-number">0</span>;
+	tmpfs_root-&gt;gid  = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">fs_node_t</span> * out = tmpfs_from_dir(tmpfs_root);
+	tmpfs_root-&gt;mount = out;
+	out-&gt;mount = out;
+	out-&gt;device = out;
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">tmpfs_mount</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * device, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * mount_path)</span> </span>{
+	<span class="hljs-keyword">char</span> * arg = strdup(device);
+	<span class="hljs-keyword">char</span> * argv[<span class="hljs-number">10</span>];
+	<span class="hljs-keyword">int</span> argc = tokenize(arg, <span class="hljs-string">","</span>, argv);
+
+	<span class="hljs-keyword">fs_node_t</span> * fs = tmpfs_create(argv[<span class="hljs-number">0</span>]);
+
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strlen</span>(argv[<span class="hljs-number">1</span>]) &lt; <span class="hljs-number">3</span>) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tmpfs: ignoring bad permission option for tmpfs\n"</span>);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">int</span> mode = ((argv[<span class="hljs-number">1</span>][<span class="hljs-number">0</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">6</span>) |
+			           ((argv[<span class="hljs-number">1</span>][<span class="hljs-number">1</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">3</span>) |
+			           ((argv[<span class="hljs-number">1</span>][<span class="hljs-number">2</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">0</span>);
+			fs-&gt;mask = mode;
+		}
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<p>free(arg);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">return</span> fs;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">tmpfs_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node)</span> </span>{
+	procfs_printf(node,
+		<span class="hljs-string">"UsedBlocks:\t%zd\n"</span>,
+		tmpfs_total_blocks);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">procfs_entry</span> <span class="hljs-title">tmpfs_entry</span> = {</span>
+	<span class="hljs-number">0</span>,
+	<span class="hljs-string">"tmpfs"</span>,
+	tmpfs_func,
+	<span class="hljs-number">0</span>
+};
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">tmpfs_register_init</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	vfs_register(<span class="hljs-string">"tmpfs"</span>, tmpfs_mount);
+	procfs_install(&amp;tmpfs_entry);
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

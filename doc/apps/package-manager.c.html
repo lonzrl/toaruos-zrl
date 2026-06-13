@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>package-manager.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\package-manager.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>package-manager.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;math.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;pthread.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/fswait.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/yutani.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/decorations.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/menu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/text.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/confreader.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/icon_cache.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> APPLICATION_TITLE <span class="hljs-meta-string">"Package Manager"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SCROLL_AMOUNT 120</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VAR_PATH <span class="hljs-meta-string">"/var/msk"</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_t</span> * yctx;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_window_t</span> * main_window;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">gfx_context_t</span> * ctx;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> application_running = <span class="hljs-number">1</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">gfx_context_t</span> * contents = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">sprite_t</span> * contents_sprite = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> available_height = <span class="hljs-number">0</span>; <span class="hljs-comment">/* How much space is available in the main window for the icon view */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> scroll_offset = <span class="hljs-number">0</span>; <span class="hljs-comment">/* How far the icon view should be scrolled */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> hilighted_offset = <span class="hljs-number">-1</span>; <span class="hljs-comment">/* Which file is hovered by the mouse */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint64_t</span> last_click = <span class="hljs-number">0</span>; <span class="hljs-comment">/* For double click */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> last_click_offset = <span class="hljs-number">-1</span>; <span class="hljs-comment">/* So that clicking two different things quickly doesn't count as a double click */</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> installation_done = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> currently_installing = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">pthread_t</span> _waiter_thread;
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Font</span> * <span class="hljs-title">tt_font_thin</span> = <span class="hljs-title">NULL</span>;</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Font</span> * <span class="hljs-title">tt_font_bold</span> = <span class="hljs-title">NULL</span>;</span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Package</span> {</span>
+	<span class="hljs-keyword">char</span> name[<span class="hljs-number">256</span>];
+	<span class="hljs-keyword">char</span> friendly_name[<span class="hljs-number">256</span>];
+	<span class="hljs-keyword">char</span> description[<span class="hljs-number">1024</span>];
+	<span class="hljs-keyword">char</span> version[<span class="hljs-number">256</span>]; <span class="hljs-comment">/* Really doesn't need to be that long */</span>
+	<span class="hljs-keyword">int</span> selected;
+	<span class="hljs-keyword">int</span> installed;
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Package</span> ** <span class="hljs-title">pkg_pointers</span> = <span class="hljs-title">NULL</span>;</span> <span class="hljs-comment">/* List of package pointers */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> pkg_pointers_len = <span class="hljs-number">0</span>; <span class="hljs-comment">/* How many packages are in the current list */</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">menu_bar</span> <span class="hljs-title">menu_bar</span> = {</span><span class="hljs-number">0</span>};
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">menu_bar_entries</span> <span class="hljs-title">menu_entries</span>[] = {</span>
+	{<span class="hljs-string">"File"</span>, <span class="hljs-string">"file"</span>},
+	{<span class="hljs-string">"Index"</span>, <span class="hljs-string">"index"</span>},
+	{<span class="hljs-string">"Help"</span>, <span class="hljs-string">"help"</span>},
+	{<span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>},
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _menu_action_exit(struct MenuEntry * entry) {
+	application_running = <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Accurate time comparison.</p>
+</div>
+<div class="body">
+<p>These methods were taken from the compositor and
+allow us to time double-clicks accurately.</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint64_t</span> <span class="hljs-title">precise_current_time</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timeval</span> <span class="hljs-title">t</span>;</span>
+	gettimeofday(&amp;t, <span class="hljs-literal">NULL</span>);
+
+	<span class="hljs-keyword">time_t</span> sec_diff = t.tv_sec;
+	<span class="hljs-keyword">suseconds_t</span> usec_diff = t.tv_usec;
+
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">uint64_t</span>)((<span class="hljs-keyword">uint64_t</span>)sec_diff * <span class="hljs-number">1000L</span>L + usec_diff / <span class="hljs-number">1000</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint64_t</span> <span class="hljs-title">precise_time_since</span><span class="hljs-params">(<span class="hljs-keyword">uint64_t</span> start_time)</span> </span>{
+
+	<span class="hljs-keyword">uint64_t</span> now = precise_current_time();
+	<span class="hljs-keyword">uint64_t</span> diff = now - start_time; <span class="hljs-comment">/* Milliseconds */</span>
+
+	<span class="hljs-keyword">return</span> diff;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> _close_enough(struct yutani_msg_window_mouse_event * me) {
+	<span class="hljs-keyword">if</span> (me-&gt;command == YUTANI_MOUSE_EVENT_RAISE &amp;&amp; <span class="hljs-built_in">sqrt</span>(<span class="hljs-built_in">pow</span>(me-&gt;new_x - me-&gt;old_x, <span class="hljs-number">2</span>) + <span class="hljs-built_in">pow</span>(me-&gt;new_y - me-&gt;old_y, <span class="hljs-number">2</span>)) &lt; <span class="hljs-number">10</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BUTTON_HEIGHT 28</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BUTTON_WIDTH 86</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BUTTON_PADDING 14</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> HILIGHT_BORDER_TOP rgb(54,128,205)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> HILIGHT_GRADIENT_TOP rgb(93,163,236)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> HILIGHT_GRADIENT_BOTTOM rgb(56,137,220)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> HILIGHT_BORDER_BOTTOM rgb(47,106,167)</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PKG_HEIGHT 70</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">draw_package</span><span class="hljs-params">(struct Package * package, <span class="hljs-keyword">int</span> index)</span> </span>{
+	<span class="hljs-keyword">int</span> offset_y = index * PKG_HEIGHT;
+
+	<span class="hljs-keyword">if</span> (package-&gt;selected) {
+		<span class="hljs-keyword">if</span> (main_window-&gt;focused) {
+			draw_rectangle_solid(contents, <span class="hljs-number">0</span>, offset_y, contents-&gt;<span class="hljs-built_in">width</span>, PKG_HEIGHT, rgb(<span class="hljs-number">93</span>,<span class="hljs-number">163</span>,<span class="hljs-number">236</span>));
+			draw_line(contents, <span class="hljs-number">0</span>, contents-&gt;<span class="hljs-built_in">width</span>, offset_y, offset_y, HILIGHT_BORDER_TOP);
+			draw_line(contents, <span class="hljs-number">0</span>, contents-&gt;<span class="hljs-built_in">width</span>, offset_y + PKG_HEIGHT<span class="hljs-number">-1</span>, offset_y + PKG_HEIGHT<span class="hljs-number">-1</span>, HILIGHT_BORDER_BOTTOM);
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; i &lt; PKG_HEIGHT - <span class="hljs-number">2</span>; ++i) {
+				<span class="hljs-keyword">int</span> thing = ((i - <span class="hljs-number">1</span>) * <span class="hljs-number">256</span>) / (PKG_HEIGHT - <span class="hljs-number">3</span>);
+				<span class="hljs-keyword">if</span> (thing &gt; <span class="hljs-number">255</span>) thing = <span class="hljs-number">255</span>;
+				<span class="hljs-keyword">if</span> (thing &lt; <span class="hljs-number">0</span>) thing = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">uint32_t</span> c = interp_colors(HILIGHT_GRADIENT_TOP, HILIGHT_GRADIENT_BOTTOM, thing);
+				draw_line(contents, <span class="hljs-number">0</span>, contents-&gt;<span class="hljs-built_in">width</span>, offset_y + i, offset_y + i, c);
+			}
+		} <span class="hljs-keyword">else</span> {
+			draw_rectangle_solid(contents, <span class="hljs-number">0</span>, offset_y, contents-&gt;<span class="hljs-built_in">width</span>, PKG_HEIGHT, rgb(<span class="hljs-number">180</span>,<span class="hljs-number">180</span>,<span class="hljs-number">180</span>));
+		}
+	}
+
+	<span class="hljs-keyword">sprite_t</span> * icon = package-&gt;installed ? icon_get_48(<span class="hljs-string">"package"</span>) : icon_get_48(<span class="hljs-string">"package-uninstalled"</span>);
+	draw_sprite(contents, icon, <span class="hljs-number">8</span>, offset_y + <span class="hljs-number">11</span>);
+
+	<span class="hljs-keyword">uint32_t</span> text_color = package-&gt;selected ? rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>) : rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>);
+
+	<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">2048</span>];
+	<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"%s - %s"</span>, package-&gt;friendly_name, package-&gt;version);
+	tt_set_size(tt_font_bold, <span class="hljs-number">18</span>);
+	tt_draw_string(contents, tt_font_bold, <span class="hljs-number">64</span>, offset_y + <span class="hljs-number">4</span> + <span class="hljs-number">18</span>, tmp, text_color);
+	<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"%s - %s"</span>, package-&gt;name, package-&gt;description);
+	tt_set_size(tt_font_thin, <span class="hljs-number">13</span>);
+	<span class="hljs-keyword">int</span> x = tt_draw_string(contents, tt_font_thin, <span class="hljs-number">65</span>, offset_y + <span class="hljs-number">24</span> + <span class="hljs-number">13</span>, package-&gt;name, rgb(<span class="hljs-number">150</span>,<span class="hljs-number">150</span>,<span class="hljs-number">150</span>));
+	tt_draw_string(contents, tt_font_thin, <span class="hljs-number">64</span> + x + <span class="hljs-number">4</span>, offset_y + <span class="hljs-number">24</span> + <span class="hljs-number">13</span>, package-&gt;description, text_color);
+
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">redraw_packages</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	draw_fill(contents, rgba(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; pkg_pointers_len; ++i) {
+		draw_package(pkg_pointers[i], i);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">load_manifest</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (pkg_pointers) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; pkg_pointers_len; ++i) {
+			<span class="hljs-built_in">free</span>(pkg_pointers[i]);
+		}
+		<span class="hljs-built_in">free</span>(pkg_pointers);
+		pkg_pointers_len = <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">confreader_t</span> * conf = confreader_load(VAR_PATH <span class="hljs-string">"/manifest"</span>);
+	<span class="hljs-keyword">if</span> (conf) {
+		<span class="hljs-keyword">hashmap_t</span> * msk_installed = hashmap_create(<span class="hljs-number">10</span>);
+
+		FILE * installed = fopen(VAR_PATH <span class="hljs-string">"/installed"</span>, <span class="hljs-string">"r"</span>);
+		<span class="hljs-keyword">if</span> (installed) {
+			<span class="hljs-keyword">while</span> (!feof(installed)) {
+				<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">128</span>] = {<span class="hljs-number">0</span>};
+				<span class="hljs-keyword">if</span> (!fgets(tmp, <span class="hljs-number">128</span>, installed)) <span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">char</span> * nl = <span class="hljs-built_in">strstr</span>(tmp, <span class="hljs-string">"\n"</span>);
+				<span class="hljs-keyword">if</span> (nl) *nl = <span class="hljs-string">'\0'</span>;
+
+				<span class="hljs-keyword">char</span> * eqeq = <span class="hljs-built_in">strstr</span>(tmp, <span class="hljs-string">"=="</span>);
+				<span class="hljs-keyword">if</span> (!eqeq) {
+					<span class="hljs-comment">/* show error */</span>
+					<span class="hljs-keyword">break</span>;
+				}
+
+				*eqeq = <span class="hljs-string">'\0'</span>;
+				<span class="hljs-keyword">char</span> * version = eqeq+<span class="hljs-number">2</span>;
+
+				hashmap_set(msk_installed, tmp, strdup(version));
+			}
+		}
+
+		<span class="hljs-keyword">list_t</span> * package_list = list_create();
+
+		<span class="hljs-comment">/* Go through sections */</span>
+		<span class="hljs-keyword">list_t</span> * packages = hashmap_keys(conf-&gt;sections);
+		foreach(node, packages) {
+			<span class="hljs-keyword">char</span> * name = node-&gt;value;
+			<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strlen</span>(name)) <span class="hljs-keyword">continue</span>; <span class="hljs-comment">/* skip empty section */</span>
+			<span class="hljs-keyword">char</span> * desc = confreader_get(conf, name, <span class="hljs-string">"description"</span>);
+			<span class="hljs-keyword">char</span> * version = confreader_get(conf, name, <span class="hljs-string">"version"</span>);
+			<span class="hljs-keyword">char</span> * friendly_name = confreader_get(conf, name, <span class="hljs-string">"friendly-name"</span>);
+
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Package</span> * <span class="hljs-title">p</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">Package</span>));</span>
+			<span class="hljs-built_in">sprintf</span>(p-&gt;name, name);
+			<span class="hljs-built_in">sprintf</span>(p-&gt;friendly_name, friendly_name);
+			<span class="hljs-built_in">sprintf</span>(p-&gt;description, desc);
+			<span class="hljs-built_in">sprintf</span>(p-&gt;version, version);
+			p-&gt;selected = <span class="hljs-number">0</span>;
+			p-&gt;installed = hashmap_has(msk_installed, name);
+
+			list_insert(package_list, p);
+		}
+		list_free(packages);
+		<span class="hljs-built_in">free</span>(packages);
+
+		hashmap_free(msk_installed);
+		<span class="hljs-built_in">free</span>(msk_installed);
+
+		pkg_pointers = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(struct Package *) * package_list-&gt;length);
+		pkg_pointers_len = package_list-&gt;length;
+		<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+		foreach (node, package_list) {
+			pkg_pointers[i] = node-&gt;value;
+			i++;
+		}
+
+		list_free(package_list);
+		<span class="hljs-built_in">free</span>(package_list);
+
+		<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">comparator</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> * c1, <span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> * c2)</span> </span>{
+			<span class="hljs-keyword">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Package</span> * <span class="hljs-title">f1</span> = *(<span class="hljs-title">const</span> <span class="hljs-title">struct</span> <span class="hljs-title">Package</span> **)(<span class="hljs-title">c1</span>);</span>
+			<span class="hljs-keyword">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Package</span> * <span class="hljs-title">f2</span> = *(<span class="hljs-title">const</span> <span class="hljs-title">struct</span> <span class="hljs-title">Package</span> **)(<span class="hljs-title">c2</span>);</span>
+			<span class="hljs-keyword">return</span> <span class="hljs-built_in">strcmp</span>(f1-&gt;name, f2-&gt;name);
+		}
+		qsort(pkg_pointers, pkg_pointers_len, <span class="hljs-keyword">sizeof</span>(struct Package *), comparator);
+	}
+
+	<span class="hljs-keyword">if</span> (!pkg_pointers_len) {
+		system(<span class="hljs-string">"showdialog --title 'Package Manager' --icon package 'No packages are available.' &amp;"</span>);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> struct Package * <span class="hljs-title">get_package_at_offset</span><span class="hljs-params">(<span class="hljs-keyword">int</span> offset)</span> </span>{
+	<span class="hljs-keyword">if</span> (offset &gt;= <span class="hljs-number">0</span> &amp;&amp; offset &lt; pkg_pointers_len) {
+		<span class="hljs-keyword">return</span> pkg_pointers[offset];
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">clear_offset</span><span class="hljs-params">(<span class="hljs-keyword">int</span> offset)</span> </span>{
+	draw_rectangle_solid(contents, <span class="hljs-number">0</span>, offset * PKG_HEIGHT, contents-&gt;<span class="hljs-built_in">width</span>, PKG_HEIGHT, rgba(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">reinitialize_contents</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (contents) {
+		<span class="hljs-built_in">free</span>(contents);
+	}
+
+	<span class="hljs-keyword">if</span> (contents_sprite) {
+		sprite_free(contents_sprite);
+	}
+
+	<span class="hljs-comment">/* Calculate height for current directory */</span>
+	<span class="hljs-keyword">int</span> calculated_height = pkg_pointers_len * PKG_HEIGHT;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(main_window, &amp;bounds);
+
+	contents_sprite = create_sprite(main_window-&gt;<span class="hljs-built_in">width</span> - bounds.<span class="hljs-built_in">width</span>, calculated_height, ALPHA_EMBEDDED);
+	contents = init_graphics_sprite(contents_sprite);
+
+	<span class="hljs-comment">/* Draw packages */</span>
+	redraw_packages();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">redraw_window</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	draw_fill(ctx, rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>));
+
+	render_decorations(main_window, ctx, APPLICATION_TITLE);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(main_window, &amp;bounds);
+
+	menu_bar.x = bounds.left_width;
+	menu_bar.y = bounds.top_height;
+	menu_bar.<span class="hljs-built_in">width</span> = ctx-&gt;<span class="hljs-built_in">width</span> - bounds.<span class="hljs-built_in">width</span>;
+	menu_bar.window = main_window;
+	menu_bar_render(&amp;menu_bar, ctx);
+
+	gfx_clear_clip(ctx);
+	gfx_add_clip(ctx, bounds.left_width, bounds.top_height + MENU_BAR_HEIGHT, ctx-&gt;<span class="hljs-built_in">width</span> - bounds.<span class="hljs-built_in">width</span>, ctx-&gt;<span class="hljs-built_in">height</span> - MENU_BAR_HEIGHT - bounds.<span class="hljs-built_in">height</span>);
+	draw_sprite(ctx, contents_sprite, bounds.left_width, bounds.top_height + MENU_BAR_HEIGHT - scroll_offset);
+	gfx_clear_clip(ctx);
+	gfx_add_clip(ctx, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, ctx-&gt;<span class="hljs-built_in">width</span>, ctx-&gt;<span class="hljs-built_in">height</span>);
+
+	flip(ctx);
+	yutani_flip(yctx, main_window);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">resize_finish</span><span class="hljs-params">(<span class="hljs-keyword">int</span> w, <span class="hljs-keyword">int</span> h)</span> </span>{
+	<span class="hljs-keyword">int</span> width_changed = (main_window-&gt;<span class="hljs-built_in">width</span> != (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)w);
+
+	yutani_window_resize_accept(yctx, main_window, w, h);
+	reinit_graphics_yutani(ctx, main_window);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(main_window, &amp;bounds);
+
+	<span class="hljs-comment">/* Recalculate available size */</span>
+	available_height = ctx-&gt;<span class="hljs-built_in">height</span> - MENU_BAR_HEIGHT - bounds.<span class="hljs-built_in">height</span>;
+
+	<span class="hljs-comment">/* If the width changed, we need to rebuild the icon view */</span>
+	<span class="hljs-keyword">if</span> (width_changed) {
+		reinitialize_contents();
+	}
+
+	<span class="hljs-comment">/* Make sure we're not scrolled weirdly after resizing */</span>
+	<span class="hljs-keyword">if</span> (available_height &gt; contents-&gt;<span class="hljs-built_in">height</span>) {
+		scroll_offset = <span class="hljs-number">0</span>;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">if</span> (scroll_offset &gt; contents-&gt;<span class="hljs-built_in">height</span> - available_height) {
+			scroll_offset = contents-&gt;<span class="hljs-built_in">height</span> - available_height;
+		}
+	}
+
+	<span class="hljs-comment">/* Redraw */</span>
+	redraw_window();
+	yutani_window_resize_done(yctx, main_window);
+
+	yutani_flip(yctx, main_window);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _menu_action_refresh(struct MenuEntry * entry) {
+	<span class="hljs-comment">/* refresh msk manifest */</span>
+	system(<span class="hljs-string">"terminal msk update"</span>);
+
+	load_manifest();
+	reinitialize_contents();
+	redraw_window();
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> * <span class="hljs-title">package_installer_thread</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * arg)</span> </span>{
+	<span class="hljs-keyword">char</span> * packages = arg;
+	putenv(<span class="hljs-string">"MSK_YES=1"</span>);
+	<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">1024</span>];
+	<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"terminal msk install %s"</span>, packages);
+	<span class="hljs-built_in">free</span>(packages);
+	system(tmp);
+	installation_done = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">install_packages</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (currently_installing) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-comment">/* Figure out what packages to install */</span>
+	<span class="hljs-keyword">size_t</span> c_len = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt;pkg_pointers_len; ++i) {
+		<span class="hljs-keyword">if</span> (pkg_pointers[i]-&gt;selected) {
+			c_len += <span class="hljs-built_in">strlen</span>(pkg_pointers[i]-&gt;name) + <span class="hljs-number">2</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!c_len) <span class="hljs-keyword">return</span>; <span class="hljs-comment">/* Nothing selected? */</span>
+
+	<span class="hljs-keyword">char</span> * packages = <span class="hljs-built_in">malloc</span>(c_len);
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">cursor</span> = packages;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt;pkg_pointers_len; ++i) {
+		<span class="hljs-keyword">if</span> (pkg_pointers[i]-&gt;selected) {
+			<span class="hljs-built_in">cursor</span> += <span class="hljs-built_in">sprintf</span>(<span class="hljs-built_in">cursor</span>, <span class="hljs-string">"%s "</span>, pkg_pointers[i]-&gt;name);
+		}
+	}
+
+	installation_done = <span class="hljs-number">0</span>;
+	currently_installing = <span class="hljs-number">1</span>;
+
+	pthread_create(&amp;_waiter_thread, <span class="hljs-literal">NULL</span>, package_installer_thread, packages);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _menu_action_about(struct MenuEntry * entry) {
+	<span class="hljs-comment">/* Show About dialog */</span>
+	<span class="hljs-keyword">char</span> about_cmd[<span class="hljs-number">1024</span>] = <span class="hljs-string">"\0"</span>;
+	<span class="hljs-built_in">strcat</span>(about_cmd, <span class="hljs-string">"about \"About "</span> APPLICATION_TITLE <span class="hljs-string">"\" /usr/share/icons/48/package.png \"ToaruOS "</span> APPLICATION_TITLE <span class="hljs-string">"\" \"© 2018 K. Lange\n-\nPart of ToaruOS, which is free software\nreleased under the NCSA/University of Illinois\nlicense.\n-\n%https://toaruos.org\n%https://github.com/klange/toaruos\" "</span>);
+	<span class="hljs-keyword">char</span> coords[<span class="hljs-number">100</span>];
+	<span class="hljs-built_in">sprintf</span>(coords, <span class="hljs-string">"%d %d &amp;"</span>, (<span class="hljs-keyword">int</span>)main_window-&gt;x + (<span class="hljs-keyword">int</span>)main_window-&gt;<span class="hljs-built_in">width</span> / <span class="hljs-number">2</span>, (<span class="hljs-keyword">int</span>)main_window-&gt;y + (<span class="hljs-keyword">int</span>)main_window-&gt;<span class="hljs-built_in">height</span> / <span class="hljs-number">2</span>);
+	<span class="hljs-built_in">strcat</span>(about_cmd, coords);
+	system(about_cmd);
+	redraw_window();
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _menu_action_help(struct MenuEntry * entry) {
+	<span class="hljs-comment">/* show help documentation */</span>
+	system(<span class="hljs-string">"help-browser package-manager.trt &amp;"</span>);
+	redraw_window();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">toggle_selected</span><span class="hljs-params">(<span class="hljs-keyword">int</span> hilighted_offset, <span class="hljs-keyword">int</span> modifiers)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Package</span> * <span class="hljs-title">f</span> = <span class="hljs-title">get_package_at_offset</span>(<span class="hljs-title">hilighted_offset</span>);</span>
+
+	<span class="hljs-comment">/* No file at this offset, do nothing. */</span>
+	<span class="hljs-keyword">if</span> (!f) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-comment">/* Toggle selection of the current file */</span>
+	f-&gt;selected = !f-&gt;selected;
+
+	<span class="hljs-comment">/* If Ctrl wasn't held, unselect everything else. */</span>
+	<span class="hljs-keyword">if</span> (!(modifiers &amp; KEY_MOD_LEFT_CTRL)) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; pkg_pointers_len; ++i) {
+			<span class="hljs-keyword">if</span> (pkg_pointers[i] != f &amp;&amp; pkg_pointers[i]-&gt;selected) {
+				pkg_pointers[i]-&gt;selected = <span class="hljs-number">0</span>;
+				clear_offset(i);
+				draw_package(pkg_pointers[i], i);
+			}
+		}
+	}
+
+	<span class="hljs-comment">/* Redraw the pkg */</span>
+	clear_offset(hilighted_offset);
+	draw_package(f, hilighted_offset);
+
+	<span class="hljs-comment">/* And repaint the window */</span>
+	redraw_window();
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _scroll_up(<span class="hljs-keyword">void</span>) {
+	scroll_offset -= SCROLL_AMOUNT;
+	<span class="hljs-keyword">if</span> (scroll_offset &lt; <span class="hljs-number">0</span>) {
+		scroll_offset = <span class="hljs-number">0</span>;
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _scroll_down(<span class="hljs-keyword">void</span>) {
+	<span class="hljs-keyword">if</span> (available_height &gt; contents-&gt;<span class="hljs-built_in">height</span>) {
+		scroll_offset = <span class="hljs-number">0</span>;
+	} <span class="hljs-keyword">else</span> {
+		scroll_offset += SCROLL_AMOUNT;
+		<span class="hljs-keyword">if</span> (scroll_offset &gt; contents-&gt;<span class="hljs-built_in">height</span> - available_height) {
+			scroll_offset = contents-&gt;<span class="hljs-built_in">height</span> - available_height;
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">arrow_select</span><span class="hljs-params">(<span class="hljs-keyword">int</span> y)</span> </span>{
+	<span class="hljs-keyword">if</span> (!pkg_pointers_len) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-comment">/* Find first selected */</span>
+	<span class="hljs-keyword">int</span> selected = <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt;pkg_pointers_len; ++i) {
+		<span class="hljs-keyword">if</span> (pkg_pointers[i]-&gt;selected) {
+			selected = i;
+			pkg_pointers[i]-&gt;selected = <span class="hljs-number">0</span>;
+			clear_offset(i);
+			draw_package(pkg_pointers[i], i);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (selected == <span class="hljs-number">-1</span>) {
+		selected = <span class="hljs-number">0</span>;
+	} <span class="hljs-keyword">else</span> {
+		selected += y;
+		<span class="hljs-keyword">if</span> (selected &gt;= pkg_pointers_len) selected = pkg_pointers_len - <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">if</span> (selected &lt; <span class="hljs-number">0</span>) selected = <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (selected * PKG_HEIGHT &lt; scroll_offset) {
+		scroll_offset = selected * PKG_HEIGHT;
+	}
+	<span class="hljs-keyword">if</span> (selected * PKG_HEIGHT + PKG_HEIGHT &gt; scroll_offset + available_height) {
+		scroll_offset = selected * PKG_HEIGHT + PKG_HEIGHT - available_height;
+	}
+
+	pkg_pointers[selected]-&gt;selected = <span class="hljs-number">1</span>;
+	clear_offset(selected);
+	draw_package(pkg_pointers[selected], selected);
+	redraw_window();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">redraw_window_callback</span><span class="hljs-params">(struct menu_bar * self)</span> </span>{
+	(<span class="hljs-keyword">void</span>)self;
+	redraw_window();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+
+	<span class="hljs-keyword">if</span> (geteuid() != <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">char</span> * args[] = {
+			<span class="hljs-string">"showdialog"</span>,
+			<span class="hljs-string">"--title"</span>, <span class="hljs-string">"Package Manager"</span>,
+			<span class="hljs-string">"--icon"</span>, <span class="hljs-string">"package"</span>,
+			<span class="hljs-string">"--disable-cancel"</span>,
+			<span class="hljs-string">"Only root can manage packages."</span>,
+			<span class="hljs-literal">NULL</span>,
+		};
+		<span class="hljs-keyword">return</span> execvp(<span class="hljs-string">"showdialog"</span>, args);
+	}
+
+	yctx = yutani_init();
+	init_decorations();
+	main_window = yutani_window_create(yctx, <span class="hljs-number">640</span>, <span class="hljs-number">480</span>);
+	yutani_window_move(yctx, main_window, yctx-&gt;display_width / <span class="hljs-number">2</span> - main_window-&gt;<span class="hljs-built_in">width</span> / <span class="hljs-number">2</span>, yctx-&gt;display_height / <span class="hljs-number">2</span> - main_window-&gt;<span class="hljs-built_in">height</span> / <span class="hljs-number">2</span>);
+	ctx = init_graphics_yutani_double_buffer(main_window);
+
+	tt_font_thin = tt_font_from_shm(<span class="hljs-string">"sans-serif"</span>);
+	tt_font_bold = tt_font_from_shm(<span class="hljs-string">"sans-serif.bold"</span>);
+
+	yutani_window_advertise_icon(yctx, main_window, APPLICATION_TITLE, <span class="hljs-string">"package"</span>);
+
+	menu_bar.entries = menu_entries;
+	menu_bar.redraw_callback = redraw_window_callback;
+
+	menu_bar.<span class="hljs-built_in">set</span> = menu_set_create();
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">m</span> = <span class="hljs-title">menu_create</span>();</span> <span class="hljs-comment">/* File */</span>
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"exit"</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-string">"Exit"</span>, _menu_action_exit));
+	menu_set_insert(menu_bar.<span class="hljs-built_in">set</span>, <span class="hljs-string">"file"</span>, m);
+
+	m = menu_create(); <span class="hljs-comment">/* Go */</span>
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"refresh"</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-string">"Refresh"</span>,_menu_action_refresh));
+	menu_set_insert(menu_bar.<span class="hljs-built_in">set</span>, <span class="hljs-string">"index"</span>, m);
+
+	m = menu_create();
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"help"</span>,<span class="hljs-string">"help_browser.trt"</span>,<span class="hljs-string">"Contents"</span>,_menu_action_help));
+	menu_insert(m, menu_create_separator());
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"star"</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-string">"About "</span> APPLICATION_TITLE,_menu_action_about));
+	menu_set_insert(menu_bar.<span class="hljs-built_in">set</span>, <span class="hljs-string">"help"</span>, m);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(main_window, &amp;bounds);
+	available_height = ctx-&gt;<span class="hljs-built_in">height</span> - MENU_BAR_HEIGHT - bounds.<span class="hljs-built_in">height</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">statbuf</span>;</span>
+	<span class="hljs-keyword">if</span> (!stat(VAR_PATH <span class="hljs-string">"/manifest"</span>,&amp;statbuf)) {
+		load_manifest();
+		reinitialize_contents();
+		redraw_window();
+	} <span class="hljs-keyword">else</span> {
+		_menu_action_refresh(<span class="hljs-literal">NULL</span>);
+		<span class="hljs-comment">/* also redraws window */</span>
+	}
+
+	<span class="hljs-keyword">int</span> fds[<span class="hljs-number">1</span>] = {fileno(yctx-&gt;sock)};
+
+	<span class="hljs-keyword">while</span> (application_running) {
+		<span class="hljs-keyword">int</span> index = fswait2(<span class="hljs-number">1</span>,fds,<span class="hljs-number">200</span>);
+
+		<span class="hljs-comment">/* Were we waiting for a package to install? */</span>
+		<span class="hljs-keyword">if</span> (currently_installing) {
+			<span class="hljs-keyword">if</span> (installation_done) {
+				currently_installing = <span class="hljs-number">0</span>;
+				installation_done = <span class="hljs-number">0</span>;
+				load_manifest();
+				reinitialize_contents();
+				redraw_window();
+			}
+		}
+
+		<span class="hljs-keyword">if</span> (index != <span class="hljs-number">0</span>) <span class="hljs-keyword">continue</span>;
+
+		<span class="hljs-keyword">yutani_msg_t</span> * m = yutani_poll(yctx);
+		<span class="hljs-keyword">while</span> (m) {
+			<span class="hljs-keyword">if</span> (menu_process_event(yctx, m)) {
+				redraw_window();
+			}
+			<span class="hljs-keyword">switch</span> (m-&gt;type) {
+				<span class="hljs-keyword">case</span> YUTANI_MSG_KEY_EVENT:
+					{
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_key_event</span> * <span class="hljs-title">ke</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+						<span class="hljs-keyword">if</span> (ke-&gt;event.action == KEY_ACTION_DOWN &amp;&amp; ke-&gt;wid == main_window-&gt;wid) {
+							<span class="hljs-keyword">switch</span> (ke-&gt;event.keycode) {
+								<span class="hljs-keyword">case</span> KEY_PAGE_UP:
+									_scroll_up();
+									redraw_window();
+									<span class="hljs-keyword">break</span>;
+								<span class="hljs-keyword">case</span> KEY_PAGE_DOWN:
+									_scroll_down();
+									redraw_window();
+									<span class="hljs-keyword">break</span>;
+								<span class="hljs-keyword">case</span> KEY_ARROW_DOWN:
+									arrow_select(<span class="hljs-number">1</span>);
+									<span class="hljs-keyword">break</span>;
+								<span class="hljs-keyword">case</span> KEY_ARROW_UP:
+									arrow_select(<span class="hljs-number">-1</span>);
+									<span class="hljs-keyword">break</span>;
+								<span class="hljs-keyword">case</span> <span class="hljs-string">'\n'</span>:
+									install_packages();
+									<span class="hljs-keyword">break</span>;
+								<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>:
+									<span class="hljs-keyword">if</span> (ke-&gt;event.modifiers &amp; YUTANI_KEY_MODIFIER_ALT) {
+										menu_bar_show_menu(yctx,main_window,&amp;menu_bar,<span class="hljs-number">-1</span>,&amp;menu_entries[<span class="hljs-number">0</span>]);
+									}
+									<span class="hljs-keyword">break</span>;
+								<span class="hljs-keyword">case</span> <span class="hljs-string">'i'</span>:
+									<span class="hljs-keyword">if</span> (ke-&gt;event.modifiers &amp; YUTANI_KEY_MODIFIER_ALT) {
+										menu_bar_show_menu(yctx,main_window,&amp;menu_bar,<span class="hljs-number">-1</span>,&amp;menu_entries[<span class="hljs-number">1</span>]);
+									}
+									<span class="hljs-keyword">break</span>;
+								<span class="hljs-keyword">case</span> <span class="hljs-string">'h'</span>:
+									<span class="hljs-keyword">if</span> (ke-&gt;event.modifiers &amp; YUTANI_KEY_MODIFIER_ALT) {
+										menu_bar_show_menu(yctx,main_window,&amp;menu_bar,<span class="hljs-number">-1</span>,&amp;menu_entries[<span class="hljs-number">2</span>]);
+									}
+									<span class="hljs-keyword">break</span>;
+								<span class="hljs-keyword">case</span> <span class="hljs-string">'q'</span>:
+									_menu_action_exit(<span class="hljs-literal">NULL</span>);
+									<span class="hljs-keyword">break</span>;
+								<span class="hljs-keyword">default</span>:
+									<span class="hljs-keyword">break</span>;
+							}
+						}
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_FOCUS_CHANGE:
+					{
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_focus_change</span> * <span class="hljs-title">wf</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+						<span class="hljs-keyword">yutani_window_t</span> * win = hashmap_get(yctx-&gt;windows, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)wf-&gt;wid);
+						<span class="hljs-keyword">if</span> (win == main_window) {
+							win-&gt;focused = wf-&gt;focused;
+							redraw_packages();
+							redraw_window();
+						}
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> YUTANI_MSG_RESIZE_OFFER:
+					{
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_resize</span> * <span class="hljs-title">wr</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+						<span class="hljs-keyword">if</span> (wr-&gt;wid == main_window-&gt;wid) {
+							resize_finish(wr-&gt;<span class="hljs-built_in">width</span>, wr-&gt;<span class="hljs-built_in">height</span>);
+						}
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_MOUSE_EVENT:
+					{
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_mouse_event</span> * <span class="hljs-title">me</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+						<span class="hljs-keyword">yutani_window_t</span> * win = hashmap_get(yctx-&gt;windows, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)me-&gt;wid);
+
+						<span class="hljs-keyword">if</span> (win == main_window) {
+							<span class="hljs-keyword">int</span> result = decor_handle_event(yctx, m);
+							<span class="hljs-keyword">switch</span> (result) {
+								<span class="hljs-keyword">case</span> DECOR_CLOSE:
+									_menu_action_exit(<span class="hljs-literal">NULL</span>);
+									<span class="hljs-keyword">break</span>;
+								<span class="hljs-keyword">case</span> DECOR_RIGHT:
+									<span class="hljs-comment">/* right click in decoration, show appropriate menu */</span>
+									decor_show_default_menu(main_window, main_window-&gt;x + me-&gt;new_x, main_window-&gt;y + me-&gt;new_y);
+									<span class="hljs-keyword">break</span>;
+								<span class="hljs-keyword">default</span>:
+									<span class="hljs-comment">/* Other actions */</span>
+									<span class="hljs-keyword">break</span>;
+							}
+
+							<span class="hljs-comment">/* Menu bar */</span>
+							menu_bar_mouse_event(yctx, main_window, &amp;menu_bar, me, me-&gt;new_x, me-&gt;new_y);
+
+							<span class="hljs-keyword">if</span> (me-&gt;new_y &gt; (<span class="hljs-keyword">int</span>)(bounds.top_height + MENU_BAR_HEIGHT) &amp;&amp;
+								me-&gt;new_y &lt; (<span class="hljs-keyword">int</span>)(main_window-&gt;<span class="hljs-built_in">height</span> - bounds.bottom_height) &amp;&amp;
+								me-&gt;new_x &gt; (<span class="hljs-keyword">int</span>)(bounds.left_width) &amp;&amp;
+								me-&gt;new_x &lt; (<span class="hljs-keyword">int</span>)(main_window-&gt;<span class="hljs-built_in">width</span> - bounds.right_width)) {
+								<span class="hljs-keyword">if</span> (me-&gt;buttons &amp; YUTANI_MOUSE_SCROLL_UP) {
+									_scroll_up();
+									redraw_window();
+								} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (me-&gt;buttons &amp; YUTANI_MOUSE_SCROLL_DOWN) {
+									_scroll_down();
+									redraw_window();
+								}
+
+								<span class="hljs-comment">/* Get offset into contents */</span>
+								<span class="hljs-keyword">int</span> y_into = me-&gt;new_y - bounds.top_height - MENU_BAR_HEIGHT + scroll_offset;
+								<span class="hljs-keyword">int</span> offset = (y_into / PKG_HEIGHT);
+								<span class="hljs-keyword">if</span> (offset != hilighted_offset) {
+									<span class="hljs-keyword">int</span> old_offset = hilighted_offset;
+									hilighted_offset = offset;
+									<span class="hljs-keyword">if</span> (old_offset != <span class="hljs-number">-1</span>) {
+										clear_offset(old_offset);
+										<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Package</span> * <span class="hljs-title">f</span> = <span class="hljs-title">get_package_at_offset</span>(<span class="hljs-title">old_offset</span>);</span>
+										<span class="hljs-keyword">if</span> (f) {
+											clear_offset(old_offset);
+											draw_package(f, old_offset);
+										}
+									}
+									<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Package</span> * <span class="hljs-title">f</span> = <span class="hljs-title">get_package_at_offset</span>(<span class="hljs-title">hilighted_offset</span>);</span>
+									<span class="hljs-keyword">if</span> (f) {
+										clear_offset(hilighted_offset);
+										draw_package(f, hilighted_offset);
+									}
+									redraw_window();
+								}
+
+								<span class="hljs-keyword">if</span> (me-&gt;command == YUTANI_MOUSE_EVENT_CLICK || _close_enough(me)) {
+									<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Package</span> * <span class="hljs-title">f</span> = <span class="hljs-title">get_package_at_offset</span>(<span class="hljs-title">hilighted_offset</span>);</span>
+									<span class="hljs-keyword">if</span> (f) {
+										<span class="hljs-keyword">if</span> (last_click_offset == hilighted_offset &amp;&amp; precise_time_since(last_click) &lt; <span class="hljs-number">400</span>) {
+											install_packages();
+											last_click = <span class="hljs-number">0</span>;
+										} <span class="hljs-keyword">else</span> {
+											last_click = precise_current_time();
+											last_click_offset = hilighted_offset;
+											toggle_selected(hilighted_offset, me-&gt;modifiers);
+										}
+									} <span class="hljs-keyword">else</span> {
+										<span class="hljs-keyword">if</span> (!(me-&gt;modifiers &amp; YUTANI_KEY_MODIFIER_CTRL)) {
+											<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; pkg_pointers_len; ++i) {
+												<span class="hljs-keyword">if</span> (pkg_pointers[i]-&gt;selected) {
+													pkg_pointers[i]-&gt;selected = <span class="hljs-number">0</span>;
+													clear_offset(i);
+													draw_package(pkg_pointers[i], i);
+												}
+											}
+											redraw_window();
+										}
+									}
+								} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (me-&gt;buttons &amp; YUTANI_MOUSE_BUTTON_RIGHT) {
+#<span class="hljs-keyword">if</span> <span class="hljs-number">0</span>
+									<span class="hljs-keyword">if</span> (!context_menu-&gt;window) {
+										struct Package * f = get_package_at_offset(hilighted_offset);
+										<span class="hljs-keyword">if</span> (f &amp;&amp; !f-&gt;selected) {
+											toggle_selected(hilighted_offset, me-&gt;modifiers);
+										}
+										menu_show(context_menu, main_window-&gt;ctx);
+										yutani_window_move(main_window-&gt;ctx, context_menu-&gt;window, me-&gt;new_x + main_window-&gt;x, me-&gt;new_y + main_window-&gt;y);
+									}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+								}
+
+							} <span class="hljs-keyword">else</span> {
+								<span class="hljs-keyword">int</span> old_offset = hilighted_offset;
+								hilighted_offset = <span class="hljs-number">-1</span>;
+								<span class="hljs-keyword">if</span> (old_offset != <span class="hljs-number">-1</span>) {
+									clear_offset(old_offset);
+									<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Package</span> * <span class="hljs-title">f</span> = <span class="hljs-title">get_package_at_offset</span>(<span class="hljs-title">old_offset</span>);</span>
+									<span class="hljs-keyword">if</span> (f) {
+										clear_offset(old_offset);
+										draw_package(f, old_offset);
+									}
+									redraw_window();
+								}
+							}
+						}
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_CLOSE:
+				<span class="hljs-keyword">case</span> YUTANI_MSG_SESSION_END:
+					_menu_action_exit(<span class="hljs-literal">NULL</span>);
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">default</span>:
+					<span class="hljs-keyword">break</span>;
+			}
+			<span class="hljs-built_in">free</span>(m);
+			m = yutani_poll_async(yctx);
+		}
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

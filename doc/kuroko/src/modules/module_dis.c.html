@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>module_dis.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kuroko\\src\\modules\\module_dis.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>module_dis.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/debug.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/compiler.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"../private.h"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"../opcode_enum.h"</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_DISABLE_DEBUG</span>
+
+KRK_Function(enablebreakpoint) {
+	<span class="hljs-keyword">int</span> breakIndex;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"i"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"breakpoint"</span>}, &amp;breakIndex)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">if</span> (krk_debug_enableBreakpoint(breakIndex))
+		<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;indexError, <span class="hljs-string">"invalid breakpoint id"</span>);
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Function(disablebreakpoint) {
+	<span class="hljs-keyword">int</span> breakIndex;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"i"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"breakpoint"</span>}, &amp;breakIndex)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">if</span> (krk_debug_disableBreakpoint(breakIndex))
+		<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;indexError, <span class="hljs-string">"invalid breakpoint id"</span>);
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Function(delbreakpoint) {
+	<span class="hljs-keyword">int</span> breakIndex;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"i"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"breakpoint"</span>}, &amp;breakIndex)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">if</span> (krk_debug_removeBreakpoint(breakIndex))
+		<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;indexError, <span class="hljs-string">"invalid breakpoint id"</span>);
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Function(addbreakpoint) {
+	KrkValue func;
+	<span class="hljs-keyword">int</span> lineNo;
+	<span class="hljs-keyword">int</span> flags = KRK_BREAKPOINT_NORMAL;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"Vi|i"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"func"</span>,<span class="hljs-string">"lineno"</span>,<span class="hljs-string">"flags"</span>}, &amp;func, &amp;lineNo, &amp;flags)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-keyword">int</span> result;
+	<span class="hljs-keyword">if</span> (IS_STRING(func)) {
+		result = krk_debug_addBreakpointFileLine(AS_STRING(func), lineNo, flags);
+	} <span class="hljs-keyword">else</span> {
+		KrkCodeObject * target = <span class="hljs-literal">NULL</span>;
+		<span class="hljs-keyword">if</span> (IS_CLOSURE(func)) {
+			target = AS_CLOSURE(func)-&gt;function;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_BOUND_METHOD(func) &amp;&amp; IS_CLOSURE(OBJECT_VAL(AS_BOUND_METHOD(func)-&gt;method))) {
+			target = AS_CLOSURE(OBJECT_VAL(AS_BOUND_METHOD(func)-&gt;method))-&gt;function;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_codeobject(func)) {
+			target = AS_codeobject(func);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">return</span> TYPE_ERROR(function <span class="hljs-keyword">or</span> method <span class="hljs-keyword">or</span> filename,func);
+		}
+		<span class="hljs-comment">/* Figure out what instruction this should be on */</span>
+		<span class="hljs-keyword">size_t</span> last = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; target-&gt;chunk.linesCount; ++i) {
+			<span class="hljs-keyword">if</span> (target-&gt;chunk.lines[i].<span class="hljs-built_in">line</span> &gt; (<span class="hljs-keyword">size_t</span>)lineNo) <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">if</span> (target-&gt;chunk.lines[i].<span class="hljs-built_in">line</span> == (<span class="hljs-keyword">size_t</span>)lineNo) {
+				last = target-&gt;chunk.lines[i].startOffset;
+				<span class="hljs-keyword">break</span>;
+			}
+			last = target-&gt;chunk.lines[i].startOffset;
+		}
+		result = krk_debug_addBreakpointCodeOffset(target,last,flags);
+	}
+
+	<span class="hljs-keyword">if</span> (result &lt; <span class="hljs-number">0</span>)
+		<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;baseException, <span class="hljs-string">"Could not add breakpoint."</span>);
+
+	<span class="hljs-keyword">return</span> INTEGER_VAL(result);
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>dis.dis(object)</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">KRK_Function(dis) {
+	KrkValue funcVal;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"V"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"func"</span>},&amp;funcVal)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-keyword">if</span> (IS_CLOSURE(funcVal)) {
+		KrkCodeObject * func = AS_CLOSURE(funcVal)-&gt;function;
+		krk_disassembleCodeObject(<span class="hljs-built_in">stdout</span>, func, func-&gt;name ? func-&gt;name-&gt;chars : <span class="hljs-string">"&lt;unnamed&gt;"</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_codeobject(funcVal)) {
+		krk_disassembleCodeObject(<span class="hljs-built_in">stdout</span>, AS_codeobject(funcVal), AS_codeobject(funcVal)-&gt;name ? AS_codeobject(funcVal)-&gt;name-&gt;chars : <span class="hljs-string">"&lt;unnamed&gt;"</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_BOUND_METHOD(funcVal)) {
+		<span class="hljs-keyword">if</span> (AS_BOUND_METHOD(funcVal)-&gt;method-&gt;type == KRK_OBJ_CLOSURE) {
+			KrkCodeObject * func = ((KrkClosure*)AS_BOUND_METHOD(funcVal)-&gt;method)-&gt;function;
+			<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * methodName = func-&gt;name ? func-&gt;name-&gt;chars : <span class="hljs-string">"&lt;unnamed&gt;"</span>;
+			<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * typeName = IS_CLASS(AS_BOUND_METHOD(funcVal)-&gt;receiver) ? AS_CLASS(AS_BOUND_METHOD(funcVal)-&gt;receiver)-&gt;name-&gt;chars : krk_typeName(AS_BOUND_METHOD(funcVal)-&gt;receiver);
+			<span class="hljs-keyword">size_t</span> allocSize = <span class="hljs-built_in">strlen</span>(methodName) + <span class="hljs-built_in">strlen</span>(typeName) + <span class="hljs-number">2</span>;
+			<span class="hljs-keyword">char</span> * tmp = <span class="hljs-built_in">malloc</span>(allocSize);
+			<span class="hljs-built_in">snprintf</span>(tmp, allocSize, <span class="hljs-string">"%s.%s"</span>, typeName, methodName);
+			krk_disassembleCodeObject(<span class="hljs-built_in">stdout</span>, func, tmp);
+			<span class="hljs-built_in">free</span>(tmp);
+		} <span class="hljs-keyword">else</span> {
+			krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"Can not disassemble built-in method of '%T'"</span>, AS_BOUND_METHOD(funcVal)-&gt;receiver);
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_CLASS(funcVal)) {
+		KrkValue code;
+		<span class="hljs-keyword">if</span> (krk_tableGet(&amp;AS_CLASS(funcVal)-&gt;methods, vm.specialMethodNames[METHOD_FUNC], &amp;code) &amp;&amp; IS_CLOSURE(code)) {
+			KrkCodeObject * func = AS_CLOSURE(code)-&gt;function;
+			krk_disassembleCodeObject(<span class="hljs-built_in">stdout</span>, func, AS_CLASS(funcVal)-&gt;name-&gt;chars);
+		}
+		<span class="hljs-comment">/* TODO Methods! */</span>
+	} <span class="hljs-keyword">else</span> {
+		krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"Don't know how to disassemble '%T'"</span>, funcVal);
+	}
+
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Function(build) {
+	<span class="hljs-keyword">char</span> * code;
+	<span class="hljs-keyword">char</span> * fileName = <span class="hljs-string">"&lt;source&gt;"</span>;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"s|s"</span>, (<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"code"</span>,<span class="hljs-string">"filename"</span>}, &amp;code, &amp;fileName)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-comment">/* Unset module */</span>
+	krk_push(OBJECT_VAL(krk_currentThread.<span class="hljs-keyword">module</span>));
+	KrkInstance * <span class="hljs-keyword">module</span> = krk_currentThread.<span class="hljs-keyword">module</span>;
+	krk_currentThread.<span class="hljs-keyword">module</span> = <span class="hljs-literal">NULL</span>;
+	KrkCodeObject * c = krk_compile(code,fileName);
+	krk_currentThread.<span class="hljs-keyword">module</span> = <span class="hljs-keyword">module</span>;
+	krk_pop();
+	<span class="hljs-keyword">if</span> (c) <span class="hljs-keyword">return</span> OBJECT_VAL(c);
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> NOOP (void)0</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SIMPLE(opc) case opc: size = 1; break;</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CONSTANT(opc,more) case opc: { constant = chunk-&gt;code[offset + 1]; size = 2; more; break; } \
+	case opc ## _LONG: { constant = (chunk-&gt;code[offset + 1] &lt;&lt; 16) | \
+	(chunk-&gt;code[offset + 2] <span class="hljs-meta-string">&lt;&lt; 8) | (chunk-&gt;code[offset + 3]); size = 4; more; break; }</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> OPERAND(opc,more) case opc: { operand = chunk-&gt;code[offset + 1]; size = 2; more; break; } \
+	case opc ## _LONG: { operand = (chunk-&gt;code[offset + 1] &lt;&lt; 16) | \
+	(chunk-&gt;code[offset + 2] <span class="hljs-meta-string">&lt;&lt; 8) | (chunk-&gt;code[offset + 3]); size = 4; more; break; }</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> JUMP(opc,sign) case opc: { jump = 0 sign ((chunk-&gt;code[offset + 1] <span class="hljs-meta-string">&lt;&lt; 8) | (chunk-&gt;code[offset + 2])); \</span></span>
+	<span class="hljs-built_in">size</span> = <span class="hljs-number">3</span>; <span class="hljs-keyword">break</span>; }
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> COMPLICATED(opc,more) case opc: size = 1; more; break;</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> OVERLONG_JUMP_MORE size = 3; jump = (chunk-&gt;code[offset + 1] <span class="hljs-meta-string">&lt;&lt; 8) | (chunk-&gt;code[offset + 2])</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CLOSURE_MORE \
+	KrkCodeObject * function = AS_codeobject(chunk-&gt;constants.values[constant]); \
+	size_t baseOffset = offset; \
+	for (size_t j = 0; j <span class="hljs-meta-string">&lt; function-&gt;upvalueCount; ++j) { \</span></span>
+		<span class="hljs-keyword">int</span> isLocal = chunk-&gt;code[baseOffset++ + <span class="hljs-built_in">size</span>]; \
+		baseOffset++; \
+		<span class="hljs-keyword">if</span> (isLocal &amp; <span class="hljs-number">2</span>) { \
+			baseOffset += <span class="hljs-number">2</span>; \
+		} \
+	} \
+	<span class="hljs-built_in">size</span> += baseOffset - offset;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXPAND_ARGS_MORE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> FORMAT_VALUE_MORE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> LOCAL_MORE local = operand;</span>
+<span class="hljs-keyword">static</span> KrkValue _examineInternal(KrkCodeObject* func) {
+	KrkValue output = krk_list_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	krk_push(output);
+
+	KrkChunk * chunk = &amp;func-&gt;chunk;
+	<span class="hljs-keyword">size_t</span> offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (offset &lt; chunk-&gt;count) {
+		<span class="hljs-keyword">uint8_t</span> opcode = chunk-&gt;code[offset];
+		<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">ssize_t</span> constant = <span class="hljs-number">-1</span>;
+		<span class="hljs-keyword">ssize_t</span> jump = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">ssize_t</span> operand = <span class="hljs-number">-1</span>;
+		<span class="hljs-keyword">ssize_t</span> local = <span class="hljs-number">-1</span>;
+		<span class="hljs-keyword">switch</span> (opcode) {
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"opcodes.h"</span></span>
+		}
+
+		KrkTuple * newTuple = krk_newTuple(<span class="hljs-number">3</span>);
+		krk_push(OBJECT_VAL(newTuple));
+		newTuple-&gt;values.values[newTuple-&gt;values.count++] = INTEGER_VAL(opcode);
+		newTuple-&gt;values.values[newTuple-&gt;values.count++] = INTEGER_VAL(<span class="hljs-built_in">size</span>);
+		<span class="hljs-keyword">if</span> (constant != <span class="hljs-number">-1</span>) {
+			newTuple-&gt;values.values[newTuple-&gt;values.count++] = chunk-&gt;constants.values[constant];
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (jump != <span class="hljs-number">0</span>) {
+			newTuple-&gt;values.values[newTuple-&gt;values.count++] = INTEGER_VAL(jump);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (local != <span class="hljs-number">-1</span>) {
+			newTuple-&gt;values.values[newTuple-&gt;values.count++] = INTEGER_VAL(operand); <span class="hljs-comment">/* Just in case */</span>
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; func-&gt;localNameCount; ++i) {
+				<span class="hljs-keyword">if</span> (func-&gt;localNames[i].id == (<span class="hljs-keyword">size_t</span>)local &amp;&amp; func-&gt;localNames[i].birthday &lt;= offset &amp;&amp; func-&gt;localNames[i].deathday &gt;= offset) {
+					newTuple-&gt;values.values[newTuple-&gt;values.count<span class="hljs-number">-1</span>] = OBJECT_VAL(func-&gt;localNames[i].name);
+					<span class="hljs-keyword">break</span>;
+				}
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (operand != <span class="hljs-number">-1</span>) {
+			newTuple-&gt;values.values[newTuple-&gt;values.count++] = INTEGER_VAL(operand);
+		} <span class="hljs-keyword">else</span> {
+			newTuple-&gt;values.values[newTuple-&gt;values.count++] = NONE_VAL();
+		}
+		krk_writeValueArray(AS_LIST(output), krk_peek(<span class="hljs-number">0</span>));
+		krk_pop();
+
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-number">0</span>) {
+			<span class="hljs-built_in">abort</span>();
+		}
+
+		offset += <span class="hljs-built_in">size</span>;
+	}
+
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+KRK_Function(examine) {
+	KrkCodeObject * func;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"O!"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"func"</span>}, KRK_BASE_CLASS(codeobject), &amp;func)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">return</span> _examineInternal(func);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> SIMPLE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> OPERANDB</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> OPERAND</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> CONSTANT</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> JUMP</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> COMPLICATED</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> OVERLONG_JUMP_MORE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> CLOSURE_MORE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> LOCAL_MORE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> EXPAND_ARGS_MORE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> FORMAT_VALUE_MORE</span>
+
+KRK_Function(ip_to_expression) {
+	KrkValue func;
+	<span class="hljs-keyword">size_t</span> ip;
+
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"VN"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"func"</span>,<span class="hljs-string">"ip"</span>}, &amp;func, &amp;ip)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	KrkCodeObject * actual;
+
+	<span class="hljs-keyword">if</span> (IS_CLOSURE(func)) actual = AS_CLOSURE(func)-&gt;function;
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_codeobject(func)) actual = AS_codeobject(func);
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_BOUND_METHOD(func) &amp;&amp; IS_CLOSURE(OBJECT_VAL(AS_BOUND_METHOD(func)-&gt;method))) actual = ((KrkClosure*)AS_BOUND_METHOD(func)-&gt;method)-&gt;function;
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"func must be a managed function, method, or codeobject, not '%T'"</span>, func);
+
+	<span class="hljs-keyword">int</span> lineNo = krk_lineNumber(&amp;actual-&gt;chunk, ip);
+	<span class="hljs-keyword">uint8_t</span> start, midStart, midEnd, <span class="hljs-built_in">end</span>;
+
+	<span class="hljs-keyword">if</span> (krk_debug_expressionUnderline(actual, &amp;start, &amp;midStart, &amp;midEnd, &amp;<span class="hljs-built_in">end</span>, ip)) {
+		KrkTuple * out = krk_newTuple(<span class="hljs-number">5</span>);
+		krk_push(OBJECT_VAL(out));
+
+		out-&gt;values.values[out-&gt;values.count++] = INTEGER_VAL(lineNo);
+		out-&gt;values.values[out-&gt;values.count++] = INTEGER_VAL(start);
+		out-&gt;values.values[out-&gt;values.count++] = INTEGER_VAL(midStart);
+		out-&gt;values.values[out-&gt;values.count++] = INTEGER_VAL(midEnd);
+		out-&gt;values.values[out-&gt;values.count++] = INTEGER_VAL(<span class="hljs-built_in">end</span>);
+
+		<span class="hljs-keyword">return</span> krk_pop();
+	}
+
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+KRK_Module(dis) {
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_DISABLE_DEBUG</span>
+	KRK_DOC(<span class="hljs-keyword">module</span>,
+		<span class="hljs-string">"@brief Provides tools for disassembling bytecode.\n\n"</span>
+		<span class="hljs-string">"### Code Disassembly in Kuroko\n\n"</span>
+		<span class="hljs-string">"The @c dis module contains functions for dealing with _code objects_ which "</span>
+		<span class="hljs-string">"represent the compiled bytecode of a Kuroko function. The bytecode compilation "</span>
+		<span class="hljs-string">"process is entirely static and bytecode analysis can be performed without calling "</span>
+		<span class="hljs-string">"into the VM to run dynamic code.\n\n"</span>
+		<span class="hljs-string">"### Debugger Breakpoints\n\n"</span>
+		<span class="hljs-string">"Kuroko interpreters can provide a debugger hook through the C API's "</span>
+		<span class="hljs-string">"@ref krk_debug_registerCallback() function. Breakpoints can be managed both "</span>
+		<span class="hljs-string">"from the C API and from this module's @ref addbreakpoint, @ref delbreakpoint, "</span>
+		<span class="hljs-string">"@ref enablebreakpoint, and @ref disablebreakpoint methods."</span>
+	);
+
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>, dis),
+		<span class="hljs-string">"@brief Disassemble an object.\n"</span>
+		<span class="hljs-string">"@arguments obj\n\n"</span>
+		<span class="hljs-string">"Dumps a disassembly of the bytecode in the code object associated with @p obj. "</span>
+		<span class="hljs-string">"If @p obj can not be disassembled, a @ref TypeError is raised."</span>);
+
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>, build),
+		<span class="hljs-string">"@brief Compile a string to a code object.\n"</span>
+		<span class="hljs-string">"@arguments code\n\n"</span>
+		<span class="hljs-string">"Compiles the string @p code and returns a code object. If a syntax "</span>
+		<span class="hljs-string">"error is encountered, it will be raised."</span>);
+
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>, examine),
+		<span class="hljs-string">"@brief Convert a code object to a list of instructions.\n"</span>
+		<span class="hljs-string">"@arguments func\n\n"</span>
+		<span class="hljs-string">"Examines the code object @p func and returns a list representation of its instructions. "</span>
+		<span class="hljs-string">"Each instruction entry is a tuple of the opcode, total instruction size in bytes, and "</span>
+		<span class="hljs-string">"the operand of the argument, either as an integer for jump offsets, the actual value for "</span>
+		<span class="hljs-string">"constant operands, or the name of a local or global variable if available."</span>);
+
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>, addbreakpoint),
+		<span class="hljs-string">"@brief Attach a breakpoint to a code object.\n"</span>
+		<span class="hljs-string">"@arguments func, line\n\n"</span>
+		<span class="hljs-string">"@p func may be a filename string, or a function, method, or code object. Returns "</span>
+		<span class="hljs-string">"the new breakpoint index, or raises @ref Exception if a breakpoint code not be added."</span>);
+
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>, delbreakpoint),
+		<span class="hljs-string">"@brief Delete a breakpoint.\n"</span>
+		<span class="hljs-string">"@arguments handle\n\n"</span>
+		<span class="hljs-string">"Delete the breakpoint specified by @p handle, disabling it if it was enabled. "</span>
+		<span class="hljs-string">"May raise @ref IndexError if @p handle is not a valid breakpoint handle."</span>);
+
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>, enablebreakpoint),
+		<span class="hljs-string">"@brief Enable a breakpoint.\n"</span>
+		<span class="hljs-string">"@arguments handle\n\n"</span>
+		<span class="hljs-string">"Enable the breakpoint specified by @p handle. May raise @ref IndexError if "</span>
+		<span class="hljs-string">"@p handle is not a valid breakpoint handle."</span>);
+
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>, disablebreakpoint),
+		<span class="hljs-string">"@brief Disable a breakpoint.\n"</span>
+		<span class="hljs-string">"@arguments handle\n\n"</span>
+		<span class="hljs-string">"Disable the breakpoint specified by @p handle. May raise @ref IndexError if "</span>
+		<span class="hljs-string">"@p handle is not a valid breakpoint handle."</span>);
+
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>, ip_to_expression),
+		<span class="hljs-string">"@brief Map an IP in a codeobject or function to an expression span.\n"</span>
+		<span class="hljs-string">"@arguments func,ip\n\n"</span>
+		<span class="hljs-string">"For various reasons, the instruction pointer @p ip must be the last byte of an opcode."</span>);
+
+	krk_attachNamedValue(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"BREAKPOINT_ONCE"</span>, INTEGER_VAL(KRK_BREAKPOINT_ONCE));
+	krk_attachNamedValue(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"BREAKPOINT_REPEAT"</span>, INTEGER_VAL(KRK_BREAKPOINT_REPEAT));
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> OPCODE(opc) krk_attachNamedValue(&amp;module-&gt;fields, #opc, INTEGER_VAL(opc));</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SIMPLE(opc) OPCODE(opc)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CONSTANT(opc,more) OPCODE(opc) OPCODE(opc ## _LONG)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> OPERAND(opc,more) OPCODE(opc) OPCODE(opc ## _LONG)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> JUMP(opc,sign) OPCODE(opc)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> COMPLICATED(opc,more) OPCODE(opc)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"opcodes.h"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> SIMPLE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> OPERANDB</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> OPERAND</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> CONSTANT</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> JUMP</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> COMPLICATED</span>
+
+	<span class="hljs-keyword">if</span> (runAs &amp;&amp; !<span class="hljs-built_in">strcmp</span>(runAs-&gt;chars,<span class="hljs-string">"__main__"</span>)) {
+		<span class="hljs-comment">/* Force `dis` into the module table early */</span>
+		krk_attachNamedObject(&amp;vm.modules, <span class="hljs-string">"dis"</span>, (KrkObj*)<span class="hljs-keyword">module</span>);
+		<span class="hljs-comment">/* Start executing additional code */</span>
+		krk_startModule(<span class="hljs-string">"_dis"</span>);
+		krk_interpret(
+			<span class="hljs-string">"import dis\n"</span>
+			<span class="hljs-string">"def disrec(code, seen):\n"</span>
+			<span class="hljs-string">"    let next = [code]\n"</span>
+			<span class="hljs-string">"    while next:\n"</span>
+			<span class="hljs-string">"        let co = next[0]\n"</span>
+			<span class="hljs-string">"        next = next[1:]\n"</span>
+			<span class="hljs-string">"        dis.dis(co)\n"</span>
+			<span class="hljs-string">"        for inst,size,operand in dis.examine(co):\n"</span>
+			<span class="hljs-string">"            if isinstance(operand,codeobject) and operand not in seen and operand not in next:\n"</span>
+			<span class="hljs-string">"                next.append(operand)\n"</span>
+			<span class="hljs-string">"        if next:\n"</span>
+			<span class="hljs-string">"            print()\n"</span>
+			<span class="hljs-string">"import kuroko\n"</span>
+			<span class="hljs-string">"if (len(kuroko.argv) &lt; 2):\n"</span>
+			<span class="hljs-string">"    print(\"Usage: kuroko -m dis FILE\")\n"</span>
+			<span class="hljs-string">"    return 1\n"</span>
+			<span class="hljs-string">"import fileio\n"</span>
+			<span class="hljs-string">"for file in kuroko.argv[1:]:\n"</span>
+			<span class="hljs-string">"    with fileio.open(file,'r') as f:\n"</span>
+			<span class="hljs-string">"        let result = dis.build(f.read(), file)\n"</span>
+			<span class="hljs-string">"        disrec(result,set())\n"</span>,
+			<span class="hljs-string">"_dis"</span>
+		);
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+	krk_runtimeError(vm.exceptions-&gt;notImplementedError, <span class="hljs-string">"debugger support is disabled"</span>);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

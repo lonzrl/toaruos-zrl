@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>i965.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "modules\\i965.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>i965.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/video.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pci.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/args.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/module.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> REG_PIPEASRC      0x6001C</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> REG_PIPEACONF     0x70008</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span>  PIPEACONF_ENABLE (1 &lt;&lt; 31)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span>  PIPEACONF_STATE  (1 &lt;&lt; 30)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> REG_DSPALINOFF    0x70184</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> REG_DSPASTRIDE    0x70188</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> REG_DSPASURF      0x7019c</span>
+
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">fs_node_t</span> * lfb_device;
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">int</span> lfb_use_write_combining;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uintptr_t</span> ctrl_regs = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">i965_mmio_read</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> reg)</span> </span>{
+	<span class="hljs-keyword">return</span> *(<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span>*)(ctrl_regs + reg);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">i965_mmio_write</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> reg, <span class="hljs-keyword">uint32_t</span> val)</span> </span>{
+	*(<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span>*)(ctrl_regs + reg) = val;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">split</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> val, <span class="hljs-keyword">uint32_t</span> * a, <span class="hljs-keyword">uint32_t</span> * b)</span> </span>{
+	*a = (val &amp; <span class="hljs-number">0xFFFF</span>) + <span class="hljs-number">1</span>;
+	*b = (val &gt;&gt; <span class="hljs-number">16</span>) + <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">i965_modeset</span><span class="hljs-params">(<span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y)</span> </span>{
+	<span class="hljs-comment">/* Disable pipe A while we update source size */</span>
+	<span class="hljs-keyword">uint32_t</span> pipe = i965_mmio_read(REG_PIPEACONF);
+	i965_mmio_write(REG_PIPEACONF, pipe &amp; ~PIPEACONF_ENABLE);
+	<span class="hljs-keyword">while</span> (i965_mmio_read(REG_PIPEACONF) &amp; PIPEACONF_STATE);
+
+	<span class="hljs-comment">/* Set source size */</span>
+	i965_mmio_write(REG_PIPEASRC, ((x - <span class="hljs-number">1</span>) &lt;&lt; <span class="hljs-number">16</span>) | (y - <span class="hljs-number">1</span>));
+
+	<span class="hljs-comment">/* Re-enable pipe */</span>
+	pipe = i965_mmio_read(REG_PIPEACONF);
+	i965_mmio_write(REG_PIPEACONF, pipe | PIPEACONF_ENABLE);
+	<span class="hljs-keyword">while</span> (!(i965_mmio_read(REG_PIPEACONF) &amp; PIPEACONF_STATE));
+
+	<span class="hljs-comment">/* Keep the plane enabled while we update stride value */</span>
+	i965_mmio_write(REG_DSPALINOFF, <span class="hljs-number">0</span>);        <span class="hljs-comment">/* offset to default of 0 */</span>
+	i965_mmio_write(REG_DSPASTRIDE, x * <span class="hljs-number">4</span>); <span class="hljs-comment">/* stride to 4 x width */</span>
+	i965_mmio_write(REG_DSPASURF, <span class="hljs-number">0</span>);          <span class="hljs-comment">/* write to surface address triggers change; use default of 0 */</span>
+
+	<span class="hljs-comment">/* Update the values we expose to userspace. */</span>
+	lfb_resolution_x = x;
+	lfb_resolution_y = y;
+	lfb_resolution_b = <span class="hljs-number">32</span>;
+	lfb_resolution_s = i965_mmio_read(REG_DSPASTRIDE);
+	lfb_memsize = lfb_resolution_s * lfb_resolution_y;
+	lfb_device-&gt;length  = lfb_memsize;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">fbterm_draw_logo</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">fbterm_reset</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">setup_framebuffer</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> pcidev)</span> </span>{
+	<span class="hljs-comment">/* Map BAR space for the control registers */</span>
+	<span class="hljs-keyword">uint32_t</span> ctrl_space = pci_read_field(pcidev, PCI_BAR0, <span class="hljs-number">4</span>);
+	pci_write_field(pcidev, PCI_BAR0, <span class="hljs-number">4</span>, <span class="hljs-number">0xFFFFFFFF</span>);
+	<span class="hljs-keyword">uint32_t</span> ctrl_size = pci_read_field(pcidev, PCI_BAR0, <span class="hljs-number">4</span>);
+	ctrl_size = ~(ctrl_size &amp; <span class="hljs-number">-15</span>) + <span class="hljs-number">1</span>;
+	pci_write_field(pcidev, PCI_BAR0, <span class="hljs-number">4</span>, ctrl_space);
+	ctrl_space &amp;= <span class="hljs-number">0xFFFFFF00</span>;
+	ctrl_regs = (<span class="hljs-keyword">uintptr_t</span>)mmu_map_mmio_region(ctrl_space, ctrl_size);
+
+	lfb_resolution_impl = i965_modeset;
+	lfb_set_resolution(<span class="hljs-number">1440</span>,<span class="hljs-number">900</span>);
+
+	lfb_use_write_combining = <span class="hljs-number">1</span>;
+
+	<span class="hljs-comment">/* Normally we don't clear the screen on mode set, but we should do it here */</span>
+	<span class="hljs-built_in">memset</span>(lfb_vid_memory, <span class="hljs-number">0</span>, lfb_memsize);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Redraw the boot logo; if we were loaded by userspace, it'll probably
+be overwritten pretty quickly by the compositor? But whatever...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	fbterm_reset();
+	fbterm_draw_logo();
+
+	<span class="hljs-comment">/* Helpful to know why the console text got cleared */</span>
+	dprintf(<span class="hljs-string">"i965: video configured for %u x %u\n"</span>, lfb_resolution_x, lfb_resolution_y);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">find_intel</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> device, <span class="hljs-keyword">uint16_t</span> v, <span class="hljs-keyword">uint16_t</span> d, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-keyword">if</span> (v == <span class="hljs-number">0x8086</span> &amp;&amp; d == <span class="hljs-number">0x0046</span>) {
+		setup_framebuffer(device);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">i965_install</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">if</span> (args_present(<span class="hljs-string">"noi965"</span>)) <span class="hljs-keyword">return</span> -ENODEV;
+	<span class="hljs-keyword">if</span> (!lfb_resolution_x) <span class="hljs-keyword">return</span> -ENODEV;
+	pci_scan(find_intel, <span class="hljs-number">-1</span>, <span class="hljs-literal">NULL</span>);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">fini</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Module</span> <span class="hljs-title">metadata</span> = {</span>
+	.name = <span class="hljs-string">"i965"</span>,
+	.init = i965_install,
+	.fini = fini,
+};
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

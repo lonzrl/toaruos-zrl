@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>yutani-clipboard.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\yutani-clipboard.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>yutani-clipboard.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;getopt.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/yutani.h&gt;</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">show_usage</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_S <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_E <span class="hljs-meta-string">"\033[0m"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+			<span class="hljs-string">"%s - set and obtain clipboard contents\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"usage: %s -g\n"</span>
+			<span class="hljs-string">"       %s -s "</span> X_S <span class="hljs-string">"TEXT"</span> X_E <span class="hljs-string">"...\n"</span>
+			<span class="hljs-string">"       %s -f "</span> X_S <span class="hljs-string">"FILE"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -s "</span> X_S <span class="hljs-string">"TEXT...   set the clipboard text to argument"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -f "</span> X_S <span class="hljs-string">"FILE      set the clibboard text to file"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -g           "</span> X_S <span class="hljs-string">"print clipboard contents to stdout"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -n           "</span> X_S <span class="hljs-string">"ensure a linefeed is printed"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -?           "</span> X_S <span class="hljs-string">"show this help text"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"\n"</span>, argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-keyword">yutani_t</span> * yctx;
+<span class="hljs-keyword">int</span> force_linefeed = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">set_clipboard_from_file</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * file)</span> </span>{
+	FILE * f;
+
+	f = fopen(file, <span class="hljs-string">"r"</span>);
+	<span class="hljs-keyword">if</span> (!f) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">sb</span>;</span>
+	fstat(fileno(f), &amp;sb);
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = sb.st_size;
+
+	<span class="hljs-keyword">char</span> * tmp = <span class="hljs-built_in">malloc</span>(<span class="hljs-built_in">size</span>+<span class="hljs-number">1</span>);
+	fread(tmp, <span class="hljs-number">1</span>, <span class="hljs-built_in">size</span>, f);
+	tmp[<span class="hljs-built_in">size</span>] = <span class="hljs-string">'\0'</span>;
+
+	yutani_set_clipboard(yctx, tmp);
+
+	<span class="hljs-built_in">free</span>(tmp);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">get_clipboard</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	yutani_special_request(yctx, <span class="hljs-literal">NULL</span>, YUTANI_SPECIAL_REQUEST_CLIPBOARD);
+	<span class="hljs-keyword">yutani_msg_t</span> * clipboard = yutani_wait_for(yctx, YUTANI_MSG_CLIPBOARD);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_clipboard</span> * <span class="hljs-title">cb</span> = (<span class="hljs-title">void</span> *)<span class="hljs-title">clipboard</span>-&gt;<span class="hljs-title">data</span>;</span>
+
+	<span class="hljs-keyword">if</span> (*cb-&gt;content == <span class="hljs-string">'\002'</span>) {
+		<span class="hljs-keyword">int</span> <span class="hljs-built_in">size</span> = atoi(&amp;cb-&gt;content[<span class="hljs-number">2</span>]);
+		FILE * clipboard = yutani_open_clipboard(yctx);
+		<span class="hljs-keyword">char</span> * selection_text = <span class="hljs-built_in">malloc</span>(<span class="hljs-built_in">size</span> + <span class="hljs-number">1</span>);
+		fread(selection_text, <span class="hljs-number">1</span>, <span class="hljs-built_in">size</span>, clipboard);
+		selection_text[<span class="hljs-built_in">size</span>] = <span class="hljs-string">'\0'</span>;
+		fclose(clipboard);
+		fwrite(selection_text, <span class="hljs-number">1</span>, <span class="hljs-built_in">size</span>, <span class="hljs-built_in">stdout</span>);
+		<span class="hljs-keyword">if</span> (force_linefeed &amp;&amp; <span class="hljs-built_in">size</span> &amp;&amp; selection_text[<span class="hljs-built_in">size</span><span class="hljs-number">-1</span>] != <span class="hljs-string">'\n'</span>) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\n"</span>);
+		}
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">char</span> * selection_text = <span class="hljs-built_in">malloc</span>(cb-&gt;<span class="hljs-built_in">size</span>+<span class="hljs-number">1</span>);
+		<span class="hljs-built_in">memcpy</span>(selection_text, cb-&gt;content, cb-&gt;<span class="hljs-built_in">size</span>);
+		selection_text[cb-&gt;<span class="hljs-built_in">size</span>] = <span class="hljs-string">'\0'</span>;
+		fwrite(selection_text, <span class="hljs-number">1</span>, cb-&gt;<span class="hljs-built_in">size</span>, <span class="hljs-built_in">stdout</span>);
+		<span class="hljs-keyword">if</span> (force_linefeed &amp;&amp; cb-&gt;<span class="hljs-built_in">size</span> &amp;&amp; selection_text[cb-&gt;<span class="hljs-built_in">size</span><span class="hljs-number">-1</span>] != <span class="hljs-string">'\n'</span>) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\n"</span>);
+		}
+	}
+
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	yctx = yutani_init();
+	<span class="hljs-keyword">if</span> (!yctx) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: failed to connect to compositor\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">int</span> opt;
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"?s:f:gn"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'s'</span>:
+				yutani_set_clipboard(yctx, optarg);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>:
+				<span class="hljs-keyword">return</span> set_clipboard_from_file(optarg);
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'n'</span>:
+				force_linefeed = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'g'</span>:
+				get_clipboard();
+				<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> show_usage(argc,argv);
+		}
+	}
+
+	show_usage(argc, argv);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

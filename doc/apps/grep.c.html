@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>grep.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\grep.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>grep.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;getopt.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;ctype.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;libgen.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> invert = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> ignorecase = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> quiet = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> only_matching = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> counts = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> is_fgrep = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> whole_lines = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> list_files = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> line_numbers = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> use_color = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> suppress_errors = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> print_before = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> print_after = <span class="hljs-number">0</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>This regex engine is adapted from bim.</p>
+</div>
+<div class="body">
+<p>It has been modified to be more like POSIX BREs, but it's still pretty bad.</p>
+<p>While we can support * matches for square brackets, we don't support them
+for groups. We don't support character classes (colons), repetition ranges,
+and definitely not backrefs.</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MatchQualifier</span> {</span>
+	<span class="hljs-keyword">int</span> (*matchFunc)(struct MatchQualifier*,<span class="hljs-keyword">char</span>,<span class="hljs-keyword">int</span>);
+	<span class="hljs-keyword">union</span> {
+		<span class="hljs-keyword">char</span> matchChar;
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+			<span class="hljs-keyword">char</span> * start;
+			<span class="hljs-keyword">char</span> * <span class="hljs-built_in">end</span>;
+		} matchSquares;
+	};
+};
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-keyword">enum</span> {
+	MATCH_OP_EQ,
+	MATCH_OP_GE,
+	MATCH_OP_LE,
+} match_op;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Helper for handling smart case sensitivity.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">int</span> <span class="hljs-title">match_char_internal</span><span class="hljs-params">(<span class="hljs-keyword">char</span> a, <span class="hljs-keyword">char</span> b, <span class="hljs-keyword">int</span> ignorecase, match_op op)</span> </span>{
+	<span class="hljs-keyword">if</span> (ignorecase) {
+		a = <span class="hljs-built_in">tolower</span>(a);
+		b = <span class="hljs-built_in">tolower</span>(b);
+	}
+	<span class="hljs-keyword">switch</span> (op) {
+		<span class="hljs-comment">/* Equality */</span>
+		<span class="hljs-keyword">case</span> MATCH_OP_EQ: <span class="hljs-keyword">return</span> a == b;
+		<span class="hljs-keyword">case</span> MATCH_OP_GE: <span class="hljs-keyword">return</span> a &gt;= b;
+		<span class="hljs-keyword">case</span> MATCH_OP_LE: <span class="hljs-keyword">return</span> a &lt;= b;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Basic single-character matcher.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">match_char</span><span class="hljs-params">(struct MatchQualifier * self, <span class="hljs-keyword">char</span> b, <span class="hljs-keyword">int</span> mode)</span> </span>{
+	<span class="hljs-keyword">return</span> match_char_internal(self-&gt;matchChar, b, mode, MATCH_OP_EQ);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Match collections of characters.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">match_squares</span><span class="hljs-params">(struct MatchQualifier * self, <span class="hljs-keyword">char</span> c, <span class="hljs-keyword">int</span> mode)</span> </span>{
+	<span class="hljs-keyword">char</span> * start = self-&gt;matchSquares.start;
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">end</span> = self-&gt;matchSquares.<span class="hljs-built_in">end</span>;
+	<span class="hljs-keyword">char</span> * t = start;
+	<span class="hljs-keyword">int</span> good = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (*t == <span class="hljs-string">'^'</span>) { t++; good = <span class="hljs-number">0</span>; }
+	<span class="hljs-keyword">while</span> (t != <span class="hljs-built_in">end</span>) {
+		<span class="hljs-keyword">char</span> test = *t++;
+		<span class="hljs-keyword">if</span> (test == <span class="hljs-string">'\\'</span> &amp;&amp; *t &amp;&amp; <span class="hljs-built_in">strchr</span>(<span class="hljs-string">"\\]"</span>,*t)) {
+			test = *t++;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (test == <span class="hljs-string">'\\'</span> &amp;&amp; *t == <span class="hljs-string">'t'</span>) {
+			test = <span class="hljs-string">'\t'</span>; t++;
+		}
+
+		<span class="hljs-keyword">if</span> (*t == <span class="hljs-string">'-'</span>) {
+			t++;
+			<span class="hljs-keyword">if</span> (t == <span class="hljs-built_in">end</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">char</span> right = *t++;
+			<span class="hljs-keyword">if</span> (right == <span class="hljs-string">'\\'</span> &amp;&amp; *t &amp;&amp; <span class="hljs-built_in">strchr</span>(<span class="hljs-string">"\\]"</span>,*t)) {
+				right = *t++;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (right == <span class="hljs-string">'\\'</span> &amp;&amp; *t == <span class="hljs-string">'t'</span>) {
+				right = <span class="hljs-string">'\t'</span>; t++;
+			}
+			<span class="hljs-keyword">if</span> (match_char_internal(c,test,mode,MATCH_OP_GE) &amp;&amp; match_char_internal(c,right,mode,MATCH_OP_LE)) <span class="hljs-keyword">return</span> good;
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">if</span> (match_char_internal(c,test,mode,MATCH_OP_EQ)) <span class="hljs-keyword">return</span> good;
+		}
+	}
+	<span class="hljs-keyword">return</span> !good;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Match any single character.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">match_dot</span><span class="hljs-params">(struct MatchQualifier * self, <span class="hljs-keyword">char</span> c, <span class="hljs-keyword">int</span> mode)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Line</span> {</span>
+	<span class="hljs-keyword">int</span> actual;
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">text</span>;
+};
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">regex_matches</span><span class="hljs-params">(struct Line * <span class="hljs-built_in">line</span>, <span class="hljs-keyword">int</span> j, <span class="hljs-keyword">char</span> * needle, <span class="hljs-keyword">int</span> ignorecase, <span class="hljs-keyword">int</span> *len, <span class="hljs-keyword">char</span> **needleout)</span> </span>{
+	<span class="hljs-keyword">int</span> k = j;
+	<span class="hljs-keyword">char</span> * match = needle;
+	<span class="hljs-keyword">if</span> (*match == <span class="hljs-string">'^'</span>) {
+		<span class="hljs-keyword">if</span> (j != <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		match++;
+	}
+	<span class="hljs-keyword">while</span> (k &lt; <span class="hljs-built_in">line</span>-&gt;actual + <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">if</span> (needleout &amp;&amp; *match == <span class="hljs-string">')'</span>) {
+			*needleout = match + <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">if</span> (len) *len = k - j;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		<span class="hljs-keyword">if</span> (*match == <span class="hljs-string">'\0'</span>) {
+			<span class="hljs-keyword">if</span> (needleout) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">if</span> (len) *len = k - j;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		<span class="hljs-keyword">if</span> (*match == <span class="hljs-string">'$'</span>) {
+			<span class="hljs-keyword">if</span> (k != <span class="hljs-built_in">line</span>-&gt;actual) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			match++;
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MatchQualifier</span> <span class="hljs-title">matcher</span> = {</span>match_char, .matchChar=*match};
+		<span class="hljs-keyword">if</span> (*match == <span class="hljs-string">'.'</span>) {
+			matcher.matchFunc = match_dot;
+			match++;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (*match == <span class="hljs-string">'\\'</span> &amp;&amp; <span class="hljs-built_in">strchr</span>(<span class="hljs-string">"$^/\\.[]*()"</span>,match[<span class="hljs-number">1</span>]) != <span class="hljs-literal">NULL</span>) {
+			matcher.matchChar = match[<span class="hljs-number">1</span>];
+			match += <span class="hljs-number">2</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (*match == <span class="hljs-string">'\\'</span> &amp;&amp; match[<span class="hljs-number">1</span>] == <span class="hljs-string">'t'</span>) {
+			matcher.matchChar = <span class="hljs-string">'\t'</span>;
+			match += <span class="hljs-number">2</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (*match == <span class="hljs-string">'['</span>) {
+			<span class="hljs-keyword">char</span> * s = match+<span class="hljs-number">1</span>;
+			<span class="hljs-keyword">char</span> * e = s;
+			<span class="hljs-keyword">while</span> (*e &amp;&amp; *e != <span class="hljs-string">']'</span>) {
+				<span class="hljs-keyword">if</span> (*e == <span class="hljs-string">'\\'</span> &amp;&amp; e[<span class="hljs-number">1</span>] == <span class="hljs-string">']'</span>) e++;
+				e++;
+			}
+			<span class="hljs-keyword">if</span> (!*e) <span class="hljs-keyword">break</span>; <span class="hljs-comment">/* fail match on unterminated [] sequence */</span>
+			match = e + <span class="hljs-number">1</span>;
+			matcher.matchFunc = match_squares;
+			matcher.matchSquares.start = s;
+			matcher.matchSquares.<span class="hljs-built_in">end</span> = e;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (*match == <span class="hljs-string">'('</span>) {
+			match++;
+			<span class="hljs-keyword">int</span> _len;
+			<span class="hljs-keyword">char</span> * newmatch;
+			<span class="hljs-keyword">if</span> (!regex_matches(<span class="hljs-built_in">line</span>, k, match, ignorecase, &amp;_len, &amp;newmatch)) <span class="hljs-keyword">break</span>;
+			match = newmatch;
+			k += _len;
+			<span class="hljs-keyword">continue</span>;
+		} <span class="hljs-keyword">else</span> {
+			match++;
+		}
+		<span class="hljs-keyword">if</span> (*match == <span class="hljs-string">'\\'</span> &amp;&amp; match[<span class="hljs-number">1</span>] == <span class="hljs-string">'?'</span>) {
+			<span class="hljs-comment">/* Optional */</span>
+			match += <span class="hljs-number">2</span>;
+			<span class="hljs-keyword">if</span> (matcher.matchFunc(&amp;matcher, <span class="hljs-built_in">line</span>-&gt;<span class="hljs-built_in">text</span>[k], ignorecase)) {
+				<span class="hljs-keyword">int</span> _len;
+				<span class="hljs-keyword">if</span> (regex_matches(<span class="hljs-built_in">line</span>,k+<span class="hljs-number">1</span>,match,ignorecase,&amp;_len, needleout)) {
+					<span class="hljs-keyword">if</span> (len) *len = _len + k + <span class="hljs-number">1</span> - j;
+					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+				}
+			}
+			<span class="hljs-keyword">continue</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> ((*match == <span class="hljs-string">'\\'</span> &amp;&amp; match[<span class="hljs-number">1</span>] == <span class="hljs-string">'+'</span>) || *match == <span class="hljs-string">'*'</span>) {
+			<span class="hljs-keyword">if</span> (*match == <span class="hljs-string">'\\'</span> <span class="hljs-comment">/* &amp;&amp; match[1] == '+' */</span>) {
+				<span class="hljs-comment">/* Must match at least one */</span>
+				match += <span class="hljs-number">2</span>;
+				<span class="hljs-keyword">if</span> (!matcher.matchFunc(&amp;matcher, <span class="hljs-built_in">line</span>-&gt;<span class="hljs-built_in">text</span>[k], ignorecase)) <span class="hljs-keyword">break</span>;
+				k++;
+			} <span class="hljs-keyword">else</span> {
+				match++;
+			}
+
+			<span class="hljs-keyword">int</span> _j = k;
+			<span class="hljs-keyword">while</span> (_j &lt; <span class="hljs-built_in">line</span>-&gt;actual + <span class="hljs-number">1</span>) {
+				<span class="hljs-keyword">if</span> (_j &lt; <span class="hljs-built_in">line</span>-&gt;actual &amp;&amp; !matcher.matchFunc(&amp;matcher, <span class="hljs-built_in">line</span>-&gt;<span class="hljs-built_in">text</span>[_j], ignorecase)) <span class="hljs-keyword">break</span>;
+				_j++;
+			}
+			<span class="hljs-keyword">while</span> (_j &gt;= k) {
+				<span class="hljs-keyword">int</span> _len;
+				<span class="hljs-keyword">if</span> (regex_matches(<span class="hljs-built_in">line</span>, _j, match, ignorecase, &amp;_len, needleout)) {
+					<span class="hljs-keyword">if</span> (len) *len = _len + _j - j;
+					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+				}
+				_j--;
+			}
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">if</span> (!matcher.matchFunc(&amp;matcher, <span class="hljs-built_in">line</span>-&gt;<span class="hljs-built_in">text</span>[k], ignorecase)) <span class="hljs-keyword">break</span>;
+			k++;
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Determine if 'line' matches a particular pattern 'needle' using the current
+global mode settings (is_fgrep, ignorecase), starting from a given line, and
+store the resulting length of a match in 'len'.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">subsearch_matches</span><span class="hljs-params">(struct Line * <span class="hljs-built_in">line</span>, <span class="hljs-keyword">int</span> j, <span class="hljs-keyword">char</span> * needle, <span class="hljs-keyword">int</span> *len)</span> </span>{
+	<span class="hljs-keyword">if</span> (is_fgrep) {
+		<span class="hljs-comment">/* Does 'line' starting at 'j' match 'needle' */</span>
+		<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *n = needle;
+		<span class="hljs-keyword">for</span> (; *n; ++n, ++j) <span class="hljs-keyword">if</span> (j &gt;= <span class="hljs-built_in">line</span>-&gt;actual || !match_char_internal(*n, <span class="hljs-built_in">line</span>-&gt;<span class="hljs-built_in">text</span>[j], ignorecase, MATCH_OP_EQ)) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		*len = n - needle;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> regex_matches(<span class="hljs-built_in">line</span>, j, needle, ignorecase, len, <span class="hljs-literal">NULL</span>);
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ContextLine</span> {</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ContextLine</span> * <span class="hljs-title">next</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ContextLine</span> * <span class="hljs-title">prev</span>;</span>
+	<span class="hljs-keyword">char</span> * buf;
+	<span class="hljs-keyword">size_t</span> len;
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * filename;
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">line</span>;
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">print_dash</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * dash, <span class="hljs-keyword">int</span> nl)</span> </span>{
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s%s%s%s"</span>,
+		use_color ? <span class="hljs-string">"\033[36m"</span> : <span class="hljs-string">""</span>,
+		dash,
+		use_color ? <span class="hljs-string">"\033[0m"</span> : <span class="hljs-string">""</span>,
+		nl ? <span class="hljs-string">"\n"</span> : <span class="hljs-string">""</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">print_filename</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * filename, <span class="hljs-keyword">char</span> * sep)</span> </span>{
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s%s%s"</span>,
+		use_color ? <span class="hljs-string">"\033[35m"</span> : <span class="hljs-string">""</span>,
+		filename,
+		use_color ? <span class="hljs-string">"\033[0m"</span> : <span class="hljs-string">""</span>);
+	print_dash(sep, <span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">print_line_number</span><span class="hljs-params">(<span class="hljs-keyword">int</span> line_number, <span class="hljs-keyword">char</span> * sep)</span> </span>{
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s%d%s"</span>,
+		use_color ? <span class="hljs-string">"\033[32m"</span> : <span class="hljs-string">""</span>,
+		line_number,
+		use_color ? <span class="hljs-string">"\033[0m"</span> : <span class="hljs-string">""</span>);
+	print_dash(sep, <span class="hljs-number">0</span>);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ContextLine</span> * <span class="hljs-title">context_head</span> = <span class="hljs-title">NULL</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ContextLine</span> * <span class="hljs-title">context_tail</span> = <span class="hljs-title">NULL</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> context_len = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> context_overflowed = <span class="hljs-number">0</span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">dump_context</span><span class="hljs-params">(<span class="hljs-keyword">int</span> printing)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ContextLine</span> * <span class="hljs-title">ctx</span> = <span class="hljs-title">context_tail</span>;</span>
+	<span class="hljs-keyword">while</span> (ctx) {
+			<span class="hljs-keyword">if</span> (printing &amp;&amp; ctx != context_head) {
+			<span class="hljs-keyword">if</span> (ctx-&gt;filename) print_filename(ctx-&gt;filename, <span class="hljs-string">"-"</span>);
+			<span class="hljs-keyword">if</span> (ctx-&gt;<span class="hljs-built_in">line</span>) print_line_number(ctx-&gt;<span class="hljs-built_in">line</span>, <span class="hljs-string">"-"</span>);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%.*s\n"</span>, (<span class="hljs-keyword">int</span>)ctx-&gt;len, ctx-&gt;buf);
+		}
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ContextLine</span> * <span class="hljs-title">p</span> = <span class="hljs-title">ctx</span>-&gt;<span class="hljs-title">prev</span>;</span>
+		<span class="hljs-built_in">free</span>(ctx-&gt;buf);
+		<span class="hljs-built_in">free</span>(ctx);
+		ctx = p;
+	}
+	context_head = <span class="hljs-literal">NULL</span>;
+	context_tail = <span class="hljs-literal">NULL</span>;
+	context_len = <span class="hljs-number">0</span>;
+	context_overflowed = <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> ** argv)</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _I <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _E <span class="hljs-meta-string">"\033[0m\n"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"usage: %s [-cilnoqsvxF] PATTERN [FILE...]\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"Search for PATTERN in each file.\n"</span>
+		<span class="hljs-string">"Take care that this grep's pattern engine is limited and not POSIX-compliant.\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" Supported options:\n"</span>
+		<span class="hljs-string">"  -c      "</span> _I <span class="hljs-string">"Instead of printing matches, print counts of matched lines."</span> _E
+		<span class="hljs-string">"  -i      "</span> _I <span class="hljs-string">"Ignore case in input and pattern."</span> _E
+		<span class="hljs-string">"  -l      "</span> _I <span class="hljs-string">"Instead of printing matches, print the names of files that.\n"</span>
+		<span class="hljs-string">"          match. Takes precedence over most other options."</span> _E
+		<span class="hljs-string">"  -n      "</span> _I <span class="hljs-string">"Prefix each printed match with the line number it appeared on."</span> _E
+		<span class="hljs-string">"  -o      "</span> _I <span class="hljs-string">"Print only the matching parts of each line, separating\n"</span>
+		<span class="hljs-string">"          each match with a line feed."</span> _E
+		<span class="hljs-string">"  -q      "</span> _I <span class="hljs-string">"Exit immediately with 0 when a match (or, with -v,\n"</span>
+		<span class="hljs-string">"          non-match) is found; do not print matches."</span> _E
+		<span class="hljs-string">"  -s      "</span> _I <span class="hljs-string">"Suppress the output of errors that would normally go to stderr."</span> _E
+		<span class="hljs-string">"  -v      "</span> _I <span class="hljs-string">"Invert match - print lines that do not match pattern."</span> _E
+		<span class="hljs-string">"  -x      "</span> _I <span class="hljs-string">"PATTERN must match a whole line."</span> _E
+		<span class="hljs-string">"  -F      "</span> _I <span class="hljs-string">"Treat PATTERN as a fixed string (acts as 'fgrep')."</span> _E
+		<span class="hljs-string">"  -A "</span> _I <span class="hljs-string">" n   Print up to n non-matching lines after a match."</span> _E
+		<span class="hljs-string">"  -B "</span> _I <span class="hljs-string">" n   Print up to n non-matching lines before a match."</span> _E
+		<span class="hljs-string">"  -C "</span> _I <span class="hljs-string">" n   Print up to n non-matching lines each before and after a match."</span> _E
+		<span class="hljs-string">"  --help  "</span> _I <span class="hljs-string">"Show this help message."</span> _E
+		<span class="hljs-string">"  --color "</span> _I <span class="hljs-string">"Wrap matches with escapes to highlight them in red.\n"</span>
+		<span class="hljs-string">"          The use of color may be controlled as follows:"</span> _E
+		<span class="hljs-string">"  --color=auto   "</span> _I <span class="hljs-string">"When the output is a TTY. Same as above."</span> _E
+		<span class="hljs-string">"  --color=never  "</span> _I <span class="hljs-string">"Never. Overrides a previous option."</span> _E
+		<span class="hljs-string">"  --color-always "</span> _I <span class="hljs-string">"Regardless of whether the output is a TTY."</span> _E
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" Supported regex syntax:\n"</span>
+		<span class="hljs-string">"  [abc]   "</span> _I <span class="hljs-string">"Match one of a set of characters."</span> _E
+		<span class="hljs-string">"  [a-z]   "</span> _I <span class="hljs-string">"Match one from a range of characters."</span> _E
+		<span class="hljs-string">"  (abc)   "</span> _I <span class="hljs-string">"Match a group.\n"</span>
+		<span class="hljs-string">"          This implementation does not support repeating a group match,\n"</span>
+		<span class="hljs-string">"          so groups do not really do anything."</span> _E
+		<span class="hljs-string">"  .       "</span> _I <span class="hljs-string">"Match any single character."</span> _E
+		<span class="hljs-string">"  ^       "</span> _I <span class="hljs-string">"Match the start of the line."</span> _E
+		<span class="hljs-string">"  $       "</span> _I <span class="hljs-string">"Match the end of the line."</span> _E
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" Modifiers (can be combined with [], ., and single characters):\n"</span>
+		<span class="hljs-string">"  *       "</span> _I <span class="hljs-string">"Match any number of occurances"</span> _E
+		<span class="hljs-string">"  \\?      "</span> _I <span class="hljs-string">"Match zero or one time"</span> _E
+		<span class="hljs-string">"  \\+      "</span> _I <span class="hljs-string">"Match at least one occurance"</span> _E
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" Some characters can be escaped in the pattern with \\.\n"</span>
+		<span class="hljs-string">" The regex engine is not Unicode-aware.\n"</span>,
+		argv[<span class="hljs-number">0</span>]);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> _I</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> _E</span>
+	<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> ** argv)</span> </span>{
+	<span class="hljs-keyword">int</span> opt;
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"?hivqocFxlnsA:B:C:-:"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'h'</span>:
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> usage(argv);
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'i'</span>:
+				ignorecase = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'v'</span>:
+				invert = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'q'</span>:
+				quiet = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'o'</span>:
+				only_matching = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'c'</span>:
+				counts = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'F'</span>:
+				is_fgrep = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'x'</span>:
+				whole_lines = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'l'</span>:
+				list_files = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'n'</span>:
+				line_numbers = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'s'</span>:
+				suppress_errors = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'A'</span>: {
+				<span class="hljs-keyword">char</span> * <span class="hljs-built_in">end</span> = <span class="hljs-literal">NULL</span>;
+				print_after = strtoul(optarg,&amp;<span class="hljs-built_in">end</span>,<span class="hljs-number">10</span>);
+				<span class="hljs-keyword">if</span> (*<span class="hljs-built_in">end</span>) <span class="hljs-keyword">return</span> usage(argv);
+				<span class="hljs-keyword">break</span>;
+			}
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'B'</span>: {
+				<span class="hljs-keyword">char</span> * <span class="hljs-built_in">end</span> = <span class="hljs-literal">NULL</span>;
+				print_before = strtoul(optarg,&amp;<span class="hljs-built_in">end</span>,<span class="hljs-number">10</span>);
+				<span class="hljs-keyword">if</span> (*<span class="hljs-built_in">end</span>) <span class="hljs-keyword">return</span> usage(argv);
+				<span class="hljs-keyword">break</span>;
+			}
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'C'</span>: {
+				<span class="hljs-keyword">char</span> * <span class="hljs-built_in">end</span> = <span class="hljs-literal">NULL</span>;
+				print_after = print_before = strtoul(optarg,&amp;<span class="hljs-built_in">end</span>,<span class="hljs-number">10</span>);
+				<span class="hljs-keyword">if</span> (*<span class="hljs-built_in">end</span>) <span class="hljs-keyword">return</span> usage(argv);
+				<span class="hljs-keyword">break</span>;
+			}
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'-'</span>:
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(optarg,<span class="hljs-string">"help"</span>)) {
+					<span class="hljs-keyword">return</span> usage(argv);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(optarg,<span class="hljs-string">"color=never"</span>)) {
+					use_color = <span class="hljs-number">0</span>; <span class="hljs-comment">/* Overrides previous instances of conflicting option */</span>
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(optarg,<span class="hljs-string">"color"</span>) || !<span class="hljs-built_in">strcmp</span>(optarg,<span class="hljs-string">"color=auto"</span>)) {
+					use_color = <span class="hljs-number">1</span>; <span class="hljs-comment">/* treat 1 as maybe */</span>
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(optarg,<span class="hljs-string">"color=always"</span>)) {
+					use_color = <span class="hljs-number">2</span>;
+				}
+				<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-comment">/* Detect if we were invoke as 'fgrep'. */</span>
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(basename(argv[<span class="hljs-number">0</span>]),<span class="hljs-string">"fgrep"</span>)) {
+		is_fgrep = <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* Require at least a PATTERN argument. */</span>
+	<span class="hljs-keyword">if</span> (optind == argc) <span class="hljs-keyword">return</span> usage(argv);
+	<span class="hljs-keyword">char</span> * needle = argv[optind++];
+
+	<span class="hljs-keyword">int</span> ret = <span class="hljs-number">1</span>; <span class="hljs-comment">/* Normal exit status: 0 if something matched, 1 if not. */</span>
+	<span class="hljs-keyword">int</span> err = <span class="hljs-number">0</span>; <span class="hljs-comment">/* Whether an error was encountered that should override the exit status to 2. */</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>We show additional messages for detected binaries only if we are on a TTY,
+and &quot;auto&quot; color mode should only activate if we are on a TTY.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">int</span> is_tty = isatty(STDOUT_FILENO);
+	<span class="hljs-keyword">if</span> (!is_tty &amp;&amp; use_color == <span class="hljs-number">1</span>) use_color = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* When multiple file arguments are provided, include the names of files as a prefix to matches. */</span>
+	<span class="hljs-keyword">int</span> showFilenames = (optind + <span class="hljs-number">1</span> &lt; argc);
+
+	<span class="hljs-comment">/* This buffer is allocated by 'getline' and reused between files. */</span>
+	<span class="hljs-keyword">char</span> * buf = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">size_t</span> avail = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">do</span> {
+		FILE * input = <span class="hljs-built_in">stdin</span>;
+		<span class="hljs-keyword">ssize_t</span> lineLength = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">int</span> count = <span class="hljs-number">0</span>;    <span class="hljs-comment">/* Count of matching lines. */</span>
+		<span class="hljs-keyword">int</span> isbinary = <span class="hljs-number">0</span>; <span class="hljs-comment">/* If we have detected any NUL characters in the input. */</span>
+		<span class="hljs-keyword">int</span> ln = <span class="hljs-number">0</span>;       <span class="hljs-comment">/* Current line number. */</span>
+		<span class="hljs-keyword">size_t</span> after = <span class="hljs-number">0</span>; <span class="hljs-comment">/* How mines non-matching lines to print anyway */</span>
+
+		<span class="hljs-comment">/* If there are file arguments, use them, but treat - as standard input. */</span>
+		<span class="hljs-keyword">if</span> (optind &lt; argc &amp;&amp; <span class="hljs-built_in">strcmp</span>(argv[optind],<span class="hljs-string">"-"</span>)) {
+			input = fopen(argv[optind], <span class="hljs-string">"r"</span>);
+			<span class="hljs-keyword">if</span> (!input) {
+				<span class="hljs-keyword">if</span> (!suppress_errors) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], argv[optind], strerror(errno));
+				<span class="hljs-comment">/* We continue to read other arguments but note this error to exit with 2 later. */</span>
+				err = <span class="hljs-number">1</span>;
+				optind++;
+				<span class="hljs-keyword">continue</span>;
+			}
+		}
+
+		<span class="hljs-comment">/* POSIX says we should print '(standard input)' instead of -, so make it happy. */</span>
+		<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * filename = input == <span class="hljs-built_in">stdin</span> ? <span class="hljs-string">"(standard input)"</span> : argv[optind];
+
+		<span class="hljs-comment">/* Clear context */</span>
+		dump_context(<span class="hljs-number">0</span>);
+
+		<span class="hljs-keyword">while</span> ((lineLength = getline(&amp;buf, &amp;avail, input)) &gt;= <span class="hljs-number">0</span>) {
+			ln++;
+
+			<span class="hljs-comment">/* Ignore any trailing line feed. */</span>
+			<span class="hljs-keyword">if</span> (lineLength &amp;&amp; buf[lineLength<span class="hljs-number">-1</span>] == <span class="hljs-string">'\n'</span>) {
+				lineLength--;
+			}
+
+			<span class="hljs-comment">/* Prepare Line for regex engine. */</span>
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Line</span> <span class="hljs-title">line</span> = {</span>
+				lineLength,
+				buf
+			};
+
+			<span class="hljs-comment">/* Scan for any NUL characters in this line to see if it is a binary. */</span>
+			<span class="hljs-keyword">if</span> (!isbinary) {
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">ssize_t</span> i = <span class="hljs-number">0</span>; i &lt; lineLength; ++i) {
+					<span class="hljs-keyword">if</span> (buf[i] == <span class="hljs-string">'\0'</span>) {
+						isbinary = <span class="hljs-number">1</span>;
+						<span class="hljs-keyword">break</span>;
+					}
+				}
+			}
+
+			<span class="hljs-comment">/* isbinary can change whenever we hit a binary line, so recheck each time */</span>
+			<span class="hljs-keyword">int</span> print_context = !quiet &amp;&amp; !isbinary &amp;&amp; !list_files &amp;&amp; !counts;
+
+			<span class="hljs-keyword">if</span> (!isbinary &amp;&amp; print_before) {
+				<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ContextLine</span> * <span class="hljs-title">ctx</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">ContextLine</span>));</span>
+				ctx-&gt;next = context_head;
+				ctx-&gt;prev = <span class="hljs-literal">NULL</span>;
+				ctx-&gt;len = lineLength;
+				ctx-&gt;buf = strdup(buf); <span class="hljs-comment">/* not binary, so this should be fine */</span>
+				ctx-&gt;filename = showFilenames ? filename : <span class="hljs-literal">NULL</span>;
+				ctx-&gt;<span class="hljs-built_in">line</span> = line_numbers ? ln : <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">if</span> (context_head) {
+					context_head-&gt;prev = ctx;
+				}
+				context_head = ctx;
+
+				<span class="hljs-keyword">if</span> (!context_len) {
+					context_tail = ctx;
+					context_len++;
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (context_len == print_before + <span class="hljs-number">1</span>) {
+					struct ContextLine * new_tail = context_tail-&gt;prev;
+					new_tail-&gt;next = <span class="hljs-literal">NULL</span>;
+					<span class="hljs-built_in">free</span>(context_tail-&gt;buf);
+					<span class="hljs-built_in">free</span>(context_tail);
+					context_tail = new_tail;
+					context_overflowed = <span class="hljs-number">1</span>;
+				} <span class="hljs-keyword">else</span> {
+					context_len++;
+				}
+			}
+
+			<span class="hljs-keyword">if</span> (!invert) {
+				<span class="hljs-keyword">int</span> lastMatch = <span class="hljs-number">0</span>; <span class="hljs-comment">/* End of the last match. */</span>
+				<span class="hljs-keyword">int</span> matched = <span class="hljs-number">0</span>;   <span class="hljs-comment">/* Whether this line has matched yet. Useful when a degenerate match means lastMatch is still 0. */</span>
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt;= lineLength;) {
+					<span class="hljs-keyword">int</span> len;
+					<span class="hljs-keyword">if</span> (subsearch_matches(&amp;<span class="hljs-built_in">line</span>, j, needle, &amp;len)) {
+						<span class="hljs-keyword">if</span> (whole_lines &amp;&amp; len != lineLength) <span class="hljs-keyword">break</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If quiet gets a match at all, ony any file, we immediately exit with 0,
+even ignoring any errors we may have printed about previously.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">						<span class="hljs-keyword">if</span> (quiet) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+						<span class="hljs-comment">/* Increment count of matching lines only if this is the fist match */</span>
+						<span class="hljs-keyword">if</span> (!matched) {
+							<span class="hljs-keyword">if</span> (print_context &amp;&amp; context_overflowed &amp;&amp; (count || ret == <span class="hljs-number">0</span>)) print_dash(<span class="hljs-string">"--"</span>,<span class="hljs-number">1</span>);
+							<span class="hljs-keyword">if</span> (print_before &amp;&amp; print_context) dump_context(<span class="hljs-number">1</span>);
+
+							count++;
+						}
+
+						<span class="hljs-comment">/* If anything matched, return code is 0 except for an error. */</span>
+						ret = <span class="hljs-number">0</span>;
+						matched = <span class="hljs-number">1</span>;
+
+						<span class="hljs-comment">/* If we are just listing matching files, we're done on the first match. */</span>
+						<span class="hljs-keyword">if</span> (list_files) <span class="hljs-keyword">goto</span> _done;
+
+						<span class="hljs-comment">/* If we're counting matching lines, we're done with this line. */</span>
+						<span class="hljs-keyword">if</span> (counts) <span class="hljs-keyword">break</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If this is a binary file, and we are not counting matched lines,
+we're done here, similar to listing.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">						<span class="hljs-keyword">if</span> (isbinary) <span class="hljs-keyword">goto</span> _done;
+
+						<span class="hljs-keyword">if</span> (!len &amp;&amp; only_matching) {
+							<span class="hljs-comment">/* Don't try to print a degenerate match here. */</span>
+							lastMatch = j = j + <span class="hljs-number">1</span>;
+							<span class="hljs-keyword">continue</span>;
+						}
+
+						<span class="hljs-keyword">if</span> (only_matching || !lastMatch) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-11" id="section-11"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Prefix this match result as needed. For -o, every match
+is prefixed. Otherwise, we only print the prefix before
+the first match.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">							<span class="hljs-keyword">if</span> (showFilenames) print_filename(filename, <span class="hljs-string">":"</span>);
+							<span class="hljs-keyword">if</span> (line_numbers) print_line_number(ln, <span class="hljs-string">":"</span>);
+						}
+
+						<span class="hljs-keyword">if</span> (only_matching) {
+							<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%.*s\n"</span>, len, buf + j);
+						} <span class="hljs-keyword">else</span> {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-12" id="section-12"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Print from the end of the previous match up to the end of
+the current match, with color when enabled.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">							<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%.*s%s%.*s%s"</span>,
+								j - lastMatch,
+								buf + lastMatch,
+								use_color ? <span class="hljs-string">"\033[1;31m"</span> : <span class="hljs-string">""</span>,
+								len,
+								buf + j,
+								use_color ? <span class="hljs-string">"\033[0m"</span> : <span class="hljs-string">""</span>);
+						}
+
+						<span class="hljs-comment">/* Update lastMatch to point to the end of this match. */</span>
+						lastMatch = j + len;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-13" id="section-13"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Advance to that point, ensuring we skip to the next character
+if this match was degenerate.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">						j = lastMatch + !len;
+					} <span class="hljs-keyword">else</span> {
+						j++;
+					}
+
+					<span class="hljs-comment">/* When matching whole lines, we only check from index 0, so break now. */</span>
+					<span class="hljs-keyword">if</span> (whole_lines) <span class="hljs-keyword">break</span>;
+				}
+
+				<span class="hljs-comment">/* If we are counting matches, don't print anything and go to next line. */</span>
+				<span class="hljs-keyword">if</span> (counts) <span class="hljs-keyword">continue</span>;
+
+				<span class="hljs-keyword">if</span> (print_after &amp;&amp; print_context) {
+					<span class="hljs-keyword">if</span> (matched) {
+						after = print_after;
+						<span class="hljs-keyword">if</span> (!print_before) context_overflowed = <span class="hljs-number">0</span>;
+					} <span class="hljs-keyword">else</span> {
+						<span class="hljs-keyword">if</span> (after &gt; <span class="hljs-number">0</span>) {
+							dump_context(<span class="hljs-number">0</span>);
+							<span class="hljs-keyword">if</span> (showFilenames) print_filename(filename, <span class="hljs-string">"-"</span>);
+							<span class="hljs-keyword">if</span> (line_numbers) print_line_number(ln, <span class="hljs-string">"-"</span>);
+							<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%.*s\n"</span>, (<span class="hljs-keyword">int</span>)lineLength, buf);
+							after--;
+						} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!print_before) {
+							context_overflowed = <span class="hljs-number">1</span>;
+						}
+					}
+				}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-14" id="section-14"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If we weren't printing just the matching text and we had a match, there
+may be more of the line left to print, and we must also print a line feed
+ourselves (we ignore any line feed in the actual line, and we print one
+even if the line didn't actually end in one).</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				<span class="hljs-keyword">if</span> (!only_matching &amp;&amp; matched) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%.*s\n"</span>, (<span class="hljs-keyword">int</span>)(lineLength - lastMatch), buf + lastMatch);
+			} <span class="hljs-keyword">else</span> {
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-15" id="section-15"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>The inverse matching case is a lot simpler as we don't have to deal with
+coloring submatches. Try the pattern at every point in the line, and if
+it ever matches, reject it. When un-matching whole lines, check only
+from index 0 and only reject if the match length is the same as the line.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				<span class="hljs-keyword">int</span> matched = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt;= lineLength; ++j) {
+					<span class="hljs-keyword">int</span> len;
+					<span class="hljs-keyword">if</span> (subsearch_matches(&amp;<span class="hljs-built_in">line</span>, j, needle, &amp;len)) {
+						<span class="hljs-keyword">if</span> (whole_lines &amp;&amp; len != lineLength) <span class="hljs-keyword">break</span>;
+						matched = <span class="hljs-number">1</span>;
+						<span class="hljs-keyword">break</span>;
+					}
+					<span class="hljs-keyword">if</span> (whole_lines) <span class="hljs-keyword">break</span>;
+				}
+
+				<span class="hljs-comment">/* Do nothing on a matched line. */</span>
+				<span class="hljs-keyword">if</span> (matched) {
+					<span class="hljs-keyword">if</span> (print_after &amp;&amp; print_context) {
+						<span class="hljs-keyword">if</span> (after &gt; <span class="hljs-number">0</span>) {
+							dump_context(<span class="hljs-number">0</span>);
+							<span class="hljs-keyword">if</span> (showFilenames) print_filename(filename, <span class="hljs-string">"-"</span>);
+							<span class="hljs-keyword">if</span> (line_numbers) print_line_number(ln, <span class="hljs-string">"-"</span>);
+							<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%.*s\n"</span>, (<span class="hljs-keyword">int</span>)lineLength, buf);
+							after--;
+						} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!print_before) {
+							context_overflowed = <span class="hljs-number">1</span>;
+						}
+					}
+					<span class="hljs-keyword">continue</span>;
+				}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-16" id="section-16"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>In quiet mode, if anything un-matched, immediately exit with 0,
+ignoring all the other arguments.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				<span class="hljs-keyword">if</span> (quiet) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+				<span class="hljs-keyword">if</span> (print_context) {
+					<span class="hljs-keyword">if</span> (context_overflowed &amp;&amp; count) print_dash(<span class="hljs-string">"--"</span>,<span class="hljs-number">1</span>);
+					<span class="hljs-keyword">if</span> (print_before) dump_context(<span class="hljs-number">1</span>);
+					<span class="hljs-keyword">if</span> (print_after) after = print_after;
+					<span class="hljs-keyword">if</span> (!print_before) context_overflowed = <span class="hljs-number">0</span>;
+				}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-17" id="section-17"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Otherwise any un-matched line sets our return status to 0 like any
+matched line does in the non-inverse case.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				ret = <span class="hljs-number">0</span>;
+
+				<span class="hljs-comment">/* Count un-matched lines. */</span>
+				count++;
+
+				<span class="hljs-comment">/* If just listing file names, we're done with this file. */</span>
+				<span class="hljs-keyword">if</span> (list_files) <span class="hljs-keyword">goto</span> _done;
+
+				<span class="hljs-comment">/* If we're counting un-matching lines, we're done with this one. */</span>
+				<span class="hljs-keyword">if</span> (counts) <span class="hljs-keyword">continue</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-18" id="section-18"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>And again, same as above, if this was a binary and we weren't
+counting un-matched 'lines', we're now done with this file.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				<span class="hljs-keyword">if</span> (isbinary) <span class="hljs-keyword">goto</span> _done;
+
+				<span class="hljs-comment">/* -ov is a weird combo, but don't print anything. */</span>
+				<span class="hljs-keyword">if</span> (only_matching) <span class="hljs-keyword">continue</span>;
+
+				<span class="hljs-comment">/* Print relevant prefixes. */</span>
+				<span class="hljs-keyword">if</span> (showFilenames) print_filename(filename, <span class="hljs-string">":"</span>);
+				<span class="hljs-keyword">if</span> (line_numbers) print_line_number(ln, <span class="hljs-string">":"</span>);
+
+				<span class="hljs-comment">/* And finally, print the un-matched line with a line feed. */</span>
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%.*s\n"</span>, (<span class="hljs-keyword">int</span>)lineLength, buf);
+			}
+		}
+
+		<span class="hljs-keyword">if</span> (lineLength &lt; <span class="hljs-number">0</span> &amp;&amp; ferror(input)) {
+			<span class="hljs-keyword">if</span> (!suppress_errors) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], filename, strerror(errno));
+			err = <span class="hljs-number">1</span>;
+			optind++;
+			<span class="hljs-keyword">continue</span>;
+		}
+
+_done: (<span class="hljs-keyword">void</span>)<span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (input != <span class="hljs-built_in">stdin</span>) fclose(input);
+
+		<span class="hljs-keyword">if</span> (!quiet) {
+			<span class="hljs-keyword">if</span> (list_files) {
+				<span class="hljs-keyword">if</span> (count) <span class="hljs-built_in">puts</span>(filename);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (counts) {
+				<span class="hljs-keyword">if</span> (showFilenames) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%s:"</span>, filename);
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%d\n"</span>, count);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (count &amp;&amp; isbinary &amp;&amp; is_tty) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%s: %s: binary file matches\n"</span>, argv[<span class="hljs-number">0</span>], filename);
+			}
+		}
+
+		optind++;
+	} <span class="hljs-keyword">while</span> (optind &lt; argc);
+
+	<span class="hljs-keyword">return</span> err ? <span class="hljs-number">2</span> : ret;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

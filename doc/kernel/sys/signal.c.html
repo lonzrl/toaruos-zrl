@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>signal.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\sys\\signal.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>signal.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/signal_defs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/spinlock.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/ptrace.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/syscall.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> sig_lock;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SIG_DISP_Ign  0</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SIG_DISP_Term 1</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SIG_DISP_Core 2</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SIG_DISP_Stop 3</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SIG_DISP_Cont 4</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> sig_defaults[] = {
+	<span class="hljs-number">0</span>, <span class="hljs-comment">/* 0? */</span>
+	[SIGHUP     ] = SIG_DISP_Term,
+	[SIGINT     ] = SIG_DISP_Term,
+	[SIGQUIT    ] = SIG_DISP_Core,
+	[SIGILL     ] = SIG_DISP_Core,
+	[SIGTRAP    ] = SIG_DISP_Core,
+	[SIGABRT    ] = SIG_DISP_Core,
+	[SIGEMT     ] = SIG_DISP_Core,
+	[SIGFPE     ] = SIG_DISP_Core,
+	[SIGKILL    ] = SIG_DISP_Term,
+	[SIGBUS     ] = SIG_DISP_Core,
+	[SIGSEGV    ] = SIG_DISP_Core,
+	[SIGSYS     ] = SIG_DISP_Core,
+	[SIGPIPE    ] = SIG_DISP_Term,
+	[SIGALRM    ] = SIG_DISP_Term,
+	[SIGTERM    ] = SIG_DISP_Term,
+	[SIGUSR1    ] = SIG_DISP_Term,
+	[SIGUSR2    ] = SIG_DISP_Term,
+	[SIGCHLD    ] = SIG_DISP_Ign,
+	[SIGPWR     ] = SIG_DISP_Ign,
+	[SIGWINCH   ] = SIG_DISP_Ign,
+	[SIGURG     ] = SIG_DISP_Ign,
+	[SIGPOLL    ] = SIG_DISP_Ign,
+	[SIGSTOP    ] = SIG_DISP_Stop,
+	[SIGTSTP    ] = SIG_DISP_Stop,
+	[SIGCONT    ] = SIG_DISP_Cont,
+	[SIGTTIN    ] = SIG_DISP_Stop,
+	[SIGTTOUT   ] = SIG_DISP_Stop,
+	[SIGTTOU    ] = SIG_DISP_Stop,
+	[SIGVTALRM  ] = SIG_DISP_Term,
+	[SIGPROF    ] = SIG_DISP_Term,
+	[SIGXCPU    ] = SIG_DISP_Core,
+	[SIGXFSZ    ] = SIG_DISP_Core,
+	[SIGWAITING ] = SIG_DISP_Ign,
+	[SIGDIAF    ] = SIG_DISP_Term,
+	[SIGHATE    ] = SIG_DISP_Ign,
+	[SIGWINEVENT] = SIG_DISP_Ign,
+	[SIGCAT     ] = SIG_DISP_Ign,
+};
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> shift_signal(signum) (1ULL &lt;&lt; signum)</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">r</span>
+<span>Registers after restoration from signal return.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">maybe_restart_system_call</span><span class="hljs-params">(struct regs * r, <span class="hljs-keyword">int</span> signum, <span class="hljs-keyword">int</span> no_handler)</span> </span>{
+	<span class="hljs-keyword">if</span> (signum &lt; <span class="hljs-number">0</span> || signum &gt;= NUMSIGNALS) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;interrupted_system_call &amp;&amp; arch_syscall_number(r) == -ERESTARTSYS) {
+		<span class="hljs-keyword">if</span> (sig_defaults[signum] == SIG_DISP_Cont || (this_core-&gt;current_process-&gt;signals[signum].flags &amp; SA_RESTART)) {
+			arch_syscall_return(r, this_core-&gt;current_process-&gt;interrupted_system_call);
+			this_core-&gt;current_process-&gt;interrupted_system_call = <span class="hljs-number">0</span>;
+			syscall_handler(r);
+		} <span class="hljs-keyword">else</span> {
+			this_core-&gt;current_process-&gt;interrupted_system_call = <span class="hljs-number">0</span>;
+			arch_syscall_return(r, -EINTR);
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;interrupted_system_call &amp;&amp; arch_syscall_number(r) == -ERESTARTSIGSUSPEND) {
+		arch_syscall_return(r, this_core-&gt;current_process-&gt;interrupted_system_call);
+		this_core-&gt;current_process-&gt;interrupted_system_call = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (no_handler) {
+			syscall_handler(r);
+		} <span class="hljs-keyword">else</span> {
+			arch_syscall_return(r, -EINTR);
+		}
+		<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;flags &amp; PROC_FLAG_RESTORE_SIGMASK) {
+			__sync_and_and_fetch(&amp;this_core-&gt;current_process-&gt;flags, ~(PROC_FLAG_RESTORE_SIGMASK));
+			this_core-&gt;current_process-&gt;blocked_signals = this_core-&gt;current_process-&gt;restored_signals;
+		}
+	}
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PENDING (this_core-&gt;current_process-&gt;pending_signals &amp; ((~this_core-&gt;current_process-&gt;blocked_signals) | shift_signal(SIGSTOP) | shift_signal(SIGKILL)))</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">proc</span>
+<span>should be the current active process, which should generally             always be this_core-&gt;current_process.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">sig</span>
+<span>is the signal node from the pending queue. Currently, this             just contains the signal number and nothing else. It used to
+also contain the handler to call, but that led to TOCTOU bugs.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">r</span>
+<span>Userspace registers at time of signal entry. This gets passed             forward to @c arch_enter_signal_handler
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">handle_signal</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc, <span class="hljs-keyword">int</span> signum, struct regs *r, <span class="hljs-keyword">siginfo_t</span> * cause)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">signal_config</span> <span class="hljs-title">config</span> = <span class="hljs-title">proc</span>-&gt;<span class="hljs-title">signals</span>[<span class="hljs-title">signum</span>];</span>
+
+	<span class="hljs-comment">/* Are we being traced? */</span>
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;flags &amp; PROC_FLAG_TRACE_SIGNALS) {
+		signum = ptrace_signal(signum, <span class="hljs-number">0</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (proc-&gt;flags &amp; PROC_FLAG_FINISHED) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (signum == <span class="hljs-number">0</span> || signum &gt;= NUMSIGNALS) {
+		<span class="hljs-keyword">goto</span> _ignore_signal;
+	}
+
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">config</span>.handler) {
+		<span class="hljs-keyword">char</span> dowhat = sig_defaults[signum];
+		<span class="hljs-keyword">if</span> (dowhat == SIG_DISP_Term || dowhat == SIG_DISP_Core) {
+			task_exit(((<span class="hljs-number">128</span> + signum) &lt;&lt; <span class="hljs-number">8</span>) | signum);
+			__builtin_unreachable();
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (dowhat == SIG_DISP_Stop) {
+			__sync_or_and_fetch(&amp;this_core-&gt;current_process-&gt;flags, PROC_FLAG_SUSPENDED);
+			this_core-&gt;current_process-&gt;status = <span class="hljs-number">0x7F</span> | (signum &lt;&lt; <span class="hljs-number">8</span>) | <span class="hljs-number">0xFF0000</span>;
+			<span class="hljs-keyword">process_t</span> * parent = process_get_parent((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process);
+			<span class="hljs-keyword">if</span> (!(<span class="hljs-built_in">config</span>.flags &amp; SA_NOCLDSTOP)) process_send_sigchld(proc, parent, CLD_STOPPED, signum);
+			<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (parent) wakeup_queue(parent-&gt;wait_queue);
+
+			<span class="hljs-keyword">do</span> {
+				switch_task(<span class="hljs-number">0</span>);
+			} <span class="hljs-keyword">while</span> (!PENDING);
+
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>; <span class="hljs-comment">/* Return and handle another */</span>
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (dowhat == SIG_DISP_Cont) {
+			<span class="hljs-keyword">if</span> (!(<span class="hljs-built_in">config</span>.flags &amp; SA_NOCLDSTOP)) {
+				<span class="hljs-keyword">process_t</span> * parent = process_get_parent((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process);
+				process_send_sigchld(proc, parent, CLD_CONTINUED, signum);
+				<span class="hljs-comment">/* We don't support WIFCONTINUED yet, so if we aren't doing this we don't need to wake up the parent */</span>
+			}
+			<span class="hljs-keyword">goto</span> _ignore_signal;
+		}
+		<span class="hljs-keyword">goto</span> _ignore_signal;
+	}
+
+	<span class="hljs-comment">/* If the handler value is 1 we treat it as IGN. */</span>
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">config</span>.handler == <span class="hljs-number">1</span>) <span class="hljs-keyword">goto</span> _ignore_signal;
+
+	<span class="hljs-keyword">if</span> (signum != SIGILL &amp;&amp; signum != SIGTRAP &amp;&amp; (<span class="hljs-built_in">config</span>.flags &amp; SA_RESETHAND)) {
+		proc-&gt;signals[signum].handler = <span class="hljs-number">0</span>;
+		proc-&gt;signals[signum].flags &amp;= ~(SA_SIGINFO);
+	}
+
+	arch_enter_signal_handler(&amp;<span class="hljs-built_in">config</span>, cause, r);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>; <span class="hljs-comment">/* Should not be reachable */</span>
+
+_ignore_signal:
+	<span class="hljs-comment">/* we still need to check if we need to restart something */</span>
+
+	maybe_restart_system_call(r, signum, <span class="hljs-number">1</span>);
+
+	<span class="hljs-keyword">return</span> !PENDING;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">process</span>
+<span>PID to deliver to. Must be a single PID, not a group specifier.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">signal</span>
+<span>Signal number to deliver.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">force_root</span>
+<span>If the current process isn't root, it can't send signals to                   processes owned by other users, which means we can't send soft
+signals as part operations like SIGPIPE or SIGCHLD. Kernel callers
+can use this parameter to skip this check.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">send_signal_info</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> <span class="hljs-built_in">process</span>, <span class="hljs-keyword">int</span> signal, <span class="hljs-keyword">int</span> force_root, <span class="hljs-keyword">siginfo_t</span> *cause)</span> </span>{
+	<span class="hljs-keyword">process_t</span> * receiver = process_from_pid(<span class="hljs-built_in">process</span>);
+
+	<span class="hljs-keyword">if</span> (!receiver) <span class="hljs-keyword">return</span> -ESRCH;
+	<span class="hljs-keyword">if</span> (!force_root &amp;&amp; receiver-&gt;user != this_core-&gt;current_process-&gt;user &amp;&amp; this_core-&gt;current_process-&gt;user != USER_ROOT_UID &amp;&amp;
+		receiver-&gt;real_user != this_core-&gt;current_process-&gt;user &amp;&amp;
+		!(signal == SIGCONT &amp;&amp; receiver-&gt;session == this_core-&gt;current_process-&gt;session)) <span class="hljs-keyword">return</span> -EPERM;
+	<span class="hljs-keyword">if</span> (receiver-&gt;flags &amp; PROC_FLAG_IS_TASKLET) <span class="hljs-keyword">return</span> -EPERM;
+	<span class="hljs-keyword">if</span> (signal &gt;= NUMSIGNALS || signal &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">if</span> (receiver-&gt;flags &amp; PROC_FLAG_FINISHED) <span class="hljs-keyword">return</span> -ESRCH;
+	<span class="hljs-keyword">if</span> (signal == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">int</span> awaited = receiver-&gt;awaited_signals &amp; shift_signal(signal);
+	<span class="hljs-keyword">int</span> ignored = !receiver-&gt;signals[signal].handler &amp;&amp; !sig_defaults[signal];
+	<span class="hljs-keyword">int</span> blocked = (receiver-&gt;blocked_signals &amp; shift_signal(signal)) &amp;&amp; signal != SIGKILL &amp;&amp; signal != SIGSTOP;
+
+	<span class="hljs-comment">/* sigcont always unsuspends */</span>
+	<span class="hljs-keyword">if</span> (sig_defaults[signal] == SIG_DISP_Cont &amp;&amp; (receiver-&gt;flags &amp; PROC_FLAG_SUSPENDED)) {
+		__sync_and_and_fetch(&amp;receiver-&gt;flags, ~(PROC_FLAG_SUSPENDED));
+		receiver-&gt;status = <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-comment">/* Do nothing if the signal is not being waited for or blocked and the default disposition is to ignore. */</span>
+	<span class="hljs-keyword">if</span> (!awaited &amp;&amp; !blocked &amp;&amp; ignored) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Mark the signal for delivery. */</span>
+	spin_lock(receiver-&gt;sig_lock);
+
+	<span class="hljs-keyword">if</span> (cause) {
+		<span class="hljs-keyword">siginfo_t</span> * heap_cause = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">siginfo_t</span>));
+		<span class="hljs-built_in">memcpy</span>(heap_cause, cause, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">siginfo_t</span>));
+		heap_cause-&gt;si_signo = signal;
+		<span class="hljs-keyword">if</span> (cause-&gt;si_code &lt;= <span class="hljs-number">0</span>) {
+			cause-&gt;si_pid = this_core-&gt;current_process-&gt;id;
+			cause-&gt;si_uid = this_core-&gt;current_process-&gt;real_user;
+		}
+		<span class="hljs-keyword">if</span> (!receiver-&gt;sig_queue) receiver-&gt;sig_queue = list_create(<span class="hljs-string">"signal queue"</span>,receiver);
+		list_insert(receiver-&gt;sig_queue, heap_cause);
+	}
+
+	receiver-&gt;pending_signals |= shift_signal(signal);
+
+	spin_unlock(receiver-&gt;sig_lock);
+
+	<span class="hljs-comment">/* If the signal is blocked and not being awaited, end here. */</span>
+	<span class="hljs-keyword">if</span> (blocked &amp;&amp; !awaited) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Informs any blocking events that the process has been interrupted
+by a signal, which should trigger those blocking events to complete
+and potentially return -EINTR or -ERESTARTSYS</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	process_awaken_signal(receiver);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Schedule processes awoken by signals to be run. Unless they're us, we'll
+jump to the signal handler as part of returning from this call.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (receiver != this_core-&gt;current_process &amp;&amp; !process_is_ready(receiver)) {
+		make_process_ready(receiver);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">send_signal</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> <span class="hljs-built_in">process</span>, <span class="hljs-keyword">int</span> signal, <span class="hljs-keyword">int</span> force_root)</span> </span>{
+	<span class="hljs-keyword">return</span> send_signal_info(<span class="hljs-built_in">process</span>, signal, force_root, <span class="hljs-literal">NULL</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">r</span>
+<span>Userspace registers before signal entry.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">process_check_signals</span><span class="hljs-params">(struct regs * r)</span> </span>{
+_tryagain:
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process &amp;&amp; !(this_core-&gt;current_process-&gt;flags &amp; PROC_FLAG_FINISHED)) {
+		spin_lock(this_core-&gt;current_process-&gt;sig_lock);
+		<span class="hljs-comment">/* Set an pending signals that were previously blocked */</span>
+		<span class="hljs-keyword">sigset_t</span> active_signals  = PENDING;
+
+		<span class="hljs-keyword">int</span> signal = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">while</span> (active_signals &amp;&amp; signal &lt; NUMSIGNALS)  {
+			<span class="hljs-keyword">if</span> (active_signals &amp; <span class="hljs-number">1</span>) {
+				<span class="hljs-comment">/* Default case */</span>
+				<span class="hljs-keyword">siginfo_t</span> cause = {<span class="hljs-number">0</span>};
+				cause.si_signo = signal;
+				cause.si_code = SI_USER;
+
+				<span class="hljs-keyword">int</span> still_pending = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">node_t</span> * match = <span class="hljs-literal">NULL</span>;
+				<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;sig_queue) {
+					foreach (node, this_core-&gt;current_process-&gt;sig_queue) {
+						<span class="hljs-keyword">siginfo_t</span> * info = node-&gt;value;
+						<span class="hljs-keyword">if</span> (info-&gt;si_signo == signal) {
+							<span class="hljs-keyword">if</span> (match) {
+								still_pending = <span class="hljs-number">1</span>;
+								<span class="hljs-keyword">break</span>;
+							}
+							match = node;
+						}
+					}
+				}
+
+				<span class="hljs-keyword">if</span> (!still_pending) {
+					this_core-&gt;current_process-&gt;pending_signals &amp;= ~shift_signal(signal);
+				}
+
+				<span class="hljs-keyword">if</span> (match) {
+					list_delete(this_core-&gt;current_process-&gt;sig_queue, match);
+					<span class="hljs-built_in">memcpy</span>(&amp;cause, match-&gt;value, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">siginfo_t</span>));
+					<span class="hljs-built_in">free</span>(match-&gt;value);
+					<span class="hljs-built_in">free</span>(match);
+				}
+
+				spin_unlock(this_core-&gt;current_process-&gt;sig_lock);
+				<span class="hljs-keyword">if</span> (handle_signal((<span class="hljs-keyword">process_t</span>*)this_core-&gt;current_process, signal, r, &amp;cause)) <span class="hljs-keyword">return</span>;
+				<span class="hljs-keyword">goto</span> _tryagain;
+			}
+			active_signals &gt;&gt;= <span class="hljs-number">1</span>;
+			signal++;
+		}
+		spin_unlock(this_core-&gt;current_process-&gt;sig_lock);
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">r</span>
+<span>Registers at fault, passed to platform code for restoration and          then to @c maybe_restart_system_call to handle system call restarts.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">return_from_signal_handler</span><span class="hljs-params">(struct regs *r)</span> </span>{
+	<span class="hljs-keyword">int</span> signum = arch_return_from_signal_handler(r);
+	<span class="hljs-keyword">if</span> (PENDING) {
+		process_check_signals(r);
+	}
+	maybe_restart_system_call(r,signum,<span class="hljs-number">0</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">awaited</span>
+<span>Signals to wait for, should all be blocked by caller.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">sig</span>
+<span>Will be set to the awaited signal, if one arrives.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">signal_await</span><span class="hljs-params">(<span class="hljs-keyword">sigset_t</span> awaited, <span class="hljs-keyword">int</span> * sig)</span> </span>{
+	<span class="hljs-keyword">do</span> {
+		<span class="hljs-keyword">sigset_t</span> maybe = awaited &amp; this_core-&gt;current_process-&gt;pending_signals;
+		<span class="hljs-keyword">if</span> (maybe) {
+			<span class="hljs-keyword">int</span> signal = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">while</span> (maybe &amp;&amp; signal &lt; NUMSIGNALS) {
+				<span class="hljs-keyword">if</span> (maybe &amp; <span class="hljs-number">1</span>) {
+					spin_lock(this_core-&gt;current_process-&gt;sig_lock);
+					this_core-&gt;current_process-&gt;pending_signals &amp;= ~shift_signal(signal);
+					*sig = signal;
+					spin_unlock(this_core-&gt;current_process-&gt;sig_lock);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				}
+				maybe &gt;&gt;= <span class="hljs-number">1</span>;
+				signal++;
+			}
+		}
+
+		<span class="hljs-comment">/* Set awaited signals */</span>
+		this_core-&gt;current_process-&gt;awaited_signals = awaited;
+
+		<span class="hljs-comment">/* Sleep */</span>
+		switch_task(<span class="hljs-number">0</span>);
+
+		<span class="hljs-comment">/* Unset awaited signals. */</span>
+		this_core-&gt;current_process-&gt;awaited_signals = <span class="hljs-number">0</span>;
+	} <span class="hljs-keyword">while</span> (!PENDING);
+
+	<span class="hljs-keyword">return</span> -EINTR;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">signal_wait</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">while</span> (!PENDING) {
+		switch_task(<span class="hljs-number">0</span>);
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

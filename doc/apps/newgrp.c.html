@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>newgrp.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\newgrp.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>newgrp.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _TOARU_SOURCE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;pwd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/auth.h&gt;</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"usage: %s [-l] [group]\n"</span>, argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">3</span>; ++i) {
+		<span class="hljs-keyword">if</span> (fcntl(i, F_GETFL, <span class="hljs-number">0</span>) == <span class="hljs-number">-1</span>) {
+			<span class="hljs-keyword">if</span> (<span class="hljs-built_in">open</span>(<span class="hljs-string">"/dev/null"</span>, O_RDWR) != i) <span class="hljs-built_in">abort</span>();
+		}
+	}
+
+	<span class="hljs-keyword">int</span> as_login = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">int</span> opt;
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"l"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'l'</span>:
+				as_login = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">default</span>:
+				<span class="hljs-keyword">return</span> usage(argv);
+		}
+	}
+
+	<span class="hljs-keyword">uid_t</span> me = getuid();
+
+	<span class="hljs-comment">/* What group are we in by default? */</span>
+	<span class="hljs-keyword">gid_t</span> default_group = toaru_auth_get_default_group(me);
+	<span class="hljs-keyword">gid_t</span> desired_group = default_group;
+
+	<span class="hljs-comment">/* What groups can we otherwise be in? */</span>
+	<span class="hljs-keyword">int</span> groupCount = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">gid_t</span> groups[<span class="hljs-number">32</span>] = {<span class="hljs-number">0</span>};
+	toaru_auth_get_groups(me, &amp;groupCount, groups);
+
+	<span class="hljs-comment">/* What group does the user want to set? */</span>
+	<span class="hljs-keyword">if</span> (optind &lt; argc) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">passwd</span> * <span class="hljs-title">pw</span> = <span class="hljs-title">getpwnam</span>(<span class="hljs-title">argv</span>[<span class="hljs-title">optind</span>]);</span>
+		<span class="hljs-keyword">if</span> (!pw) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: group '%s' does not exist\n"</span>, argv[<span class="hljs-number">0</span>], argv[optind]);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		desired_group = pw-&gt;pw_uid;
+		endpwent();
+	}
+
+	<span class="hljs-comment">/* Can the user be in that group? */</span>
+	<span class="hljs-keyword">if</span> (desired_group != default_group) {
+		<span class="hljs-keyword">int</span> found = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; groupCount; ++i) {
+			<span class="hljs-keyword">if</span> (groups[i] == desired_group) {
+				groups[i] = default_group;
+				found = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			}
+		}
+
+		<span class="hljs-keyword">if</span> (!found) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: access denied\n"</span>, argv[<span class="hljs-number">0</span>]);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+
+	setgroups(groupCount, groups);
+	setgid(desired_group);
+	setuid(me);
+
+	<span class="hljs-keyword">if</span> (as_login) toaru_auth_set_vars();
+
+	toaru_auth_exec_shell(as_login);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">127</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

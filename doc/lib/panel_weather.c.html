@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>panel_weather.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "lib\\panel_weather.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>panel_weather.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/yutani.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/yutani-internal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/hashmap.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/menu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/text.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/panel.h&gt;</span></span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">weather</span>;</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry_Normal</span> * <span class="hljs-title">weather_title_entry</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry_Normal</span> * <span class="hljs-title">weather_updated_entry</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry_Normal</span> * <span class="hljs-title">weather_conditions_entry</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry_Normal</span> * <span class="hljs-title">weather_humidity_entry</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry_Normal</span> * <span class="hljs-title">weather_clouds_entry</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry_Normal</span> * <span class="hljs-title">weather_pressure_entry</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * weather_title_str;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * weather_updated_str;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * weather_conditions_str;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * weather_humidity_str;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * weather_clouds_str;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * weather_pressure_str;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * weather_temp_str;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> weather_status_valid = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">hashmap_t</span> * weather_icons = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">sprite_t</span> * weather_icon = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> widgets_weather_enabled = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">widget_update_weather</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">int</span> * force_updates)</span> </span>{
+	FILE * f = fopen(<span class="hljs-string">"/tmp/weather-parsed.conf"</span>,<span class="hljs-string">"r"</span>);
+	<span class="hljs-keyword">if</span> (!f) {
+		weather_status_valid = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (widgets_weather_enabled) {
+			widgets_weather_enabled = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">this</span>-&gt;<span class="hljs-built_in">width</span> = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	weather_status_valid = <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">if</span> (weather_title_str) <span class="hljs-built_in">free</span>(weather_title_str);
+	<span class="hljs-keyword">if</span> (weather_updated_str) <span class="hljs-built_in">free</span>(weather_updated_str);
+	<span class="hljs-keyword">if</span> (weather_conditions_str) <span class="hljs-built_in">free</span>(weather_conditions_str);
+	<span class="hljs-keyword">if</span> (weather_humidity_str) <span class="hljs-built_in">free</span>(weather_humidity_str);
+	<span class="hljs-keyword">if</span> (weather_clouds_str) <span class="hljs-built_in">free</span>(weather_clouds_str);
+	<span class="hljs-keyword">if</span> (weather_pressure_str) <span class="hljs-built_in">free</span>(weather_pressure_str);
+	<span class="hljs-keyword">if</span> (weather_temp_str) <span class="hljs-built_in">free</span>(weather_temp_str);
+
+	<span class="hljs-comment">/* read the entire status file */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">sb</span>;</span>
+	fstat(fileno(f), &amp;sb);
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = sb.st_size;
+
+	<span class="hljs-keyword">char</span> * data = <span class="hljs-built_in">malloc</span>(<span class="hljs-built_in">size</span> + <span class="hljs-number">1</span>);
+	fread(data, <span class="hljs-built_in">size</span>, <span class="hljs-number">1</span>, f);
+	data[<span class="hljs-built_in">size</span>] = <span class="hljs-number">0</span>;
+	fclose(f);
+
+	<span class="hljs-comment">/* Find relevant pieces */</span>
+	<span class="hljs-keyword">char</span> * t = data;
+	<span class="hljs-keyword">char</span> * temp = t;
+	t = <span class="hljs-built_in">strstr</span>(t, <span class="hljs-string">"\n"</span>); *t = <span class="hljs-string">'\0'</span>; t++;
+	<span class="hljs-keyword">char</span> * temp_r = t;
+	t = <span class="hljs-built_in">strstr</span>(t, <span class="hljs-string">"\n"</span>); *t = <span class="hljs-string">'\0'</span>; t++;
+	<span class="hljs-keyword">char</span> * conditions = t;
+	t = <span class="hljs-built_in">strstr</span>(t, <span class="hljs-string">"\n"</span>); *t = <span class="hljs-string">'\0'</span>; t++;
+	<span class="hljs-keyword">char</span> * icon = t;
+	t = <span class="hljs-built_in">strstr</span>(t, <span class="hljs-string">"\n"</span>); *t = <span class="hljs-string">'\0'</span>; t++;
+	<span class="hljs-keyword">char</span> * humidity = t;
+	t = <span class="hljs-built_in">strstr</span>(t, <span class="hljs-string">"\n"</span>); *t = <span class="hljs-string">'\0'</span>; t++;
+	<span class="hljs-keyword">char</span> * clouds = t;
+	t = <span class="hljs-built_in">strstr</span>(t, <span class="hljs-string">"\n"</span>); *t = <span class="hljs-string">'\0'</span>; t++;
+	<span class="hljs-keyword">char</span> * city = t;
+	t = <span class="hljs-built_in">strstr</span>(t, <span class="hljs-string">"\n"</span>); *t = <span class="hljs-string">'\0'</span>; t++;
+	<span class="hljs-keyword">char</span> * updated = t;
+	t = <span class="hljs-built_in">strstr</span>(t, <span class="hljs-string">"\n"</span>); *t = <span class="hljs-string">'\0'</span>; t++;
+	<span class="hljs-keyword">char</span> * pressure = t;
+	t = <span class="hljs-built_in">strstr</span>(t, <span class="hljs-string">"\n"</span>); <span class="hljs-keyword">if</span> (t) { *t = <span class="hljs-string">'\0'</span>; t++; }
+
+	<span class="hljs-keyword">if</span> (!weather_icons) {
+		weather_icons = hashmap_create(<span class="hljs-number">10</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (!hashmap_has(weather_icons, icon)) {
+		<span class="hljs-keyword">sprite_t</span> * tmp = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">sprite_t</span>));
+		<span class="hljs-keyword">char</span> path[<span class="hljs-number">512</span>];
+		<span class="hljs-built_in">sprintf</span>(path,<span class="hljs-string">"/usr/share/icons/weather/%s.png"</span>, icon);
+		load_sprite(tmp, path);
+		hashmap_set(weather_icons, icon, tmp);
+	}
+
+	weather_icon = hashmap_get(weather_icons, icon);
+
+	<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">300</span>];
+	<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"Weather for &lt;b&gt;%s&lt;/b&gt;"</span>, city);
+	weather_title_str = strdup(tmp);
+	<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"&lt;small&gt;&lt;i&gt;%s&lt;/i&gt;&lt;/small&gt;"</span>, updated);
+	weather_updated_str = strdup(tmp);
+	<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"&lt;b&gt;%s°&lt;/b&gt; - %s"</span>, temp, conditions);
+	weather_conditions_str = strdup(tmp);
+	<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"&lt;b&gt;Humidity:&lt;/b&gt; %s%%"</span>, humidity);
+	weather_humidity_str = strdup(tmp);
+	<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"&lt;b&gt;Clouds:&lt;/b&gt; %s%%"</span>, clouds);
+	weather_clouds_str = strdup(tmp);
+	<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"&lt;b&gt;Pressure:&lt;/b&gt; %s hPa"</span>, pressure);
+	weather_pressure_str = strdup(tmp);
+
+	<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"%s°"</span>, temp_r);
+	weather_temp_str = strdup(tmp);
+
+	<span class="hljs-built_in">free</span>(data);
+
+	<span class="hljs-keyword">if</span> (!widgets_weather_enabled) {
+		widgets_weather_enabled = <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">this</span>-&gt;<span class="hljs-built_in">width</span> = <span class="hljs-number">60</span>;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">weather_refresh</span><span class="hljs-params">(struct MenuEntry * self)</span> </span>{
+	(<span class="hljs-keyword">void</span>)self;
+	system(<span class="hljs-string">"weather-tool &amp;"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">weather_configure</span><span class="hljs-params">(struct MenuEntry * self)</span> </span>{
+	(<span class="hljs-keyword">void</span>)self;
+	system(<span class="hljs-string">"terminal -- sh -c \"sudo weather-configurator; weather-tool\" &amp;"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">widget_click_weather</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, struct yutani_msg_window_mouse_event * evt)</span> </span>{
+	<span class="hljs-keyword">if</span> (!weather) {
+		weather = menu_create();
+		weather-&gt;flags |= MENU_FLAG_BUBBLE_LEFT;
+		weather_title_entry = (struct MenuEntry_Normal *)menu_create_normal(<span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">""</span>, <span class="hljs-literal">NULL</span>);
+		menu_insert(weather, weather_title_entry);
+		weather_updated_entry = (struct MenuEntry_Normal *)menu_create_normal(<span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">""</span>, <span class="hljs-literal">NULL</span>);
+		menu_insert(weather, weather_updated_entry);
+		menu_insert(weather, menu_create_separator());
+		weather_conditions_entry = (struct MenuEntry_Normal *)menu_create_normal(<span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">""</span>, <span class="hljs-literal">NULL</span>);
+		menu_insert(weather, weather_conditions_entry);
+		weather_humidity_entry = (struct MenuEntry_Normal *)menu_create_normal(<span class="hljs-string">"weather-humidity"</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">""</span>, <span class="hljs-literal">NULL</span>);
+		menu_insert(weather, weather_humidity_entry);
+		weather_clouds_entry = (struct MenuEntry_Normal *)menu_create_normal(<span class="hljs-string">"weather-clouds"</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">""</span>, <span class="hljs-literal">NULL</span>);
+		menu_insert(weather, weather_clouds_entry);
+		weather_pressure_entry = (struct MenuEntry_Normal *)menu_create_normal(<span class="hljs-string">"weather-pressure"</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">""</span>, <span class="hljs-literal">NULL</span>);
+		menu_insert(weather, weather_pressure_entry);
+		menu_insert(weather, menu_create_separator());
+		menu_insert(weather, menu_create_normal(<span class="hljs-string">"refresh"</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"Refresh..."</span>, weather_refresh));
+		menu_insert(weather, menu_create_normal(<span class="hljs-string">"config"</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"Configure..."</span>, weather_configure));
+		menu_insert(weather, menu_create_separator());
+		menu_insert(weather, menu_create_normal(<span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"&lt;small&gt;&lt;i&gt;Weather data provided by&lt;/i&gt;&lt;/small&gt;"</span>, <span class="hljs-literal">NULL</span>));
+		menu_insert(weather, menu_create_normal(<span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"&lt;b&gt;OpenWeather™&lt;/b&gt;"</span>, <span class="hljs-literal">NULL</span>));
+	}
+	<span class="hljs-keyword">if</span> (weather_status_valid) {
+		menu_update_title(weather_title_entry, weather_title_str);
+		menu_update_title(weather_updated_entry, weather_updated_str);
+		menu_update_title(weather_conditions_entry, weather_conditions_str);
+		menu_update_title(weather_humidity_entry, weather_humidity_str);
+		menu_update_title(weather_clouds_entry, weather_clouds_str);
+		menu_update_title(weather_pressure_entry, weather_pressure_str);
+	}
+	<span class="hljs-keyword">if</span> (!weather-&gt;window) {
+		panel_menu_show(<span class="hljs-keyword">this</span>,weather);
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">widget_draw_weather</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">gfx_context_t</span> * ctx)</span> </span>{
+	<span class="hljs-keyword">if</span> (widgets_weather_enabled) {
+		<span class="hljs-keyword">uint32_t</span> color = (weather &amp;&amp; weather-&gt;window) ? <span class="hljs-keyword">this</span>-&gt;pctx-&gt;color_text_hilighted : <span class="hljs-keyword">this</span>-&gt;pctx-&gt;color_icon_normal;
+		panel_highlight_widget(<span class="hljs-keyword">this</span>,ctx, (weather &amp;&amp; weather-&gt;window));
+		tt_set_size(<span class="hljs-keyword">this</span>-&gt;pctx-&gt;font, <span class="hljs-number">12</span>);
+		<span class="hljs-keyword">int</span> t = tt_string_width(<span class="hljs-keyword">this</span>-&gt;pctx-&gt;font, weather_temp_str);
+		tt_draw_string(ctx, <span class="hljs-keyword">this</span>-&gt;pctx-&gt;font, <span class="hljs-number">4</span> + <span class="hljs-number">24</span> + (<span class="hljs-number">24</span> - t) / <span class="hljs-number">2</span>, <span class="hljs-number">6</span> + <span class="hljs-number">12</span>, weather_temp_str, color);
+		draw_sprite_alpha_paint(ctx, weather_icon, <span class="hljs-number">4</span>, <span class="hljs-number">1</span>, <span class="hljs-number">1.0</span>, color);
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function">struct PanelWidget * <span class="hljs-title">widget_init_weather</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	weather_refresh(<span class="hljs-literal">NULL</span>);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">PanelWidget</span> * <span class="hljs-title">widget</span> = <span class="hljs-title">widget_new</span>();</span>
+	widget-&gt;<span class="hljs-built_in">width</span> = <span class="hljs-number">0</span>;
+	widget-&gt;draw = widget_draw_weather;
+	widget-&gt;<span class="hljs-built_in">click</span> = widget_click_weather;
+	widget-&gt;update = widget_update_weather;
+	list_insert(widgets_enabled, widget);
+	<span class="hljs-keyword">return</span> widget;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>tarfs.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\vfs\\tarfs.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>tarfs.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/tokenize.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/hashmap.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TARFS_LOG_LEVEL WARNING</span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tarfs</span> {</span>
+	<span class="hljs-keyword">fs_node_t</span> * device;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> length;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ustar</span> {</span>
+	<span class="hljs-keyword">char</span> filename[<span class="hljs-number">100</span>];
+	<span class="hljs-keyword">char</span> mode[<span class="hljs-number">8</span>];
+	<span class="hljs-keyword">char</span> ownerid[<span class="hljs-number">8</span>];
+	<span class="hljs-keyword">char</span> groupid[<span class="hljs-number">8</span>];
+
+	<span class="hljs-keyword">char</span> <span class="hljs-built_in">size</span>[<span class="hljs-number">12</span>];
+	<span class="hljs-keyword">char</span> mtime[<span class="hljs-number">12</span>];
+
+	<span class="hljs-keyword">char</span> checksum[<span class="hljs-number">8</span>];
+	<span class="hljs-keyword">char</span> type[<span class="hljs-number">1</span>];
+	<span class="hljs-keyword">char</span> link[<span class="hljs-number">100</span>];
+
+	<span class="hljs-keyword">char</span> ustar[<span class="hljs-number">6</span>];
+	<span class="hljs-keyword">char</span> version[<span class="hljs-number">2</span>];
+
+	<span class="hljs-keyword">char</span> owner[<span class="hljs-number">32</span>];
+	<span class="hljs-keyword">char</span> group[<span class="hljs-number">32</span>];
+
+	<span class="hljs-keyword">char</span> dev_major[<span class="hljs-number">8</span>];
+	<span class="hljs-keyword">char</span> dev_minor[<span class="hljs-number">8</span>];
+
+	<span class="hljs-keyword">char</span> prefix[<span class="hljs-number">155</span>];
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> <span class="hljs-title">interpret_uid</span><span class="hljs-params">(struct ustar * file)</span> </span>{
+	<span class="hljs-keyword">return</span> 
+		((file-&gt;ownerid[<span class="hljs-number">0</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">18</span>) |
+		((file-&gt;ownerid[<span class="hljs-number">1</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">15</span>) |
+		((file-&gt;ownerid[<span class="hljs-number">2</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">12</span>) |
+		((file-&gt;ownerid[<span class="hljs-number">3</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">9</span>) |
+		((file-&gt;ownerid[<span class="hljs-number">4</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">6</span>) |
+		((file-&gt;ownerid[<span class="hljs-number">5</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">3</span>) |
+		((file-&gt;ownerid[<span class="hljs-number">6</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> <span class="hljs-title">interpret_gid</span><span class="hljs-params">(struct ustar * file)</span> </span>{
+	<span class="hljs-keyword">return</span> 
+		((file-&gt;groupid[<span class="hljs-number">0</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">18</span>) |
+		((file-&gt;groupid[<span class="hljs-number">1</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">15</span>) |
+		((file-&gt;groupid[<span class="hljs-number">2</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">12</span>) |
+		((file-&gt;groupid[<span class="hljs-number">3</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">9</span>) |
+		((file-&gt;groupid[<span class="hljs-number">4</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">6</span>) |
+		((file-&gt;groupid[<span class="hljs-number">5</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">3</span>) |
+		((file-&gt;groupid[<span class="hljs-number">6</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> <span class="hljs-title">interpret_mode</span><span class="hljs-params">(struct ustar * file)</span> </span>{
+	<span class="hljs-keyword">return</span> 
+		((file-&gt;mode[<span class="hljs-number">0</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">18</span>) |
+		((file-&gt;mode[<span class="hljs-number">1</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">15</span>) |
+		((file-&gt;mode[<span class="hljs-number">2</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">12</span>) |
+		((file-&gt;mode[<span class="hljs-number">3</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">9</span>) |
+		((file-&gt;mode[<span class="hljs-number">4</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">6</span>) |
+		((file-&gt;mode[<span class="hljs-number">5</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">3</span>) |
+		((file-&gt;mode[<span class="hljs-number">6</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> <span class="hljs-title">interpret_size</span><span class="hljs-params">(struct ustar * file)</span> </span>{
+	<span class="hljs-keyword">return</span>
+		((file-&gt;<span class="hljs-built_in">size</span>[ <span class="hljs-number">0</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">30</span>) |
+		((file-&gt;<span class="hljs-built_in">size</span>[ <span class="hljs-number">1</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">27</span>) |
+		((file-&gt;<span class="hljs-built_in">size</span>[ <span class="hljs-number">2</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">24</span>) |
+		((file-&gt;<span class="hljs-built_in">size</span>[ <span class="hljs-number">3</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">21</span>) |
+		((file-&gt;<span class="hljs-built_in">size</span>[ <span class="hljs-number">4</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">18</span>) |
+		((file-&gt;<span class="hljs-built_in">size</span>[ <span class="hljs-number">5</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">15</span>) |
+		((file-&gt;<span class="hljs-built_in">size</span>[ <span class="hljs-number">6</span>] - <span class="hljs-string">'0'</span>) &lt;&lt; <span class="hljs-number">12</span>) |
+		((file-&gt;<span class="hljs-built_in">size</span>[ <span class="hljs-number">7</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">9</span>) |
+		((file-&gt;<span class="hljs-built_in">size</span>[ <span class="hljs-number">8</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">6</span>) |
+		((file-&gt;<span class="hljs-built_in">size</span>[ <span class="hljs-number">9</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">3</span>) |
+		((file-&gt;<span class="hljs-built_in">size</span>[<span class="hljs-number">10</span>] - <span class="hljs-string">'0'</span>) &lt;&lt;  <span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> <span class="hljs-title">round_to_512</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i)</span> </span>{
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> t = i % <span class="hljs-number">512</span>;
+
+	<span class="hljs-keyword">if</span> (!t) <span class="hljs-keyword">return</span> i;
+	<span class="hljs-keyword">return</span> i + (<span class="hljs-number">512</span> - t);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ustar_from_offset</span><span class="hljs-params">(struct tarfs * self, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> offset, struct ustar * out)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">file_from_ustar</span><span class="hljs-params">(struct tarfs * self, struct ustar * file, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> offset)</span></span>;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> strncat</span>
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">strncat</span><span class="hljs-params">(<span class="hljs-keyword">char</span> *dest, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *src, <span class="hljs-keyword">size_t</span> n)</span> </span>{
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">end</span> = dest;
+	<span class="hljs-keyword">while</span> (*<span class="hljs-built_in">end</span> != <span class="hljs-string">'\0'</span>) {
+		++<span class="hljs-built_in">end</span>;
+	}
+	<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (*src &amp;&amp; i &lt; n) {
+		*<span class="hljs-built_in">end</span> = *src;
+		<span class="hljs-built_in">end</span>++;
+		src++;
+		i++;
+	}
+	*<span class="hljs-built_in">end</span> = <span class="hljs-string">'\0'</span>;
+	<span class="hljs-keyword">return</span> dest;
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">count_slashes</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * <span class="hljs-built_in">string</span>)</span> </span>{
+	<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> * s = <span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">string</span>, <span class="hljs-string">"/"</span>);
+	<span class="hljs-keyword">while</span> (s) {
+		<span class="hljs-keyword">if</span> (*(s+<span class="hljs-number">1</span>) == <span class="hljs-string">'\0'</span>) <span class="hljs-keyword">return</span> i;
+		i++;
+		s = <span class="hljs-built_in">strstr</span>(s+<span class="hljs-number">1</span>,<span class="hljs-string">"/"</span>);
+	}
+	<span class="hljs-keyword">return</span> i;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">readdir_tar_root</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> index, struct dirent * out)</span> </span>{
+	<span class="hljs-keyword">if</span> (index == <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+		out-&gt;d_ino = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">strcpy</span>(out-&gt;d_name, <span class="hljs-string">"."</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (index == <span class="hljs-number">1</span>) {
+		<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+		out-&gt;d_ino = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">strcpy</span>(out-&gt;d_name, <span class="hljs-string">".."</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	index -= <span class="hljs-number">2</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tarfs</span> * <span class="hljs-title">self</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+	<span class="hljs-comment">/* Go through each file and pick the ones are at the root */</span>
+	<span class="hljs-comment">/* Root files will have no /, so this is easy */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> offset = <span class="hljs-number">0</span>;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ustar</span> * <span class="hljs-title">file</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">ustar</span>));</span>
+	<span class="hljs-keyword">while</span> (offset &lt; self-&gt;length) {
+		<span class="hljs-keyword">int</span> status = ustar_from_offset(self, offset, file);
+
+		<span class="hljs-keyword">if</span> (!status) {
+			<span class="hljs-built_in">free</span>(file);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+
+		<span class="hljs-keyword">char</span> filename_workspace[<span class="hljs-number">256</span>];
+
+		<span class="hljs-built_in">memset</span>(filename_workspace, <span class="hljs-number">0</span>, <span class="hljs-number">256</span>);
+		<span class="hljs-built_in">strncat</span>(filename_workspace, file-&gt;prefix, <span class="hljs-number">155</span>);
+		<span class="hljs-built_in">strncat</span>(filename_workspace, file-&gt;filename, <span class="hljs-number">100</span>);
+
+		<span class="hljs-keyword">if</span> (!count_slashes(filename_workspace)) {
+			<span class="hljs-keyword">char</span> * slash = <span class="hljs-built_in">strstr</span>(filename_workspace,<span class="hljs-string">"/"</span>);
+			<span class="hljs-keyword">if</span> (slash) *slash = <span class="hljs-string">'\0'</span>; <span class="hljs-comment">/* remove trailing slash */</span>
+			<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strlen</span>(filename_workspace)) {
+				<span class="hljs-keyword">if</span> (index == <span class="hljs-number">0</span>) {
+					<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+					out-&gt;d_ino = offset;
+					<span class="hljs-built_in">strcpy</span>(out-&gt;d_name, filename_workspace);
+					<span class="hljs-built_in">free</span>(file);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+				} <span class="hljs-keyword">else</span> {
+					index--;
+				}
+			}
+		}
+
+		offset += <span class="hljs-number">512</span>;
+		offset += round_to_512(interpret_size(file));
+
+	}
+
+	<span class="hljs-built_in">free</span>(file);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">read_tarfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> * <span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tarfs</span> * <span class="hljs-title">self</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ustar</span> * <span class="hljs-title">file</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">ustar</span>));</span>
+	ustar_from_offset(self, node-&gt;inode, file);
+	<span class="hljs-keyword">size_t</span> file_size = interpret_size(file);
+
+	<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">size_t</span>)offset &gt; file_size) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (offset + <span class="hljs-built_in">size</span> &gt; file_size) {
+		<span class="hljs-built_in">size</span> = file_size - offset;
+	}
+
+	<span class="hljs-built_in">free</span>(file);
+
+	<span class="hljs-keyword">return</span> read_fs(self-&gt;device, offset + node-&gt;inode + <span class="hljs-number">512</span>, <span class="hljs-built_in">size</span>, <span class="hljs-built_in">buffer</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">readdir_tarfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> index, struct dirent *out)</span> </span>{
+	<span class="hljs-keyword">if</span> (index == <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+		out-&gt;d_ino = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">strcpy</span>(out-&gt;d_name, <span class="hljs-string">"."</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (index == <span class="hljs-number">1</span>) {
+		<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+		out-&gt;d_ino = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">strcpy</span>(out-&gt;d_name, <span class="hljs-string">".."</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	index -= <span class="hljs-number">2</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tarfs</span> * <span class="hljs-title">self</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+
+	<span class="hljs-comment">/* Go through each file and pick the ones are at the root */</span>
+	<span class="hljs-comment">/* Root files will have no /, so this is easy */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> offset = node-&gt;inode;
+
+	<span class="hljs-comment">/* Read myself */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ustar</span> * <span class="hljs-title">file</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">ustar</span>));</span>
+	<span class="hljs-keyword">int</span> status = ustar_from_offset(self, node-&gt;inode, file);
+	<span class="hljs-keyword">char</span> my_filename[<span class="hljs-number">256</span>];
+
+	<span class="hljs-comment">/* Figure out my own filename, with forward slash */</span>
+	<span class="hljs-built_in">memset</span>(my_filename, <span class="hljs-number">0</span>, <span class="hljs-number">256</span>);
+	<span class="hljs-built_in">strncat</span>(my_filename, file-&gt;prefix, <span class="hljs-number">155</span>);
+	<span class="hljs-built_in">strncat</span>(my_filename, file-&gt;filename, <span class="hljs-number">100</span>);
+
+	<span class="hljs-keyword">while</span> (offset &lt; self-&gt;length) {
+		ustar_from_offset(self, offset, file);
+
+		<span class="hljs-keyword">if</span> (!status) {
+			<span class="hljs-built_in">free</span>(file);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+
+		<span class="hljs-keyword">char</span> filename_workspace[<span class="hljs-number">256</span>];
+		<span class="hljs-built_in">memset</span>(filename_workspace, <span class="hljs-number">0</span>, <span class="hljs-number">256</span>);
+		<span class="hljs-built_in">strncat</span>(filename_workspace, file-&gt;prefix, <span class="hljs-number">155</span>);
+		<span class="hljs-built_in">strncat</span>(filename_workspace, file-&gt;filename, <span class="hljs-number">100</span>);
+
+		<span class="hljs-keyword">if</span> (startswith(filename_workspace, my_filename)) {
+			<span class="hljs-keyword">if</span> (!count_slashes(filename_workspace + <span class="hljs-built_in">strlen</span>(my_filename))) {
+				<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strlen</span>(filename_workspace + <span class="hljs-built_in">strlen</span>(my_filename))) {
+					<span class="hljs-keyword">if</span> (index == <span class="hljs-number">0</span>) {
+						<span class="hljs-keyword">char</span> * slash = <span class="hljs-built_in">strstr</span>(filename_workspace+<span class="hljs-built_in">strlen</span>(my_filename),<span class="hljs-string">"/"</span>);
+						<span class="hljs-keyword">if</span> (slash) *slash = <span class="hljs-string">'\0'</span>; <span class="hljs-comment">/* remove trailing slash */</span>
+						<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+						out-&gt;d_ino = offset;
+						<span class="hljs-built_in">strcpy</span>(out-&gt;d_name, filename_workspace+<span class="hljs-built_in">strlen</span>(my_filename));
+						<span class="hljs-built_in">free</span>(file);
+						<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+					} <span class="hljs-keyword">else</span> {
+						index--;
+					}
+				}
+			}
+		}
+
+		offset += <span class="hljs-number">512</span>;
+		offset += round_to_512(interpret_size(file));
+	}
+
+	<span class="hljs-built_in">free</span>(file);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">finddir_tarfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *name)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tarfs</span> * <span class="hljs-title">self</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+
+	<span class="hljs-comment">/* find my own filename */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ustar</span> * <span class="hljs-title">file</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">ustar</span>));</span>
+	ustar_from_offset(self, node-&gt;inode, file);
+
+	<span class="hljs-keyword">char</span> my_filename[<span class="hljs-number">256</span>];
+	<span class="hljs-comment">/* Figure out my own filename, with forward slash */</span>
+	<span class="hljs-built_in">memset</span>(my_filename, <span class="hljs-number">0</span>, <span class="hljs-number">256</span>);
+	<span class="hljs-built_in">strncat</span>(my_filename, file-&gt;prefix, <span class="hljs-number">155</span>);
+	<span class="hljs-built_in">strncat</span>(my_filename, file-&gt;filename, <span class="hljs-number">100</span>);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>This tarfs driver only supports file names up to 255 characters,
+as it doesn't parse long name entries, so any attempt to
+find a file that would be longer than that is going to fail.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strlen</span>(my_filename) + <span class="hljs-built_in">strlen</span>(name) &gt; <span class="hljs-number">255</span>) {
+		<span class="hljs-built_in">free</span>(file);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-comment">/* Append name */</span>
+	<span class="hljs-built_in">strncat</span>(my_filename, name, <span class="hljs-built_in">strlen</span>(name));
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> offset = node-&gt;inode;
+	<span class="hljs-keyword">while</span> (offset &lt; self-&gt;length) {
+		<span class="hljs-keyword">int</span> status = ustar_from_offset(self, offset, file);
+
+		<span class="hljs-keyword">if</span> (!status) {
+			<span class="hljs-built_in">free</span>(file);
+			<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+		}
+
+		<span class="hljs-keyword">char</span> filename_workspace[<span class="hljs-number">256</span>];
+		<span class="hljs-built_in">memset</span>(filename_workspace, <span class="hljs-number">0</span>, <span class="hljs-number">256</span>);
+		<span class="hljs-built_in">strncat</span>(filename_workspace, file-&gt;prefix, <span class="hljs-number">155</span>);
+		<span class="hljs-built_in">strncat</span>(filename_workspace, file-&gt;filename, <span class="hljs-number">100</span>);
+
+		<span class="hljs-keyword">if</span> (filename_workspace[<span class="hljs-built_in">strlen</span>(filename_workspace)<span class="hljs-number">-1</span>] == <span class="hljs-string">'/'</span>) {
+			filename_workspace[<span class="hljs-built_in">strlen</span>(filename_workspace)<span class="hljs-number">-1</span>] = <span class="hljs-string">'\0'</span>;
+		}
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(filename_workspace, my_filename)) {
+			<span class="hljs-keyword">return</span> file_from_ustar(self, file, offset);
+		}
+
+		offset += <span class="hljs-number">512</span>;
+		offset += round_to_512(interpret_size(file));
+	}
+
+
+	<span class="hljs-built_in">free</span>(file);
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">readlink_tarfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">char</span> * buf, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tarfs</span> * <span class="hljs-title">self</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ustar</span> * <span class="hljs-title">file</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">ustar</span>));</span>
+	ustar_from_offset(self, node-&gt;inode, file);
+
+	<span class="hljs-keyword">size_t</span> len = <span class="hljs-built_in">strlen</span>(file-&gt;link);
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &lt; len) len = <span class="hljs-built_in">size</span>;
+	<span class="hljs-built_in">memcpy</span>(buf, file-&gt;link, len);
+	<span class="hljs-keyword">return</span> len;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">file_from_ustar</span><span class="hljs-params">(struct tarfs * self, struct ustar * file, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> offset)</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> * fs = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">memset</span>(fs, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	fs-&gt;device = self;
+	fs-&gt;inode  = offset;
+	fs-&gt;impl   = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> filename_workspace[<span class="hljs-number">256</span>];
+	<span class="hljs-built_in">memcpy</span>(fs-&gt;name, filename_workspace, <span class="hljs-built_in">strlen</span>(filename_workspace)+<span class="hljs-number">1</span>);
+
+	fs-&gt;uid = interpret_uid(file);
+	fs-&gt;gid = interpret_gid(file);
+	fs-&gt;length = interpret_size(file);
+	fs-&gt;mask = interpret_mode(file);
+	fs-&gt;nlink = <span class="hljs-number">0</span>; <span class="hljs-comment">/* Unsupported */</span>
+	fs-&gt;flags = FS_FILE;
+	<span class="hljs-keyword">if</span> (file-&gt;type[<span class="hljs-number">0</span>] == <span class="hljs-string">'5'</span>) {
+		fs-&gt;flags = FS_DIRECTORY;
+		fs-&gt;readdir = readdir_tarfs;
+		fs-&gt;finddir = finddir_tarfs;
+		fs-&gt;create  = <span class="hljs-literal">NULL</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (file-&gt;type[<span class="hljs-number">0</span>] == <span class="hljs-string">'1'</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<p>debug_print(ERROR, &quot;Hardlink detected&quot;);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		<span class="hljs-comment">/* go through file and find target, reassign inode to point to that */</span>
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (file-&gt;type[<span class="hljs-number">0</span>] == <span class="hljs-string">'2'</span>) {
+		fs-&gt;flags = FS_SYMLINK;
+		fs-&gt;readlink = readlink_tarfs;
+	} <span class="hljs-keyword">else</span> {
+		fs-&gt;flags = FS_FILE;
+		fs-&gt;<span class="hljs-built_in">read</span> = read_tarfs;
+	}
+	<span class="hljs-built_in">free</span>(file);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+	<span class="hljs-comment">/* TODO times are also available from the file */</span>
+	fs-&gt;atime = now();
+	fs-&gt;mtime = now();
+	fs-&gt;ctime = now();
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	<span class="hljs-keyword">return</span> fs;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">finddir_tar_root</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *name)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tarfs</span> * <span class="hljs-title">self</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> offset = <span class="hljs-number">0</span>;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ustar</span> * <span class="hljs-title">file</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">ustar</span>));</span>
+	<span class="hljs-keyword">while</span> (offset &lt; self-&gt;length) {
+		<span class="hljs-keyword">int</span> status = ustar_from_offset(self, offset, file);
+
+		<span class="hljs-keyword">if</span> (!status) {
+			<span class="hljs-built_in">free</span>(file);
+			<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+		}
+
+		<span class="hljs-keyword">char</span> filename_workspace[<span class="hljs-number">256</span>];
+		<span class="hljs-built_in">memset</span>(filename_workspace, <span class="hljs-number">0</span>, <span class="hljs-number">256</span>);
+		<span class="hljs-built_in">strncat</span>(filename_workspace, file-&gt;prefix, <span class="hljs-number">155</span>);
+		<span class="hljs-built_in">strncat</span>(filename_workspace, file-&gt;filename, <span class="hljs-number">100</span>);
+
+		<span class="hljs-keyword">if</span> (count_slashes(filename_workspace)) {
+			<span class="hljs-comment">/* skip */</span>
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">char</span> * slash = <span class="hljs-built_in">strstr</span>(filename_workspace,<span class="hljs-string">"/"</span>);
+			<span class="hljs-keyword">if</span> (slash) *slash = <span class="hljs-string">'\0'</span>;
+			<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(filename_workspace, name)) {
+				<span class="hljs-keyword">return</span> file_from_ustar(self, file, offset);
+			}
+		}
+
+		offset += <span class="hljs-number">512</span>;
+		offset += round_to_512(interpret_size(file));
+	}
+
+	<span class="hljs-built_in">free</span>(file);
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ustar_from_offset</span><span class="hljs-params">(struct tarfs * self, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> offset, struct ustar * out)</span> </span>{
+	read_fs(self-&gt;device, offset, <span class="hljs-keyword">sizeof</span>(struct ustar), (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span>*)out);
+	<span class="hljs-keyword">if</span> (out-&gt;ustar[<span class="hljs-number">0</span>] != <span class="hljs-string">'u'</span> ||
+		out-&gt;ustar[<span class="hljs-number">1</span>] != <span class="hljs-string">'s'</span> ||
+		out-&gt;ustar[<span class="hljs-number">2</span>] != <span class="hljs-string">'t'</span> ||
+		out-&gt;ustar[<span class="hljs-number">3</span>] != <span class="hljs-string">'a'</span> ||
+		out-&gt;ustar[<span class="hljs-number">4</span>] != <span class="hljs-string">'r'</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">tar_mount</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * device, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * mount_path)</span> </span>{
+	<span class="hljs-keyword">char</span> * arg = strdup(device);
+	<span class="hljs-keyword">char</span> * argv[<span class="hljs-number">10</span>];
+	<span class="hljs-keyword">int</span> argc = tokenize(arg, <span class="hljs-string">","</span>, argv);
+
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<p>debug_print(WARNING, &quot;tarfs driver takes no options&quot;);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tarfs got unexpected mount arguments: %s\n"</span>, device);
+	}
+
+	<span class="hljs-keyword">fs_node_t</span> * dev = kopen(argv[<span class="hljs-number">0</span>], <span class="hljs-number">0</span>);
+	<span class="hljs-built_in">free</span>(arg); <span class="hljs-comment">/* Shouldn't need the filename or args anymore */</span>
+
+	<span class="hljs-keyword">if</span> (!dev) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<p>debug_print(ERROR, &quot;failed to open %s&quot;, device);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tarfs could not open target device\n"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-comment">/* Create a metadata struct for this mount */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tarfs</span> * <span class="hljs-title">self</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">tarfs</span>));</span>
+
+	self-&gt;device = dev;
+	self-&gt;length = dev-&gt;length;
+
+	<span class="hljs-keyword">fs_node_t</span> * root = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">memset</span>(root, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+
+	root-&gt;uid     = <span class="hljs-number">0</span>;
+	root-&gt;gid     = <span class="hljs-number">0</span>;
+	root-&gt;length  = <span class="hljs-number">0</span>;
+	root-&gt;mask    = <span class="hljs-number">0555</span>;
+	root-&gt;readdir = readdir_tar_root;
+	root-&gt;finddir = finddir_tar_root;
+	root-&gt;create  = <span class="hljs-literal">NULL</span>;
+	root-&gt;flags   = FS_DIRECTORY;
+	root-&gt;device  = self;
+
+	<span class="hljs-keyword">return</span> root;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">tarfs_register_init</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	vfs_register(<span class="hljs-string">"tar"</span>, tar_mount);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Unpack a tarfile directly as if it were the root filesystem.</p>
+</div>
+<div class="body">
+<p>This is an in-kernel implementation of the former 'migrate'
+userspace utility; since it runs before 'init', it avoids
+issues with freeing the ramdisk.</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">tarfs_unpack</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * from_file)</span> </span>{
+	<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">fs_node_t</span> * dev = kopen_error(from_file, <span class="hljs-number">0</span>, &amp;error);
+	<span class="hljs-keyword">if</span> (!dev) {
+		dprintf(<span class="hljs-string">"migrate: could not open '%s'\n"</span>, from_file);
+		<span class="hljs-keyword">return</span> error;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tarfs</span> * <span class="hljs-title">self</span> = <span class="hljs-title">calloc</span>(1, <span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">tarfs</span>));</span>
+	self-&gt;device = dev;
+	self-&gt;length = dev-&gt;length;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ustar</span> * <span class="hljs-title">file</span> = <span class="hljs-title">calloc</span>(1, <span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">ustar</span>));</span>
+	<span class="hljs-keyword">off_t</span> offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (offset &lt; self-&gt;length) {
+		<span class="hljs-keyword">int</span> status = ustar_from_offset(self, offset, file);
+		<span class="hljs-keyword">if</span> (!status) <span class="hljs-keyword">break</span>;
+
+		<span class="hljs-keyword">size_t</span> file_size = interpret_size(file);
+
+		<span class="hljs-keyword">if</span> (file-&gt;type[<span class="hljs-number">0</span>] == <span class="hljs-string">'x'</span>) <span class="hljs-keyword">goto</span> _next; <span class="hljs-comment">/* Pax header */</span>
+		<span class="hljs-keyword">if</span> (file-&gt;type[<span class="hljs-number">0</span>] == <span class="hljs-string">'1'</span>) <span class="hljs-keyword">goto</span> _next; <span class="hljs-comment">/* Unsupported hard link */</span>
+
+		<span class="hljs-keyword">char</span> filename_workspace[<span class="hljs-number">257</span>];
+		filename_workspace[<span class="hljs-number">0</span>] = <span class="hljs-string">'/'</span>;
+		<span class="hljs-built_in">memset</span>(filename_workspace + <span class="hljs-number">1</span>, <span class="hljs-number">0</span>, <span class="hljs-number">257</span>);
+		<span class="hljs-built_in">strncat</span>(filename_workspace, file-&gt;prefix, <span class="hljs-number">155</span>);
+		<span class="hljs-built_in">strncat</span>(filename_workspace, file-&gt;filename, <span class="hljs-number">100</span>);
+
+		<span class="hljs-keyword">mode_t</span> mode = interpret_mode(file);
+		<span class="hljs-keyword">fs_node_t</span> * node;
+		<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+
+		<span class="hljs-keyword">if</span> (filename_workspace[<span class="hljs-built_in">strlen</span>(filename_workspace)<span class="hljs-number">-1</span>] == <span class="hljs-string">'/'</span>) {
+			filename_workspace[<span class="hljs-built_in">strlen</span>(filename_workspace)<span class="hljs-number">-1</span>] = <span class="hljs-number">0</span>;
+		}
+
+		<span class="hljs-keyword">switch</span> (file-&gt;type[<span class="hljs-number">0</span>]) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'0'</span>: <span class="hljs-comment">/* Regular file */</span>
+				<span class="hljs-keyword">if</span> (!(error = create_file_fs(filename_workspace, mode, &amp;node))) {
+					chown_fs(node, interpret_uid(file), interpret_gid(file));
+					close_fs(node);
+				} <span class="hljs-keyword">else</span> {
+					dprintf(<span class="hljs-string">"migrate: error from create: %d\n"</span>, error);
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'5'</span>: <span class="hljs-comment">/* Directory */</span>
+				<span class="hljs-keyword">if</span> (!(error = mkdir_fs(filename_workspace, mode, &amp;node))) {
+					chown_fs(node, interpret_uid(file), interpret_gid(file));
+					close_fs(node);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (error != -EEXIST) {
+					dprintf(<span class="hljs-string">"migrate: error from mkdir: %d\n"</span>, error);
+				}
+				<span class="hljs-keyword">goto</span> _next; <span class="hljs-comment">/* No contents for directory */</span>
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'2'</span>:
+				symlink_fs(file-&gt;link, filename_workspace);
+				<span class="hljs-keyword">goto</span> _next;
+
+			<span class="hljs-keyword">default</span>:
+				dprintf(<span class="hljs-string">"migrate: file type '%c' is unsupported.\n"</span>, file-&gt;type[<span class="hljs-number">0</span>]);
+				<span class="hljs-keyword">goto</span> _next;
+		}
+
+		<span class="hljs-comment">/* Read contents of file */</span>
+		<span class="hljs-keyword">size_t</span> to_write = file_size;
+		<span class="hljs-keyword">size_t</span> written = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">while</span> (to_write) {
+			<span class="hljs-keyword">uint8_t</span> buf[<span class="hljs-number">512</span>];
+			<span class="hljs-keyword">ssize_t</span> r = read_fs(self-&gt;device, offset + <span class="hljs-number">512</span> + written, (to_write &lt; <span class="hljs-number">512</span>) ? to_write : <span class="hljs-number">512</span>, buf);
+			<span class="hljs-keyword">if</span> (r &lt;= <span class="hljs-number">0</span>) <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">ssize_t</span> w = write_fs(node, written, r, buf);
+			<span class="hljs-keyword">if</span> (w &lt;= <span class="hljs-number">0</span>) {
+				dprintf(<span class="hljs-string">"migrate: write error\n"</span>);
+				<span class="hljs-keyword">break</span>;
+			}
+			to_write -= w;
+			written += w;
+		}
+
+_next:
+		offset += <span class="hljs-number">512</span>;
+		offset += round_to_512(file_size);
+	}
+	<span class="hljs-built_in">free</span>(file);
+	<span class="hljs-built_in">free</span>(self);
+
+	<span class="hljs-comment">/* Tell the ramdisk to zero itself. */</span>
+	ioctl_fs(dev, <span class="hljs-number">0x4001</span>, <span class="hljs-literal">NULL</span>);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

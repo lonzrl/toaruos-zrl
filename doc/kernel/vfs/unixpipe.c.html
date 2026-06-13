@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>unixpipe.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\vfs\\unixpipe.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>unixpipe.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pipe.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/ringbuffer.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/args.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/signal_defs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> UNIX_PIPE_BUFFER 65536</span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">unix_pipe</span> {</span>
+	<span class="hljs-keyword">fs_node_t</span> * read_end;
+	<span class="hljs-keyword">fs_node_t</span> * write_end;
+
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">int</span> read_closed;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">int</span> write_closed;
+
+	<span class="hljs-keyword">ring_buffer_t</span> * <span class="hljs-built_in">buffer</span>;
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">close_complete</span><span class="hljs-params">(struct unix_pipe * self)</span> </span>{
+	ring_buffer_destroy(self-&gt;<span class="hljs-built_in">buffer</span>);
+	<span class="hljs-built_in">free</span>(self);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">read_unixpipe</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">unix_pipe</span> * <span class="hljs-title">self</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+	<span class="hljs-keyword">if</span> (self-&gt;write_closed &amp;&amp; !ring_buffer_unread(self-&gt;<span class="hljs-built_in">buffer</span>)) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">return</span> ring_buffer_read(self-&gt;<span class="hljs-built_in">buffer</span>, <span class="hljs-built_in">size</span>, <span class="hljs-built_in">buffer</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">write_unixpipe</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">unix_pipe</span> * <span class="hljs-title">self</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+	<span class="hljs-keyword">if</span> (self-&gt;read_closed) {
+		send_signal(this_core-&gt;current_process-&gt;id, SIGPIPE, <span class="hljs-number">1</span>);
+		<span class="hljs-keyword">return</span> -EPIPE;
+	}
+	<span class="hljs-keyword">return</span> ring_buffer_write(self-&gt;<span class="hljs-built_in">buffer</span>, <span class="hljs-built_in">size</span>, <span class="hljs-built_in">buffer</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">close_read_pipe</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">unix_pipe</span> * <span class="hljs-title">self</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+
+	spin_lock(self-&gt;<span class="hljs-built_in">buffer</span>-&gt;lock);
+	self-&gt;read_closed = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (!self-&gt;write_closed) {
+		ring_buffer_interrupt(self-&gt;<span class="hljs-built_in">buffer</span>);
+		spin_unlock(self-&gt;<span class="hljs-built_in">buffer</span>-&gt;lock);
+	} <span class="hljs-keyword">else</span> {
+		close_complete(self);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">close_write_pipe</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">unix_pipe</span> * <span class="hljs-title">self</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+
+	spin_lock(self-&gt;<span class="hljs-built_in">buffer</span>-&gt;lock);
+	self-&gt;write_closed = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (!self-&gt;read_closed) {
+		ring_buffer_interrupt(self-&gt;<span class="hljs-built_in">buffer</span>);
+		<span class="hljs-keyword">if</span> (!ring_buffer_unread(self-&gt;<span class="hljs-built_in">buffer</span>)) {
+			ring_buffer_alert_waiters(self-&gt;<span class="hljs-built_in">buffer</span>);
+		}
+		spin_unlock(self-&gt;<span class="hljs-built_in">buffer</span>-&gt;lock);
+	} <span class="hljs-keyword">else</span> {
+		close_complete(self);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">check_pipe</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">unix_pipe</span> * <span class="hljs-title">self</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+	<span class="hljs-keyword">if</span> (ring_buffer_unread(self-&gt;<span class="hljs-built_in">buffer</span>) &gt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">if</span> (self-&gt;write_closed) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">wait_pipe</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">void</span> * <span class="hljs-built_in">process</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">unix_pipe</span> * <span class="hljs-title">self</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+	ring_buffer_select_wait(self-&gt;<span class="hljs-built_in">buffer</span>, <span class="hljs-built_in">process</span>);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">make_unix_pipe</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> ** pipes)</span> </span>{
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = UNIX_PIPE_BUFFER;
+
+	<span class="hljs-keyword">if</span> (args_present(<span class="hljs-string">"pipesize"</span>)) {
+		<span class="hljs-built_in">size</span> = atoi(args_value(<span class="hljs-string">"pipesize"</span>));
+	}
+
+	pipes[<span class="hljs-number">0</span>] = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	pipes[<span class="hljs-number">1</span>] = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+
+	<span class="hljs-built_in">memset</span>(pipes[<span class="hljs-number">0</span>], <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">memset</span>(pipes[<span class="hljs-number">1</span>], <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+
+	<span class="hljs-built_in">snprintf</span>(pipes[<span class="hljs-number">0</span>]-&gt;name, <span class="hljs-number">100</span>, <span class="hljs-string">"[pipe:read]"</span>);
+	<span class="hljs-built_in">snprintf</span>(pipes[<span class="hljs-number">1</span>]-&gt;name, <span class="hljs-number">100</span>, <span class="hljs-string">"[pipe:write]"</span>);
+
+	pipes[<span class="hljs-number">0</span>]-&gt;mask = <span class="hljs-number">0666</span>;
+	pipes[<span class="hljs-number">1</span>]-&gt;mask = <span class="hljs-number">0666</span>;
+
+	pipes[<span class="hljs-number">0</span>]-&gt;flags = FS_PIPE;
+	pipes[<span class="hljs-number">1</span>]-&gt;flags = FS_PIPE;
+
+	pipes[<span class="hljs-number">0</span>]-&gt;<span class="hljs-built_in">read</span> = read_unixpipe;
+	pipes[<span class="hljs-number">1</span>]-&gt;<span class="hljs-built_in">write</span> = write_unixpipe;
+
+	pipes[<span class="hljs-number">0</span>]-&gt;<span class="hljs-built_in">close</span> = close_read_pipe;
+	pipes[<span class="hljs-number">1</span>]-&gt;<span class="hljs-built_in">close</span> = close_write_pipe;
+
+	<span class="hljs-comment">/* Read end can wait */</span>
+	pipes[<span class="hljs-number">0</span>]-&gt;selectcheck = check_pipe;
+	pipes[<span class="hljs-number">0</span>]-&gt;selectwait = wait_pipe;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">unix_pipe</span> * <span class="hljs-title">internals</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">unix_pipe</span>));</span>
+	internals-&gt;read_end = pipes[<span class="hljs-number">0</span>];
+	internals-&gt;write_end = pipes[<span class="hljs-number">1</span>];
+	internals-&gt;read_closed = <span class="hljs-number">0</span>;
+	internals-&gt;write_closed = <span class="hljs-number">0</span>;
+	internals-&gt;<span class="hljs-built_in">buffer</span> = ring_buffer_create(<span class="hljs-built_in">size</span>);
+
+	pipes[<span class="hljs-number">0</span>]-&gt;device = internals;
+	pipes[<span class="hljs-number">1</span>]-&gt;device = internals;
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

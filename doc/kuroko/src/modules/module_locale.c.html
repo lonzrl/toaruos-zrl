@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>module_locale.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kuroko\\src\\modules\\module_locale.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>module_locale.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;limits.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;locale.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+
+KRK_Function(setlocale) {
+	<span class="hljs-keyword">int</span> category;
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * locale = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"i|z"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"category"</span>,<span class="hljs-string">"locale"</span>}, &amp;category, &amp;locale)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">char</span> * result = setlocale(category, locale);
+	<span class="hljs-keyword">if</span> (!result) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-string">"unsupported locale setting or query failed"</span>);
+	}
+	<span class="hljs-keyword">return</span> OBJECT_VAL(krk_copyString(result,<span class="hljs-built_in">strlen</span>(result)));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">do_grouping</span><span class="hljs-params">(KrkValue result, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * keyname, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * grouping)</span> </span>{
+	KrkValue out = krk_list_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	krk_push(out);
+
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * c = grouping;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If there is nothing here, return an empty list, otherwise return all
+entries including either a terminating NUL or a terminating CHAR_MAX</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (*c) {
+		<span class="hljs-keyword">do</span> {
+			krk_writeValueArray(AS_LIST(out), INTEGER_VAL(*c));
+			<span class="hljs-keyword">if</span> (!*c || *c == CHAR_MAX) <span class="hljs-keyword">break</span>;
+			c++;
+		} <span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>);
+	}
+
+	krk_attachNamedValue(AS_DICT(result), keyname, out);
+	krk_pop();
+}
+
+KRK_Function(localeconv) {
+	FUNCTION_TAKES_NONE();
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">lconv</span> * <span class="hljs-title">lc</span> = <span class="hljs-title">localeconv</span>();</span>
+
+	<span class="hljs-comment">/* localeconv is defined to never fail... */</span>
+
+	KrkValue result = krk_dict_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	krk_push(result);
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DO_DICT_STR(key) krk_attachNamedObject(AS_DICT(result), #key, (KrkObj*)krk_copyString(lc-&gt; key, strlen(lc-&gt; key)))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DO_DICT_INT(key) krk_attachNamedValue(AS_DICT(result), #key, INTEGER_VAL(lc-&gt; key))</span>
+
+	DO_DICT_STR(decimal_point);
+	DO_DICT_STR(thousands_sep);
+	DO_DICT_STR(int_curr_symbol);
+	DO_DICT_STR(currency_symbol);
+	DO_DICT_STR(mon_decimal_point);
+	DO_DICT_STR(mon_thousands_sep);
+	DO_DICT_STR(positive_sign);
+	DO_DICT_STR(negative_sign);
+
+	DO_DICT_INT(int_frac_digits);
+	DO_DICT_INT(frac_digits);
+	DO_DICT_INT(p_cs_precedes);
+	DO_DICT_INT(p_sep_by_space);
+	DO_DICT_INT(n_cs_precedes);
+	DO_DICT_INT(n_sep_by_space);
+	DO_DICT_INT(p_sign_posn);
+	DO_DICT_INT(n_sign_posn);
+
+	<span class="hljs-comment">/* 'grouping' and 'mon_grouping' aren't real strings */</span>
+	do_grouping(result, <span class="hljs-string">"grouping"</span>, lc-&gt;grouping);
+	do_grouping(result, <span class="hljs-string">"mon_grouping"</span>, lc-&gt;mon_grouping);
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> DO_DICT_STR</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> DO_DICT_INT</span>
+
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+
+KRK_Module(locale) {
+	KRK_DOC(<span class="hljs-keyword">module</span>, <span class="hljs-string">"@brief Bindings for C locale functions"</span>);
+
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,setlocale),
+		<span class="hljs-string">"@brief Set or query the C locale\n"</span>
+		<span class="hljs-string">"@arguments category,locale=None\n\n"</span>
+		<span class="hljs-string">"Set the locale used by various C functions."</span>);
+	BIND_FUNC(<span class="hljs-keyword">module</span>,localeconv);
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DO_INT(name) krk_attachNamedValue(&amp;module-&gt;fields, #name, INTEGER_VAL(name))</span>
+	DO_INT(LC_ALL);
+	DO_INT(LC_COLLATE);
+	DO_INT(LC_CTYPE);
+	DO_INT(LC_MONETARY);
+	DO_INT(LC_NUMERIC);
+	DO_INT(LC_TIME);
+	<span class="hljs-comment">/* LC_MESSAGES ? */</span>
+	DO_INT(CHAR_MAX); <span class="hljs-comment">/* Needed to understand grouping */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> DO_INT</span>
+
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

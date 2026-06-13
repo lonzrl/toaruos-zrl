@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>text.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "boot\\text.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>text.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"text.h"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"util.h"</span></span>
+<span class="hljs-keyword">int</span> txt_debug = <span class="hljs-number">0</span>;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> EFI_PLATFORM</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;efi.h&gt;</span></span>
+<span class="hljs-keyword">extern</span> EFI_SYSTEM_TABLE *ST;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"../apps/terminal-font.h"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> char_height LARGE_FONT_CELL_HEIGHT</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> char_width  LARGE_FONT_CELL_WIDTH</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> offset_x = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> offset_y = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> center_x = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> center_y = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">write_char</span><span class="hljs-params">(<span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y, <span class="hljs-keyword">int</span> val, <span class="hljs-keyword">int</span> attr)</span></span>;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> EFI_PLATFORM</span>
+
+<span class="hljs-keyword">int</span> in_graphics_mode = <span class="hljs-number">1</span>;
+
+EFI_GRAPHICS_OUTPUT_PROTOCOL * GOP;
+
+<span class="hljs-keyword">static</span> EFI_GUID efi_graphics_output_protocol_guid =
+  {<span class="hljs-number">0x9042a9de</span>,<span class="hljs-number">0x23dc</span>,<span class="hljs-number">0x4a38</span>,  {<span class="hljs-number">0x96</span>,<span class="hljs-number">0xfb</span>,<span class="hljs-number">0x7a</span>,<span class="hljs-number">0xde</span>,<span class="hljs-number">0xd0</span>,<span class="hljs-number">0x80</span>,<span class="hljs-number">0x51</span>,<span class="hljs-number">0x6a</span>}};
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">init_graphics</span><span class="hljs-params">()</span> </span>{
+	UINTN count;
+	EFI_HANDLE * handles;
+	EFI_GRAPHICS_OUTPUT_PROTOCOL * gfx;
+	EFI_STATUS status;
+
+	status = uefi_call_wrapper(ST-&gt;BootServices-&gt;LocateHandleBuffer,
+			<span class="hljs-number">5</span>, ByProtocol, &amp;efi_graphics_output_protocol_guid, <span class="hljs-literal">NULL</span>, &amp;count, &amp;handles);
+	<span class="hljs-keyword">if</span> (EFI_ERROR(status)) <span class="hljs-keyword">goto</span> no_graphics;
+	status = uefi_call_wrapper(ST-&gt;BootServices-&gt;HandleProtocol,
+			<span class="hljs-number">3</span>, handles[<span class="hljs-number">0</span>], &amp;efi_graphics_output_protocol_guid, (<span class="hljs-keyword">void</span> **)&amp;gfx);
+	<span class="hljs-keyword">if</span> (EFI_ERROR(status)) <span class="hljs-keyword">goto</span> no_graphics;
+
+	GOP = gfx;
+
+	<span class="hljs-keyword">int</span> total_width = GOP-&gt;Mode-&gt;Info-&gt;HorizontalResolution;
+	<span class="hljs-keyword">int</span> total_height = GOP-&gt;Mode-&gt;Info-&gt;VerticalResolution;
+
+	offset_x = (total_width - <span class="hljs-number">80</span> * char_width) / <span class="hljs-number">2</span>;
+	offset_y = (total_height - <span class="hljs-number">24</span> * char_height) / <span class="hljs-number">2</span>;
+
+	center_x = total_width / <span class="hljs-number">2</span>;
+	center_y = total_height / <span class="hljs-number">2</span>;
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+no_graphics:
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">set_point</span><span class="hljs-params">(<span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y, <span class="hljs-keyword">uint32_t</span> color)</span> </span>{
+	((<span class="hljs-keyword">uint32_t</span> *)GOP-&gt;Mode-&gt;FrameBufferBase)[(x + offset_x) + (y + offset_y) * GOP-&gt;Mode-&gt;Info-&gt;PixelsPerScanLine] = color;
+}
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">clear_</span><span class="hljs-params">()</span> </span>{
+	x = <span class="hljs-number">0</span>;
+	y = <span class="hljs-number">0</span>;
+	<span class="hljs-built_in">memset</span>((<span class="hljs-keyword">void</span>*)GOP-&gt;Mode-&gt;FrameBufferBase,<span class="hljs-number">0</span>,GOP-&gt;Mode-&gt;FrameBufferSize);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">placech</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> c, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y, <span class="hljs-keyword">int</span> attr)</span> </span>{
+	write_char(x * char_width, y * char_height, c, attr);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">uint32_t</span> *vbe_info_fbaddr;
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">uint16_t</span> vbe_info_pitch;
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">uint16_t</span> vbe_info_width;
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">uint16_t</span> vbe_info_height;
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">uint8_t</span> vbe_info_bpp;
+
+<span class="hljs-keyword">int</span> in_graphics_mode = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">init_graphics</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (!vbe_info_width) <span class="hljs-keyword">return</span>;
+	in_graphics_mode = <span class="hljs-number">1</span>;
+	offset_x = (vbe_info_width - <span class="hljs-number">80</span> * char_width) / <span class="hljs-number">2</span>;
+	offset_y = (vbe_info_height - <span class="hljs-number">24</span> * char_height) / <span class="hljs-number">2</span>;
+
+	center_x = vbe_info_width / <span class="hljs-number">2</span>;
+	center_y = vbe_info_height / <span class="hljs-number">2</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">set_point</span><span class="hljs-params">(<span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y, <span class="hljs-keyword">uint32_t</span> color)</span> </span>{
+	<span class="hljs-keyword">if</span> (vbe_info_bpp == <span class="hljs-number">24</span>) {
+		*((<span class="hljs-keyword">uint8_t</span>*)vbe_info_fbaddr + (x + offset_x) * <span class="hljs-number">3</span> + (y + offset_y) * (vbe_info_pitch))     = (color &gt;&gt; <span class="hljs-number">0</span>) &amp; <span class="hljs-number">0xFF</span>;
+		*((<span class="hljs-keyword">uint8_t</span>*)vbe_info_fbaddr + (x + offset_x) * <span class="hljs-number">3</span> + (y + offset_y) * (vbe_info_pitch) + <span class="hljs-number">1</span>) = (color &gt;&gt; <span class="hljs-number">8</span>) &amp; <span class="hljs-number">0xFF</span>;
+		*((<span class="hljs-keyword">uint8_t</span>*)vbe_info_fbaddr + (x + offset_x) * <span class="hljs-number">3</span> + (y + offset_y) * (vbe_info_pitch) + <span class="hljs-number">2</span>) = (color &gt;&gt; <span class="hljs-number">16</span>) &amp; <span class="hljs-number">0xFF</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (vbe_info_bpp == <span class="hljs-number">32</span>) {
+		vbe_info_fbaddr[(x + offset_x) + (y + offset_y) * (vbe_info_pitch &gt;&gt; <span class="hljs-number">2</span>)] = color;
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> short * textmemptr = (<span class="hljs-keyword">unsigned</span> short *)<span class="hljs-number">0xB8000</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">placech_vga</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> c, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y, <span class="hljs-keyword">int</span> attr)</span> </span>{
+	<span class="hljs-keyword">unsigned</span> short *where;
+	<span class="hljs-keyword">unsigned</span> att = attr &lt;&lt; <span class="hljs-number">8</span>;
+	where = textmemptr + (y * <span class="hljs-number">80</span> + x);
+	*where = c | att;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">placech</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> c, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y, <span class="hljs-keyword">int</span> attr)</span> </span>{
+	in_graphics_mode ? write_char(x * char_width, y * char_height, c, attr) : placech_vga(c,x,y,attr);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">clear_</span><span class="hljs-params">()</span> </span>{
+	x = <span class="hljs-number">0</span>;
+	y = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (in_graphics_mode) {
+		<span class="hljs-built_in">memset</span>(vbe_info_fbaddr, <span class="hljs-number">0</span>, vbe_info_pitch * vbe_info_height);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> y = <span class="hljs-number">0</span>; y &lt; <span class="hljs-number">24</span>; ++y) {
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; <span class="hljs-number">80</span>; ++x) {
+				placech_vga(<span class="hljs-string">' '</span>, x, y, <span class="hljs-number">0x00</span>);
+			}
+		}
+	}
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> term_colors[] = {
+	<span class="hljs-number">0xFF000000</span>,
+	<span class="hljs-number">0xFFCC0000</span>,
+	<span class="hljs-number">0xFF4E9A06</span>,
+	<span class="hljs-number">0xFFC4A000</span>,
+	<span class="hljs-number">0xFF3465A4</span>,
+	<span class="hljs-number">0xFF75507B</span>,
+	<span class="hljs-number">0xFF06989A</span>,
+	<span class="hljs-number">0xFFD3D7CF</span>,
+
+	<span class="hljs-number">0xFF555753</span>,
+	<span class="hljs-number">0xFFEF2929</span>,
+	<span class="hljs-number">0xFF8AE234</span>,
+	<span class="hljs-number">0xFFFCE94F</span>,
+	<span class="hljs-number">0xFF729FCF</span>,
+	<span class="hljs-number">0xFFAD7FA8</span>,
+	<span class="hljs-number">0xFF34E2E2</span>,
+	<span class="hljs-number">0xFFEEEEEC</span>,
+};
+
+<span class="hljs-keyword">char</span> vga_to_ansi[] = {
+	<span class="hljs-number">0</span>, <span class="hljs-number">4</span>, <span class="hljs-number">2</span>, <span class="hljs-number">6</span>, <span class="hljs-number">1</span>, <span class="hljs-number">5</span>, <span class="hljs-number">3</span>, <span class="hljs-number">7</span>,
+	<span class="hljs-number">8</span>,<span class="hljs-number">12</span>,<span class="hljs-number">10</span>,<span class="hljs-number">14</span>, <span class="hljs-number">9</span>,<span class="hljs-number">13</span>,<span class="hljs-number">11</span>,<span class="hljs-number">15</span>
+};
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">write_char</span><span class="hljs-params">(<span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y, <span class="hljs-keyword">int</span> val, <span class="hljs-keyword">int</span> attr)</span> </span>{
+	<span class="hljs-keyword">if</span> (val &gt; <span class="hljs-number">128</span>) {
+		val = <span class="hljs-number">4</span>;
+	}
+
+	<span class="hljs-keyword">uint32_t</span> fg_color = term_colors[vga_to_ansi[attr &amp; <span class="hljs-number">0xF</span>]];
+	<span class="hljs-keyword">uint32_t</span> bg_color = term_colors[vga_to_ansi[(attr &gt;&gt; <span class="hljs-number">4</span>) &amp; <span class="hljs-number">0xF</span>]];
+
+	<span class="hljs-keyword">uint32_t</span> colors[] = {bg_color, fg_color};
+
+	<span class="hljs-keyword">uint8_t</span> * c = large_font[val];
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint8_t</span> i = <span class="hljs-number">0</span>; i &lt; char_height; ++i) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint8_t</span> j = <span class="hljs-number">0</span>; j &lt; char_width; ++j) {
+			set_point(x+j,y+i,colors[!!(c[i] &amp; (<span class="hljs-number">1</span> &lt;&lt; LARGE_FONT_MASK-j))]);
+		}
+	}
+}
+
+
+<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">int</span> y = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">int</span> attr = <span class="hljs-number">0x07</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">print_</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * str)</span> </span>{
+	<span class="hljs-keyword">while</span> (*str) {
+		<span class="hljs-keyword">if</span> (*str == <span class="hljs-string">'\n'</span>) {
+			<span class="hljs-keyword">for</span> (; x &lt; <span class="hljs-number">80</span>; ++x) {
+				placech(<span class="hljs-string">' '</span>, x, y, attr);
+			}
+			x = <span class="hljs-number">0</span>;
+			y += <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">if</span> (y == <span class="hljs-number">24</span>) {
+				y = <span class="hljs-number">0</span>;
+			}
+		} <span class="hljs-keyword">else</span> {
+			placech(*str, x, y, attr);
+			x++;
+			<span class="hljs-keyword">if</span> (x == <span class="hljs-number">80</span>) {
+				x = <span class="hljs-number">0</span>;
+				y += <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">if</span> (y == <span class="hljs-number">24</span>) {
+					y = <span class="hljs-number">0</span>;
+				}
+			}
+		}
+		str++;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">move_cursor</span><span class="hljs-params">(<span class="hljs-keyword">int</span> _x, <span class="hljs-keyword">int</span> _y)</span> </span>{
+	x = _x;
+	y = _y;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">set_attr</span><span class="hljs-params">(<span class="hljs-keyword">int</span> _attr)</span> </span>{
+	attr = _attr;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">print_banner</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * str)</span> </span>{
+	<span class="hljs-keyword">if</span> (!str) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">80</span>; ++i) {
+			placech(<span class="hljs-string">' '</span>, i, y, attr);
+		}
+		y++;
+		<span class="hljs-keyword">return</span>;
+	}
+	<span class="hljs-keyword">int</span> len = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> *c = str;
+	<span class="hljs-keyword">while</span> (*c) {
+		len++;
+		c++;
+	}
+	<span class="hljs-keyword">int</span> off = (<span class="hljs-number">80</span> - len) / <span class="hljs-number">2</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">80</span>; ++i) {
+		placech((i &gt;= off &amp;&amp; i - off &lt; len) ? str[i-off] : <span class="hljs-string">' '</span>, i, y, attr);
+	}
+
+	y++;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">print_hex_</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> value)</span> </span>{
+	<span class="hljs-keyword">char</span> out[<span class="hljs-number">9</span>] = {<span class="hljs-number">0</span>};
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">7</span>; i &gt; <span class="hljs-number">-1</span>; i--) {
+		out[i] = <span class="hljs-string">"0123456789abcdef"</span>[(value &gt;&gt; (<span class="hljs-number">4</span> * (<span class="hljs-number">7</span> - i))) &amp; <span class="hljs-number">0xF</span>];
+	}
+	print_(out);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">print_int_</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> value)</span> </span>{
+	<span class="hljs-keyword">if</span> (value == <span class="hljs-number">0</span>) {
+		print_(<span class="hljs-string">"0"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> n_width = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">32</span>] = {<span class="hljs-number">0</span>};
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> val = value;
+	<span class="hljs-keyword">while</span> (val &gt;= <span class="hljs-number">10U</span>L) {
+		val /= <span class="hljs-number">10U</span>L;
+		n_width++;
+	}
+	<span class="hljs-keyword">int</span> i = n_width;
+	<span class="hljs-keyword">while</span> (i &gt; <span class="hljs-number">0</span>) {
+		tmp[i<span class="hljs-number">-1</span>] = (value % <span class="hljs-number">10U</span>L) + <span class="hljs-string">'0'</span>;
+		value /= <span class="hljs-number">10U</span>L;
+		i--;
+	}
+	<span class="hljs-keyword">while</span> (i &lt; n_width) {
+		<span class="hljs-keyword">char</span> t[<span class="hljs-number">2</span>] = {tmp[i],<span class="hljs-string">'\0'</span>};
+		print_(t);
+		i++;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">draw_square</span><span class="hljs-params">(<span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y, <span class="hljs-keyword">int</span> stage)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> _y = <span class="hljs-number">0</span>; _y &lt; <span class="hljs-number">7</span>; ++_y) {
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> color_green = <span class="hljs-number">0xB2</span> - (y * <span class="hljs-number">8</span> + _y) * <span class="hljs-number">2</span>;
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> color_blue  = <span class="hljs-number">0xFF</span>;
+
+		<span class="hljs-keyword">if</span> (stage &gt; <span class="hljs-number">0</span> &amp;&amp; y + <span class="hljs-number">1</span> != stage) {
+			color_green /= <span class="hljs-number">2</span>;
+			color_blue  /= <span class="hljs-number">2</span>;
+		}
+
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> color = <span class="hljs-number">0xFF000000</span> | (color_green &lt;&lt; <span class="hljs-number">8</span>) | color_blue;
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> _x = <span class="hljs-number">0</span>; _x &lt; <span class="hljs-number">7</span>; ++_x) {
+			set_point(center_x - <span class="hljs-number">32</span> - offset_x + x * <span class="hljs-number">8</span> + _x, center_y - <span class="hljs-number">32</span> - offset_y + y * <span class="hljs-number">8</span> + _y, color);
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">draw_logo</span><span class="hljs-params">(<span class="hljs-keyword">int</span> stage)</span> </span>{
+	<span class="hljs-keyword">if</span> (!in_graphics_mode) {
+		move_cursor(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>);
+		print_(<span class="hljs-string">"Loading... "</span>);
+		<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">2</span>] = {<span class="hljs-number">0</span>};
+		tmp[<span class="hljs-number">0</span>] = <span class="hljs-string">"/-\\|/-\\|"</span>[stage];
+		print_(tmp);
+		<span class="hljs-keyword">return</span>;
+	}
+	<span class="hljs-keyword">uint64_t</span> logo_squares = <span class="hljs-number">0x981818181818FFFF</span>UL;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> y = <span class="hljs-number">0</span>; y &lt; <span class="hljs-number">8</span>; ++y) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; <span class="hljs-number">8</span>; ++x) {
+			<span class="hljs-keyword">if</span> (logo_squares &amp; (<span class="hljs-number">1</span> &lt;&lt; x)) {
+				draw_square(x,y,stage);
+			}
+		}
+		logo_squares &gt;&gt;= <span class="hljs-number">8</span>;
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

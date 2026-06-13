@@ -1,0 +1,1920 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>strace.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\strace.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>strace.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdbool.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;getopt.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;dirent.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ptrace.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/wait.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/signal_defs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/utsname.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/socket.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/uregs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/resource.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/mman.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;arpa/inet.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;netinet/in.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> FILE * logfile;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">bool</span> log_hidden = <span class="hljs-literal">true</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">bool</span> follow_forks = <span class="hljs-literal">false</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">pid_t</span> unfinished_child = <span class="hljs-number">0</span>;
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Pid</span> {</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Pid</span> *<span class="hljs-title">next</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Pid</span> *<span class="hljs-title">prev</span>;</span>
+	<span class="hljs-keyword">pid_t</span> pid;
+	<span class="hljs-keyword">int</span> previous_syscall;
+	<span class="hljs-keyword">bool</span> unfinished;
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Pid</span> *<span class="hljs-title">children</span> = <span class="hljs-title">NULL</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> children_count = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> struct Pid * <span class="hljs-title">find_pid</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> p)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Pid</span> * <span class="hljs-title">c</span> = <span class="hljs-title">children</span>;</span>
+	<span class="hljs-keyword">while</span> (c) {
+		<span class="hljs-keyword">if</span> (c-&gt;pid == p) <span class="hljs-keyword">return</span> c;
+		c = c-&gt;next;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">forget_child</span><span class="hljs-params">(struct Pid * child)</span> </span>{
+	<span class="hljs-keyword">if</span> (child-&gt;prev) child-&gt;prev-&gt;next = child-&gt;next;
+	<span class="hljs-keyword">if</span> (child-&gt;next) child-&gt;next-&gt;prev = child-&gt;prev;
+	<span class="hljs-keyword">if</span> (child == children) children = child-&gt;next;
+	children_count--;
+
+	ptrace(PTRACE_DETACH, child-&gt;pid, <span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>);
+	<span class="hljs-built_in">free</span>(child);
+
+	<span class="hljs-keyword">return</span> children_count == <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">interrupt_log</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Pid</span> * <span class="hljs-title">c</span>;</span>
+	<span class="hljs-keyword">if</span> (unfinished_child &amp;&amp; unfinished_child != pid) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"/* unfinished */\n"</span>);
+		<span class="hljs-keyword">if</span> ((c = find_pid(unfinished_child))) c-&gt;unfinished = <span class="hljs-literal">true</span>;
+	}
+	unfinished_child = <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">report_pid</span><span class="hljs-params">(struct Pid *child)</span> </span>{
+	interrupt_log(child-&gt;pid);
+	<span class="hljs-keyword">if</span> (children_count &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"[pid %d] "</span>, child-&gt;pid);
+	}
+}
+
+
+<span class="hljs-comment">/* System call names */</span>
+<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * syscall_names[] = {
+	[SYS_EXT]          = <span class="hljs-string">"exit"</span>,
+	[SYS_GETEUID]      = <span class="hljs-string">"geteuid"</span>,
+	[SYS_OPEN]         = <span class="hljs-string">"open"</span>,
+	[SYS_READ]         = <span class="hljs-string">"read"</span>,
+	[SYS_WRITE]        = <span class="hljs-string">"write"</span>,
+	[SYS_CLOSE]        = <span class="hljs-string">"close"</span>,
+	[SYS_GETTIMEOFDAY] = <span class="hljs-string">"gettimeofday"</span>,
+	[SYS_GETPID]       = <span class="hljs-string">"getpid"</span>,
+	[SYS_SBRK]         = <span class="hljs-string">"sbrk"</span>,
+	[SYS_UNAME]        = <span class="hljs-string">"uname"</span>,
+	[SYS_SEEK]         = <span class="hljs-string">"seek"</span>,
+	[SYS_STAT]         = <span class="hljs-string">"stat"</span>,
+	[SYS_GETUID]       = <span class="hljs-string">"getuid"</span>,
+	[SYS_SETUID]       = <span class="hljs-string">"setuid"</span>,
+	[SYS_READDIR]      = <span class="hljs-string">"readdir"</span>,
+	[SYS_CHDIR]        = <span class="hljs-string">"chdir"</span>,
+	[SYS_GETCWD]       = <span class="hljs-string">"getcwd"</span>,
+	[SYS_SETHOSTNAME]  = <span class="hljs-string">"sethostname"</span>,
+	[SYS_GETHOSTNAME]  = <span class="hljs-string">"gethostname"</span>,
+	[SYS_MKDIR]        = <span class="hljs-string">"mkdir"</span>,
+	[SYS_GETTID]       = <span class="hljs-string">"gettid"</span>,
+	[SYS_IOCTL]        = <span class="hljs-string">"ioctl"</span>,
+	[SYS_ACCESS]       = <span class="hljs-string">"access"</span>,
+	[SYS_EACCESS]      = <span class="hljs-string">"eaccess"</span>,
+	[SYS_STATF]        = <span class="hljs-string">"statf"</span>,
+	[SYS_CHMOD]        = <span class="hljs-string">"chmod"</span>,
+	[SYS_UMASK]        = <span class="hljs-string">"umask"</span>,
+	[SYS_UNLINK]       = <span class="hljs-string">"unlink"</span>,
+	[SYS_MOUNT]        = <span class="hljs-string">"mount"</span>,
+	[SYS_SYMLINK]      = <span class="hljs-string">"symlink"</span>,
+	[SYS_READLINK]     = <span class="hljs-string">"readlink"</span>,
+	[SYS_LSTAT]        = <span class="hljs-string">"lstat"</span>,
+	[SYS_CHOWN]        = <span class="hljs-string">"chown"</span>,
+	[SYS_SETSID]       = <span class="hljs-string">"setsid"</span>,
+	[SYS_SETPGID]      = <span class="hljs-string">"setpgid"</span>,
+	[SYS_GETPGID]      = <span class="hljs-string">"getpgid"</span>,
+	[SYS_DUP2]         = <span class="hljs-string">"dup2"</span>,
+	[SYS_DUP3]         = <span class="hljs-string">"dup3"</span>,
+	[SYS_EXECVE]       = <span class="hljs-string">"execve"</span>,
+	[SYS_FORK]         = <span class="hljs-string">"fork"</span>,
+	[SYS_WAITPID]      = <span class="hljs-string">"waitpid"</span>,
+	[SYS_YIELD]        = <span class="hljs-string">"yield"</span>,
+	[SYS_SLEEPABS]     = <span class="hljs-string">"sleepabs"</span>,
+	[SYS_SLEEP]        = <span class="hljs-string">"sleep"</span>,
+	[SYS_PIPE]         = <span class="hljs-string">"pipe"</span>,
+	[SYS_FSWAIT]       = <span class="hljs-string">"fswait"</span>,
+	[SYS_FSWAIT2]      = <span class="hljs-string">"fswait_timeout"</span>,
+	[SYS_FSWAIT3]      = <span class="hljs-string">"fswait_multi"</span>,
+	[SYS_CLONE]        = <span class="hljs-string">"clone"</span>,
+	[SYS_OPENPTY]      = <span class="hljs-string">"openpty"</span>,
+	[SYS_SHM_OBTAIN]   = <span class="hljs-string">"shm_obtain"</span>,
+	[SYS_SHM_RELEASE]  = <span class="hljs-string">"shm_release"</span>,
+	[SYS_SIGNAL]       = <span class="hljs-string">"signal"</span>,
+	[SYS_KILL]         = <span class="hljs-string">"kill"</span>,
+	[SYS_REBOOT]       = <span class="hljs-string">"reboot"</span>,
+	[SYS_GETGID]       = <span class="hljs-string">"getgid"</span>,
+	[SYS_GETEGID]      = <span class="hljs-string">"getegid"</span>,
+	[SYS_SETGID]       = <span class="hljs-string">"setgid"</span>,
+	[SYS_GETGROUPS]    = <span class="hljs-string">"getgroups"</span>,
+	[SYS_SETGROUPS]    = <span class="hljs-string">"setgroups"</span>,
+	[SYS_TIMES]        = <span class="hljs-string">"times"</span>,
+	[SYS_PTRACE]       = <span class="hljs-string">"ptrace"</span>,
+	[SYS_SOCKET]       = <span class="hljs-string">"socket"</span>,
+	[SYS_SETSOCKOPT]   = <span class="hljs-string">"setsockopt"</span>,
+	[SYS_BIND]         = <span class="hljs-string">"bind"</span>,
+	[SYS_ACCEPT]       = <span class="hljs-string">"accept"</span>,
+	[SYS_LISTEN]       = <span class="hljs-string">"listen"</span>,
+	[SYS_CONNECT]      = <span class="hljs-string">"connect"</span>,
+	[SYS_GETSOCKOPT]   = <span class="hljs-string">"getsockopt"</span>,
+	[SYS_RECV]         = <span class="hljs-string">"recv"</span>,
+	[SYS_SEND]         = <span class="hljs-string">"send"</span>,
+	[SYS_SHUTDOWN]     = <span class="hljs-string">"shutdown"</span>,
+	[SYS_SIGACTION]    = <span class="hljs-string">"sigaction"</span>,
+	[SYS_SIGPENDING]   = <span class="hljs-string">"sigpending"</span>,
+	[SYS_SIGPROCMASK]  = <span class="hljs-string">"sigprocmask"</span>,
+	[SYS_SIGSUSPEND]   = <span class="hljs-string">"sigsuspend"</span>,
+	[SYS_SIGWAIT]      = <span class="hljs-string">"sigwait"</span>,
+	[SYS_PREAD]        = <span class="hljs-string">"pread"</span>,
+	[SYS_PWRITE]       = <span class="hljs-string">"pwrite"</span>,
+	[SYS_RENAME]       = <span class="hljs-string">"rename"</span>,
+	[SYS_FCNTL]        = <span class="hljs-string">"fcntl"</span>,
+	[SYS_FCHMOD]       = <span class="hljs-string">"fchmod"</span>,
+	[SYS_FCHOWN]       = <span class="hljs-string">"fchown"</span>,
+	[SYS_TRUNCATE]     = <span class="hljs-string">"truncate"</span>,
+	[SYS_FTRUNCATE]    = <span class="hljs-string">"ftruncate"</span>,
+	[SYS_SETTIMEOFDAY] = <span class="hljs-string">"settimeofday"</span>,
+	[SYS_GETSOCKNAME]  = <span class="hljs-string">"getsockname"</span>,
+	[SYS_GETPEERNAME]  = <span class="hljs-string">"getpeername"</span>,
+	[SYS_GETPPID]      = <span class="hljs-string">"getppid"</span>,
+	[SYS_LCHOWN]       = <span class="hljs-string">"lchown"</span>,
+	[SYS_GETRUSAGE]    = <span class="hljs-string">"getrusage"</span>,
+	[SYS_PIPE2]        = <span class="hljs-string">"pipe2"</span>,
+	[SYS_SIGQUEUE]     = <span class="hljs-string">"sigqueue"</span>,
+	[SYS_SETRESUID]    = <span class="hljs-string">"setresuid"</span>,
+	[SYS_SETREUID]     = <span class="hljs-string">"setreuid"</span>,
+	[SYS_SETRESGID]    = <span class="hljs-string">"setresgid"</span>,
+	[SYS_SETREGID]     = <span class="hljs-string">"setregid"</span>,
+	[SYS_MMAP]         = <span class="hljs-string">"mmap"</span>,
+	[SYS_MUNMAP]       = <span class="hljs-string">"munmap"</span>,
+	[SYS_NPROC]        = <span class="hljs-string">"nproc"</span>,
+	[SYS_SETTLSBASE]   = <span class="hljs-string">"set_tls_base"</span>,
+	[SYS_INSMOD]       = <span class="hljs-string">"insmod"</span>,
+};
+
+<span class="hljs-keyword">char</span> syscall_mask[] = {
+	[SYS_EXT]          = <span class="hljs-number">1</span>,
+	[SYS_GETEUID]      = <span class="hljs-number">1</span>,
+	[SYS_OPEN]         = <span class="hljs-number">1</span>,
+	[SYS_READ]         = <span class="hljs-number">1</span>,
+	[SYS_WRITE]        = <span class="hljs-number">1</span>,
+	[SYS_CLOSE]        = <span class="hljs-number">1</span>,
+	[SYS_GETTIMEOFDAY] = <span class="hljs-number">1</span>,
+	[SYS_GETPID]       = <span class="hljs-number">1</span>,
+	[SYS_SBRK]         = <span class="hljs-number">1</span>,
+	[SYS_UNAME]        = <span class="hljs-number">1</span>,
+	[SYS_SEEK]         = <span class="hljs-number">1</span>,
+	[SYS_STAT]         = <span class="hljs-number">1</span>,
+	[SYS_GETUID]       = <span class="hljs-number">1</span>,
+	[SYS_SETUID]       = <span class="hljs-number">1</span>,
+	[SYS_READDIR]      = <span class="hljs-number">1</span>,
+	[SYS_CHDIR]        = <span class="hljs-number">1</span>,
+	[SYS_GETCWD]       = <span class="hljs-number">1</span>,
+	[SYS_SETHOSTNAME]  = <span class="hljs-number">1</span>,
+	[SYS_GETHOSTNAME]  = <span class="hljs-number">1</span>,
+	[SYS_MKDIR]        = <span class="hljs-number">1</span>,
+	[SYS_GETTID]       = <span class="hljs-number">1</span>,
+	[SYS_IOCTL]        = <span class="hljs-number">1</span>,
+	[SYS_ACCESS]       = <span class="hljs-number">1</span>,
+	[SYS_EACCESS]      = <span class="hljs-number">1</span>,
+	[SYS_STATF]        = <span class="hljs-number">1</span>,
+	[SYS_CHMOD]        = <span class="hljs-number">1</span>,
+	[SYS_UMASK]        = <span class="hljs-number">1</span>,
+	[SYS_UNLINK]       = <span class="hljs-number">1</span>,
+	[SYS_MOUNT]        = <span class="hljs-number">1</span>,
+	[SYS_SYMLINK]      = <span class="hljs-number">1</span>,
+	[SYS_READLINK]     = <span class="hljs-number">1</span>,
+	[SYS_LSTAT]        = <span class="hljs-number">1</span>,
+	[SYS_CHOWN]        = <span class="hljs-number">1</span>,
+	[SYS_SETSID]       = <span class="hljs-number">1</span>,
+	[SYS_SETPGID]      = <span class="hljs-number">1</span>,
+	[SYS_GETPGID]      = <span class="hljs-number">1</span>,
+	[SYS_DUP2]         = <span class="hljs-number">1</span>,
+	[SYS_DUP3]         = <span class="hljs-number">1</span>,
+	[SYS_EXECVE]       = <span class="hljs-number">1</span>,
+	[SYS_FORK]         = <span class="hljs-number">1</span>,
+	[SYS_WAITPID]      = <span class="hljs-number">1</span>,
+	[SYS_YIELD]        = <span class="hljs-number">1</span>,
+	[SYS_SLEEPABS]     = <span class="hljs-number">1</span>,
+	[SYS_SLEEP]        = <span class="hljs-number">1</span>,
+	[SYS_PIPE]         = <span class="hljs-number">1</span>,
+	[SYS_FSWAIT]       = <span class="hljs-number">1</span>,
+	[SYS_FSWAIT2]      = <span class="hljs-number">1</span>,
+	[SYS_FSWAIT3]      = <span class="hljs-number">1</span>,
+	[SYS_CLONE]        = <span class="hljs-number">1</span>,
+	[SYS_OPENPTY]      = <span class="hljs-number">1</span>,
+	[SYS_SHM_OBTAIN]   = <span class="hljs-number">1</span>,
+	[SYS_SHM_RELEASE]  = <span class="hljs-number">1</span>,
+	[SYS_SIGNAL]       = <span class="hljs-number">1</span>,
+	[SYS_KILL]         = <span class="hljs-number">1</span>,
+	[SYS_REBOOT]       = <span class="hljs-number">1</span>,
+	[SYS_GETGID]       = <span class="hljs-number">1</span>,
+	[SYS_GETEGID]      = <span class="hljs-number">1</span>,
+	[SYS_SETGID]       = <span class="hljs-number">1</span>,
+	[SYS_GETGROUPS]    = <span class="hljs-number">1</span>,
+	[SYS_SETGROUPS]    = <span class="hljs-number">1</span>,
+	[SYS_TIMES]        = <span class="hljs-number">1</span>,
+	[SYS_PTRACE]       = <span class="hljs-number">1</span>,
+	[SYS_SOCKET]       = <span class="hljs-number">1</span>,
+	[SYS_SETSOCKOPT]   = <span class="hljs-number">1</span>,
+	[SYS_BIND]         = <span class="hljs-number">1</span>,
+	[SYS_ACCEPT]       = <span class="hljs-number">1</span>,
+	[SYS_LISTEN]       = <span class="hljs-number">1</span>,
+	[SYS_CONNECT]      = <span class="hljs-number">1</span>,
+	[SYS_GETSOCKOPT]   = <span class="hljs-number">1</span>,
+	[SYS_RECV]         = <span class="hljs-number">1</span>,
+	[SYS_SEND]         = <span class="hljs-number">1</span>,
+	[SYS_SHUTDOWN]     = <span class="hljs-number">1</span>,
+	[SYS_PREAD]        = <span class="hljs-number">1</span>,
+	[SYS_PWRITE]       = <span class="hljs-number">1</span>,
+	[SYS_SIGACTION]    = <span class="hljs-number">1</span>,
+	[SYS_SIGPENDING]   = <span class="hljs-number">1</span>,
+	[SYS_SIGPROCMASK]  = <span class="hljs-number">1</span>,
+	[SYS_SIGSUSPEND]   = <span class="hljs-number">1</span>,
+	[SYS_SIGWAIT]      = <span class="hljs-number">1</span>,
+	[SYS_RENAME]       = <span class="hljs-number">1</span>,
+	[SYS_FCNTL]        = <span class="hljs-number">1</span>,
+	[SYS_FCHMOD]       = <span class="hljs-number">1</span>,
+	[SYS_FCHOWN]       = <span class="hljs-number">1</span>,
+	[SYS_TRUNCATE]     = <span class="hljs-number">1</span>,
+	[SYS_FTRUNCATE]    = <span class="hljs-number">1</span>,
+	[SYS_SETTIMEOFDAY] = <span class="hljs-number">1</span>,
+	[SYS_GETSOCKNAME]  = <span class="hljs-number">1</span>,
+	[SYS_GETPEERNAME]  = <span class="hljs-number">1</span>,
+	[SYS_GETPPID]      = <span class="hljs-number">1</span>,
+	[SYS_LCHOWN]       = <span class="hljs-number">1</span>,
+	[SYS_GETRUSAGE]    = <span class="hljs-number">1</span>,
+	[SYS_PIPE2]        = <span class="hljs-number">1</span>,
+	[SYS_SIGQUEUE]     = <span class="hljs-number">1</span>,
+	[SYS_SETRESUID]    = <span class="hljs-number">1</span>,
+	[SYS_SETREUID]     = <span class="hljs-number">1</span>,
+	[SYS_SETRESGID]    = <span class="hljs-number">1</span>,
+	[SYS_SETREGID]     = <span class="hljs-number">1</span>,
+	[SYS_MMAP]         = <span class="hljs-number">1</span>,
+	[SYS_MUNMAP]       = <span class="hljs-number">1</span>,
+	[SYS_NPROC]        = <span class="hljs-number">1</span>,
+	[SYS_SETTLSBASE]   = <span class="hljs-number">1</span>,
+	[SYS_INSMOD]       = <span class="hljs-number">1</span>,
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">int</span> syscall_set_net[] = {
+	SYS_SOCKET, SYS_SETSOCKOPT, SYS_BIND, SYS_ACCEPT, SYS_LISTEN,
+	SYS_CONNECT, SYS_GETSOCKOPT, SYS_RECV, SYS_SEND, SYS_SHUTDOWN,
+	SYS_GETPEERNAME, SYS_GETSOCKNAME, <span class="hljs-number">-1</span>
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">int</span> syscall_set_file[] = {
+	SYS_OPEN, SYS_STATF, SYS_LSTAT, SYS_ACCESS, SYS_EXECVE,
+	SYS_GETCWD, SYS_CHDIR, SYS_MKDIR, SYS_SYMLINK, SYS_UNLINK,
+	SYS_CHMOD, SYS_CHOWN, SYS_MOUNT, SYS_READLINK, SYS_RENAME,
+	SYS_TRUNCATE, SYS_EACCESS, SYS_LCHOWN, <span class="hljs-number">-1</span>
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">int</span> syscall_set_desc[] = {
+	SYS_OPEN, SYS_READ, SYS_WRITE, SYS_CLOSE, SYS_STAT, SYS_FSWAIT,
+	SYS_FSWAIT2, SYS_FSWAIT3, SYS_SEEK, SYS_IOCTL, SYS_PIPE, SYS_PIPE2,
+	SYS_DUP2, SYS_READDIR, SYS_OPENPTY, SYS_PREAD, SYS_PWRITE, SYS_FCNTL,
+	SYS_FCHMOD, SYS_FCHOWN, SYS_FTRUNCATE, SYS_DUP3, SYS_INSMOD, <span class="hljs-number">-1</span>
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">int</span> syscall_set_memory[] = {
+	SYS_SBRK, SYS_SHM_OBTAIN, SYS_SHM_RELEASE, SYS_MMAP, SYS_MUNMAP, <span class="hljs-number">-1</span>
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">int</span> syscall_set_ipc[] = {
+	SYS_SHM_OBTAIN, SYS_SHM_RELEASE, <span class="hljs-number">-1</span>
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">int</span> syscall_set_signal[] = {
+	SYS_SIGNAL, SYS_KILL, SYS_SIGACTION, SYS_SIGPENDING, SYS_SIGPROCMASK,
+	SYS_SIGSUSPEND, SYS_SIGWAIT, SYS_SIGQUEUE, <span class="hljs-number">-1</span>
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">int</span> syscall_set_process[] = {
+	SYS_EXT, SYS_EXECVE, SYS_FORK, SYS_CLONE, SYS_WAITPID, SYS_KILL,
+	SYS_SIGQUEUE, <span class="hljs-number">-1</span>
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">int</span> syscall_set_creds[] = {
+	SYS_GETUID, SYS_GETGID, SYS_GETGROUPS, SYS_GETEGID, SYS_GETEUID,
+	SYS_SETUID, SYS_SETGID, SYS_SETGROUPS, SYS_SETRESUID, SYS_SETREUID,
+	SYS_SETRESGID, SYS_SETREGID, <span class="hljs-number">-1</span>
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">int</span> syscall_set_stat[] = {
+	SYS_STAT, SYS_STATF, SYS_LSTAT, <span class="hljs-number">-1</span>
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">int</span> syscall_set_clock[] = {
+	SYS_GETTIMEOFDAY, SYS_SETTIMEOFDAY, <span class="hljs-number">-1</span>
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">SyscallSet</span> {</span>
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name;
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">int</span> * syscalls;
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">SyscallSet</span> <span class="hljs-title">syscall_sets</span>[] = {</span>
+	{<span class="hljs-string">"net"</span>,     syscall_set_net},
+	{<span class="hljs-string">"network"</span>, syscall_set_net}, <span class="hljs-comment">/* Alias */</span>
+	{<span class="hljs-string">"file"</span>,    syscall_set_file},
+	{<span class="hljs-string">"desc"</span>,    syscall_set_desc},
+	{<span class="hljs-string">"memory"</span>,  syscall_set_memory},
+	{<span class="hljs-string">"ipc"</span>,     syscall_set_ipc},
+	{<span class="hljs-string">"signal"</span>,  syscall_set_signal},
+	{<span class="hljs-string">"process"</span>, syscall_set_process},
+	{<span class="hljs-string">"creds"</span>,   syscall_set_creds},
+	{<span class="hljs-string">"stat"</span>,    syscall_set_stat},
+	{<span class="hljs-string">"clock"</span>,   syscall_set_clock},
+	{<span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>}
+};
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> M(e) [e] = #e</span>
+<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * errno_names[] = {
+	M(EPERM),
+	M(ENOENT),
+	M(ESRCH),
+	M(EINTR),
+	M(EIO),
+	M(ENXIO),
+	M(E2BIG),
+	M(ENOEXEC),
+	M(EBADF),
+	M(ECHILD),
+	M(EAGAIN),
+	M(ENOMEM),
+	M(EACCES),
+	M(EFAULT),
+	M(ENOTBLK),
+	M(EBUSY),
+	M(EEXIST),
+	M(EXDEV),
+	M(ENODEV),
+	M(ENOTDIR),
+	M(EISDIR),
+	M(EINVAL),
+	M(ENFILE),
+	M(EMFILE),
+	M(ENOTTY),
+	M(ETXTBSY),
+	M(EFBIG),
+	M(ENOSPC),
+	M(ESPIPE),
+	M(EROFS),
+	M(EMLINK),
+	M(EPIPE),
+	M(EDOM),
+	M(ERANGE),
+	M(ENOMSG),
+	M(EIDRM),
+	M(ECHRNG),
+	M(EL2NSYNC),
+	M(EL3HLT),
+	M(EL3RST),
+	M(ELNRNG),
+	M(EUNATCH),
+	M(ENOCSI),
+	M(EL2HLT),
+	M(EDEADLK),
+	M(ENOLCK),
+	M(EBADE),
+	M(EBADR),
+	M(EXFULL),
+	M(ENOANO),
+	M(EBADRQC),
+	M(EBADSLT),
+	M(EDEADLOCK),
+	M(EBFONT),
+	M(ENOSTR),
+	M(ENODATA),
+	M(ETIME),
+	M(ENOSR),
+	M(ENONET),
+	M(ENOPKG),
+	M(EREMOTE),
+	M(ENOLINK),
+	M(EADV),
+	M(ESRMNT),
+	M(ECOMM),
+	M(EPROTO),
+	M(EMULTIHOP),
+	M(ELBIN),
+	M(EDOTDOT),
+	M(EBADMSG),
+	M(EFTYPE),
+	M(ENOTUNIQ),
+	M(EBADFD),
+	M(EREMCHG),
+	M(ELIBACC),
+	M(ELIBBAD),
+	M(ELIBSCN),
+	M(ELIBMAX),
+	M(ELIBEXEC),
+	M(ENOSYS),
+	M(ENOTEMPTY),
+	M(ENAMETOOLONG),
+	M(ELOOP),
+	M(EOPNOTSUPP),
+	M(EPFNOSUPPORT),
+	M(ECONNRESET),
+	M(ENOBUFS),
+	M(EAFNOSUPPORT),
+	M(EPROTOTYPE),
+	M(ENOTSOCK),
+	M(ENOPROTOOPT),
+	M(ESHUTDOWN),
+	M(ECONNREFUSED),
+	M(EADDRINUSE),
+	M(ECONNABORTED),
+	M(ENETUNREACH),
+	M(ENETDOWN),
+	M(ETIMEDOUT),
+	M(EHOSTDOWN),
+	M(EHOSTUNREACH),
+	M(EINPROGRESS),
+	M(EALREADY),
+	M(EDESTADDRREQ),
+	M(EMSGSIZE),
+	M(EPROTONOSUPPORT),
+	M(ESOCKTNOSUPPORT),
+	M(EADDRNOTAVAIL),
+	M(EISCONN),
+	M(ENOTCONN),
+	M(ENOTSUP),
+	M(EOVERFLOW),
+	M(ECANCELED),
+	M(ENOTRECOVERABLE),
+	M(EOWNERDEAD),
+	M(ESTRPIPE),
+	M(ERESTARTSYS),
+	M(ERESTARTSIGSUSPEND),
+};
+
+<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * fcntl_cmd_names[] = {
+	M(F_GETFD),
+	M(F_SETFD),
+	M(F_GETFL),
+	M(F_SETFL),
+	M(F_DUPFD),
+	M(F_GETLK),
+	M(F_SETLK),
+	M(F_SETLKW),
+	M(F_DUPFD_CLOEXEC),
+	M(F_DUPFD_CLOFORK),
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">open_flags</span><span class="hljs-params">(<span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">if</span> (!flags) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"O_RDONLY"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> H(flg) do { <span class="hljs-meta-keyword">if</span> (flags &amp; flg) { fprintf(logfile, #flg); flags &amp;= (~flg); <span class="hljs-meta-keyword">if</span> (flags) fprintf(logfile, <span class="hljs-meta-string">"|"</span>); } } while (0)</span>
+
+	H(O_WRONLY);
+	H(O_RDWR);
+	H(O_APPEND);
+	H(O_CREAT);
+	H(O_TRUNC);
+	H(O_EXCL);
+	H(O_NOFOLLOW);
+	H(O_PATH);
+	H(O_NONBLOCK);
+	H(O_DIRECTORY);
+	H(O_CLOEXEC);
+	H(O_CLOFORK);
+
+	<span class="hljs-keyword">if</span> (flags) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"(%#x)"</span>, flags);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">one_char</span><span class="hljs-params">(<span class="hljs-keyword">uint8_t</span> buf)</span> </span>{
+	<span class="hljs-keyword">if</span> (buf == <span class="hljs-string">'\\'</span>) <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"\\\\"</span>);
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (buf == <span class="hljs-string">'"'</span>) <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"\\\""</span>);
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (buf &gt;= <span class="hljs-string">' '</span> &amp;&amp; buf &lt;= <span class="hljs-string">'~'</span>) <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"%c"</span>, buf);
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (buf == <span class="hljs-string">'\r'</span>) <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"\\r"</span>);
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (buf == <span class="hljs-string">'\n'</span>) <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"\\n"</span>);
+	<span class="hljs-keyword">else</span> <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"\\%o"</span>, buf);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">string_arg</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> ptr)</span> </span>{
+	<span class="hljs-keyword">if</span> (ptr == <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"NULL"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"\""</span>);
+
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint8_t</span> buf = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">do</span> {
+		<span class="hljs-keyword">long</span> result = ptrace(PTRACE_PEEKDATA, pid, (<span class="hljs-keyword">void</span>*)ptr, &amp;buf);
+		<span class="hljs-keyword">if</span> (result != <span class="hljs-number">0</span>) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">if</span> (!buf) {
+			<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"\""</span>);
+			<span class="hljs-keyword">return</span>;
+		}
+		one_char(buf);
+		ptr++;
+		<span class="hljs-built_in">size</span>++;
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &gt; <span class="hljs-number">30</span>) <span class="hljs-keyword">break</span>;
+	} <span class="hljs-keyword">while</span> (buf);
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"\"..."</span>);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> C(arg) case arg: fprintf(logfile, #arg); break</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> COMMA fprintf(logfile, <span class="hljs-meta-string">", "</span>);</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">pointer_arg</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> ptr)</span> </span>{
+	<span class="hljs-keyword">if</span> (ptr == <span class="hljs-number">0</span>) <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"NULL"</span>);
+	<span class="hljs-keyword">else</span> <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"%#zx"</span>, ptr);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">uint_arg</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> val)</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"%zu"</span>, val);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">int_arg</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> val)</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"%zd"</span>, val);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">mode_arg</span><span class="hljs-params">(<span class="hljs-keyword">mode_t</span> val)</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"%#03o"</span>, val);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">fd_arg</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">int</span> val)</span> </span>{
+	<span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> Look up file in user data? */</span>
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"%d"</span>, val);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sock_dom_arg</span><span class="hljs-params">(<span class="hljs-keyword">int</span> domain)</span> </span>{
+	<span class="hljs-keyword">switch</span> (domain) {
+		C(AF_UNSPEC);
+		C(AF_RAW);
+		C(AF_INET);
+		<span class="hljs-keyword">default</span>: <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"%d"</span>, domain); <span class="hljs-keyword">break</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sock_typ_arg</span><span class="hljs-params">(<span class="hljs-keyword">int</span> type)</span> </span>{
+	<span class="hljs-keyword">switch</span> (type) {
+		C(SOCK_DGRAM);
+		C(SOCK_STREAM);
+		C(SOCK_RAW);
+		<span class="hljs-keyword">default</span>: <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"%d"</span>, type); <span class="hljs-keyword">break</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sock_pro_arg</span><span class="hljs-params">(<span class="hljs-keyword">int</span> domain, <span class="hljs-keyword">int</span> type, <span class="hljs-keyword">int</span> proto)</span> </span>{
+	<span class="hljs-keyword">switch</span> (domain) {
+		<span class="hljs-keyword">case</span> AF_INET:
+			<span class="hljs-keyword">switch</span> (proto) {
+				C(IPPROTO_IP);
+				C(IPPROTO_ICMP);
+				C(IPPROTO_TCP);
+				C(IPPROTO_UDP);
+				<span class="hljs-keyword">default</span>:
+					<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"%d"</span>, proto);
+					<span class="hljs-keyword">break</span>;
+			}
+			<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-comment">/* Fallback case */</span>
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"%d"</span>, proto);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sock_lvl_arg</span><span class="hljs-params">(<span class="hljs-keyword">int</span> level)</span> </span>{
+	<span class="hljs-keyword">switch</span> (level) {
+		C(SOL_SOCKET);
+		<span class="hljs-keyword">default</span>: <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"%d"</span>, level); <span class="hljs-keyword">break</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sock_opt_arg</span><span class="hljs-params">(<span class="hljs-keyword">int</span> opt)</span> </span>{
+	<span class="hljs-keyword">switch</span> (opt) {
+		C(SO_KEEPALIVE);
+		C(SO_REUSEADDR);
+		C(SO_BINDTODEVICE);
+		C(SO_RCVTIMEO);
+		<span class="hljs-keyword">default</span>: <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"%d"</span>, opt); <span class="hljs-keyword">break</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">data_read_bytes</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> addr, <span class="hljs-keyword">char</span> * buf, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">size</span>; ++i) {
+		<span class="hljs-keyword">if</span> (ptrace(PTRACE_PEEKDATA, pid, (<span class="hljs-keyword">void</span>*)addr++, &amp;buf[i])) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">data_read_int</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> addr)</span> </span>{
+	<span class="hljs-keyword">int</span> x;
+	data_read_bytes(pid, addr, (<span class="hljs-keyword">char</span>*)&amp;x, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>));
+	<span class="hljs-keyword">return</span> x;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uintptr_t</span> <span class="hljs-title">data_read_ptr</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> addr)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> x;
+	data_read_bytes(pid, addr, (<span class="hljs-keyword">char</span>*)&amp;x, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uintptr_t</span>));
+	<span class="hljs-keyword">return</span> x;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sockaddr_arg</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> addr, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (addr == <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"null"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_storage</span> <span class="hljs-title">sa</span> = {</span><span class="hljs-number">0</span>};
+	data_read_bytes(pid, addr, (<span class="hljs-keyword">char</span>*)&amp;sa, <span class="hljs-built_in">size</span> &lt; <span class="hljs-keyword">sizeof</span>(struct sockaddr_storage) ? <span class="hljs-built_in">size</span> : <span class="hljs-keyword">sizeof</span>(struct sockaddr_storage));
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"{sa_family="</span>);
+	sock_dom_arg(sa.ss_family);
+
+	<span class="hljs-keyword">if</span> (sa.ss_family == AF_INET &amp;&amp; <span class="hljs-built_in">size</span> &gt;= <span class="hljs-keyword">sizeof</span>(struct sockaddr_in)) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_in</span> <span class="hljs-title">addr</span>;</span>
+		<span class="hljs-built_in">memcpy</span>(&amp;addr, &amp;sa, <span class="hljs-keyword">sizeof</span>(struct sockaddr_in));
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">", sin_port=htons(%d), sin_addr=inet_addr(\"%s\")"</span>, ntohs(addr.sin_port), inet_ntoa(addr.sin_addr));
+	}
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"}"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sockaddrp_arg</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> addr, <span class="hljs-keyword">uintptr_t</span> size_p)</span> </span>{
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = <span class="hljs-number">0</span>;
+	data_read_bytes(pid, size_p, (<span class="hljs-keyword">char</span>*)&amp;<span class="hljs-built_in">size</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">size_t</span>));
+	sockaddr_arg(pid,addr,<span class="hljs-built_in">size</span>);
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">fds_arg</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">size_t</span> ecount, <span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">array</span>)</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"["</span>);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> count = <span class="hljs-number">0</span>; count &lt; <span class="hljs-number">10</span> &amp;&amp; count &lt; ecount; ++count) {
+		<span class="hljs-keyword">int</span> x = data_read_int(pid, <span class="hljs-built_in">array</span>);
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"%d"</span>, x);
+		<span class="hljs-keyword">if</span> (count + <span class="hljs-number">1</span> &lt; ecount) <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">","</span>);
+		<span class="hljs-built_in">array</span> += <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>);
+	}
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"]"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">string_array_arg</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">array</span>)</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"["</span>);
+	<span class="hljs-keyword">uintptr_t</span> val = data_read_ptr(pid, <span class="hljs-built_in">array</span>);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> count = <span class="hljs-number">0</span>; count &lt; <span class="hljs-number">10</span>; ++count) {
+		string_arg(pid, val);
+		<span class="hljs-built_in">array</span> += <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uintptr_t</span>);
+		val = data_read_ptr(pid, <span class="hljs-built_in">array</span>);
+		<span class="hljs-keyword">if</span> (val) { COMMA; }
+		<span class="hljs-keyword">else</span> <span class="hljs-keyword">break</span>;
+	}
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"]"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">envp_arg</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">array</span>)</span> </span>{
+	pointer_arg(<span class="hljs-built_in">array</span>);
+
+	<span class="hljs-comment">/* try to count them */</span>
+	<span class="hljs-keyword">size_t</span> count = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (data_read_ptr(pid, <span class="hljs-built_in">array</span>)) {
+		count += <span class="hljs-number">1</span>;
+		<span class="hljs-built_in">array</span> += <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uintptr_t</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (count) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">" /* %zu var%s */"</span>, count, <span class="hljs-string">"s"</span> + (count==<span class="hljs-number">1</span>));
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">buffer_arg</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">buffer</span>, <span class="hljs-keyword">ssize_t</span> count)</span> </span>{
+	<span class="hljs-keyword">if</span> (count &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"..."</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">buffer</span> == <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"NULL"</span>);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">ssize_t</span> x = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">uint8_t</span> buf = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"\""</span>);
+		<span class="hljs-keyword">while</span> (x &lt; count &amp;&amp; x &lt; <span class="hljs-number">30</span>) {
+			<span class="hljs-keyword">long</span> result = ptrace(PTRACE_PEEKDATA, pid, (<span class="hljs-keyword">void</span>*)<span class="hljs-built_in">buffer</span>, &amp;buf);
+			<span class="hljs-keyword">if</span> (result != <span class="hljs-number">0</span>) <span class="hljs-keyword">break</span>;
+			one_char(buf);
+			<span class="hljs-built_in">buffer</span>++;
+			x++;
+		}
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"\""</span>);
+		<span class="hljs-keyword">if</span> (x &lt; count) <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"..."</span>);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">msghdr_arg</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> msghdr)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">msghdr</span> <span class="hljs-title">data</span> = {</span><span class="hljs-number">0</span>};
+	<span class="hljs-keyword">if</span> (data_read_bytes(pid, msghdr, (<span class="hljs-keyword">char</span>*)&amp;data, <span class="hljs-keyword">sizeof</span>(struct msghdr))) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"(?)"</span>);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"{msg_name=%#zx,msg_iovlen=%zu,msg_iov[0]="</span>, (<span class="hljs-keyword">uintptr_t</span>)data.msg_name, data.msg_iovlen);
+		<span class="hljs-keyword">if</span> (data.msg_iovlen &gt; <span class="hljs-number">0</span>) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">iovec</span> <span class="hljs-title">iodata</span> = {</span><span class="hljs-number">0</span>};
+			<span class="hljs-keyword">if</span> (data_read_bytes(pid, (<span class="hljs-keyword">uintptr_t</span>)data.msg_iov, (<span class="hljs-keyword">char</span>*)&amp;iodata, <span class="hljs-keyword">sizeof</span>(struct iovec))) {
+				<span class="hljs-built_in">fprintf</span>(logfile,<span class="hljs-string">"?"</span>);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-built_in">fprintf</span>(logfile,<span class="hljs-string">"{iov_base=%#zx,iov_len=%zu}"</span>, (<span class="hljs-keyword">uintptr_t</span>)iodata.iov_base, iodata.iov_len);
+			}
+		}
+		<span class="hljs-built_in">fprintf</span>(logfile,<span class="hljs-string">"}"</span>);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">fcntl_cmd_arg</span><span class="hljs-params">(<span class="hljs-keyword">long</span> cmd)</span> </span>{
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name = (cmd &gt;= <span class="hljs-number">0</span> &amp;&amp; (<span class="hljs-keyword">size_t</span>)cmd &lt; (<span class="hljs-keyword">sizeof</span>(fcntl_cmd_names) / <span class="hljs-keyword">sizeof</span>(*fcntl_cmd_names))) ? fcntl_cmd_names[cmd] : <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">if</span> (name) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"%s"</span>, name);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"%ld"</span>, cmd);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">print_error</span><span class="hljs-params">(<span class="hljs-keyword">int</span> err)</span> </span>{
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name = (err &gt;= <span class="hljs-number">0</span> &amp;&amp; (<span class="hljs-keyword">size_t</span>)err &lt; (<span class="hljs-keyword">sizeof</span>(errno_names) / <span class="hljs-keyword">sizeof</span>(*errno_names))) ? errno_names[err] : <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">if</span> (name) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">" %s (%s)"</span>, name, strerror(err));
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">" %d (%s)"</span>, err, strerror(err));
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">maybe_errno</span><span class="hljs-params">(struct URegs * r)</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">") = %ld"</span>, uregs_syscall_result(r));
+	<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">intptr_t</span>)uregs_syscall_result(r) &lt; <span class="hljs-number">0</span>) print_error(-uregs_syscall_result(r));
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"\n"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">struct_utsname_arg</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> ptr)</span> </span>{
+	<span class="hljs-keyword">if</span> (!ptr) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"NULL"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"{"</span>);
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"sysname="</span>);
+	string_arg(pid, ptr + offsetof(struct utsname, sysname));
+	COMMA;
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"nodename="</span>);
+	string_arg(pid, ptr + offsetof(struct utsname, nodename));
+	COMMA;
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"...}"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">struct_timeval_arg</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> ptr)</span> </span>{
+	<span class="hljs-keyword">if</span> (!ptr) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"NULL"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"{"</span>);
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"tv_sec="</span>);
+	int_arg(data_read_ptr(pid, ptr + offsetof(struct timeval, tv_sec)));
+	COMMA;
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"tv_usec="</span>);
+	int_arg(data_read_ptr(pid, ptr + offsetof(struct timeval, tv_usec)));
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"}"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">struct_rusage_arg</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> ptr)</span> </span>{
+	<span class="hljs-keyword">if</span> (!ptr) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"NULL"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"{ru_utime="</span>);
+	struct_timeval_arg(pid, ptr + offsetof(struct rusage, ru_utime));
+	COMMA;
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"ru_stime="</span>);
+	struct_timeval_arg(pid, ptr + offsetof(struct rusage, ru_stime));
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"}"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">struct_stat_arg</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> ptr)</span> </span>{
+	<span class="hljs-keyword">if</span> (!ptr) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"NULL"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"{"</span>);
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"st_mode="</span>);
+	<span class="hljs-keyword">mode_t</span> mode = data_read_int(pid, ptr + offsetof(struct stat, st_mode));
+	<span class="hljs-keyword">if</span> (mode &amp; S_IFMT) {
+		<span class="hljs-keyword">switch</span> (mode &amp; S_IFMT) {
+			C(S_IFDIR);
+			C(S_IFCHR);
+			C(S_IFBLK);
+			C(S_IFREG);
+			C(S_IFLNK);
+			C(S_IFSOCK);
+			C(S_IFIFO);
+			<span class="hljs-keyword">default</span>: <span class="hljs-built_in">fprintf</span>(logfile,<span class="hljs-string">"%0o"</span>,mode &amp; S_IFMT);
+		}
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"|"</span>);
+	}
+
+	<span class="hljs-keyword">int</span> flags;
+	<span class="hljs-keyword">if</span> ((flags = (mode &amp; (S_ISUID|S_ISGID|S_ISVTX)))) {
+		H(S_ISUID);
+		H(S_ISGID);
+		H(S_ISVTX);
+		<span class="hljs-keyword">if</span> (mode &amp; <span class="hljs-number">0777</span>) <span class="hljs-built_in">fprintf</span>(logfile,<span class="hljs-string">"|"</span>);
+	}
+	mode_arg(mode &amp; <span class="hljs-number">0777</span>);
+	COMMA;
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"st_size="</span>);
+	uint_arg(data_read_ptr(pid, ptr + offsetof(struct stat, st_size)));
+	COMMA;
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"...}"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">struct_dirent_arg</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> ptr)</span> </span>{
+	<span class="hljs-keyword">if</span> (!ptr) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"NULL"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"{"</span>);
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"d_ino="</span>);
+	uint_arg(data_read_ptr(pid, ptr + offsetof(struct dirent, d_ino)));
+	COMMA;
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"d_name="</span>);
+	string_arg(pid, ptr + offsetof(struct dirent, d_name));
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"}"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">signal_arg</span><span class="hljs-params">(<span class="hljs-keyword">int</span> signum)</span> </span>{
+	<span class="hljs-keyword">char</span> signame[SIG2STR_MAX] = {<span class="hljs-number">0</span>};
+
+	<span class="hljs-keyword">if</span> (signum != <span class="hljs-number">0</span> &amp;&amp; !sig2str(signum, signame)) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"SIG%s"</span>, signame);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"%d"</span>, signum);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sigset_arg</span><span class="hljs-params">(<span class="hljs-keyword">uint64_t</span> sigset)</span> </span>{
+	<span class="hljs-comment">/* handle special cases */</span>
+	<span class="hljs-keyword">if</span> (sigset == <span class="hljs-number">0xFFFFffffFFFFffff</span>) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"sigfillset()"</span>);
+		<span class="hljs-keyword">return</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (sigset == <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"sigemptyset()"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-keyword">uint64_t</span> x = (<span class="hljs-number">1U</span>LL &lt;&lt; NUMSIGNALS) - <span class="hljs-number">2</span>; <span class="hljs-comment">/* 0 is also unused */</span>
+	sigset &amp;= x;
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"{"</span>);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; i &lt; NUMSIGNALS; ++i) {
+		<span class="hljs-keyword">uint64_t</span> s = <span class="hljs-number">1U</span>LL &lt;&lt; i;
+		<span class="hljs-keyword">if</span> (sigset &amp; s) {
+			signal_arg(i);
+			sigset &amp;= ~s;
+			<span class="hljs-keyword">if</span> (sigset) {
+				<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"|"</span>);
+			}
+		}
+	}
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"}"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sigset_ptr_arg</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> ptr)</span> </span>{
+	<span class="hljs-keyword">if</span> (!ptr) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"NULL"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-keyword">uint64_t</span> sigset = data_read_ptr(pid, ptr);
+
+	sigset_arg(sigset);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sigaction_ptr_arg</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> ptr)</span> </span>{
+	<span class="hljs-keyword">if</span> (!ptr) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"NULL"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sigaction</span> <span class="hljs-title">sa</span> = {</span><span class="hljs-number">0</span>};
+	data_read_bytes(pid, ptr, (<span class="hljs-keyword">char</span>*)&amp;sa, <span class="hljs-keyword">sizeof</span>(struct sigaction));
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"{sa_flags="</span>);
+
+	<span class="hljs-keyword">int</span> flags = sa.sa_flags;
+	<span class="hljs-keyword">if</span> (!flags) <span class="hljs-built_in">fprintf</span>(logfile,<span class="hljs-string">"0"</span>);
+	<span class="hljs-keyword">else</span> {
+		H(SA_NOCLDSTOP);
+		H(SA_SIGINFO);
+		H(SA_NODEFER);
+		H(SA_RESETHAND);
+		H(SA_RESTART);
+		<span class="hljs-keyword">if</span> (flags) <span class="hljs-built_in">fprintf</span>(logfile,<span class="hljs-string">"%#x"</span>,flags);
+	}
+
+	<span class="hljs-built_in">fprintf</span>(logfile,<span class="hljs-string">",sa_mask="</span>);
+	sigset_arg(sa.sa_mask);
+	<span class="hljs-built_in">fprintf</span>(logfile,<span class="hljs-string">",sa_handler="</span>);
+
+	<span class="hljs-keyword">if</span> (sa.sa_handler == SIG_DFL) <span class="hljs-built_in">fprintf</span>(logfile,<span class="hljs-string">"SIG_DFL"</span>);
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (sa.sa_handler == SIG_IGN) <span class="hljs-built_in">fprintf</span>(logfile,<span class="hljs-string">"SIG_IGN"</span>);
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (sa.sa_handler == SIG_ERR) <span class="hljs-built_in">fprintf</span>(logfile,<span class="hljs-string">"SIG_ERR"</span>);
+	<span class="hljs-keyword">else</span> pointer_arg((<span class="hljs-keyword">uintptr_t</span>)sa.sa_handler);
+
+	<span class="hljs-built_in">fprintf</span>(logfile,<span class="hljs-string">"}"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">signal_ptr_arg</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> ptr)</span> </span>{
+	<span class="hljs-keyword">int</span> i = data_read_int(pid, ptr);
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"{"</span>);
+	signal_arg(i);
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"}"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">mmap_prot_arg</span><span class="hljs-params">(<span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">if</span> (!flags) <span class="hljs-built_in">fprintf</span>(logfile,<span class="hljs-string">"PROT_NONE"</span>);
+	<span class="hljs-keyword">else</span> {
+		H(PROT_READ);
+		H(PROT_WRITE);
+		H(PROT_EXEC);
+		<span class="hljs-keyword">if</span> (flags) <span class="hljs-built_in">fprintf</span>(logfile,<span class="hljs-string">"%#x"</span>,flags);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">mmap_flags_arg</span><span class="hljs-params">(<span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">if</span> (!flags) <span class="hljs-built_in">fprintf</span>(logfile,<span class="hljs-string">"0"</span>);
+	<span class="hljs-keyword">else</span> {
+		H(MAP_SHARED);
+		H(MAP_PRIVATE);
+		H(MAP_FIXED);
+		H(MAP_ANONYMOUS);
+		<span class="hljs-keyword">if</span> (flags) <span class="hljs-built_in">fprintf</span>(logfile,<span class="hljs-string">"%#x"</span>,flags);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">access_mode_arg</span><span class="hljs-params">(<span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">if</span> (!flags) <span class="hljs-built_in">fprintf</span>(logfile,<span class="hljs-string">"F_OK"</span>);
+	<span class="hljs-keyword">else</span> {
+		H(X_OK);
+		H(W_OK);
+		H(R_OK);
+		<span class="hljs-keyword">if</span> (flags) <span class="hljs-built_in">fprintf</span>(logfile,<span class="hljs-string">"%#x"</span>,flags);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">wait_status_ptr_arg</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">uintptr_t</span> ptr)</span> </span>{
+	<span class="hljs-keyword">if</span> (!ptr) {
+		pointer_arg(ptr);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-keyword">int</span> status = data_read_int(pid, ptr);
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"{"</span>);
+
+	<span class="hljs-keyword">if</span> (WIFEXITED(status)) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"WIFEXITED, WEXITSTATUS=%d"</span>, WEXITSTATUS(status));
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (WIFSIGNALED(status)) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"WIFSIGNALED, WTERMSIG="</span>);
+		signal_arg(WTERMSIG(status));
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (WIFSTOPPED(status)) {
+		<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"WIFSTOPPED, WSTOPSIG="</span>);
+		signal_arg(WSTOPSIG(status));
+	}
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"}"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">wait_options_arg</span><span class="hljs-params">(<span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">if</span> (!flags) <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"0"</span>);
+	<span class="hljs-keyword">else</span> {
+		H(WNOHANG);
+		H(WUNTRACED);
+		H(WSTOPPED);
+		H(WNOKERN);
+		<span class="hljs-keyword">if</span> (flags) <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"%#x"</span>, flags);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">handle_syscall</span><span class="hljs-params">(struct Pid * child, <span class="hljs-keyword">pid_t</span> pid, struct URegs * r)</span> </span>{
+	<span class="hljs-keyword">if</span> (uregs_syscall_num(r) &gt;= <span class="hljs-keyword">sizeof</span>(syscall_mask)) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">if</span> (!syscall_mask[uregs_syscall_num(r)]) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">if</span> (log_hidden) <span class="hljs-keyword">return</span>;
+
+	report_pid(child);
+
+	<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"%s("</span>, syscall_names[uregs_syscall_num(r)]);
+	<span class="hljs-keyword">switch</span> (uregs_syscall_num(r)) {
+		<span class="hljs-keyword">case</span> SYS_OPEN:
+			string_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			open_flags(uregs_syscall_arg2(r));
+			<span class="hljs-keyword">if</span> (uregs_syscall_arg2(r) &amp; O_CREAT) {
+				COMMA;
+				mode_arg(uregs_syscall_arg3(r));
+			}
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_CHMOD:
+			string_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			mode_arg(uregs_syscall_arg2(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_CHOWN:
+		<span class="hljs-keyword">case</span> SYS_LCHOWN:
+			string_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			int_arg(uregs_syscall_arg2(r)); COMMA;
+			int_arg(uregs_syscall_arg3(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_TRUNCATE:
+			string_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			int_arg(uregs_syscall_arg2(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_READ:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			<span class="hljs-comment">/* Plus two more when done */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_WRITE:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			buffer_arg(pid, uregs_syscall_arg2(r), uregs_syscall_arg3(r)); COMMA;
+			uint_arg(uregs_syscall_arg3(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_PREAD:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			<span class="hljs-comment">/* Plus three more when done */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_PWRITE:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			buffer_arg(pid, uregs_syscall_arg2(r), uregs_syscall_arg3(r)); COMMA;
+			uint_arg(uregs_syscall_arg3(r)); COMMA;
+			int_arg(uregs_syscall_arg4(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_CLOSE:
+			fd_arg(pid, uregs_syscall_arg1(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SBRK:
+			uint_arg(uregs_syscall_arg1(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SEEK:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			int_arg(uregs_syscall_arg2(r)); COMMA;
+			<span class="hljs-keyword">switch</span> (uregs_syscall_arg3(r)) {
+				C(SEEK_SET);
+				C(SEEK_CUR);
+				C(SEEK_END);
+				<span class="hljs-keyword">default</span>: int_arg(uregs_syscall_arg3(r)); <span class="hljs-keyword">break</span>;
+			}
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_STATF:
+			string_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			<span class="hljs-comment">/* Plus one more when done */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_STAT:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			<span class="hljs-comment">/* Plus one more when done */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_LSTAT:
+			string_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			<span class="hljs-comment">/* Plus one more when done */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_READDIR:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			int_arg(uregs_syscall_arg2(r)); COMMA;
+			<span class="hljs-comment">/* Plus one more when done */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_KILL:
+			int_arg(uregs_syscall_arg1(r)); COMMA; <span class="hljs-comment">/* pid_arg? */</span>
+			signal_arg(uregs_syscall_arg2(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SIGQUEUE:
+			int_arg(uregs_syscall_arg1(r)); COMMA; <span class="hljs-comment">/* pid_arg? */</span>
+			signal_arg(uregs_syscall_arg2(r)); COMMA;
+			uint_arg(uregs_syscall_arg3(r)); <span class="hljs-comment">/* sigval, which is an untagged union */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_CHDIR:
+			string_arg(pid, uregs_syscall_arg1(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_GETCWD:
+			<span class="hljs-comment">/* output is first arg */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_CLONE:
+			pointer_arg(uregs_syscall_arg1(r)); COMMA;
+			pointer_arg(uregs_syscall_arg2(r)); COMMA;
+			pointer_arg(uregs_syscall_arg3(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SETHOSTNAME:
+			buffer_arg(pid, uregs_syscall_arg1(r), uregs_syscall_arg2(r)); COMMA; <span class="hljs-comment">/* not a nul-terminated string in sethostname */</span>
+			uint_arg(uregs_syscall_arg2(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_GETHOSTNAME:
+			<span class="hljs-comment">/* plus one more when done */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_MKDIR:
+			string_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			mode_arg(uregs_syscall_arg2(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_RENAME:
+			string_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			string_arg(pid, uregs_syscall_arg2(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_ACCESS:
+		<span class="hljs-keyword">case</span> SYS_EACCESS:
+			string_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			access_mode_arg(uregs_syscall_arg2(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_PTRACE:
+			<span class="hljs-keyword">switch</span> (uregs_syscall_arg1(r)) {
+				C(PTRACE_ATTACH);
+				C(PTRACE_CONT);
+				C(PTRACE_DETACH);
+				C(PTRACE_TRACEME);
+				C(PTRACE_GETREGS);
+				C(PTRACE_PEEKDATA);
+				<span class="hljs-keyword">default</span>: int_arg(uregs_syscall_arg1(r)); <span class="hljs-keyword">break</span>;
+			} COMMA;
+			int_arg(uregs_syscall_arg2(r)); COMMA;
+			pointer_arg(uregs_syscall_arg3(r)); COMMA;
+			pointer_arg(uregs_syscall_arg4(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_EXECVE:
+			string_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			string_array_arg(pid, uregs_syscall_arg2(r)); COMMA;
+			envp_arg(pid, uregs_syscall_arg3(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SHM_OBTAIN:
+			string_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			pointer_arg(uregs_syscall_arg2(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SHM_RELEASE:
+			string_arg(pid, uregs_syscall_arg1(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SIGNAL:
+			signal_arg(uregs_syscall_arg1(r)); COMMA;
+			pointer_arg(uregs_syscall_arg2(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_FSWAIT:
+			int_arg(uregs_syscall_arg1(r)); COMMA;
+			fds_arg(pid, uregs_syscall_arg1(r), uregs_syscall_arg2(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_FSWAIT2:
+			int_arg(uregs_syscall_arg1(r)); COMMA;
+			fds_arg(pid, uregs_syscall_arg1(r), uregs_syscall_arg2(r)); COMMA;
+			int_arg(uregs_syscall_arg3(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_FSWAIT3:
+			int_arg(uregs_syscall_arg1(r)); COMMA;
+			fds_arg(pid, uregs_syscall_arg1(r), uregs_syscall_arg2(r)); COMMA;
+			int_arg(uregs_syscall_arg3(r)); COMMA;
+			pointer_arg(uregs_syscall_arg4(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_IOCTL:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			int_arg(uregs_syscall_arg2(r)); COMMA;
+			pointer_arg(uregs_syscall_arg3(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_WAITPID:
+			int_arg(uregs_syscall_arg1(r)); COMMA;
+			<span class="hljs-comment">/* Plus two more */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_EXT:
+			int_arg(uregs_syscall_arg1(r));
+			<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">") = ?\n"</span>);
+			<span class="hljs-keyword">return</span>;
+		<span class="hljs-keyword">case</span> SYS_UNAME:
+			<span class="hljs-comment">/* One output arg */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SLEEPABS:
+			uint_arg(uregs_syscall_arg1(r)); COMMA;
+			uint_arg(uregs_syscall_arg2(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SLEEP:
+			uint_arg(uregs_syscall_arg1(r)); COMMA;
+			uint_arg(uregs_syscall_arg2(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_PIPE:
+			<span class="hljs-comment">/* Arg is a pointer */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_PIPE2:
+			<span class="hljs-comment">/* Output-filled pointer */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_OPENPTY:
+			<span class="hljs-comment">/* Output-filled pointers */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_DUP2:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			fd_arg(pid, uregs_syscall_arg2(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_DUP3:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			fd_arg(pid, uregs_syscall_arg2(r)); COMMA;
+			open_flags(uregs_syscall_arg3(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_FCNTL:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			fcntl_cmd_arg(uregs_syscall_arg2(r)); COMMA;
+			int_arg(uregs_syscall_arg3(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_FCHMOD:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			mode_arg(uregs_syscall_arg2(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_FCHOWN:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			int_arg(uregs_syscall_arg2(r)); COMMA;
+			int_arg(uregs_syscall_arg3(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_FTRUNCATE:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			int_arg(uregs_syscall_arg2(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_MOUNT:
+			string_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			string_arg(pid, uregs_syscall_arg2(r)); COMMA;
+			uint_arg(uregs_syscall_arg3(r)); COMMA;
+			pointer_arg(uregs_syscall_arg4(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_UMASK:
+			mode_arg(uregs_syscall_arg1(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_UNLINK:
+			string_arg(pid, uregs_syscall_arg1(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_GETTIMEOFDAY:
+			<span class="hljs-comment">/* two output args */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SETTIMEOFDAY:
+			struct_timeval_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			pointer_arg(uregs_syscall_arg2(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SIGACTION:
+			signal_arg(uregs_syscall_arg1(r)); COMMA;
+			sigaction_ptr_arg(pid, uregs_syscall_arg2(r)); COMMA;
+			<span class="hljs-comment">/* one output arg */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SIGPENDING:
+			<span class="hljs-comment">/* output only */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SIGPROCMASK:
+			<span class="hljs-keyword">switch</span> (uregs_syscall_arg1(r)) {
+				C(SIG_BLOCK);
+				C(SIG_UNBLOCK);
+				C(SIG_SETMASK);
+				<span class="hljs-keyword">default</span>: int_arg(uregs_syscall_arg1(r)); <span class="hljs-keyword">break</span>;
+			} COMMA;
+			sigset_ptr_arg(pid, uregs_syscall_arg2(r)); COMMA;
+			<span class="hljs-comment">/* one more after with old set */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SIGSUSPEND:
+			sigset_ptr_arg(pid, uregs_syscall_arg1(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SIGWAIT:
+			sigset_ptr_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SOCKET:
+			sock_dom_arg(uregs_syscall_arg1(r)); COMMA;
+			sock_typ_arg(uregs_syscall_arg2(r)); COMMA;
+			sock_pro_arg(uregs_syscall_arg1(r), uregs_syscall_arg2(r), uregs_syscall_arg3(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_RECV:
+		<span class="hljs-keyword">case</span> SYS_SEND:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			msghdr_arg(pid, uregs_syscall_arg2(r)); COMMA;
+			int_arg(uregs_syscall_arg3(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_LISTEN:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			int_arg(uregs_syscall_arg2(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_CONNECT:
+		<span class="hljs-keyword">case</span> SYS_ACCEPT:
+		<span class="hljs-keyword">case</span> SYS_BIND:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			sockaddr_arg(pid, uregs_syscall_arg2(r), uregs_syscall_arg3(r)); <span class="hljs-comment">/* Consumes both */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_GETSOCKNAME:
+		<span class="hljs-keyword">case</span> SYS_GETPEERNAME:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			<span class="hljs-comment">/* two output args */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SHUTDOWN:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			int_arg(uregs_syscall_arg2(r)); <span class="hljs-comment">/* TODO SHUT_... */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SETSOCKOPT:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			sock_lvl_arg(uregs_syscall_arg2(r)); COMMA;
+			sock_opt_arg(uregs_syscall_arg3(r)); COMMA;
+			pointer_arg(uregs_syscall_arg4(r)); COMMA; <span class="hljs-comment">/* TODO sockaddr in some contexts */</span>
+			uint_arg(uregs_syscall_arg5(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_GETSOCKOPT:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			sock_lvl_arg(uregs_syscall_arg2(r)); COMMA;
+			sock_opt_arg(uregs_syscall_arg3(r)); COMMA;
+			pointer_arg(uregs_syscall_arg4(r)); COMMA; <span class="hljs-comment">/* TODO sockaddr in some contexts */</span>
+			pointer_arg(uregs_syscall_arg5(r)); <span class="hljs-comment">/* Note - differs from set */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_GETRUSAGE:
+			<span class="hljs-keyword">switch</span> (uregs_syscall_arg1(r)) {
+				C(RUSAGE_SELF);
+				C(RUSAGE_CHILDREN);
+				<span class="hljs-keyword">default</span>: int_arg(uregs_syscall_arg1(r)); <span class="hljs-keyword">break</span>;
+			} COMMA;
+			<span class="hljs-comment">/* one output arg */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SETUID:
+		<span class="hljs-keyword">case</span> SYS_SETGID:
+			int_arg(uregs_syscall_arg1(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SETREUID:
+		<span class="hljs-keyword">case</span> SYS_SETREGID:
+			int_arg(uregs_syscall_arg1(r)); COMMA;
+			int_arg(uregs_syscall_arg2(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SETRESUID:
+		<span class="hljs-keyword">case</span> SYS_SETRESGID:
+			int_arg(uregs_syscall_arg1(r)); COMMA;
+			int_arg(uregs_syscall_arg2(r)); COMMA;
+			int_arg(uregs_syscall_arg3(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_MMAP:
+			pointer_arg(uregs_syscall_arg1(r)); COMMA;
+			uint_arg(uregs_syscall_arg2(r)); COMMA;
+			mmap_prot_arg(uregs_syscall_arg3(r)); COMMA;
+			mmap_flags_arg(uregs_syscall_arg4(r)); COMMA;
+			fd_arg(pid, uregs_syscall_arg5(r)); COMMA;
+			int_arg(uregs_syscall_arg6(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_MUNMAP:
+			pointer_arg(uregs_syscall_arg1(r)); COMMA;
+			uint_arg(uregs_syscall_arg2(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SETTLSBASE:
+			pointer_arg(uregs_syscall_arg1(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_INSMOD:
+			fd_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			int_arg(uregs_syscall_arg2(r)); COMMA;
+			string_array_arg(pid, uregs_syscall_arg3(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SYMLINK:
+			string_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			string_arg(pid, uregs_syscall_arg2(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_READLINK:
+			string_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			<span class="hljs-comment">/* Plus two more when done */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_REBOOT:
+			int_arg(uregs_syscall_arg1(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_GETGROUPS:
+		<span class="hljs-keyword">case</span> SYS_SETGROUPS:
+			uint_arg(uregs_syscall_arg1(r)); COMMA;
+			pointer_arg(uregs_syscall_arg2(r)); <span class="hljs-comment">/* gid_t array */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_TIMES:
+			pointer_arg(uregs_syscall_arg1(r)); <span class="hljs-comment">/* struct tms */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-comment">/* These have no arguments: */</span>
+		<span class="hljs-keyword">case</span> SYS_YIELD:
+		<span class="hljs-keyword">case</span> SYS_FORK:
+		<span class="hljs-keyword">case</span> SYS_GETEUID:
+		<span class="hljs-keyword">case</span> SYS_GETPID:
+		<span class="hljs-keyword">case</span> SYS_GETUID:
+		<span class="hljs-keyword">case</span> SYS_GETTID:
+		<span class="hljs-keyword">case</span> SYS_SETSID:
+		<span class="hljs-keyword">case</span> SYS_GETGID:
+		<span class="hljs-keyword">case</span> SYS_GETEGID:
+		<span class="hljs-keyword">case</span> SYS_GETPPID:
+		<span class="hljs-keyword">case</span> SYS_NPROC:
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"..."</span>);
+			<span class="hljs-keyword">break</span>;
+	}
+	fflush(logfile);
+	unfinished_child = pid;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">finish_syscall</span><span class="hljs-params">(struct Pid * child, <span class="hljs-keyword">pid_t</span> pid, <span class="hljs-keyword">int</span> syscall, struct URegs * r)</span> </span>{
+	<span class="hljs-keyword">if</span> (syscall &gt;= (<span class="hljs-keyword">int</span>)<span class="hljs-keyword">sizeof</span>(syscall_mask)) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">if</span> (syscall &gt;= <span class="hljs-number">0</span> &amp;&amp; !syscall_mask[syscall]) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">if</span> (log_hidden) <span class="hljs-keyword">return</span>;
+
+	interrupt_log(pid);
+
+	<span class="hljs-keyword">if</span> (child-&gt;unfinished) <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"/* %s resumed */ "</span>, syscall_names[syscall]);
+	child-&gt;unfinished = <span class="hljs-literal">false</span>;
+
+	<span class="hljs-keyword">switch</span> (syscall) {
+		<span class="hljs-keyword">case</span> <span class="hljs-number">-1</span>:
+			<span class="hljs-keyword">break</span>; <span class="hljs-comment">/* This is ptrace(PTRACE_TRACEME)... probably... */</span>
+		<span class="hljs-comment">/* read() returns data in second value */</span>
+		<span class="hljs-keyword">case</span> SYS_READ:
+			buffer_arg(pid, uregs_syscall_arg2(r), uregs_syscall_result(r)); COMMA;
+			uint_arg(uregs_syscall_arg3(r));
+			maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_PREAD:
+			buffer_arg(pid, uregs_syscall_arg2(r), uregs_syscall_result(r)); COMMA;
+			uint_arg(uregs_syscall_arg3(r)); COMMA;
+			int_arg(uregs_syscall_arg4(r));
+			maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_GETHOSTNAME:
+			string_arg(pid, uregs_syscall_arg1(r)); COMMA; <span class="hljs-comment">/* is a nul-terminated string in gethostname */</span>
+			uint_arg(uregs_syscall_arg2(r));
+			maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_UNAME:
+			struct_utsname_arg(pid, uregs_syscall_arg1(r));
+			maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_PIPE:
+			fds_arg(pid, <span class="hljs-number">2</span>, uregs_syscall_arg1(r));
+			maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_PIPE2:
+			fds_arg(pid, <span class="hljs-number">2</span>, uregs_syscall_arg1(r)); COMMA;
+			open_flags(uregs_syscall_arg2(r));
+			maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_OPENPTY:
+			fds_arg(pid, <span class="hljs-number">1</span>, uregs_syscall_arg1(r)); COMMA;
+			fds_arg(pid, <span class="hljs-number">1</span>, uregs_syscall_arg2(r)); COMMA;
+			pointer_arg(uregs_syscall_arg3(r)); COMMA; <span class="hljs-comment">/* string but unused */</span>
+			pointer_arg(uregs_syscall_arg4(r)); COMMA; <span class="hljs-comment">/* initial winsz but unused */</span>
+			pointer_arg(uregs_syscall_arg5(r)); <span class="hljs-comment">/* size of winsz but unused */</span>
+			maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_GETTIMEOFDAY:
+			struct_timeval_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			pointer_arg(uregs_syscall_arg2(r));
+			maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-comment">/* sbrk() returns an address */</span>
+		<span class="hljs-keyword">case</span> SYS_SBRK:
+			<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">") = %#zx\n"</span>, uregs_syscall_result(r));
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_EXECVE:
+			<span class="hljs-keyword">if</span> (r == <span class="hljs-literal">NULL</span>) <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">") = 0\n"</span>);
+			<span class="hljs-keyword">else</span> maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SIGPROCMASK:
+			sigset_ptr_arg(pid, uregs_syscall_arg3(r));
+			maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SIGWAIT:
+			signal_ptr_arg(pid, uregs_syscall_arg2(r));
+			maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_GETSOCKNAME:
+		<span class="hljs-keyword">case</span> SYS_GETPEERNAME:
+			sockaddrp_arg(pid, uregs_syscall_arg2(r), uregs_syscall_arg3(r)); <span class="hljs-comment">/* Consumes both */</span>
+			maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_SIGACTION:
+			sigaction_ptr_arg(pid, uregs_syscall_arg3(r));
+			maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_GETCWD:
+			string_arg(pid, uregs_syscall_arg1(r)); COMMA;
+			uint_arg(uregs_syscall_arg2(r));
+			maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_MMAP:
+			<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">intptr_t</span>)uregs_syscall_result(r) &gt;= <span class="hljs-number">0</span>) <span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">") = %#zx\n"</span>, uregs_syscall_result(r));
+			<span class="hljs-keyword">else</span> maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_GETRUSAGE:
+			struct_rusage_arg(pid, uregs_syscall_arg2(r)); COMMA;
+			maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_UMASK:
+			<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">intptr_t</span>)uregs_syscall_result(r) &gt;= <span class="hljs-number">0</span>) {
+				<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">") = "</span>);
+				mode_arg(uregs_syscall_result(r));
+				<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"\n"</span>);
+			} <span class="hljs-keyword">else</span> {
+				maybe_errno(r);
+			}
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_STATF:
+		<span class="hljs-keyword">case</span> SYS_STAT:
+		<span class="hljs-keyword">case</span> SYS_LSTAT:
+			<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">intptr_t</span>)uregs_syscall_result(r) &gt;= <span class="hljs-number">0</span>) {
+				struct_stat_arg(pid, uregs_syscall_arg2(r));
+			} <span class="hljs-keyword">else</span> {
+				pointer_arg(uregs_syscall_arg2(r));
+			}
+			maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_READDIR:
+			<span class="hljs-keyword">if</span> (uregs_syscall_result(r) &gt; <span class="hljs-number">0</span>) {
+				struct_dirent_arg(pid, uregs_syscall_arg3(r));
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (uregs_syscall_result(r) == <span class="hljs-number">0</span>) {
+				<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"..."</span>);
+			} <span class="hljs-keyword">else</span> {
+				pointer_arg(uregs_syscall_arg3(r));
+			}
+			maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_READLINK:
+			buffer_arg(pid, uregs_syscall_arg2(r), uregs_syscall_arg3(r)); COMMA;
+			uint_arg(uregs_syscall_arg3(r));
+			maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> SYS_WAITPID:
+			<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">intptr_t</span>)uregs_syscall_result(r) &gt;= <span class="hljs-number">0</span>) {
+				wait_status_ptr_arg(pid, uregs_syscall_arg2(r)); COMMA;
+			} <span class="hljs-keyword">else</span> {
+				pointer_arg(uregs_syscall_arg2(r)); COMMA;
+			}
+			wait_options_arg(uregs_syscall_arg3(r));
+			maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-comment">/* Most things return -errno, or positive valid result */</span>
+		<span class="hljs-keyword">default</span>:
+			maybe_errno(r);
+			<span class="hljs-keyword">break</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> T_I <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> T_O <span class="hljs-meta-string">"\033[0m"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"usage: %s [-o logfile] [-e trace=...] [-p PID] [command...]\n"</span>
+			<span class="hljs-string">"  -o logfile   "</span> T_I <span class="hljs-string">"Write tracing output to a file."</span> T_O <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"  -h           "</span> T_I <span class="hljs-string">"Show this help text."</span> T_O <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"  -e trace=... "</span> T_I <span class="hljs-string">"Trace the specified syscalls, or groups of syscalls:"</span> T_O <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"               "</span>,
+			argv[<span class="hljs-number">0</span>]);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">const</span> struct SyscallSet * <span class="hljs-built_in">set</span> = syscall_sets; <span class="hljs-built_in">set</span>-&gt;name; <span class="hljs-built_in">set</span>++) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s%%%s"</span>, (<span class="hljs-built_in">set</span> != syscall_sets) ? <span class="hljs-string">", "</span> : <span class="hljs-string">""</span>, <span class="hljs-built_in">set</span>-&gt;name);
+	}
+
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"  -p PID       "</span> T_I <span class="hljs-string">"Trace an existing process."</span> T_O <span class="hljs-string">"\n"</span>);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	logfile = <span class="hljs-built_in">stderr</span>;
+
+	<span class="hljs-keyword">pid_t</span> p = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> opt;
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"+ho:e:p:f-:"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'p'</span>:
+				p = atoi(optarg);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'o'</span>:
+				logfile = fopen(optarg, <span class="hljs-string">"w"</span>);
+				<span class="hljs-keyword">if</span> (!logfile) {
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], optarg, strerror(errno));
+					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'e'</span>:
+				<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(optarg,<span class="hljs-string">"trace="</span>) == optarg) {
+					<span class="hljs-comment">/* First, disable everything. */</span>
+					<span class="hljs-built_in">memset</span>(syscall_mask, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(syscall_mask));
+
+					<span class="hljs-comment">/* Now look at each comma-separated option */</span>
+					<span class="hljs-keyword">char</span> * option = optarg + <span class="hljs-number">6</span>;
+					<span class="hljs-keyword">char</span> * comma = <span class="hljs-built_in">strstr</span>(option, <span class="hljs-string">","</span>);
+					<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+						<span class="hljs-keyword">if</span> (comma) *comma = <span class="hljs-string">'\0'</span>;
+
+						<span class="hljs-keyword">if</span> (*option == <span class="hljs-string">'%'</span>) {
+							<span class="hljs-comment">/* Check for special options */</span>
+							<span class="hljs-keyword">const</span> <span class="hljs-keyword">int</span> *syscalls = <span class="hljs-literal">NULL</span>;
+
+							<span class="hljs-keyword">for</span> (<span class="hljs-keyword">const</span> struct SyscallSet * <span class="hljs-built_in">set</span> = syscall_sets; <span class="hljs-built_in">set</span>-&gt;name; <span class="hljs-built_in">set</span>++) {
+								<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(<span class="hljs-built_in">set</span>-&gt;name, option+<span class="hljs-number">1</span>)) {
+									syscalls = <span class="hljs-built_in">set</span>-&gt;syscalls;
+									<span class="hljs-keyword">break</span>;
+								}
+							}
+
+							<span class="hljs-keyword">if</span> (syscalls) {
+								<span class="hljs-keyword">for</span> (<span class="hljs-keyword">const</span> <span class="hljs-keyword">int</span> *i = syscalls; *i != <span class="hljs-number">-1</span>; i++) {
+									syscall_mask[*i] = <span class="hljs-number">1</span>;
+								}
+							} <span class="hljs-keyword">else</span> {
+								<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: Unrecognized syscall group: %s\n"</span>, argv[<span class="hljs-number">0</span>], option + <span class="hljs-number">1</span>);
+								<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+							}
+						} <span class="hljs-keyword">else</span> {
+							<span class="hljs-comment">/* Check the list */</span>
+							<span class="hljs-keyword">int</span> set_something = <span class="hljs-number">0</span>;
+							<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-keyword">sizeof</span>(syscall_names) / <span class="hljs-keyword">sizeof</span>(*syscall_names); ++i) {
+								<span class="hljs-keyword">if</span> (syscall_names[i] &amp;&amp; !<span class="hljs-built_in">strcmp</span>(option,syscall_names[i])) {
+									syscall_mask[i] = <span class="hljs-number">1</span>;
+									set_something = <span class="hljs-number">1</span>;
+									<span class="hljs-keyword">break</span>;
+								}
+							}
+							<span class="hljs-keyword">if</span> (!set_something) {
+								<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: Unrecognized syscall name: %s\n"</span>, argv[<span class="hljs-number">0</span>], option);
+								<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+							}
+						}
+						<span class="hljs-keyword">if</span> (!comma) <span class="hljs-keyword">break</span>;
+						option = comma + <span class="hljs-number">1</span>;
+						comma = <span class="hljs-built_in">strstr</span>(option, <span class="hljs-string">","</span>);
+					}
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-keyword">char</span> * eq = <span class="hljs-built_in">strstr</span>(optarg, <span class="hljs-string">"="</span>);
+					<span class="hljs-keyword">if</span> (eq) *eq = <span class="hljs-string">'\0'</span>;
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: Unrecognized -e option: %s\n"</span>, argv[<span class="hljs-number">0</span>], optarg);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>:
+				follow_forks = <span class="hljs-literal">true</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'h'</span>:
+				<span class="hljs-keyword">return</span> usage(argv), <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'-'</span>:
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(optarg,<span class="hljs-string">"follow-forks"</span>)) {
+					follow_forks = <span class="hljs-literal">true</span>;
+					<span class="hljs-keyword">break</span>;
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(optarg, <span class="hljs-string">"help"</span>)) {
+					<span class="hljs-keyword">return</span> usage(argv), <span class="hljs-number">0</span>;
+				}
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: Unrecognized option: --%s\n"</span>, argv[<span class="hljs-number">0</span>], optarg);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<p>fallthrough</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> usage(argv);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!p &amp;&amp; optind == argc) {
+		<span class="hljs-keyword">return</span> usage(argv);
+	}
+
+	<span class="hljs-keyword">if</span> (!p) {
+		<span class="hljs-keyword">char</span> *filename = argv[optind];
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strchr</span>(filename,<span class="hljs-string">'/'</span>)) {
+			<span class="hljs-keyword">char</span> *path = strdup(getenv(<span class="hljs-string">"PATH"</span>) ?: <span class="hljs-string">"/bin:/usr/bin"</span>);
+			<span class="hljs-keyword">char</span> *p, *last;
+			<span class="hljs-keyword">for</span> ((p = strtok_r(path, <span class="hljs-string">":"</span>, &amp;last)); p;
+			      p = strtok_r(<span class="hljs-literal">NULL</span>, <span class="hljs-string">":"</span>, &amp;last)) {
+				<span class="hljs-keyword">char</span> * exe = <span class="hljs-literal">NULL</span>;
+				asprintf(&amp;exe, <span class="hljs-string">"%s/%s"</span>, p, filename);
+				<span class="hljs-keyword">if</span> (!access(exe, X_OK)) {
+					filename = exe;
+					<span class="hljs-keyword">break</span>;
+				}
+				<span class="hljs-built_in">free</span>(exe);
+			}
+			<span class="hljs-built_in">free</span>(path);
+
+			<span class="hljs-keyword">if</span> (filename == argv[optind]) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: Cannot find executable '%s'\n"</span>, argv[<span class="hljs-number">0</span>], filename);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			}
+		}
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">sb</span>;</span>
+		<span class="hljs-keyword">if</span> (stat(filename, &amp;sb)) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: Cannot stat '%s': %s\n"</span>, argv[<span class="hljs-number">0</span>], filename, strerror(errno));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+
+		p = fork();
+		<span class="hljs-keyword">if</span> (!p) {
+			<span class="hljs-keyword">if</span> (ptrace(PTRACE_TRACEME, <span class="hljs-number">0</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>) &lt; <span class="hljs-number">0</span>) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: ptrace: %s\n"</span>, argv[<span class="hljs-number">0</span>], strerror(errno));
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			}
+			<span class="hljs-built_in">exit</span>(execv(filename, &amp;argv[optind]));
+		}
+		signal(SIGINT, SIG_IGN);
+	} <span class="hljs-keyword">else</span> {
+		log_hidden = <span class="hljs-literal">false</span>;
+	}
+
+	<span class="hljs-comment">/* Set up first child. */</span>
+	children = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(struct Pid));
+	children-&gt;pid = p;
+	children-&gt;previous_syscall = <span class="hljs-number">-1</span>;
+	children_count = <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">if</span> (ptrace(PTRACE_ATTACH, p, <span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>) &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: ptrace: %s\n"</span>, argv[<span class="hljs-number">0</span>], strerror(errno));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (follow_forks) {
+		<span class="hljs-keyword">if</span> (ptrace(PTRACE_SETOPTIONS, p, <span class="hljs-literal">NULL</span>, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)(PTRACE_O_TRACEFORK | PTRACE_O_TRACECLONE)) &lt; <span class="hljs-number">0</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: ptrace: %s\n"</span>, argv[<span class="hljs-number">0</span>], strerror(errno));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">int</span> status = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">pid_t</span> res = waitpid(<span class="hljs-number">-1</span>, &amp;status, WSTOPPED);
+
+		<span class="hljs-keyword">if</span> (res &lt; <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">if</span> (errno == ECHILD) <span class="hljs-keyword">break</span>;
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: waitpid: %s\n"</span>, argv[<span class="hljs-number">0</span>], strerror(errno));
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (res == <span class="hljs-number">0</span>) {
+			<span class="hljs-comment">/* No child process? */</span>
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-comment">/* Do we know about 'res' yet? */</span>
+			struct Pid * child = find_pid(res);
+			<span class="hljs-keyword">if</span> (!child) {
+				child = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(struct Pid));
+				child-&gt;next = children;
+				child-&gt;pid = res;
+				child-&gt;previous_syscall = <span class="hljs-number">-1</span>;
+				children-&gt;prev = child;
+				children = child;
+				children_count++;
+
+				<span class="hljs-comment">/* Just in case, only do this if we actually said to. */</span>
+				<span class="hljs-keyword">if</span> (follow_forks) ptrace(PTRACE_SETOPTIONS, res, <span class="hljs-literal">NULL</span>, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)(PTRACE_O_TRACEFORK | PTRACE_O_TRACECLONE));
+
+				interrupt_log(res);
+				<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"Process %d attached\n"</span>, res);
+			}
+
+			<span class="hljs-keyword">if</span> (WIFSTOPPED(status)) {
+				<span class="hljs-keyword">if</span> (WSTOPSIG(status) == SIGTRAP) {
+					<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">URegs</span> <span class="hljs-title">regs</span>;</span>
+					ptrace(PTRACE_GETREGS, res, <span class="hljs-literal">NULL</span>, &amp;regs);
+
+					<span class="hljs-comment">/* Event type */</span>
+					<span class="hljs-keyword">int</span> event = (status &gt;&gt; <span class="hljs-number">16</span>) &amp; <span class="hljs-number">0xFF</span>;
+					<span class="hljs-keyword">switch</span> (event) {
+						<span class="hljs-keyword">case</span> PTRACE_EVENT_SYSCALL_ENTER:
+							<span class="hljs-keyword">if</span> (child-&gt;previous_syscall == SYS_EXECVE) finish_syscall(child, res, SYS_EXECVE,<span class="hljs-literal">NULL</span>);
+							child-&gt;previous_syscall = uregs_syscall_num(&amp;regs);
+							<span class="hljs-keyword">if</span> (log_hidden &amp;&amp; child-&gt;previous_syscall == SYS_EXECVE) log_hidden = <span class="hljs-literal">false</span>;
+							handle_syscall(child, res, &amp;regs);
+							<span class="hljs-keyword">break</span>;
+						<span class="hljs-keyword">case</span> PTRACE_EVENT_SYSCALL_EXIT:
+							finish_syscall(child, res, child-&gt;previous_syscall, &amp;regs);
+							child-&gt;previous_syscall = <span class="hljs-number">-1</span>;
+							<span class="hljs-keyword">break</span>;
+						<span class="hljs-keyword">default</span>:
+							<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"Unknown event.\n"</span>);
+							<span class="hljs-keyword">break</span>;
+					}
+					ptrace(PTRACE_CONT, res, <span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>);
+				} <span class="hljs-keyword">else</span> {
+					report_pid(child);
+					<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"--- "</span>);
+					signal_arg(WSTOPSIG(status));
+					<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">" ---\n"</span>);
+
+					ptrace(PTRACE_CONT, res, <span class="hljs-literal">NULL</span>, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)WSTOPSIG(status));
+				}
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (WIFSIGNALED(status)) {
+				report_pid(child);
+				<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"+++ killed by "</span>);
+				signal_arg(WTERMSIG(status));
+				<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">" +++\n"</span>);
+
+				<span class="hljs-keyword">if</span> (forget_child(child)) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (WIFEXITED(status)) {
+				report_pid(child);
+				<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"+++ exited with %d +++\n"</span>, WEXITSTATUS(status));
+				<span class="hljs-keyword">if</span> (forget_child(child)) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-built_in">fprintf</span>(logfile, <span class="hljs-string">"??? unrecognized status %x\n"</span>, status);
+			}
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

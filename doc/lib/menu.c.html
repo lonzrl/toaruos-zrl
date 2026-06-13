@@ -1,0 +1,1310 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>menu.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "lib\\menu.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>menu.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;math.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;dlfcn.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/yutani.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/hashmap.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/icon_cache.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/text.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/markup_text.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/menu.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MENU_ENTRY_HEIGHT 20</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MENU_BACKGROUND rgb(239,238,232)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MENU_ICON_SIZE 16</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> HILIGHT_BORDER_TOP rgb(54,128,205)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> HILIGHT_GRADIENT_TOP rgb(93,163,236)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> HILIGHT_GRADIENT_BOTTOM rgb(56,137,220)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> HILIGHT_BORDER_BOTTOM rgb(47,106,167)</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MENU_ENTRY_FLAGS_DISABLED 0x0001</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">hashmap_t</span> * menu_windows = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_t</span> * my_yctx = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">hovered_menu</span> = <span class="hljs-title">NULL</span>;</span>
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">menu_definitely_close</span><span class="hljs-params">(struct MenuList * menu)</span></span>;
+
+__attribute__((constructor))
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _init_menus(<span class="hljs-keyword">void</span>) {
+	menu_windows = hashmap_create_int(<span class="hljs-number">10</span>);
+	markup_text_init();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">hashmap_t</span> * <span class="hljs-title">menu_get_windows_hash</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> menu_windows;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">string_width</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * s)</span> </span>{
+	<span class="hljs-keyword">return</span> markup_string_width(s);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">draw_string</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y, <span class="hljs-keyword">uint32_t</span> color, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * s)</span> </span>{
+	<span class="hljs-keyword">return</span> markup_draw_string(ctx,x,y+<span class="hljs-number">13</span>,s,color);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> _menu_is_disabled(struct MenuEntry * entry);
+
+<span class="hljs-keyword">void</span> _menu_draw_MenuEntry_Normal(<span class="hljs-keyword">gfx_context_t</span> * ctx, struct MenuEntry * self, <span class="hljs-keyword">int</span> offset) {
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry_Normal</span> * _<span class="hljs-title">self</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">MenuEntry_Normal</span> *)<span class="hljs-title">self</span>;</span>
+
+	_self-&gt;offset = offset;
+
+	<span class="hljs-comment">/* Background gradient */</span>
+	<span class="hljs-keyword">if</span> (!_menu_is_disabled(self) &amp;&amp; _self-&gt;hilight) {
+		draw_line(ctx, <span class="hljs-number">1</span>, _self-&gt;<span class="hljs-built_in">width</span><span class="hljs-number">-2</span>, offset, offset, HILIGHT_BORDER_TOP);
+		draw_line(ctx, <span class="hljs-number">1</span>, _self-&gt;<span class="hljs-built_in">width</span><span class="hljs-number">-2</span>, offset + _self-&gt;<span class="hljs-built_in">height</span> - <span class="hljs-number">1</span>, offset + _self-&gt;<span class="hljs-built_in">height</span> - <span class="hljs-number">1</span>, HILIGHT_BORDER_BOTTOM);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; i &lt; self-&gt;<span class="hljs-built_in">height</span><span class="hljs-number">-1</span>; ++i) {
+			<span class="hljs-keyword">int</span> thing = ((i - <span class="hljs-number">1</span>) * <span class="hljs-number">256</span>) / (_self-&gt;<span class="hljs-built_in">height</span> - <span class="hljs-number">2</span>);
+			<span class="hljs-keyword">if</span> (thing &gt; <span class="hljs-number">255</span>) thing = <span class="hljs-number">255</span>;
+			<span class="hljs-keyword">if</span> (thing &lt; <span class="hljs-number">0</span>) thing = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">uint32_t</span> c = interp_colors(HILIGHT_GRADIENT_TOP, HILIGHT_GRADIENT_BOTTOM, thing);
+			draw_line(ctx, <span class="hljs-number">1</span>, self-&gt;<span class="hljs-built_in">width</span><span class="hljs-number">-2</span>, offset + i, offset + i, c);
+		}
+	}
+
+	<span class="hljs-comment">/* Icon */</span>
+	<span class="hljs-keyword">if</span> (_self-&gt;icon) {
+		<span class="hljs-keyword">sprite_t</span> * icon = icon_get_16(_self-&gt;icon);
+		<span class="hljs-keyword">if</span> (icon-&gt;<span class="hljs-built_in">width</span> == MENU_ICON_SIZE) {
+			<span class="hljs-keyword">if</span> (_menu_is_disabled(self)) {
+				draw_sprite_alpha(ctx, icon, <span class="hljs-number">4</span>, offset + <span class="hljs-number">2</span>, <span class="hljs-number">0.5</span>);
+			} <span class="hljs-keyword">else</span> {
+				draw_sprite(ctx, icon, <span class="hljs-number">4</span>, offset + <span class="hljs-number">2</span>);
+			}
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">if</span> (_menu_is_disabled(self)) {
+				draw_sprite_scaled_alpha(ctx, icon, <span class="hljs-number">4</span>, offset + <span class="hljs-number">2</span>, MENU_ICON_SIZE, MENU_ICON_SIZE, <span class="hljs-number">0.5</span>);
+			} <span class="hljs-keyword">else</span> {
+				draw_sprite_scaled(ctx, icon, <span class="hljs-number">4</span>, offset + <span class="hljs-number">2</span>, MENU_ICON_SIZE, MENU_ICON_SIZE);
+			}
+		}
+	}
+
+	<span class="hljs-comment">/* Foreground text color */</span>
+	<span class="hljs-keyword">uint32_t</span> color = _menu_is_disabled(self) ? rgba(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">127</span>) : (_self-&gt;hilight ? rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>) : rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+
+	<span class="hljs-comment">/* Draw title */</span>
+	draw_string(ctx, <span class="hljs-number">22</span>, offset + <span class="hljs-number">1</span>, color, _self-&gt;title);
+}
+
+<span class="hljs-keyword">void</span> _menu_focus_MenuEntry_Normal(struct MenuEntry * self, <span class="hljs-keyword">int</span> focused) {
+	<span class="hljs-keyword">if</span> (focused) {
+		<span class="hljs-keyword">if</span> (self-&gt;_owner &amp;&amp; self-&gt;_owner-&gt;child) {
+			menu_definitely_close(self-&gt;_owner-&gt;child);
+			self-&gt;_owner-&gt;child = <span class="hljs-literal">NULL</span>;
+		}
+	}
+}
+
+<span class="hljs-keyword">void</span> _menu_activate_MenuEntry_Normal(struct MenuEntry * self, <span class="hljs-keyword">int</span> flags) {
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry_Normal</span> * _<span class="hljs-title">self</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">MenuEntry_Normal</span> *)<span class="hljs-title">self</span>;</span>
+
+	<span class="hljs-keyword">if</span> (_menu_is_disabled(self)) <span class="hljs-keyword">return</span>; <span class="hljs-comment">/* Do nothing */</span>
+
+	<span class="hljs-keyword">list_t</span> * menu_keys = hashmap_keys(menu_windows);
+	hovered_menu = <span class="hljs-literal">NULL</span>;
+	foreach(_key, menu_keys) {
+		<span class="hljs-keyword">yutani_window_t</span> * window = hashmap_get(menu_windows, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)_key-&gt;value);
+		<span class="hljs-keyword">if</span> (window) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">menu</span> = <span class="hljs-title">window</span>-&gt;<span class="hljs-title">user_data</span>;</span>
+			menu_definitely_close(menu);
+			<span class="hljs-keyword">if</span> (menu-&gt;parent &amp;&amp; menu-&gt;parent-&gt;child == menu) {
+				menu-&gt;parent-&gt;child = <span class="hljs-literal">NULL</span>;
+			}
+		}
+	}
+
+	list_free(menu_keys);
+	<span class="hljs-built_in">free</span>(menu_keys);
+
+	<span class="hljs-keyword">if</span> (_self-&gt;callback) {
+		_self-&gt;callback(_self);
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntryVTable</span> _<span class="hljs-title">menu_vtable_MenuEntry_Normal</span> = {</span>
+	.methods = <span class="hljs-number">3</span>,
+	.renderer = _menu_draw_MenuEntry_Normal,
+	.focus_change = _menu_focus_MenuEntry_Normal,
+	.activate = _menu_activate_MenuEntry_Normal,
+};
+
+<span class="hljs-function">struct MenuEntry * <span class="hljs-title">menu_create_normal</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * icon, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * action, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * title, <span class="hljs-keyword">void</span> (*callback)(struct MenuEntry *))</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry_Normal</span> * <span class="hljs-title">out</span> = <span class="hljs-title">calloc</span>(1,<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">MenuEntry_Normal</span>));</span>
+
+	out-&gt;_type = MenuEntry_Normal;
+	out-&gt;<span class="hljs-built_in">height</span> = MENU_ENTRY_HEIGHT;
+	out-&gt;hilight = <span class="hljs-number">0</span>;
+	out-&gt;vtable = &amp;_menu_vtable_MenuEntry_Normal;
+	out-&gt;icon = icon ? strdup(icon) : <span class="hljs-literal">NULL</span>;
+	out-&gt;title = strdup(title);
+	out-&gt;action = action ? strdup(action) : <span class="hljs-literal">NULL</span>;
+	out-&gt;callback = callback;
+
+	out-&gt;rwidth = <span class="hljs-number">50</span> + string_width(out-&gt;title);
+
+	<span class="hljs-keyword">return</span> (struct MenuEntry *)out;
+}
+
+<span class="hljs-keyword">void</span> _menu_draw_MenuEntry_Toggle(<span class="hljs-keyword">gfx_context_t</span> * ctx, struct MenuEntry * self, <span class="hljs-keyword">int</span> offset) {
+	_menu_draw_MenuEntry_Normal(ctx,self,offset);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry_Toggle</span> * _<span class="hljs-title">self</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">MenuEntry_Toggle</span> *)<span class="hljs-title">self</span>;</span>
+
+	<span class="hljs-keyword">if</span> (_self-&gt;<span class="hljs-built_in">set</span>) {
+		<span class="hljs-keyword">sprite_t</span> * check_box = icon_get_16(<span class="hljs-string">"check"</span>);
+		<span class="hljs-keyword">uint32_t</span> color = _menu_is_disabled(self) ? rgba(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">127</span>) : (_self-&gt;hilight ? rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>) : rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+		draw_sprite_alpha_paint(ctx, check_box, <span class="hljs-number">4</span>, offset + <span class="hljs-number">2</span>, <span class="hljs-number">1.0</span>, color);
+	}
+}
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntryVTable</span> _<span class="hljs-title">menu_vtable_MenuEntry_Toggle</span> = {</span>
+	.methods = <span class="hljs-number">3</span>,
+	.renderer = _menu_draw_MenuEntry_Toggle, <span class="hljs-comment">/* Only the renderer differs; users must manage toggle state */</span>
+	.focus_change = _menu_focus_MenuEntry_Normal,
+	.activate = _menu_activate_MenuEntry_Normal,
+};
+
+<span class="hljs-function">struct MenuEntry * <span class="hljs-title">menu_create_toggle</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * action, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * title, <span class="hljs-keyword">int</span> <span class="hljs-built_in">set</span>, <span class="hljs-keyword">void</span> (*callback)(struct MenuEntry *))</span> </span>{
+	<span class="hljs-comment">/* Reuse the initializer for the normal one, assuming with no icon. */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry_Toggle</span> * <span class="hljs-title">out</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">MenuEntry_Toggle</span>*)<span class="hljs-title">menu_create_normal</span>(<span class="hljs-title">NULL</span>, <span class="hljs-title">action</span>, <span class="hljs-title">title</span>, <span class="hljs-title">callback</span>);</span>
+	<span class="hljs-keyword">if</span> (!out) <span class="hljs-keyword">return</span> out;
+	out = <span class="hljs-built_in">realloc</span>(out, <span class="hljs-keyword">sizeof</span>(struct MenuEntry_Toggle));
+
+	out-&gt;_type = MenuEntry_Toggle;
+	out-&gt;vtable = &amp;_menu_vtable_MenuEntry_Toggle;
+
+	<span class="hljs-comment">/* And just set our status */</span>
+	out-&gt;<span class="hljs-built_in">set</span> = <span class="hljs-built_in">set</span>;
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-keyword">void</span> _menu_draw_MenuEntry_Submenu(<span class="hljs-keyword">gfx_context_t</span> * ctx, struct MenuEntry * self, <span class="hljs-keyword">int</span> offset) {
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry_Submenu</span> * _<span class="hljs-title">self</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">MenuEntry_Submenu</span> *)<span class="hljs-title">self</span>;</span>
+	<span class="hljs-keyword">int</span> h = _self-&gt;hilight;
+	<span class="hljs-keyword">if</span> (_self-&gt;_owner &amp;&amp; _self-&gt;_my_child &amp;&amp; _self-&gt;_owner-&gt;child == _self-&gt;_my_child &amp;&amp; !_self-&gt;_my_child-&gt;closed) {
+		_self-&gt;hilight = <span class="hljs-number">1</span>;
+	}
+	_menu_draw_MenuEntry_Normal(ctx,self,offset);
+
+	<span class="hljs-comment">/* Draw the tick on the right side to indicate this is a submenu */</span>
+	<span class="hljs-keyword">uint32_t</span> color = _menu_is_disabled(self) ? rgba(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">127</span>) : (_self-&gt;hilight ? rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>) : rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+	<span class="hljs-keyword">sprite_t</span> * tick = icon_get_16(<span class="hljs-string">"menu-tick"</span>);
+	draw_sprite_alpha_paint(ctx, tick, _self-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">16</span>, offset + <span class="hljs-number">2</span>, <span class="hljs-number">1.0</span>, color);
+	_self-&gt;hilight = h;
+}
+
+<span class="hljs-keyword">void</span> _menu_focus_MenuEntry_Submenu(struct MenuEntry * self, <span class="hljs-keyword">int</span> focused) {
+	<span class="hljs-keyword">if</span> (focused) {
+		self-&gt;vtable-&gt;activate(self, focused);
+	}
+}
+
+<span class="hljs-keyword">void</span> _menu_activate_MenuEntry_Submenu(struct MenuEntry * self, <span class="hljs-keyword">int</span> focused) {
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry_Submenu</span> * _<span class="hljs-title">self</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">MenuEntry_Submenu</span> *)<span class="hljs-title">self</span>;</span>
+
+	<span class="hljs-keyword">if</span> (_menu_is_disabled(self)) <span class="hljs-keyword">return</span>; <span class="hljs-comment">/* Do nothing */</span>
+
+	<span class="hljs-keyword">if</span> (_self-&gt;_owner &amp;&amp; _self-&gt;_owner-&gt;<span class="hljs-built_in">set</span>) {
+		<span class="hljs-comment">/* Show a menu */</span>
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">new_menu</span> = <span class="hljs-title">menu_set_get_menu</span>(_<span class="hljs-title">self</span>-&gt;_<span class="hljs-title">owner</span>-&gt;<span class="hljs-title">set</span>, (<span class="hljs-title">char</span> *)_<span class="hljs-title">self</span>-&gt;<span class="hljs-title">action</span>);</span>
+		<span class="hljs-keyword">if</span> (_self-&gt;_owner-&gt;child &amp;&amp; _self-&gt;_owner-&gt;child != new_menu) {
+			menu_definitely_close(_self-&gt;_owner-&gt;child);
+			_self-&gt;_owner-&gt;child = <span class="hljs-literal">NULL</span>;
+		}
+		new_menu-&gt;parent = _self-&gt;_owner;
+		new_menu-&gt;parent-&gt;child = new_menu;
+		_self-&gt;_my_child = new_menu;
+		<span class="hljs-keyword">if</span> (new_menu-&gt;closed) {
+			new_menu-&gt;main_window = new_menu-&gt;parent-&gt;main_window;
+			menu_prepare(new_menu, _self-&gt;_owner-&gt;window-&gt;ctx);
+			<span class="hljs-keyword">int</span> offset_x = _self-&gt;_owner-&gt;window-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">2</span>;
+			<span class="hljs-keyword">int</span> offset_y = _self-&gt;offset - <span class="hljs-number">4</span>;
+			<span class="hljs-keyword">if</span> (_self-&gt;_owner-&gt;window-&gt;<span class="hljs-built_in">width</span> + _self-&gt;_owner-&gt;window-&gt;x - <span class="hljs-number">2</span> + new_menu-&gt;window-&gt;<span class="hljs-built_in">width</span> &gt; _self-&gt;_owner-&gt;window-&gt;ctx-&gt;display_width) {
+				offset_x = <span class="hljs-number">2</span> - new_menu-&gt;window-&gt;<span class="hljs-built_in">width</span>;
+			}
+			<span class="hljs-keyword">if</span> (_self-&gt;_owner-&gt;window-&gt;y + offset_y + new_menu-&gt;window-&gt;<span class="hljs-built_in">height</span> &gt;  _self-&gt;_owner-&gt;window-&gt;ctx-&gt;display_height) {
+				offset_y = _self-&gt;_owner-&gt;window-&gt;ctx-&gt;display_height - _self-&gt;_owner-&gt;window-&gt;y - new_menu-&gt;window-&gt;<span class="hljs-built_in">height</span>;
+			}
+			yutani_window_move_relative(_self-&gt;_owner-&gt;window-&gt;ctx, new_menu-&gt;window, _self-&gt;_owner-&gt;window,
+				offset_x, offset_y);
+			yutani_flip(_self-&gt;_owner-&gt;window-&gt;ctx, new_menu-&gt;window);
+		}
+	}
+
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntryVTable</span> _<span class="hljs-title">menu_vtable_MenuEntry_Submenu</span> = {</span>
+	.methods = <span class="hljs-number">3</span>,
+	.renderer = _menu_draw_MenuEntry_Submenu,
+	.focus_change = _menu_focus_MenuEntry_Submenu,
+	.activate = _menu_activate_MenuEntry_Submenu,
+};
+
+<span class="hljs-function">struct MenuEntry * <span class="hljs-title">menu_create_submenu</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * icon, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * action, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * title)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry_Submenu</span> * <span class="hljs-title">out</span> = <span class="hljs-title">calloc</span>(1,<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">MenuEntry_Submenu</span>));</span>
+
+	out-&gt;_type = MenuEntry_Submenu;
+	out-&gt;<span class="hljs-built_in">height</span> = MENU_ENTRY_HEIGHT;
+	out-&gt;hilight = <span class="hljs-number">0</span>;
+	out-&gt;vtable = &amp;_menu_vtable_MenuEntry_Submenu;
+	out-&gt;icon = icon ? strdup(icon) : <span class="hljs-literal">NULL</span>;
+	out-&gt;title = strdup(title);
+	out-&gt;action = action ? strdup(action) : <span class="hljs-literal">NULL</span>;
+
+	out-&gt;rwidth = <span class="hljs-number">50</span> + string_width(out-&gt;title);
+
+	<span class="hljs-keyword">return</span> (struct MenuEntry *)out;
+}
+
+<span class="hljs-keyword">void</span> _menu_draw_MenuEntry_Separator(<span class="hljs-keyword">gfx_context_t</span> * ctx, struct MenuEntry * self, <span class="hljs-keyword">int</span> offset) {
+	self-&gt;offset = offset;
+	draw_line(ctx, <span class="hljs-number">2</span>, self-&gt;<span class="hljs-built_in">width</span><span class="hljs-number">-4</span>, offset+<span class="hljs-number">3</span>, offset+<span class="hljs-number">3</span>, rgb(<span class="hljs-number">178</span>,<span class="hljs-number">178</span>,<span class="hljs-number">178</span>));
+	draw_line(ctx, <span class="hljs-number">2</span>, self-&gt;<span class="hljs-built_in">width</span><span class="hljs-number">-5</span>, offset+<span class="hljs-number">4</span>, offset+<span class="hljs-number">4</span>, rgb(<span class="hljs-number">250</span>,<span class="hljs-number">250</span>,<span class="hljs-number">250</span>));
+}
+
+<span class="hljs-keyword">void</span> _menu_focus_MenuEntry_Separator(struct MenuEntry * self, <span class="hljs-keyword">int</span> focused) {
+	<span class="hljs-keyword">if</span> (focused) {
+		<span class="hljs-keyword">if</span> (self-&gt;_owner &amp;&amp; self-&gt;_owner-&gt;child) {
+			menu_definitely_close(self-&gt;_owner-&gt;child);
+			self-&gt;_owner-&gt;child = <span class="hljs-literal">NULL</span>;
+		}
+	}
+}
+
+<span class="hljs-keyword">void</span> _menu_activate_MenuEntry_Separator(struct MenuEntry * self, <span class="hljs-keyword">int</span> focused) {
+
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntryVTable</span> _<span class="hljs-title">menu_vtable_MenuEntry_Separator</span> = {</span>
+	.methods = <span class="hljs-number">3</span>,
+	.renderer = _menu_draw_MenuEntry_Separator,
+	.focus_change = _menu_focus_MenuEntry_Separator,
+	.activate = _menu_activate_MenuEntry_Separator,
+};
+
+<span class="hljs-function">struct MenuEntry * <span class="hljs-title">menu_create_separator</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry_Separator</span> * <span class="hljs-title">out</span> = <span class="hljs-title">calloc</span>(1,<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">MenuEntry_Separator</span>));</span>
+
+	out-&gt;_type = MenuEntry_Separator;
+	out-&gt;<span class="hljs-built_in">height</span> = <span class="hljs-number">6</span>;
+	out-&gt;hilight = <span class="hljs-number">0</span>;
+	out-&gt;rwidth = <span class="hljs-number">10</span>; <span class="hljs-comment">/* at least a bit please */</span>
+	out-&gt;vtable = &amp;_menu_vtable_MenuEntry_Separator;
+
+	<span class="hljs-keyword">return</span> (struct MenuEntry *)out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">menu_update_title</span><span class="hljs-params">(struct MenuEntry * self, <span class="hljs-keyword">char</span> * new_title)</span> </span>{
+
+	<span class="hljs-keyword">if</span> (self-&gt;_type == MenuEntry_Normal) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry_Normal</span> * _<span class="hljs-title">self</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">MenuEntry_Normal</span> *)<span class="hljs-title">self</span>;</span>
+		<span class="hljs-keyword">if</span> (_self-&gt;title) {
+			<span class="hljs-built_in">free</span>((<span class="hljs-keyword">void</span>*)_self-&gt;title);
+		}
+		_self-&gt;title = strdup(new_title);
+		_self-&gt;rwidth = <span class="hljs-number">50</span> + string_width(_self-&gt;title);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (self-&gt;_type == MenuEntry_Submenu) {
+		struct MenuEntry_Submenu * _self = (struct MenuEntry_Submenu *)self;
+		<span class="hljs-keyword">if</span> (_self-&gt;title) {
+			<span class="hljs-built_in">free</span>((<span class="hljs-keyword">void</span>*)_self-&gt;title);
+		}
+		_self-&gt;title = strdup(new_title);
+		_self-&gt;rwidth = <span class="hljs-number">50</span> + string_width(_self-&gt;title);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">menu_update_icon</span><span class="hljs-params">(struct MenuEntry * self, <span class="hljs-keyword">char</span> * newIcon)</span> </span>{
+	<span class="hljs-keyword">switch</span> (self-&gt;_type) {
+		<span class="hljs-keyword">case</span> MenuEntry_Submenu:
+		<span class="hljs-keyword">case</span> MenuEntry_Normal: {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry_Normal</span> * _<span class="hljs-title">self</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">MenuEntry_Normal</span> *)<span class="hljs-title">self</span>;</span>
+			<span class="hljs-keyword">if</span> (_self-&gt;icon)   <span class="hljs-built_in">free</span>(_self-&gt;icon);
+			_self-&gt;icon = newIcon ? strdup(newIcon) : <span class="hljs-literal">NULL</span>;
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> MenuEntry_Toggle: <span class="hljs-comment">/* Toggle should not be able to set icon */</span>
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">break</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">menu_update_toggle_state</span><span class="hljs-params">(struct MenuEntry * self, <span class="hljs-keyword">int</span> state)</span> </span>{
+	<span class="hljs-keyword">switch</span> (self-&gt;_type) {
+		<span class="hljs-keyword">case</span> MenuEntry_Toggle: {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry_Toggle</span> * _<span class="hljs-title">self</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">MenuEntry_Toggle</span> *)<span class="hljs-title">self</span>;</span>
+			_self-&gt;<span class="hljs-built_in">set</span> = state;
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">break</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">menu_update_enabled</span><span class="hljs-params">(struct MenuEntry * self, <span class="hljs-keyword">int</span> state)</span> </span>{
+	<span class="hljs-keyword">switch</span> (self-&gt;_type) {
+		<span class="hljs-keyword">case</span> MenuEntry_Toggle:
+		<span class="hljs-keyword">case</span>  MenuEntry_Submenu:
+		<span class="hljs-keyword">case</span> MenuEntry_Normal: {
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> flags = ((struct MenuEntry_Normal*)self)-&gt;flags &amp; ~MENU_ENTRY_FLAGS_DISABLED;
+			<span class="hljs-keyword">if</span> (!state) flags |= MENU_ENTRY_FLAGS_DISABLED;
+			((struct MenuEntry_Normal*)self)-&gt;flags = flags;
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">break</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">menu_free_entry</span><span class="hljs-params">(struct MenuEntry * self)</span> </span>{
+	<span class="hljs-keyword">switch</span> (self-&gt;_type) {
+		<span class="hljs-keyword">case</span> MenuEntry_Toggle:
+		<span class="hljs-keyword">case</span>  MenuEntry_Submenu:
+		<span class="hljs-keyword">case</span> MenuEntry_Normal: {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry_Normal</span> * _<span class="hljs-title">self</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">MenuEntry_Normal</span> *)<span class="hljs-title">self</span>;</span>
+			<span class="hljs-keyword">if</span> (_self-&gt;icon)   <span class="hljs-built_in">free</span>(_self-&gt;icon);
+			<span class="hljs-keyword">if</span> (_self-&gt;title)  <span class="hljs-built_in">free</span>(_self-&gt;title);
+			<span class="hljs-keyword">if</span> (_self-&gt;action) <span class="hljs-built_in">free</span>(_self-&gt;action);
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">break</span>;
+	}
+	<span class="hljs-built_in">free</span>(self);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> _close_enough(struct yutani_msg_window_mouse_event * me) {
+	<span class="hljs-keyword">if</span> (me-&gt;command == YUTANI_MOUSE_EVENT_RAISE &amp;&amp; <span class="hljs-built_in">sqrt</span>(<span class="hljs-built_in">pow</span>(me-&gt;new_x - me-&gt;old_x, <span class="hljs-number">2</span>) + <span class="hljs-built_in">pow</span>(me-&gt;new_y - me-&gt;old_y, <span class="hljs-number">2</span>)) &lt; <span class="hljs-number">10</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> read_buf[<span class="hljs-number">1024</span>];
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">available</span> = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> offset = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> read_from = <span class="hljs-number">0</span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">read_line</span><span class="hljs-params">(FILE * f, <span class="hljs-keyword">char</span> * out, <span class="hljs-keyword">ssize_t</span> len)</span> </span>{
+	<span class="hljs-keyword">while</span> (len &gt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">available</span> == <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">if</span> (offset == <span class="hljs-number">1024</span>) {
+				offset = <span class="hljs-number">0</span>;
+			}
+			<span class="hljs-keyword">size_t</span> r = <span class="hljs-built_in">read</span>(fileno(f), &amp;read_buf[offset], <span class="hljs-number">1024</span> - offset);
+			read_from = offset;
+			<span class="hljs-built_in">available</span> = r;
+			offset += <span class="hljs-built_in">available</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">available</span> == <span class="hljs-number">0</span>) {
+			*out = <span class="hljs-string">'\0'</span>;
+			<span class="hljs-keyword">return</span> out;
+		}
+
+		<span class="hljs-keyword">while</span> (read_from &lt; offset &amp;&amp; len &gt; <span class="hljs-number">0</span>) {
+			*out = read_buf[read_from];
+			len--;
+			read_from++;
+			<span class="hljs-built_in">available</span>--;
+			<span class="hljs-keyword">if</span> (*out == <span class="hljs-string">'\n'</span>) {
+				<span class="hljs-keyword">return</span> out;
+			}
+			out++;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">menu_calculate_dimensions</span><span class="hljs-params">(struct MenuList * menu, <span class="hljs-keyword">int</span> * <span class="hljs-built_in">height</span>, <span class="hljs-keyword">int</span> * <span class="hljs-built_in">width</span>)</span> </span>{
+	<span class="hljs-keyword">list_t</span> * <span class="hljs-built_in">list</span> = menu-&gt;entries;
+	*<span class="hljs-built_in">width</span> = <span class="hljs-number">0</span>;
+	*<span class="hljs-built_in">height</span> = (menu-&gt;flags &amp; MENU_FLAG_BUBBLE) ? <span class="hljs-number">16</span> : <span class="hljs-number">8</span>; <span class="hljs-comment">/* TODO top and height */</span>
+	foreach(node, <span class="hljs-built_in">list</span>) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry</span> * <span class="hljs-title">entry</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+		*<span class="hljs-built_in">height</span> += entry-&gt;<span class="hljs-built_in">height</span>;
+		<span class="hljs-keyword">if</span> (*<span class="hljs-built_in">width</span> &lt; entry-&gt;rwidth) {
+			*<span class="hljs-built_in">width</span> = entry-&gt;rwidth;
+		}
+	}
+	<span class="hljs-comment">/* Go back through and update actual widths */</span>
+	foreach(node, <span class="hljs-built_in">list</span>) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry</span> * <span class="hljs-title">entry</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+		entry-&gt;<span class="hljs-built_in">width</span> = *<span class="hljs-built_in">width</span>;
+	}
+}
+
+<span class="hljs-function">struct MenuList * <span class="hljs-title">menu_set_get_root</span><span class="hljs-params">(struct MenuSet * menu)</span> </span>{
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">void</span>*)hashmap_get(menu-&gt;_menus,<span class="hljs-string">"_"</span>);
+}
+
+<span class="hljs-function">struct MenuList * <span class="hljs-title">menu_set_get_menu</span><span class="hljs-params">(struct MenuSet * menu, <span class="hljs-keyword">char</span> * submenu)</span> </span>{
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">void</span>*)hashmap_get(menu-&gt;_menus, submenu);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">menu_insert</span><span class="hljs-params">(struct MenuList * menu, struct MenuEntry * entry)</span> </span>{
+	list_insert(menu-&gt;entries, entry);
+	entry-&gt;_owner = menu;
+}
+
+<span class="hljs-function">struct MenuList * <span class="hljs-title">menu_create</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">p</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">MenuList</span>));</span>
+	p-&gt;entries = list_create();
+	p-&gt;ctx = <span class="hljs-literal">NULL</span>;
+	p-&gt;window = <span class="hljs-literal">NULL</span>;
+	p-&gt;<span class="hljs-built_in">set</span> = <span class="hljs-literal">NULL</span>;
+	p-&gt;child = <span class="hljs-literal">NULL</span>;
+	p-&gt;_bar = <span class="hljs-literal">NULL</span>;
+	p-&gt;parent = <span class="hljs-literal">NULL</span>;
+	p-&gt;closed = <span class="hljs-number">1</span>;
+	p-&gt;flags = <span class="hljs-number">0</span>;
+	p-&gt;tail_offset = <span class="hljs-number">0</span>;
+	p-&gt;main_window = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> p;
+}
+
+<span class="hljs-function">struct MenuSet * <span class="hljs-title">menu_set_create</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuSet</span> * _<span class="hljs-title">out</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">MenuSet</span>));</span>
+	_out-&gt;_menus = hashmap_create(<span class="hljs-number">10</span>);
+	<span class="hljs-keyword">return</span> _out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">menu_set_insert</span><span class="hljs-params">(struct MenuSet * <span class="hljs-built_in">set</span>, <span class="hljs-keyword">char</span> * action, struct MenuList * menu)</span> </span>{
+	hashmap_set(<span class="hljs-built_in">set</span>-&gt;_menus, action, menu);
+	menu-&gt;<span class="hljs-built_in">set</span> = <span class="hljs-built_in">set</span>;
+}
+
+<span class="hljs-function">struct MenuSet * <span class="hljs-title">menu_set_from_description</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path, <span class="hljs-keyword">void</span> (*callback)(struct MenuEntry *))</span> </span>{
+	FILE * f;
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(path,<span class="hljs-string">"-"</span>)) {
+		f = <span class="hljs-built_in">stdin</span>;
+	} <span class="hljs-keyword">else</span> {
+		f = fopen(path,<span class="hljs-string">"r"</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (!f) {
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuSet</span> * _<span class="hljs-title">out</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">MenuSet</span>));</span>
+	<span class="hljs-keyword">hashmap_t</span> * out = hashmap_create(<span class="hljs-number">10</span>);
+	_out-&gt;_menus = out;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">current_menu</span> = <span class="hljs-title">NULL</span>;</span>
+
+	<span class="hljs-comment">/* Read through the file */</span>
+	<span class="hljs-keyword">char</span> <span class="hljs-built_in">line</span>[<span class="hljs-number">256</span>];
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-built_in">memset</span>(<span class="hljs-built_in">line</span>, <span class="hljs-number">0</span>, <span class="hljs-number">256</span>);
+		read_line(f, <span class="hljs-built_in">line</span>, <span class="hljs-number">256</span>);
+		<span class="hljs-keyword">if</span> (!*<span class="hljs-built_in">line</span>) <span class="hljs-keyword">break</span>;
+
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">line</span>[<span class="hljs-built_in">strlen</span>(<span class="hljs-built_in">line</span>)<span class="hljs-number">-1</span>] == <span class="hljs-string">'\n'</span>) {
+			<span class="hljs-built_in">line</span>[<span class="hljs-built_in">strlen</span>(<span class="hljs-built_in">line</span>)<span class="hljs-number">-1</span>] = <span class="hljs-string">'\0'</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (!*<span class="hljs-built_in">line</span>) <span class="hljs-keyword">continue</span>; <span class="hljs-comment">/* skip blank */</span>
+
+		<span class="hljs-keyword">if</span> (*<span class="hljs-built_in">line</span> == <span class="hljs-string">':'</span>) {
+			<span class="hljs-comment">/* New menu */</span>
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">p</span> = <span class="hljs-title">menu_create</span>();</span>
+			p-&gt;<span class="hljs-built_in">set</span> = _out;
+			hashmap_set(out, <span class="hljs-built_in">line</span>+<span class="hljs-number">1</span>, p);
+			current_menu = p;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (*<span class="hljs-built_in">line</span> == <span class="hljs-string">'#'</span>) {
+			<span class="hljs-comment">/* Comment */</span>
+			<span class="hljs-keyword">continue</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (*<span class="hljs-built_in">line</span> == <span class="hljs-string">'-'</span>) {
+			<span class="hljs-keyword">if</span> (!current_menu) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Tried to add separator with no active menu.\n"</span>);
+				<span class="hljs-keyword">goto</span> failure;
+			}
+			menu_insert(current_menu, menu_create_separator());
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (*<span class="hljs-built_in">line</span> == <span class="hljs-string">'&amp;'</span>) {
+			<span class="hljs-keyword">if</span> (!current_menu) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Tried to add submenu with no active menu.\n"</span>);
+				<span class="hljs-keyword">goto</span> failure;
+			}
+			<span class="hljs-keyword">char</span> * action = <span class="hljs-built_in">line</span>+<span class="hljs-number">1</span>;
+			<span class="hljs-keyword">char</span> * icon = <span class="hljs-built_in">strstr</span>(action,<span class="hljs-string">","</span>);
+			<span class="hljs-keyword">if</span> (!icon) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Malformed line in submenu: no icon\n"</span>);
+				<span class="hljs-keyword">goto</span> failure;
+			}
+			*icon = <span class="hljs-string">'\0'</span>;
+			icon++;
+			<span class="hljs-keyword">char</span> * title = <span class="hljs-built_in">strstr</span>(icon,<span class="hljs-string">","</span>);
+			<span class="hljs-keyword">if</span> (!title) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Malformed line in submenu: no title\n"</span>);
+				<span class="hljs-keyword">goto</span> failure;
+			}
+			*title = <span class="hljs-string">'\0'</span>;
+			title++;
+			menu_insert(current_menu, menu_create_submenu(icon,action,title));
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">if</span> (!current_menu) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Tried to add item with no active menu.\n"</span>);
+				<span class="hljs-keyword">goto</span> failure;
+			}
+			<span class="hljs-keyword">char</span> * action = <span class="hljs-built_in">line</span>;
+			<span class="hljs-keyword">char</span> * icon = <span class="hljs-built_in">strstr</span>(action,<span class="hljs-string">","</span>);
+			<span class="hljs-keyword">if</span> (!icon) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Malformed line in action: no icon\n"</span>);
+				<span class="hljs-keyword">goto</span> failure;
+			}
+			*icon = <span class="hljs-string">'\0'</span>;
+			icon++;
+			<span class="hljs-keyword">char</span> * title = <span class="hljs-built_in">strstr</span>(icon,<span class="hljs-string">","</span>);
+			<span class="hljs-keyword">if</span> (!title) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Malformed line in action: no title\n"</span>);
+				<span class="hljs-keyword">goto</span> failure;
+			}
+			*title = <span class="hljs-string">'\0'</span>;
+			title++;
+			menu_insert(current_menu, menu_create_normal(icon,action,title,callback));
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (f != <span class="hljs-built_in">stdin</span>) fclose(f);
+	<span class="hljs-keyword">return</span> _out;
+
+failure:
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"malformed description file\n"</span>);
+	<span class="hljs-keyword">if</span> (f != <span class="hljs-built_in">stdin</span>) fclose(f);
+	<span class="hljs-built_in">free</span>(out);
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _menu_redraw(<span class="hljs-keyword">yutani_window_t</span> * menu_window, <span class="hljs-keyword">yutani_t</span> * yctx, struct MenuList * menu, <span class="hljs-keyword">int</span> expose) {
+
+	<span class="hljs-keyword">gfx_context_t</span> * ctx = menu-&gt;ctx;
+	<span class="hljs-keyword">list_t</span> * entries = menu-&gt;entries;
+	<span class="hljs-comment">/* Window background */</span>
+	<span class="hljs-keyword">if</span> (menu-&gt;flags &amp; MENU_FLAG_BUBBLE) {
+		draw_fill(ctx, rgba(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+		draw_rounded_rectangle(ctx, <span class="hljs-number">0</span>, <span class="hljs-number">6</span>, ctx-&gt;<span class="hljs-built_in">width</span>, ctx-&gt;<span class="hljs-built_in">height</span> - <span class="hljs-number">6</span>, <span class="hljs-number">6</span>, rgb(<span class="hljs-number">109</span>,<span class="hljs-number">111</span>,<span class="hljs-number">112</span>));
+		draw_rounded_rectangle(ctx, <span class="hljs-number">1</span>, <span class="hljs-number">7</span>, ctx-&gt;<span class="hljs-built_in">width</span><span class="hljs-number">-2</span>, ctx-&gt;<span class="hljs-built_in">height</span> - <span class="hljs-number">8</span>, <span class="hljs-number">5</span>, MENU_BACKGROUND);
+
+		<span class="hljs-comment">/* Figure out where to draw the tail */</span>
+		<span class="hljs-keyword">int</span> tail_left = <span class="hljs-number">0</span>;
+		<span class="hljs-comment">/* Do we have a set tail? */</span>
+		<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TAIL_BOUND 8</span>
+		<span class="hljs-keyword">if</span> (menu-&gt;flags &amp; MENU_FLAG_TAIL_POSITION) {
+			tail_left = (menu-&gt;tail_offset &lt; TAIL_BOUND) ? TAIL_BOUND : (menu-&gt;tail_offset &gt; ctx-&gt;<span class="hljs-built_in">width</span> - TAIL_BOUND) ? (ctx-&gt;<span class="hljs-built_in">width</span> - TAIL_BOUND) : menu-&gt;tail_offset;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (menu-&gt;flags &amp; MENU_FLAG_BUBBLE_LEFT) {
+			tail_left = <span class="hljs-number">16</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (menu-&gt;flags &amp; MENU_FLAG_BUBBLE_RIGHT) {
+			tail_left = ctx-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">16</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (menu-&gt;flags &amp; MENU_FLAG_BUBBLE_CENTER) {
+			tail_left = ctx-&gt;<span class="hljs-built_in">width</span> / <span class="hljs-number">2</span>;
+		}
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; i &lt; <span class="hljs-number">7</span>; ++i) {
+			draw_line(ctx, tail_left - i, tail_left + i, i, i, MENU_BACKGROUND);
+		}
+		draw_line_aa(ctx, tail_left - <span class="hljs-number">6</span>, tail_left, <span class="hljs-number">6</span>, <span class="hljs-number">0</span>, rgb(<span class="hljs-number">109</span>,<span class="hljs-number">111</span>,<span class="hljs-number">112</span>), <span class="hljs-number">0.5</span>);
+		draw_line_aa(ctx, tail_left + <span class="hljs-number">6</span>, tail_left, <span class="hljs-number">6</span>, <span class="hljs-number">0</span>, rgb(<span class="hljs-number">109</span>,<span class="hljs-number">111</span>,<span class="hljs-number">112</span>), <span class="hljs-number">0.5</span>);
+	} <span class="hljs-keyword">else</span> {
+		draw_fill(ctx, MENU_BACKGROUND);
+
+		<span class="hljs-comment">/* Window border */</span>
+		draw_line(ctx, <span class="hljs-number">0</span>, ctx-&gt;<span class="hljs-built_in">width</span><span class="hljs-number">-1</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, rgb(<span class="hljs-number">109</span>,<span class="hljs-number">111</span>,<span class="hljs-number">112</span>));
+		draw_line(ctx, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, ctx-&gt;<span class="hljs-built_in">height</span><span class="hljs-number">-1</span>, rgb(<span class="hljs-number">109</span>,<span class="hljs-number">111</span>,<span class="hljs-number">112</span>));
+		draw_line(ctx, ctx-&gt;<span class="hljs-built_in">width</span><span class="hljs-number">-1</span>, ctx-&gt;<span class="hljs-built_in">width</span><span class="hljs-number">-1</span>, <span class="hljs-number">0</span>, ctx-&gt;<span class="hljs-built_in">height</span><span class="hljs-number">-1</span>, rgb(<span class="hljs-number">109</span>,<span class="hljs-number">111</span>,<span class="hljs-number">112</span>));
+		draw_line(ctx, <span class="hljs-number">0</span>, ctx-&gt;<span class="hljs-built_in">width</span><span class="hljs-number">-1</span>, ctx-&gt;<span class="hljs-built_in">height</span><span class="hljs-number">-1</span>, ctx-&gt;<span class="hljs-built_in">height</span><span class="hljs-number">-1</span>, rgb(<span class="hljs-number">109</span>,<span class="hljs-number">111</span>,<span class="hljs-number">112</span>));
+	}
+
+	<span class="hljs-comment">/* Draw menu entries */</span>
+	<span class="hljs-keyword">int</span> offset = (menu-&gt;flags &amp; MENU_FLAG_BUBBLE) ? <span class="hljs-number">12</span> : <span class="hljs-number">4</span>;
+	foreach(node, entries) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry</span> * <span class="hljs-title">entry</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+		<span class="hljs-keyword">if</span> (entry-&gt;vtable-&gt;methods &gt;= <span class="hljs-number">1</span> &amp;&amp; entry-&gt;vtable-&gt;renderer) {
+			entry-&gt;vtable-&gt;renderer(ctx, entry, offset);
+		}
+
+		offset += entry-&gt;<span class="hljs-built_in">height</span>;
+	}
+
+	flip(ctx);
+
+	<span class="hljs-keyword">if</span> (expose) {
+		yutani_flip(yctx, menu_window);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">menu_prepare</span><span class="hljs-params">(struct MenuList * menu, <span class="hljs-keyword">yutani_t</span> * yctx)</span> </span>{
+	<span class="hljs-comment">/* Calculate window dimensions */</span>
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">height</span>, <span class="hljs-built_in">width</span>;
+	menu_calculate_dimensions(menu,&amp;<span class="hljs-built_in">height</span>, &amp;<span class="hljs-built_in">width</span>);
+
+	my_yctx = yctx;
+
+	menu-&gt;closed = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Create window */</span>
+
+	<span class="hljs-keyword">yutani_window_t</span> * menu_window = yutani_window_create_flags(yctx, <span class="hljs-built_in">width</span>, <span class="hljs-built_in">height</span>,
+		((menu-&gt;flags &amp; MENU_FLAG_BUBBLE) ? YUTANI_WINDOW_FLAG_ALT_ANIMATION : YUTANI_WINDOW_FLAG_NO_ANIMATION)
+		| YUTANI_WINDOW_FLAG_DISALLOW_DRAG
+		| YUTANI_WINDOW_FLAG_DISALLOW_RESIZE
+		| YUTANI_WINDOW_FLAG_PARENT_WID,
+		menu-&gt;main_window);
+	yutani_set_stack(yctx, menu_window, YUTANI_ZORDER_MENU);
+	<span class="hljs-keyword">if</span> (menu-&gt;ctx) {
+		reinit_graphics_yutani(menu-&gt;ctx, menu_window);
+	} <span class="hljs-keyword">else</span> {
+		menu-&gt;ctx = init_graphics_yutani_double_buffer(menu_window);
+	}
+
+	menu_window-&gt;user_data = menu;
+	menu-&gt;window = menu_window;
+
+	_menu_redraw(menu_window, yctx, menu, <span class="hljs-number">0</span>);
+
+	hashmap_set(menu_windows, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)menu_window-&gt;wid, menu_window);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">menu_show_at</span><span class="hljs-params">(struct MenuList * menu, <span class="hljs-keyword">yutani_window_t</span> * parent, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y)</span> </span>{
+	menu-&gt;main_window = parent;
+	menu_prepare(menu, parent-&gt;ctx);
+
+	<span class="hljs-keyword">if</span> (parent-&gt;x + x + menu-&gt;window-&gt;<span class="hljs-built_in">width</span> &gt; parent-&gt;ctx-&gt;display_width) x -= menu-&gt;window-&gt;<span class="hljs-built_in">width</span>;
+	<span class="hljs-keyword">if</span> (parent-&gt;y + y + menu-&gt;window-&gt;<span class="hljs-built_in">height</span> &gt; parent-&gt;ctx-&gt;display_height) y -= menu-&gt;window-&gt;<span class="hljs-built_in">height</span>;
+
+	yutani_window_move_relative(parent-&gt;ctx, menu-&gt;window, parent, x, y);
+	yutani_flip(parent-&gt;ctx, menu-&gt;window);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">menu_has_eventual_child</span><span class="hljs-params">(struct MenuList * root, struct MenuList * child)</span> </span>{
+
+	<span class="hljs-keyword">if</span> (!child) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (root == child) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">candidate</span> = <span class="hljs-title">root</span>-&gt;<span class="hljs-title">child</span>;</span>
+
+	<span class="hljs-keyword">while</span> (candidate &amp;&amp; candidate != child) {
+		<span class="hljs-keyword">if</span> (candidate == root-&gt;child) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		candidate = root-&gt;child;
+	}
+
+	<span class="hljs-keyword">return</span> (candidate == child);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">menu_definitely_close</span><span class="hljs-params">(struct MenuList * menu)</span> </span>{
+
+	<span class="hljs-keyword">if</span> (menu-&gt;child) {
+		menu_definitely_close(menu-&gt;child);
+		menu-&gt;child = <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (menu-&gt;closed) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-comment">/* if focused_widget, leave focus on widget */</span>
+	foreach(node, menu-&gt;entries) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry</span> * <span class="hljs-title">entry</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+		entry-&gt;hilight = <span class="hljs-number">0</span>;
+	}
+	menu-&gt;closed = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">yutani_wid_t</span> wid = menu-&gt;window-&gt;wid;
+	yutani_close(menu-&gt;window-&gt;ctx, menu-&gt;window);
+	menu-&gt;window = <span class="hljs-literal">NULL</span>;
+	menu-&gt;main_window = <span class="hljs-literal">NULL</span>;
+	hashmap_remove(menu_windows, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)wid);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">menu_leave</span><span class="hljs-params">(struct MenuList * menu)</span> </span>{
+
+	<span class="hljs-keyword">if</span> (!hovered_menu) {
+		<span class="hljs-keyword">while</span> (menu-&gt;parent) {
+			menu = menu-&gt;parent;
+		}
+		menu_definitely_close(menu);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (!menu_has_eventual_child(menu, hovered_menu)) {
+		<span class="hljs-comment">/* Get all menus */</span>
+		<span class="hljs-keyword">list_t</span> * menu_keys = hashmap_keys(menu_windows);
+		foreach(_key, menu_keys) {
+			<span class="hljs-keyword">yutani_window_t</span> * window = hashmap_get(menu_windows, (<span class="hljs-keyword">void</span> *)(<span class="hljs-keyword">uintptr_t</span>)_key-&gt;value);
+			<span class="hljs-keyword">if</span> (window) {
+				<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">menu</span> = <span class="hljs-title">window</span>-&gt;<span class="hljs-title">user_data</span>;</span>
+				<span class="hljs-keyword">if</span> (!hovered_menu || (menu != hovered_menu-&gt;child &amp;&amp; !menu_has_eventual_child(menu, hovered_menu)))  {
+					menu_definitely_close(menu);
+					<span class="hljs-keyword">if</span> (menu-&gt;parent &amp;&amp; menu-&gt;parent-&gt;child == menu) {
+						menu-&gt;parent-&gt;child = <span class="hljs-literal">NULL</span>;
+					}
+				}
+			}
+		}
+
+		list_free(menu_keys);
+		<span class="hljs-built_in">free</span>(menu_keys);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> _menu_is_disabled(struct MenuEntry * entry) {
+	<span class="hljs-keyword">switch</span> (entry-&gt;_type) {
+		<span class="hljs-keyword">case</span> MenuEntry_Toggle:
+		<span class="hljs-keyword">case</span> MenuEntry_Submenu:
+		<span class="hljs-keyword">case</span> MenuEntry_Normal:
+			<span class="hljs-keyword">return</span> ((struct MenuEntry_Normal*)entry)-&gt;flags &amp; MENU_ENTRY_FLAGS_DISABLED;
+		<span class="hljs-keyword">case</span> MenuEntry_Separator:
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">menu_key_action</span><span class="hljs-params">(struct MenuList * menu, struct yutani_msg_key_event * me)</span> </span>{
+	<span class="hljs-keyword">if</span> (me-&gt;event.action != KEY_ACTION_DOWN) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-keyword">yutani_window_t</span> * window = menu-&gt;window;
+	<span class="hljs-keyword">yutani_t</span> * yctx = window-&gt;ctx;
+
+	hovered_menu = menu;
+
+	<span class="hljs-comment">/* Find hilighted entry */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry</span> * <span class="hljs-title">hilighted</span> = <span class="hljs-title">NULL</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry</span> * <span class="hljs-title">previous</span> = <span class="hljs-title">NULL</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry</span> * <span class="hljs-title">next</span> = <span class="hljs-title">NULL</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry</span> * <span class="hljs-title">first</span> = <span class="hljs-title">NULL</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry</span> * <span class="hljs-title">last</span> = <span class="hljs-title">NULL</span>;</span>
+	foreach(node, menu-&gt;entries) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry</span> * <span class="hljs-title">entry</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+		<span class="hljs-keyword">if</span> (!first &amp;&amp; !_menu_is_disabled(entry)) {
+			first = entry;
+		}
+		<span class="hljs-keyword">if</span> (!hilighted &amp;&amp; entry-&gt;hilight) {
+			hilighted = entry;
+			<span class="hljs-keyword">continue</span>;
+		}
+		<span class="hljs-keyword">if</span> (!_menu_is_disabled(entry)) {
+			<span class="hljs-keyword">if</span> (!next &amp;&amp; hilighted) next = entry;
+			<span class="hljs-keyword">if</span> (!hilighted) previous = entry;
+			last = entry;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (me-&gt;event.keycode == KEY_ARROW_DOWN) {
+		<span class="hljs-keyword">if</span> (hilighted) {
+			hilighted-&gt;hilight = <span class="hljs-number">0</span>;
+		}
+		hilighted = next ? next : first;
+		<span class="hljs-keyword">if</span> (hilighted) hilighted-&gt;hilight = <span class="hljs-number">1</span>;
+		_menu_redraw(window,yctx,menu,<span class="hljs-number">1</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (me-&gt;event.keycode == KEY_ARROW_UP) {
+		<span class="hljs-keyword">if</span> (hilighted) {
+			hilighted-&gt;hilight = <span class="hljs-number">0</span>;
+		}
+		hilighted = previous ? previous : last;
+		<span class="hljs-keyword">if</span> (hilighted) hilighted-&gt;hilight = <span class="hljs-number">1</span>;
+		_menu_redraw(window,yctx,menu,<span class="hljs-number">1</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (me-&gt;event.keycode == KEY_ARROW_RIGHT) {
+		<span class="hljs-keyword">if</span> (!hilighted) {
+			hilighted = menu-&gt;entries-&gt;head-&gt;value;
+		}
+		<span class="hljs-keyword">if</span> (hilighted) {
+			hilighted-&gt;hilight = <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">if</span> (hilighted-&gt;_type == MenuEntry_Submenu) {
+				<span class="hljs-keyword">if</span> (hilighted-&gt;vtable-&gt;methods &gt;= <span class="hljs-number">3</span> &amp;&amp; hilighted-&gt;vtable-&gt;activate) {
+					hilighted-&gt;vtable-&gt;activate(hilighted, <span class="hljs-number">0</span>);
+				}
+				_menu_redraw(window,yctx,menu,<span class="hljs-number">1</span>);
+			} <span class="hljs-keyword">else</span> {
+				struct menu_bar * bar = <span class="hljs-literal">NULL</span>;
+				<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">p</span> = <span class="hljs-title">menu</span>;</span>
+				<span class="hljs-keyword">do</span> {
+					<span class="hljs-keyword">if</span> (p-&gt;_bar) {
+						bar = p-&gt;_bar;
+						<span class="hljs-keyword">break</span>;
+					}
+				} <span class="hljs-keyword">while</span> ((p = p-&gt;parent));
+				<span class="hljs-keyword">if</span> (bar) {
+					menu_definitely_close(p);
+					<span class="hljs-keyword">int</span> active = (bar-&gt;active_entry_idx + <span class="hljs-number">1</span> + bar-&gt;num_entries) % (bar-&gt;num_entries);
+					bar-&gt;active_entry = &amp;bar-&gt;entries[active];
+					<span class="hljs-keyword">if</span> (bar-&gt;redraw_callback) {
+						bar-&gt;redraw_callback(bar);
+					}
+					menu_bar_show_menu(yctx, bar-&gt;window, bar, <span class="hljs-number">-1</span>, bar-&gt;active_entry);
+				} <span class="hljs-keyword">else</span> {
+					_menu_redraw(window,yctx,menu,<span class="hljs-number">1</span>);
+				}
+			}
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (me-&gt;event.key == <span class="hljs-string">'\n'</span>) {
+		<span class="hljs-keyword">if</span> (!hilighted) {
+			hilighted = menu-&gt;entries-&gt;head-&gt;value;
+		}
+		<span class="hljs-keyword">if</span> (hilighted) {
+			hilighted-&gt;hilight = <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">if</span> (hilighted-&gt;vtable-&gt;methods &gt;= <span class="hljs-number">3</span> &amp;&amp; hilighted-&gt;vtable-&gt;activate) {
+				hilighted-&gt;vtable-&gt;activate(hilighted, <span class="hljs-number">0</span>);
+			}
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (me-&gt;event.keycode == KEY_ARROW_LEFT) {
+		<span class="hljs-keyword">if</span> (menu-&gt;parent) {
+			hovered_menu = menu-&gt;parent;
+		} <span class="hljs-comment">/* else previous from menu bar? */</span>
+		menu_definitely_close(menu);
+		<span class="hljs-keyword">if</span> (menu-&gt;_bar) {
+			<span class="hljs-keyword">int</span> active = (menu-&gt;_bar-&gt;active_entry_idx - <span class="hljs-number">1</span> + menu-&gt;_bar-&gt;num_entries) % (menu-&gt;_bar-&gt;num_entries);
+			menu-&gt;_bar-&gt;active_entry = &amp;menu-&gt;_bar-&gt;entries[active];
+			<span class="hljs-keyword">if</span> (menu-&gt;_bar-&gt;redraw_callback) {
+				menu-&gt;_bar-&gt;redraw_callback(menu-&gt;_bar);
+			}
+			menu_bar_show_menu(yctx, menu-&gt;_bar-&gt;window, menu-&gt;_bar, <span class="hljs-number">-1</span>, menu-&gt;_bar-&gt;active_entry);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (menu-&gt;parent &amp;&amp; menu-&gt;parent-&gt;window) {
+			yutani_focus_window(yctx, menu-&gt;parent-&gt;window-&gt;wid);
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (me-&gt;event.keycode == KEY_ESCAPE) {
+		hovered_menu = <span class="hljs-literal">NULL</span>;
+		menu_leave(menu);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">menu_mouse_action</span><span class="hljs-params">(struct MenuList * menu, struct yutani_msg_window_mouse_event * me)</span> </span>{
+	<span class="hljs-keyword">yutani_window_t</span> * window = menu-&gt;window;
+	<span class="hljs-keyword">yutani_t</span> * yctx = window-&gt;ctx;
+
+	<span class="hljs-keyword">int</span> offset = (menu-&gt;flags &amp; MENU_FLAG_BUBBLE) ? <span class="hljs-number">12</span> : <span class="hljs-number">4</span>;
+	<span class="hljs-keyword">int</span> changed = <span class="hljs-number">0</span>;
+	foreach(node, menu-&gt;entries) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry</span> * <span class="hljs-title">entry</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+		<span class="hljs-keyword">if</span> (me-&gt;new_y &gt;= offset &amp;&amp; me-&gt;new_y &lt; offset + entry-&gt;<span class="hljs-built_in">height</span> &amp;&amp;
+				me-&gt;new_x &gt;= <span class="hljs-number">0</span> &amp;&amp; me-&gt;new_x &lt; entry-&gt;<span class="hljs-built_in">width</span>) {
+			<span class="hljs-keyword">if</span> (!entry-&gt;hilight) {
+				changed = <span class="hljs-number">1</span>;
+				entry-&gt;hilight = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">if</span> (entry-&gt;vtable-&gt;methods &gt;= <span class="hljs-number">2</span> &amp;&amp; entry-&gt;vtable-&gt;focus_change) {
+					entry-&gt;vtable-&gt;focus_change(entry, <span class="hljs-number">1</span>);
+				}
+			}
+			<span class="hljs-keyword">if</span> (entry-&gt;vtable-&gt;methods &gt;= <span class="hljs-number">4</span> &amp;&amp; entry-&gt;vtable-&gt;mouse_event) {
+				<span class="hljs-keyword">if</span> (entry-&gt;vtable-&gt;mouse_event(entry, me)) {
+					_menu_redraw(window,yctx,menu,<span class="hljs-number">1</span>);
+				}
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (me-&gt;command == YUTANI_MOUSE_EVENT_CLICK || _close_enough(me)) {
+				<span class="hljs-keyword">if</span> (entry-&gt;vtable-&gt;methods &gt;= <span class="hljs-number">3</span> &amp;&amp; entry-&gt;vtable-&gt;activate) {
+					entry-&gt;vtable-&gt;activate(entry, <span class="hljs-number">0</span>);
+				}
+			}
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">if</span> (entry-&gt;hilight) {
+				changed = <span class="hljs-number">1</span>;
+				entry-&gt;hilight = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">if</span> (entry-&gt;vtable-&gt;methods &gt;= <span class="hljs-number">2</span> &amp;&amp; entry-&gt;vtable-&gt;focus_change) {
+					entry-&gt;vtable-&gt;focus_change(entry, <span class="hljs-number">0</span>);
+				}
+			}
+		}
+		offset += entry-&gt;<span class="hljs-built_in">height</span>;
+	}
+	<span class="hljs-keyword">if</span> (changed) {
+		_menu_redraw(window,yctx,menu,<span class="hljs-number">1</span>);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">menu_force_redraw</span><span class="hljs-params">(struct MenuList * menu)</span> </span>{
+	<span class="hljs-keyword">yutani_window_t</span> * window = menu-&gt;window;
+	<span class="hljs-keyword">yutani_t</span> * yctx = window-&gt;ctx;
+	_menu_redraw(window,yctx,menu,<span class="hljs-number">1</span>);
+}
+
+<span class="hljs-function">struct MenuList * <span class="hljs-title">menu_any_contains</span><span class="hljs-params">(<span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">out</span> = <span class="hljs-title">NULL</span>;</span>
+	<span class="hljs-keyword">list_t</span> * menu_keys = hashmap_keys(menu_windows);
+	foreach(_key, menu_keys) {
+		<span class="hljs-keyword">yutani_window_t</span> * window = hashmap_get(menu_windows, (<span class="hljs-keyword">void</span>*)_key-&gt;value);
+		<span class="hljs-keyword">if</span> (window) {
+			<span class="hljs-keyword">if</span> (x &gt;= (<span class="hljs-keyword">int</span>)window-&gt;x &amp;&amp; x &lt; (<span class="hljs-keyword">int</span>)window-&gt;x + (<span class="hljs-keyword">int</span>)window-&gt;<span class="hljs-built_in">width</span> &amp;&amp; y &gt;= (<span class="hljs-keyword">int</span>)window-&gt;y &amp;&amp; y &lt; (<span class="hljs-keyword">int</span>)window-&gt;y + (<span class="hljs-keyword">int</span>)window-&gt;<span class="hljs-built_in">height</span>) {
+				out = window-&gt;user_data;
+				<span class="hljs-keyword">break</span>;
+
+			}
+		}
+	}
+
+	list_free(menu_keys);
+	<span class="hljs-built_in">free</span>(menu_keys);
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">menu_process_event</span><span class="hljs-params">(<span class="hljs-keyword">yutani_t</span> * yctx, <span class="hljs-keyword">yutani_msg_t</span> * m)</span> </span>{
+	<span class="hljs-keyword">if</span> (m) {
+		<span class="hljs-keyword">switch</span> (m-&gt;type) {
+			<span class="hljs-keyword">case</span> YUTANI_MSG_KEY_EVENT:
+				{
+					<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_key_event</span> * <span class="hljs-title">me</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+					<span class="hljs-keyword">if</span> (hashmap_has(menu_windows, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)me-&gt;wid)) {
+						<span class="hljs-keyword">yutani_window_t</span> * window = hashmap_get(menu_windows, (<span class="hljs-keyword">void</span> *)(<span class="hljs-keyword">uintptr_t</span>)me-&gt;wid);
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">menu</span> = <span class="hljs-title">window</span>-&gt;<span class="hljs-title">user_data</span>;</span>
+						menu_key_action(menu, me);
+					}
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_MOUSE_EVENT:
+				{
+					<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_mouse_event</span> * <span class="hljs-title">me</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+					<span class="hljs-keyword">if</span> (hashmap_has(menu_windows, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)me-&gt;wid)) {
+						<span class="hljs-keyword">yutani_window_t</span> * window = hashmap_get(menu_windows, (<span class="hljs-keyword">void</span> *)(<span class="hljs-keyword">uintptr_t</span>)me-&gt;wid);
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">menu</span> = <span class="hljs-title">window</span>-&gt;<span class="hljs-title">user_data</span>;</span>
+						<span class="hljs-keyword">if</span> (me-&gt;new_x &gt;= <span class="hljs-number">0</span> &amp;&amp; me-&gt;new_x &lt; (<span class="hljs-keyword">int</span>)window-&gt;<span class="hljs-built_in">width</span> &amp;&amp; me-&gt;new_y &gt;= <span class="hljs-number">0</span> &amp;&amp; me-&gt;new_y &lt; (<span class="hljs-keyword">int</span>)window-&gt;<span class="hljs-built_in">height</span>) {
+							<span class="hljs-keyword">if</span> (hovered_menu != menu)  {
+								hovered_menu = menu;
+							}
+						} <span class="hljs-keyword">else</span> {
+							<span class="hljs-keyword">if</span> (hovered_menu) {
+								struct MenuList * t = menu_any_contains(me-&gt;new_x + window-&gt;x, me-&gt;new_y + window-&gt;y);
+								<span class="hljs-keyword">if</span> (t) {
+									hovered_menu = t;
+								} <span class="hljs-keyword">else</span> {
+									hovered_menu = <span class="hljs-literal">NULL</span>;
+								}
+							}
+						}
+						menu_mouse_action(menu, me);
+
+					}
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_FOCUS_CHANGE:
+				{
+					<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_focus_change</span> * <span class="hljs-title">me</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+					<span class="hljs-keyword">if</span> (hashmap_has(menu_windows, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)me-&gt;wid)) {
+						<span class="hljs-keyword">yutani_window_t</span> * window = hashmap_get(menu_windows, (<span class="hljs-keyword">void</span> *)(<span class="hljs-keyword">uintptr_t</span>)me-&gt;wid);
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">menu</span> = <span class="hljs-title">window</span>-&gt;<span class="hljs-title">user_data</span>;</span>
+						<span class="hljs-keyword">if</span> (!me-&gt;focused) {
+							<span class="hljs-comment">/* XXX leave menu */</span>
+							menu_leave(menu);
+							<span class="hljs-comment">/* if root and not window.root.menus and window.root.focused */</span>
+							<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+						} <span class="hljs-keyword">else</span> {
+							window-&gt;focused = me-&gt;focused;
+							<span class="hljs-comment">/* Redraw? */</span>
+						}
+					}
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">default</span>:
+				<span class="hljs-keyword">break</span>;
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">menu_bar_preflight</span><span class="hljs-params">(struct menu_bar * self, <span class="hljs-keyword">ssize_t</span> * tabs, <span class="hljs-keyword">ssize_t</span> * tab_width, <span class="hljs-keyword">ssize_t</span> * extra)</span> </span>{
+	<span class="hljs-keyword">ssize_t</span> w = <span class="hljs-number">4</span>;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">menu_bar_entries</span> * <span class="hljs-title">e</span> = <span class="hljs-title">self</span>-&gt;<span class="hljs-title">entries</span>;</span>
+	<span class="hljs-keyword">ssize_t</span> tabcount = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Figure out the size of elements before the first tab */</span>
+	<span class="hljs-keyword">for</span> (; e-&gt;title; e++) {
+		<span class="hljs-keyword">char</span> * title = e-&gt;title;
+		<span class="hljs-keyword">if</span> (*title == <span class="hljs-string">'\t'</span> || *title == <span class="hljs-string">'\v'</span>) <span class="hljs-keyword">break</span>;
+		w += string_width(title) + <span class="hljs-number">11</span>;
+	}
+
+	<span class="hljs-comment">/* Figure out how many tabs there are. */</span>
+	<span class="hljs-keyword">for</span> (; e-&gt;title; e++) {
+		<span class="hljs-keyword">char</span> * title = e-&gt;title;
+		<span class="hljs-keyword">if</span> (*title != <span class="hljs-string">'\t'</span> &amp;&amp; *title != <span class="hljs-string">'\v'</span>) <span class="hljs-keyword">break</span>;
+		tabcount++;
+	}
+
+	<span class="hljs-comment">/* See if there are any elements after the tabs */</span>
+	<span class="hljs-keyword">for</span> (; e-&gt;title; e++) {
+		w += string_width(e-&gt;title) + <span class="hljs-number">11</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (w &gt; self-&gt;<span class="hljs-built_in">width</span> || !tabcount) {
+		*tab_width = <span class="hljs-number">0</span>; <span class="hljs-comment">/* Tabs have no available space */</span>
+		*tabs = <span class="hljs-number">0</span>; <span class="hljs-comment">/* Inform caller they should skip any tabs the see. */</span>
+		*extra = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">return</span>;
+	}
+
+	*tabs = tabcount;
+	*tab_width = (self-&gt;<span class="hljs-built_in">width</span> - w) / tabcount;
+	*extra = self-&gt;<span class="hljs-built_in">width</span> - w - *tab_width * tabcount;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">menu_bar_render</span><span class="hljs-params">(struct menu_bar * self, <span class="hljs-keyword">gfx_context_t</span> * ctx)</span> </span>{
+	<span class="hljs-keyword">int</span> _x = self-&gt;x;
+	<span class="hljs-keyword">int</span> _y = self-&gt;y;
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">width</span> = self-&gt;<span class="hljs-built_in">width</span>;
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">height</span> = MENU_BAR_HEIGHT;
+
+	<span class="hljs-keyword">if</span> (_x &lt; <span class="hljs-number">0</span>) _x = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (_y &lt; <span class="hljs-number">0</span>) _y = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (_x + <span class="hljs-built_in">width</span> &gt; ctx-&gt;<span class="hljs-built_in">width</span>) <span class="hljs-built_in">width</span> = ctx-&gt;<span class="hljs-built_in">width</span> - _x;
+	<span class="hljs-keyword">if</span> (_y + <span class="hljs-built_in">height</span> &gt; ctx-&gt;<span class="hljs-built_in">height</span>) <span class="hljs-built_in">height</span> = ctx-&gt;<span class="hljs-built_in">height</span> - _y;
+
+	<span class="hljs-keyword">gfx_context_t</span> * subctx = init_graphics_subregion(ctx, _x, _y, <span class="hljs-built_in">width</span>, <span class="hljs-built_in">height</span>);
+
+	<span class="hljs-keyword">uint32_t</span> menu_bar_color = rgb(<span class="hljs-number">59</span>,<span class="hljs-number">59</span>,<span class="hljs-number">59</span>);
+	draw_rectangle(subctx, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-built_in">width</span>, <span class="hljs-built_in">height</span>, menu_bar_color);
+
+	<span class="hljs-comment">/* for each menu entry */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">menu_bar_entries</span> * <span class="hljs-title">e</span> = <span class="hljs-title">self</span>-&gt;<span class="hljs-title">entries</span>;</span>
+	<span class="hljs-keyword">if</span> (!self-&gt;num_entries) {
+		<span class="hljs-keyword">while</span> (e-&gt;title) {
+			e++;
+			self-&gt;num_entries++;
+		}
+		e = self-&gt;entries;
+	}
+
+	<span class="hljs-comment">/* Preflight check of whether the tabs will actually fit or should render with their -&gt;actions instead of -&gt;titles */</span>
+	<span class="hljs-keyword">ssize_t</span> tabs, tab_width, extra;
+	menu_bar_preflight(self, &amp;tabs, &amp;tab_width, &amp;extra);
+
+	<span class="hljs-keyword">int</span> window_is_focused = self-&gt;window-&gt;focused || !hashmap_is_empty(menu_get_windows_hash());
+
+	<span class="hljs-keyword">int</span> offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (e-&gt;title) {
+		<span class="hljs-comment">/* Non-tabs */</span>
+		<span class="hljs-keyword">for</span> (; e-&gt;title; e++) {
+			<span class="hljs-keyword">char</span> * title = e-&gt;title;
+			<span class="hljs-keyword">if</span> (*title == <span class="hljs-string">'\t'</span> || *title == <span class="hljs-string">'\v'</span>) <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">int</span> w = string_width(title) + <span class="hljs-number">11</span>;
+			<span class="hljs-keyword">uint32_t</span> text_color = rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>);
+			<span class="hljs-keyword">if</span> ((self-&gt;active_menu &amp;&amp; hashmap_has(menu_get_windows_hash(), (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)self-&gt;active_menu_wid)) &amp;&amp; e == self-&gt;active_entry) {
+				draw_rectangle(subctx, offset + <span class="hljs-number">2</span>, <span class="hljs-number">0</span>, w, <span class="hljs-built_in">height</span>, rgb(<span class="hljs-number">93</span>,<span class="hljs-number">163</span>,<span class="hljs-number">236</span>));
+			}
+			draw_string(subctx, offset + <span class="hljs-number">7</span>, <span class="hljs-number">2</span>, text_color, title);
+			offset += w;
+		}
+
+		<span class="hljs-comment">/* tabs */</span>
+		<span class="hljs-keyword">for</span> (; e-&gt;title; e++) {
+			<span class="hljs-keyword">char</span> * title = e-&gt;title;
+			<span class="hljs-keyword">if</span> (*title != <span class="hljs-string">'\t'</span> &amp;&amp; *title != <span class="hljs-string">'\v'</span>) <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">if</span> (!tabs || (tab_width &lt; <span class="hljs-number">4</span>)) <span class="hljs-keyword">continue</span>;
+			<span class="hljs-keyword">int</span> tab_active = *title == <span class="hljs-string">'\v'</span>;
+			title++;
+
+			<span class="hljs-keyword">int</span> w = string_width(title);
+			<span class="hljs-keyword">int</span> left_pad = (tab_width - w - <span class="hljs-number">5</span>) / <span class="hljs-number">2</span>;
+			<span class="hljs-keyword">if</span> (left_pad &lt; <span class="hljs-number">0</span>) left_pad = (tab_width - w - <span class="hljs-number">5</span>);
+
+			draw_rounded_rectangle(subctx, offset + <span class="hljs-number">2</span>, <span class="hljs-number">0</span>, tab_width + <span class="hljs-number">1</span>, <span class="hljs-built_in">height</span> + <span class="hljs-number">3</span>, <span class="hljs-number">5</span>, rgb(<span class="hljs-number">42</span>,<span class="hljs-number">42</span>,<span class="hljs-number">42</span>)); <span class="hljs-comment">/* This creates a small overlap in tabs, which is intended. */</span>
+			<span class="hljs-keyword">char</span> * tab_color = <span class="hljs-built_in">strchr</span>(e-&gt;action,<span class="hljs-string">';'</span>);
+			<span class="hljs-keyword">if</span> (tab_color) {
+				<span class="hljs-comment">/* Parse the color */</span>
+				<span class="hljs-keyword">char</span> r[<span class="hljs-number">3</span>] = {tab_color[<span class="hljs-number">1</span>],tab_color[<span class="hljs-number">2</span>],<span class="hljs-string">'\0'</span>};
+				<span class="hljs-keyword">char</span> g[<span class="hljs-number">3</span>] = {tab_color[<span class="hljs-number">3</span>],tab_color[<span class="hljs-number">4</span>],<span class="hljs-string">'\0'</span>};
+				<span class="hljs-keyword">char</span> b[<span class="hljs-number">3</span>] = {tab_color[<span class="hljs-number">5</span>],tab_color[<span class="hljs-number">6</span>],<span class="hljs-string">'\0'</span>};
+				<span class="hljs-keyword">uint32_t</span> color = rgba(strtoul(r,<span class="hljs-literal">NULL</span>,<span class="hljs-number">16</span>),strtoul(g,<span class="hljs-literal">NULL</span>,<span class="hljs-number">16</span>),strtoul(b,<span class="hljs-literal">NULL</span>,<span class="hljs-number">16</span>),<span class="hljs-number">255</span>);
+				draw_rounded_rectangle(subctx, offset + <span class="hljs-number">3</span>, <span class="hljs-number">1</span>, tab_width - <span class="hljs-number">1</span>, <span class="hljs-built_in">height</span> + <span class="hljs-number">3</span>, <span class="hljs-number">4</span>, color);
+				draw_rounded_rectangle(subctx, offset + <span class="hljs-number">5</span>, <span class="hljs-number">3</span>, tab_width - <span class="hljs-number">5</span>, <span class="hljs-built_in">height</span> + <span class="hljs-number">3</span>, <span class="hljs-number">2</span>, tab_active ? premultiply(rgba(<span class="hljs-number">72</span>,<span class="hljs-number">72</span>,<span class="hljs-number">72</span>,<span class="hljs-number">50</span>)) : premultiply(rgba(<span class="hljs-number">59</span>,<span class="hljs-number">59</span>,<span class="hljs-number">59</span>,<span class="hljs-number">220</span>)));
+			} <span class="hljs-keyword">else</span> {
+				draw_rounded_rectangle(subctx, offset + <span class="hljs-number">3</span>, <span class="hljs-number">1</span>, tab_width - <span class="hljs-number">1</span>, <span class="hljs-built_in">height</span> + <span class="hljs-number">3</span>, <span class="hljs-number">4</span>, tab_active ? rgb(<span class="hljs-number">72</span>,<span class="hljs-number">72</span>,<span class="hljs-number">72</span>) : rgb(<span class="hljs-number">59</span>,<span class="hljs-number">59</span>,<span class="hljs-number">59</span>));
+			}
+			<span class="hljs-keyword">if</span> (tab_active &amp;&amp; window_is_focused) draw_rectangle(subctx, offset+<span class="hljs-number">3</span>, subctx-&gt;<span class="hljs-built_in">height</span> - <span class="hljs-number">2</span>, tab_width - <span class="hljs-number">1</span>, <span class="hljs-number">2</span>, rgb(<span class="hljs-number">46</span>,<span class="hljs-number">91</span>,<span class="hljs-number">164</span>));
+			<span class="hljs-keyword">gfx_context_t</span> * clip = init_graphics_subregion(subctx, offset + <span class="hljs-number">5</span>, <span class="hljs-number">0</span>, tab_width - <span class="hljs-number">5</span>, subctx-&gt;<span class="hljs-built_in">height</span>);
+			draw_string(clip, left_pad, <span class="hljs-number">2</span>, (tab_active &amp;&amp; window_is_focused) ? rgb(<span class="hljs-number">226</span>,<span class="hljs-number">226</span>,<span class="hljs-number">226</span>) : rgb(<span class="hljs-number">147</span>,<span class="hljs-number">147</span>,<span class="hljs-number">147</span>), title);
+			<span class="hljs-built_in">free</span>(clip);
+
+			offset += tab_width;
+		}
+
+		offset += extra;
+	}
+
+	<span class="hljs-built_in">free</span>(subctx);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">menu_bar_show_menu</span><span class="hljs-params">(<span class="hljs-keyword">yutani_t</span> * yctx, <span class="hljs-keyword">yutani_window_t</span> * window, struct menu_bar * self, <span class="hljs-keyword">int</span> offset, struct menu_bar_entries * _entries)</span> </span>{
+	<span class="hljs-keyword">if</span> (*_entries-&gt;title == <span class="hljs-string">'\t'</span> || *_entries-&gt;title == <span class="hljs-string">'\v'</span>) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">new_menu</span> = <span class="hljs-title">menu_set_get_menu</span>(<span class="hljs-title">self</span>-&gt;<span class="hljs-title">set</span>, _<span class="hljs-title">entries</span>-&gt;<span class="hljs-title">action</span>);</span>
+
+	<span class="hljs-keyword">ssize_t</span> tabs, tab_width, extra;
+	menu_bar_preflight(self, &amp;tabs, &amp;tab_width, &amp;extra);
+
+	<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (offset == <span class="hljs-number">-1</span>) {
+		<span class="hljs-comment">/* Must calculate */</span>
+		offset = self-&gt;x;
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">menu_bar_entries</span> * <span class="hljs-title">e</span> = <span class="hljs-title">self</span>-&gt;<span class="hljs-title">entries</span>;</span>
+		<span class="hljs-keyword">while</span> (e-&gt;title) {
+			<span class="hljs-keyword">for</span> (; e-&gt;title; e++) {
+				<span class="hljs-keyword">if</span> (e == _entries) <span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">if</span> (*e-&gt;title == <span class="hljs-string">'\t'</span> || *e-&gt;title == <span class="hljs-string">'\v'</span>) <span class="hljs-keyword">break</span>;
+				offset += string_width(e-&gt;title) + <span class="hljs-number">11</span>;
+				i++;
+			}
+			<span class="hljs-keyword">if</span> (e == _entries) <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">for</span> (; e-&gt;title; e++) {
+				<span class="hljs-keyword">if</span> (e == _entries) <span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">if</span> (*e-&gt;title != <span class="hljs-string">'\t'</span> &amp;&amp; *e-&gt;title != <span class="hljs-string">'\v'</span>) <span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">if</span> (!tabs || (tab_width &lt; <span class="hljs-number">4</span>)) <span class="hljs-keyword">continue</span>;
+				offset += tab_width;
+				i++;
+			}
+			<span class="hljs-keyword">if</span> (e == _entries) <span class="hljs-keyword">break</span>;
+			offset += extra;
+			i++;
+		}
+	} <span class="hljs-keyword">else</span> {
+		struct menu_bar_entries * e = self-&gt;entries;
+		<span class="hljs-keyword">while</span> (e-&gt;title) {
+			<span class="hljs-keyword">if</span> (e == _entries) <span class="hljs-keyword">break</span>;
+			e++;
+			i++;
+		}
+	}
+
+	new_menu-&gt;main_window = window;
+	menu_prepare(new_menu, yctx);
+	<span class="hljs-keyword">int</span> right_side = new_menu-&gt;window-&gt;<span class="hljs-built_in">width</span> + window-&gt;x + offset;
+	<span class="hljs-keyword">int</span> offset_x = (right_side &gt; (<span class="hljs-keyword">int</span>)yctx-&gt;display_width) ?
+		(right_side - (<span class="hljs-keyword">int</span>)yctx-&gt;display_width) : <span class="hljs-number">0</span>;
+	yutani_window_move_relative(yctx, new_menu-&gt;window, window, offset - offset_x, self-&gt;y + MENU_BAR_HEIGHT);
+	yutani_flip(yctx, new_menu-&gt;window);
+
+	self-&gt;active_menu = new_menu;
+	self-&gt;active_menu-&gt;_bar = self;
+	self-&gt;active_menu_wid = new_menu-&gt;window-&gt;wid;
+	self-&gt;active_entry = _entries;
+	self-&gt;active_entry_idx = i;
+	<span class="hljs-keyword">if</span> (self-&gt;redraw_callback) {
+		self-&gt;redraw_callback(self);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">menu_bar_mouse_event</span><span class="hljs-params">(<span class="hljs-keyword">yutani_t</span> * yctx, <span class="hljs-keyword">yutani_window_t</span> * window, struct menu_bar * self, struct yutani_msg_window_mouse_event * me, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y)</span> </span>{
+	<span class="hljs-keyword">if</span> (x &lt; self-&gt;x || x &gt;= self-&gt;x + self-&gt;<span class="hljs-built_in">width</span> || y &lt; self-&gt;y || y &gt;= self-&gt;y + <span class="hljs-number">24</span> <span class="hljs-comment">/* base height */</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">int</span> offset = self-&gt;x;
+	<span class="hljs-keyword">ssize_t</span> tabs, tab_width, extra;
+	menu_bar_preflight(self, &amp;tabs, &amp;tab_width, &amp;extra);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">menu_bar_entries</span> * <span class="hljs-title">e</span> = <span class="hljs-title">self</span>-&gt;<span class="hljs-title">entries</span>;</span>
+	<span class="hljs-keyword">while</span> (e-&gt;title) {
+		<span class="hljs-keyword">for</span> (; e-&gt;title; e++) {
+			<span class="hljs-keyword">char</span> * title = e-&gt;title;
+			<span class="hljs-keyword">if</span> (*title == <span class="hljs-string">'\t'</span> || *title == <span class="hljs-string">'\v'</span>) <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">int</span> w = string_width(title) + <span class="hljs-number">11</span>;
+			<span class="hljs-keyword">if</span> (x &gt;= offset &amp;&amp; x &lt; offset + w) {
+				<span class="hljs-keyword">if</span> (me-&gt;command == YUTANI_MOUSE_EVENT_CLICK || _close_enough(me)) {
+					menu_bar_show_menu(yctx, window, self,offset,e);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (self-&gt;active_menu &amp;&amp; hashmap_has(menu_get_windows_hash(), (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)self-&gt;active_menu_wid) &amp;&amp; e != self-&gt;active_entry) {
+					menu_definitely_close(self-&gt;active_menu);
+					menu_bar_show_menu(yctx, window, self,offset,e);
+				}
+				<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			}
+			offset += w;
+		}
+		<span class="hljs-keyword">for</span> (; e-&gt;title; e++) {
+			<span class="hljs-keyword">if</span> (*e-&gt;title != <span class="hljs-string">'\t'</span> &amp;&amp; *e-&gt;title != <span class="hljs-string">'\v'</span>) <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">if</span> (!tabs || (tab_width &lt; <span class="hljs-number">4</span>)) <span class="hljs-keyword">continue</span>;
+			<span class="hljs-keyword">if</span> (x &gt;= offset &amp;&amp; x &lt; offset + tab_width) {
+				<span class="hljs-keyword">int</span> action = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">if</span> (me-&gt;command == YUTANI_MOUSE_EVENT_CLICK || _close_enough(me)) {
+					action = <span class="hljs-number">1</span>; <span class="hljs-comment">/* TODO enum */</span>
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (me-&gt;buttons &amp; YUTANI_MOUSE_BUTTON_RIGHT) {
+					action = <span class="hljs-number">2</span>;
+				}
+				<span class="hljs-keyword">if</span> (action) ((struct menu_bar_with_tabs*)self)-&gt;tab_callback((struct menu_bar_with_tabs*)self, e, action, x, y);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			}
+			offset += tab_width;
+		}
+		offset += extra;
+	}
+
+	<span class="hljs-keyword">if</span> (x &gt;= offset &amp;&amp; me-&gt;command == YUTANI_MOUSE_EVENT_DOWN &amp;&amp; me-&gt;buttons &amp; YUTANI_MOUSE_BUTTON_LEFT) {
+		yutani_window_drag_start(yctx, window);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

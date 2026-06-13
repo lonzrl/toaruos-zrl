@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>binfmt.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "kernel\\binfmt.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>binfmt.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/elf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/time.h&gt;</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">int</span> <span class="hljs-title">elf_exec</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path, <span class="hljs-keyword">fs_node_t</span> * file, <span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> *<span class="hljs-keyword">const</span> argv[], <span class="hljs-keyword">char</span> *<span class="hljs-keyword">const</span> env[], <span class="hljs-keyword">int</span> interp)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">exec</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path, <span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> *<span class="hljs-keyword">const</span> argv[], <span class="hljs-keyword">char</span> *<span class="hljs-keyword">const</span> env[], <span class="hljs-keyword">int</span> interp_depth)</span></span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">exec_shebang</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path, <span class="hljs-keyword">fs_node_t</span> * file, <span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> *<span class="hljs-keyword">const</span> argv[], <span class="hljs-keyword">char</span> *<span class="hljs-keyword">const</span> env[], <span class="hljs-keyword">int</span> interp)</span> </span>{
+	<span class="hljs-keyword">if</span> (interp &gt; <span class="hljs-number">4</span>) {
+		<span class="hljs-comment">/* If an interpreter calls an interpreter too many times, bail. */</span>
+		<span class="hljs-keyword">return</span> -ELOOP;
+	}
+
+	<span class="hljs-comment">/* Read MAX_LINE... */</span>
+	<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">100</span>];
+	read_fs(file, <span class="hljs-number">0</span>, <span class="hljs-number">100</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> *)tmp); close_fs(file);
+	<span class="hljs-keyword">char</span> * cmd = (<span class="hljs-keyword">char</span> *)&amp;tmp[<span class="hljs-number">2</span>];
+	<span class="hljs-keyword">if</span> (*cmd == <span class="hljs-string">' '</span>) cmd++; <span class="hljs-comment">/* Handle a leading space */</span>
+	<span class="hljs-keyword">char</span> * space_or_linefeed = <span class="hljs-built_in">strpbrk</span>(cmd, <span class="hljs-string">" \n"</span>);
+	<span class="hljs-keyword">char</span> * arg = <span class="hljs-literal">NULL</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>We read too much stuff before finding EOL or another signal
+that the interpreter was found, so bail.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (!space_or_linefeed) {
+		<span class="hljs-keyword">return</span> -ENOEXEC;
+	}
+
+	<span class="hljs-comment">/* If we found a space, accept one argument before the path... */</span>
+	<span class="hljs-keyword">if</span> (*space_or_linefeed == <span class="hljs-string">' '</span>) {
+		*space_or_linefeed = <span class="hljs-string">'\0'</span>;
+		space_or_linefeed++;
+		arg = space_or_linefeed;
+		<span class="hljs-comment">/* ... and look for another EOL. */</span>
+		space_or_linefeed = <span class="hljs-built_in">strpbrk</span>(space_or_linefeed, <span class="hljs-string">"\n"</span>);
+		<span class="hljs-keyword">if</span> (!space_or_linefeed) {
+			<span class="hljs-comment">/* If we didn't find one, bail. */</span>
+			<span class="hljs-keyword">return</span> -ENOEXEC;
+		}
+	}
+
+	<span class="hljs-comment">/* Make sure interpreter or argument is nil-terminated */</span>
+	*space_or_linefeed = <span class="hljs-string">'\0'</span>;
+
+	<span class="hljs-keyword">char</span> script[<span class="hljs-built_in">strlen</span>(path)+<span class="hljs-number">1</span>];
+	<span class="hljs-built_in">memcpy</span>(script, path, <span class="hljs-built_in">strlen</span>(path)+<span class="hljs-number">1</span>);
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> nargc = argc + (arg ? <span class="hljs-number">2</span> : <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">char</span> * args[nargc + <span class="hljs-number">2</span>];
+	args[<span class="hljs-number">0</span>] = cmd;
+	args[<span class="hljs-number">1</span>] = arg ? arg : script;
+	args[<span class="hljs-number">2</span>] = arg ? script : <span class="hljs-literal">NULL</span>;
+	args[<span class="hljs-number">3</span>] = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">int</span> j = arg ? <span class="hljs-number">3</span> : <span class="hljs-number">2</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; i &lt; argc; ++i, ++j) {
+		args[j] = argv[i];
+	}
+	args[j] = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-comment">/* Try to execut the interpreter with the new arguments */</span>
+	<span class="hljs-keyword">return</span> exec(cmd, nargc, args, env, interp+<span class="hljs-number">1</span>);
+}
+
+<span class="hljs-comment">/* Consider exposing this and making it a list so it can be extended ... */</span>
+<span class="hljs-function"><span class="hljs-keyword">typedef</span> <span class="hljs-title">int</span> <span class="hljs-params">(*exec_func)</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path, <span class="hljs-keyword">fs_node_t</span> * file, <span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> *<span class="hljs-keyword">const</span> argv[], <span class="hljs-keyword">char</span> *<span class="hljs-keyword">const</span> env[], <span class="hljs-keyword">int</span> interp)</span></span>;
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+	exec_func func;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> bytes[<span class="hljs-number">4</span>];
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>  match;
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name;
+} <span class="hljs-keyword">exec_def_t</span>;
+
+<span class="hljs-keyword">exec_def_t</span> fmts[] = {
+	{elf_exec, {ELFMAG0, ELFMAG1, ELFMAG2, ELFMAG3}, <span class="hljs-number">4</span>, <span class="hljs-string">"ELF"</span>},
+	{exec_shebang, {<span class="hljs-string">'#'</span>, <span class="hljs-string">'!'</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>}, <span class="hljs-number">2</span>, <span class="hljs-string">"#!"</span>},
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">matches</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> * a, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> * b, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> len)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; len; ++i) {
+		<span class="hljs-keyword">if</span> (a[i] != b[i]) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">path</span>
+<span>Filename of the new executable.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">argc</span>
+<span>Number of arguments passed in @p argv
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">argv</span>
+<span>Arguments to supply to the new executable's entry point.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">env</span>
+<span>Environment strings to pass to the new executable.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">interp_depth</span>
+<span>Should be 0 for all external callers.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">exec</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path, <span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> *<span class="hljs-keyword">const</span> argv[], <span class="hljs-keyword">char</span> *<span class="hljs-keyword">const</span> env[], <span class="hljs-keyword">int</span> interp_depth)</span> </span>{
+	<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">fs_node_t</span> * file = kopen_error(path, <span class="hljs-number">0</span>, &amp;error);
+	<span class="hljs-keyword">if</span> (!file) <span class="hljs-keyword">return</span> -error;
+	<span class="hljs-keyword">if</span> (!has_permission(file, X_OK)) <span class="hljs-keyword">return</span> close_fs(file), -EACCES;
+	<span class="hljs-keyword">if</span> (file-&gt;flags &amp; FS_DIRECTORY) <span class="hljs-keyword">return</span> close_fs(file), -EISDIR;
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> head[<span class="hljs-number">4</span>];
+	read_fs(file, <span class="hljs-number">0</span>, <span class="hljs-number">4</span>, head);
+
+	this_core-&gt;current_process-&gt;name = strdup(path);
+	gettimeofday((struct timeval*)&amp;this_core-&gt;current_process-&gt;start, <span class="hljs-literal">NULL</span>);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-keyword">sizeof</span>(fmts) / <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">exec_def_t</span>); ++i) {
+		<span class="hljs-keyword">if</span> (matches(fmts[i].bytes, head, fmts[i].match)) {
+			<span class="hljs-keyword">return</span> fmts[i].func(path, file, argc, argv, env, interp_depth);
+		}
+	}
+
+	close_fs(file);
+	<span class="hljs-keyword">return</span> -ENOEXEC;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>This is generally only called by system startup code to launch /bin/init.
+Copies arguments from kernel constants into the heap, sets up a new MMU context
+from the kernel boot context, and then calls @ref exec.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">system</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path, <span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> *<span class="hljs-keyword">const</span> argv[], <span class="hljs-keyword">char</span> *<span class="hljs-keyword">const</span> envin[])</span> </span>{
+	<span class="hljs-keyword">char</span> ** argv_ = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span>*) * (argc + <span class="hljs-number">1</span>));
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; argc; ++j) {
+		argv_[j] = <span class="hljs-built_in">malloc</span>((<span class="hljs-built_in">strlen</span>(argv[j]) + <span class="hljs-number">1</span>));
+		<span class="hljs-built_in">memcpy</span>((<span class="hljs-keyword">void</span>*)argv_[j], argv[j], <span class="hljs-built_in">strlen</span>(argv[j]) + <span class="hljs-number">1</span>);
+	}
+	argv_[argc] = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">char</span> * env[] = {<span class="hljs-literal">NULL</span>};
+	this_core-&gt;current_process-&gt;thread.page_directory = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">page_directory_t</span>));
+	this_core-&gt;current_process-&gt;thread.page_directory-&gt;directory = mmu_clone(<span class="hljs-literal">NULL</span>); <span class="hljs-comment">/* base PML? for exec? */</span>
+	this_core-&gt;current_process-&gt;thread.page_directory-&gt;refcount = <span class="hljs-number">1</span>;
+	spin_init(this_core-&gt;current_process-&gt;thread.page_directory-&gt;lock);
+	mmu_set_directory(this_core-&gt;current_process-&gt;thread.page_directory-&gt;directory);
+	this_core-&gt;current_process-&gt;cmdline = (<span class="hljs-keyword">char</span>**)argv_;
+	exec(path,argc,argv_,envin ? envin : env,<span class="hljs-number">0</span>);
+	<span class="hljs-keyword">return</span> -EINVAL;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

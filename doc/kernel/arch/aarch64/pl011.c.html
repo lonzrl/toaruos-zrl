@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>pl011.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kernel\\arch\\aarch64\\pl011.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>pl011.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pty.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/aarch64/dtb.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/aarch64/gic.h&gt;</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">pl011_irq</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">int</span> irq, <span class="hljs-keyword">void</span> * data)</span> </span>{
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> * uart_mapped = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> *)data;
+	<span class="hljs-keyword">uint32_t</span> mis = uart_mapped[<span class="hljs-number">16</span>];
+	<span class="hljs-keyword">if</span> (mis) {
+		<span class="hljs-keyword">if</span> (mis &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">4</span>)) {
+			make_process_ready(<span class="hljs-keyword">this</span>);
+		}
+		uart_mapped[<span class="hljs-number">17</span>] = mis;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">pl011_fill_name</span><span class="hljs-params">(<span class="hljs-keyword">pty_t</span> * pty, <span class="hljs-keyword">size_t</span> len, <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">snprintf</span>(name, len, <span class="hljs-string">"/dev/ttyS0"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">pl011_write_out</span><span class="hljs-params">(<span class="hljs-keyword">pty_t</span> * pty, <span class="hljs-keyword">uint8_t</span> c)</span> </span>{
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> * uart_mapped = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> *)pty-&gt;_private;
+	uart_mapped[<span class="hljs-number">0</span>] = c;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">pl011_thread</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * arg)</span> </span>{
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> * uart_mapped = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> *)arg;
+	<span class="hljs-keyword">pty_t</span> * pty = pty_new(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>);
+	pty-&gt;write_out = pl011_write_out;
+	pty-&gt;fill_name = pl011_fill_name;
+	pty-&gt;slave-&gt;gid = <span class="hljs-number">2</span>; <span class="hljs-comment">/* dialout group */</span>
+	pty-&gt;slave-&gt;mask = <span class="hljs-number">0660</span>;
+	pty-&gt;_private = arg;
+	vfs_mount(<span class="hljs-string">"/dev/ttyS0"</span>, pty-&gt;slave, <span class="hljs-string">"pl011"</span>, <span class="hljs-string">""</span>);
+
+	<span class="hljs-comment">/* Set up interrupt callback */</span>
+	gic_assign_interrupt(<span class="hljs-number">1</span>, pl011_irq, (<span class="hljs-keyword">void</span>*)uart_mapped);
+
+	<span class="hljs-comment">/* Enable interrupts */</span>
+	uart_mapped[<span class="hljs-number">14</span>] |= (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">4</span>);
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+	<span class="hljs-comment">/* Handle incoming data */</span>
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">while</span> ((uart_mapped[<span class="hljs-number">6</span>] &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">4</span>))) {
+			switch_task(<span class="hljs-number">0</span>);
+		}
+
+		<span class="hljs-keyword">uint8_t</span> rx = uart_mapped[<span class="hljs-number">0</span>];
+		tty_input_process(pty, rx);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">pl011_start</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> * uart = dtb_find_node_prefix(<span class="hljs-string">"pl011"</span>);
+	<span class="hljs-keyword">if</span> (!uart) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-comment">/* I know this is going to be 0x09000000, but let's find it anyway */</span>
+	<span class="hljs-keyword">uint32_t</span> * reg = dtb_node_find_property(uart, <span class="hljs-string">"reg"</span>);
+	<span class="hljs-keyword">uintptr_t</span>  uart_base = swizzle(reg[<span class="hljs-number">3</span>]);
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> * uart_mapped = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span>*)mmu_map_mmio_region(uart_base, <span class="hljs-number">0x1000</span>);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>PL011 UART configuration</p>
+</div>
+<div class="body">
+<p>Setup line control here so we do it atomically, otherwise doing it in the thread
+can cause other cores printing debug messages to write when the port is disabled,
+which causes QEMU to print warning messages.</p>
+<p>We are missing a few things because this is only intended to work with QEMU.
+We should probably add support for baud rate configuration and actually map
+the line control configuration to the TTY state.</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	uart_mapped[<span class="hljs-number">12</span>] = <span class="hljs-number">0</span>;     <span class="hljs-comment">/* UARTCR  - Disable the UART */</span>
+	uart_mapped[<span class="hljs-number">11</span>] = <span class="hljs-number">0x70</span>;  <span class="hljs-comment">/* UARTLCR - Stick parity disabled, 8-bit words, tx+rx FIFO enabled; one stop bit, (odd parity), parity disabled, no break */</span>
+	uart_mapped[<span class="hljs-number">12</span>] = <span class="hljs-number">0x301</span>; <span class="hljs-comment">/* UARTCR  - Enable tx/rx, enable UART */</span>
+
+	spawn_worker_thread(pl011_thread, <span class="hljs-string">"[pl011]"</span>, (<span class="hljs-keyword">void</span>*)uart_mapped);
+}
+
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

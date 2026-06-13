@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>obj_typing.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\src\\obj_typing.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>obj_typing.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/value.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Generic alias</p>
+</div>
+<div class="body">
+<p>Type hints must be expressions. In Python 3.x, prior to 3.9, there was
+a module (typing) that provided special objects for collections that
+implemented subscripting to define generic types. In 3.9, the magic
+method <strong>class_getitem</strong> was used to provide this functionality directly
+from the built-in collection types, so you can do list[int] and it spits
+out a special object that reprs to an equivalent string, supports various
+methods like bitwise-or for combination to produce complex types, and so
+on... well, we're not going to do something quite that complicated at the
+moment, but we did spend a bunch of time adding <strong>class_getitem</strong> so we'll
+at least provide a barebones generic alias that just returns a string.</p>
+<p>So if you specify list[int], you'll get 'list[int]'.</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+<span class="hljs-function"><span class="hljs-keyword">static</span> KrkValue <span class="hljs-title">typeToString</span><span class="hljs-params">(KrkValue val)</span> </span>{
+	<span class="hljs-keyword">if</span> (IS_CLASS(val)) {
+		<span class="hljs-keyword">return</span> OBJECT_VAL(AS_CLASS(val)-&gt;name);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_STRING(val)) {
+		<span class="hljs-keyword">return</span> val;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_TUPLE(val)) {
+		<span class="hljs-comment">/* Form a string by concatenating typeToString with ',' */</span>
+		struct StringBuilder sb = {<span class="hljs-number">0</span>};
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; AS_TUPLE(val)-&gt;values.count; ++i) {
+			krk_push(typeToString(AS_TUPLE(val)-&gt;values.values[i]));
+			pushStringBuilderStr(&amp;sb, AS_CSTRING(krk_peek(<span class="hljs-number">0</span>)), AS_STRING(krk_peek(<span class="hljs-number">0</span>))-&gt;length);
+			krk_pop();
+			<span class="hljs-keyword">if</span> (i &lt; AS_TUPLE(val)-&gt;values.count - <span class="hljs-number">1</span>) {
+				pushStringBuilder(&amp;sb,<span class="hljs-string">','</span>);
+			}
+		}
+
+		<span class="hljs-keyword">return</span> finishStringBuilder(&amp;sb);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-comment">/* Just repr it. */</span>
+		KrkClass * type = krk_getType(val);
+		<span class="hljs-keyword">if</span> (!type-&gt;_reprer) <span class="hljs-keyword">return</span> NONE_VAL();
+		krk_push(val);
+		<span class="hljs-keyword">return</span> krk_callDirect(type-&gt;_reprer, <span class="hljs-number">1</span>);
+	}
+}
+
+KRK_Function(__class_getitem__) {
+	FUNCTION_TAKES_EXACTLY(<span class="hljs-number">2</span>);
+	<span class="hljs-keyword">if</span> (!IS_CLASS(argv[<span class="hljs-number">0</span>])) <span class="hljs-keyword">return</span> TYPE_ERROR(class,argv[<span class="hljs-number">0</span>]);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+
+	<span class="hljs-comment">/* First lets look at the class. */</span>
+	pushStringBuilderStr(&amp;sb, AS_CLASS(argv[<span class="hljs-number">0</span>])-&gt;name-&gt;chars, AS_CLASS(argv[<span class="hljs-number">0</span>])-&gt;name-&gt;length);
+	pushStringBuilder(&amp;sb,<span class="hljs-string">'['</span>);
+
+	krk_push(typeToString(argv[<span class="hljs-number">1</span>]));
+	<span class="hljs-keyword">if</span> (IS_STRING(krk_peek(<span class="hljs-number">0</span>))) pushStringBuilderStr(&amp;sb, AS_CSTRING(krk_peek(<span class="hljs-number">0</span>)), AS_STRING(krk_peek(<span class="hljs-number">0</span>))-&gt;length);
+	krk_pop();
+	pushStringBuilder(&amp;sb,<span class="hljs-string">']'</span>);
+	<span class="hljs-keyword">return</span> finishStringBuilder(&amp;sb);
+}
+
+NativeFn krk_GenericAlias = FUNC_NAME(krk,__class_getitem__);
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

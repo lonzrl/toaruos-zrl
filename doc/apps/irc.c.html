@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>irc.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\irc.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>irc.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;termios.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;va_list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/socket.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;netinet/in.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;netdb.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;arpa/inet.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/fswait.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _ITALIC <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _END    <span class="hljs-meta-string">"\033[0m\n"</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VERSION_STRING <span class="hljs-meta-string">"0.3.0"</span></span>
+
+<span class="hljs-comment">/* Theming */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TIME_FMT <span class="hljs-meta-string">"%02d:%02d:%02d"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TIME_ARGS hr, min, sec</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * nick = <span class="hljs-string">"toaru-user"</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * host = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * pass = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> short port = <span class="hljs-number">6667</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * channel = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> sock_fd;
+<span class="hljs-keyword">static</span> FILE * sock_r;
+<span class="hljs-keyword">static</span> FILE * sock_w;
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">color_pair</span> {</span>
+	<span class="hljs-keyword">int</span> fg;
+	<span class="hljs-keyword">int</span> bg;
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">show_usage</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+			<span class="hljs-string">"irc - Terminal IRC client.\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"usage: %s [-h] [-p port] [-n nick] host\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -p port "</span> _ITALIC <span class="hljs-string">"Specify port to connect to"</span> _END
+			<span class="hljs-string">" -P pass "</span> _ITALIC <span class="hljs-string">"Password for server connection"</span> _END
+			<span class="hljs-string">" -n nick "</span> _ITALIC <span class="hljs-string">"Specify a nick to use"</span> _END
+			<span class="hljs-string">" -h      "</span> _ITALIC <span class="hljs-string">"Print this help message"</span> _END
+			<span class="hljs-string">"\n"</span>, argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">termios</span> <span class="hljs-title">old</span>;</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">set_unbuffered</span><span class="hljs-params">()</span> </span>{
+	tcgetattr(fileno(<span class="hljs-built_in">stdin</span>), &amp;old);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">termios</span> <span class="hljs-title">new</span> = <span class="hljs-title">old</span>;</span>
+	<span class="hljs-keyword">new</span>.c_lflag &amp;= (~ICANON &amp; ~ECHO);
+	tcsetattr(fileno(<span class="hljs-built_in">stdin</span>), TCSAFLUSH, &amp;<span class="hljs-keyword">new</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">set_buffered</span><span class="hljs-params">()</span> </span>{
+	tcsetattr(fileno(<span class="hljs-built_in">stdin</span>), TCSAFLUSH, &amp;old);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">user_color</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * user)</span> </span>{
+	<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (*user) {
+		i += *user;
+		user++;
+	}
+	i = i % <span class="hljs-number">5</span>;
+	<span class="hljs-keyword">switch</span> (i) {
+		<span class="hljs-keyword">case</span> <span class="hljs-number">0</span>: <span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">1</span>: <span class="hljs-keyword">return</span> <span class="hljs-number">3</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">2</span>: <span class="hljs-keyword">return</span> <span class="hljs-number">4</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">3</span>: <span class="hljs-keyword">return</span> <span class="hljs-number">6</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">4</span>: <span class="hljs-keyword">return</span> <span class="hljs-number">10</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> color_pairs[] = {
+	<span class="hljs-number">15</span>, <span class="hljs-number">0</span>, <span class="hljs-number">4</span>, <span class="hljs-number">2</span>, <span class="hljs-number">9</span>, <span class="hljs-number">1</span>, <span class="hljs-number">5</span>, <span class="hljs-number">3</span>, <span class="hljs-number">11</span>, <span class="hljs-number">10</span>, <span class="hljs-number">6</span>, <span class="hljs-number">14</span>, <span class="hljs-number">12</span>, <span class="hljs-number">13</span>, <span class="hljs-number">8</span>, <span class="hljs-number">7</span>
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> struct color_pair <span class="hljs-title">irc_color_to_pair</span><span class="hljs-params">(<span class="hljs-keyword">int</span> fg, <span class="hljs-keyword">int</span> bg)</span> </span>{
+	<span class="hljs-keyword">int</span> _fg = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> _bg = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (fg == <span class="hljs-number">-1</span>) {
+		_fg = <span class="hljs-number">-1</span>;
+	} <span class="hljs-keyword">else</span> {
+		_fg = color_pairs[fg % <span class="hljs-number">16</span>];
+	}
+	<span class="hljs-keyword">if</span> (bg == <span class="hljs-number">-1</span>) {
+		_bg = <span class="hljs-number">-1</span>;
+	} <span class="hljs-keyword">else</span> {
+		_bg = color_pairs[bg % <span class="hljs-number">16</span>];
+	}
+	<span class="hljs-keyword">return</span> (struct color_pair){_fg, _bg};
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">get_time</span><span class="hljs-params">(<span class="hljs-keyword">int</span> * h, <span class="hljs-keyword">int</span> * m, <span class="hljs-keyword">int</span> * s)</span> </span>{
+	<span class="hljs-keyword">time_t</span> rawtime;
+	time(&amp;rawtime);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tm</span> *<span class="hljs-title">tm_struct</span> = <span class="hljs-title">localtime</span>(&amp;<span class="hljs-title">rawtime</span>);</span>
+
+	*h = tm_struct-&gt;tm_hour;
+	*m = tm_struct-&gt;tm_min;
+	*s = tm_struct-&gt;tm_sec;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">print_color</span><span class="hljs-params">(struct color_pair t)</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"\033["</span>);
+	<span class="hljs-keyword">if</span> (t.fg == <span class="hljs-number">-1</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"39"</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (t.fg &gt; <span class="hljs-number">15</span>) {
+		<span class="hljs-comment">/* TODO */</span>
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (t.fg &gt; <span class="hljs-number">7</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"9%d"</span>, t.fg - <span class="hljs-number">8</span>);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"3%d"</span>, t.fg);
+	}
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">";"</span>);
+	<span class="hljs-keyword">if</span> (t.bg == <span class="hljs-number">-1</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"49"</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (t.bg &gt; <span class="hljs-number">15</span>) {
+		<span class="hljs-comment">/* TODO */</span>
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (t.bg &gt; <span class="hljs-number">7</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"10%d"</span>, t.bg - <span class="hljs-number">8</span>);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"4%d"</span>, t.bg);
+	}
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"m"</span>);
+	fflush(<span class="hljs-built_in">stdout</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">WRITE</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * fmt, ...)</span> </span>{
+
+	<span class="hljs-keyword">int</span> bold_on = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> italic_on = <span class="hljs-number">0</span>;
+
+	va_list args;
+	va_start(args, fmt);
+	<span class="hljs-keyword">char</span> * tmp;
+	vasprintf(&amp;tmp, fmt, args);
+	va_end(args);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">winsize</span> <span class="hljs-title">w</span>;</span>
+	ioctl(<span class="hljs-number">0</span>, TIOCGWINSZ, &amp;w);
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"\033[%d;1H\033[K"</span>, w.ws_row);
+
+	<span class="hljs-keyword">int</span> line_feed_pending = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> * c = tmp;
+
+	<span class="hljs-keyword">while</span> (*c) {
+		<span class="hljs-keyword">if</span> (*c == <span class="hljs-string">'\n'</span>) {
+			<span class="hljs-keyword">if</span> (line_feed_pending) {
+				<span class="hljs-comment">/* Print line feed */</span>
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"\n"</span>);
+			}
+			line_feed_pending = <span class="hljs-number">1</span>;
+			c++;
+			<span class="hljs-keyword">continue</span>;
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">if</span> (line_feed_pending) {
+				line_feed_pending = <span class="hljs-number">0</span>;
+				<span class="hljs-comment">/* Print line feed */</span>
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"\n"</span>);
+			}
+		}
+		<span class="hljs-keyword">if</span> (*c == <span class="hljs-number">0x03</span>) {
+			c++;
+			<span class="hljs-keyword">int</span> i = <span class="hljs-number">-1</span>;
+			<span class="hljs-keyword">int</span> j = <span class="hljs-number">-1</span>;
+			<span class="hljs-keyword">if</span> (*c &gt;= <span class="hljs-string">'0'</span> &amp;&amp; *c &lt;= <span class="hljs-string">'9'</span>) {
+				i = (*c - <span class="hljs-string">'0'</span>);
+				c++;
+			}
+			<span class="hljs-keyword">if</span> (*c &gt;= <span class="hljs-string">'0'</span> &amp;&amp; *c &lt;= <span class="hljs-string">'9'</span>) {
+				i *= <span class="hljs-number">10</span>;
+				i += (*c - <span class="hljs-string">'0'</span>);
+				c++;
+			}
+			<span class="hljs-keyword">if</span> (*c == <span class="hljs-string">','</span>) {
+				c++;
+				<span class="hljs-keyword">if</span> (*c &gt;= <span class="hljs-string">'0'</span> &amp;&amp; *c &lt;= <span class="hljs-string">'9'</span>) {
+					j = (*c - <span class="hljs-string">'0'</span>);
+					c++;
+				}
+				<span class="hljs-keyword">if</span> (*c &gt;= <span class="hljs-string">'0'</span> &amp;&amp; *c &lt;= <span class="hljs-string">'9'</span>) {
+					j *= <span class="hljs-number">10</span>;
+					j = (*c - <span class="hljs-string">'0'</span>);
+					c++;
+				}
+			}
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">color_pair</span> <span class="hljs-title">t</span> = <span class="hljs-title">irc_color_to_pair</span>(<span class="hljs-title">i</span>, <span class="hljs-title">j</span>);</span>
+			print_color(t);
+			<span class="hljs-keyword">continue</span>;
+		}
+		<span class="hljs-keyword">if</span> (*c == <span class="hljs-number">0x02</span>) {
+			<span class="hljs-keyword">if</span> (bold_on) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"\033[22m"</span>);
+				bold_on = <span class="hljs-number">0</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"\033[1m"</span>);
+				bold_on = <span class="hljs-number">1</span>;
+			}
+			c++;
+			<span class="hljs-keyword">continue</span>;
+		}
+		<span class="hljs-keyword">if</span> (*c == <span class="hljs-number">0x16</span>) {
+			<span class="hljs-keyword">if</span> (italic_on) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"\033[23m"</span>);
+				italic_on = <span class="hljs-number">0</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"\033[3m"</span>);
+				italic_on = <span class="hljs-number">1</span>;
+			}
+			c++;
+			<span class="hljs-keyword">continue</span>;
+		}
+		<span class="hljs-keyword">if</span> (*c == <span class="hljs-number">0x0f</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"\033[0m"</span>);
+			c++;
+			bold_on = <span class="hljs-number">0</span>;
+			italic_on = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%c"</span>, *c);
+		c++;
+	}
+	<span class="hljs-keyword">if</span> (line_feed_pending) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"\033[0m\033[K\n"</span>);
+	}
+	fflush(<span class="hljs-built_in">stdout</span>);
+	<span class="hljs-built_in">free</span>(tmp);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">handle</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * <span class="hljs-built_in">line</span>)</span> </span>{
+	<span class="hljs-keyword">char</span> * c = <span class="hljs-built_in">line</span>;
+	<span class="hljs-keyword">while</span> (c &lt; <span class="hljs-built_in">line</span> + <span class="hljs-built_in">strlen</span>(<span class="hljs-built_in">line</span>)) {
+		<span class="hljs-keyword">char</span> * e = <span class="hljs-built_in">strstr</span>(c, <span class="hljs-string">"\r\n"</span>);
+		<span class="hljs-keyword">if</span> (e &gt; <span class="hljs-built_in">line</span> + <span class="hljs-built_in">strlen</span>(<span class="hljs-built_in">line</span>)) {
+			<span class="hljs-keyword">break</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (!e) {
+			<span class="hljs-comment">/* Write c */</span>
+			WRITE(c);
+			<span class="hljs-keyword">goto</span> next;
+		}
+
+		*e = <span class="hljs-string">'\0'</span>;
+
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(c, <span class="hljs-string">"PING"</span>) == c) {
+			<span class="hljs-keyword">char</span> * t = <span class="hljs-built_in">strstr</span>(c, <span class="hljs-string">":"</span>);
+			<span class="hljs-built_in">fprintf</span>(sock_w, <span class="hljs-string">"PONG %s\r\n"</span>, t);
+			fflush(sock_w);
+			<span class="hljs-keyword">goto</span> next;
+		}
+
+		<span class="hljs-keyword">char</span> * user, * command, * channel, * message;
+
+		user = c;
+		<span class="hljs-keyword">if</span> (user[<span class="hljs-number">0</span>] == <span class="hljs-string">':'</span>) {
+			user++;
+		}
+
+		command = <span class="hljs-built_in">strstr</span>(user, <span class="hljs-string">" "</span>);
+		<span class="hljs-keyword">if</span> (!command) {
+			WRITE(<span class="hljs-string">"%s\n"</span>, user);
+			<span class="hljs-keyword">goto</span> next;
+		}
+		command[<span class="hljs-number">0</span>] = <span class="hljs-string">'\0'</span>;
+		command++;
+
+		channel = <span class="hljs-built_in">strstr</span>(command, <span class="hljs-string">" "</span>);
+		<span class="hljs-keyword">if</span> (!channel) {
+			WRITE(<span class="hljs-string">"%s %s\n"</span>, user, command);
+			<span class="hljs-keyword">goto</span> next;
+		}
+		channel[<span class="hljs-number">0</span>] = <span class="hljs-string">'\0'</span>;
+		channel++;
+
+		message = <span class="hljs-built_in">strstr</span>(channel, <span class="hljs-string">" "</span>);
+		<span class="hljs-keyword">if</span> (message) {
+			message[<span class="hljs-number">0</span>] = <span class="hljs-string">'\0'</span>;
+			message++;
+			<span class="hljs-keyword">if</span> (message[<span class="hljs-number">0</span>] == <span class="hljs-string">':'</span>) {
+				message++;
+			}
+		}
+
+		<span class="hljs-keyword">int</span> hr, <span class="hljs-built_in">min</span>, sec;
+		get_time(&amp;hr, &amp;<span class="hljs-built_in">min</span>, &amp;sec);
+
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(command, <span class="hljs-string">"PRIVMSG"</span>)) {
+			<span class="hljs-keyword">if</span> (!message) <span class="hljs-keyword">continue</span>;
+			<span class="hljs-keyword">char</span> * t = <span class="hljs-built_in">strstr</span>(user, <span class="hljs-string">"!"</span>);
+			<span class="hljs-keyword">if</span> (t) { t[<span class="hljs-number">0</span>] = <span class="hljs-string">'\0'</span>; }
+			t = <span class="hljs-built_in">strstr</span>(user, <span class="hljs-string">"@"</span>);
+			<span class="hljs-keyword">if</span> (t) { t[<span class="hljs-number">0</span>] = <span class="hljs-string">'\0'</span>; }
+
+			<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(message, <span class="hljs-string">"\001ACTION "</span>) == message) {
+				message = message + <span class="hljs-number">8</span>;
+				<span class="hljs-keyword">char</span> * x = <span class="hljs-built_in">strstr</span>(message, <span class="hljs-string">"\001"</span>);
+				<span class="hljs-keyword">if</span> (x) *x = <span class="hljs-string">'\0'</span>;
+				WRITE(TIME_FMT <span class="hljs-string">" \002* \003%d%s\003\002 %s\n"</span>, TIME_ARGS, user_color(user), user, message);
+			} <span class="hljs-keyword">else</span> {
+				WRITE(TIME_FMT <span class="hljs-string">" \00314&lt;\003%d%s\00314&gt;\003 %s\n"</span>, TIME_ARGS, user_color(user), user, message);
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(command, <span class="hljs-string">"332"</span>)) {
+			<span class="hljs-keyword">if</span> (!message) {
+				<span class="hljs-keyword">continue</span>;
+			}
+			<span class="hljs-comment">/* Topic */</span>
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(command, <span class="hljs-string">"JOIN"</span>)) {
+			<span class="hljs-keyword">char</span> * t = <span class="hljs-built_in">strstr</span>(user, <span class="hljs-string">"!"</span>);
+			<span class="hljs-keyword">if</span> (t) { t[<span class="hljs-number">0</span>] = <span class="hljs-string">'\0'</span>; }
+			t = <span class="hljs-built_in">strstr</span>(user, <span class="hljs-string">"@"</span>);
+			<span class="hljs-keyword">if</span> (t) { t[<span class="hljs-number">0</span>] = <span class="hljs-string">'\0'</span>; }
+			<span class="hljs-keyword">if</span> (channel[<span class="hljs-number">0</span>] == <span class="hljs-string">':'</span>) { channel++; }
+
+			WRITE(TIME_FMT <span class="hljs-string">" \00312-\003!\00312-\00311 %s\003 has joined \002%s\n"</span>, TIME_ARGS, user, channel);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(command, <span class="hljs-string">"PART"</span>)) {
+			<span class="hljs-keyword">char</span> * t = <span class="hljs-built_in">strstr</span>(user, <span class="hljs-string">"!"</span>);
+			<span class="hljs-keyword">if</span> (t) { t[<span class="hljs-number">0</span>] = <span class="hljs-string">'\0'</span>; }
+			t = <span class="hljs-built_in">strstr</span>(user, <span class="hljs-string">"@"</span>);
+			<span class="hljs-keyword">if</span> (t) { t[<span class="hljs-number">0</span>] = <span class="hljs-string">'\0'</span>; }
+			<span class="hljs-keyword">if</span> (channel[<span class="hljs-number">0</span>] == <span class="hljs-string">':'</span>) { channel++; }
+
+			WRITE(TIME_FMT <span class="hljs-string">" \00312-\003!\00312\003-\00310 %s\003 has left \002%s\n"</span>, TIME_ARGS, user, channel);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(command, <span class="hljs-string">"372"</span>)) {
+			WRITE(TIME_FMT <span class="hljs-string">" \00314%s\003 %s\n"</span>, TIME_ARGS, user, message ? message : <span class="hljs-string">""</span>);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(command, <span class="hljs-string">"376"</span>)) {
+			<span class="hljs-comment">/* End of MOTD */</span>
+			WRITE(TIME_FMT <span class="hljs-string">" \00314%s (end of MOTD)\n"</span>, TIME_ARGS, user);
+		} <span class="hljs-keyword">else</span> {
+			WRITE(TIME_FMT <span class="hljs-string">" \00310%s %s %s %s\n"</span>, TIME_ARGS, user, command, channel, message ? message : <span class="hljs-string">""</span>);
+		}
+
+next:
+		<span class="hljs-keyword">if</span> (!e) <span class="hljs-keyword">break</span>;
+		c = e + <span class="hljs-number">2</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">redraw_buffer</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * buf)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">winsize</span> <span class="hljs-title">w</span>;</span>
+	ioctl(<span class="hljs-number">0</span>, TIOCGWINSZ, &amp;w);
+
+	<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">1024</span>];
+	<span class="hljs-keyword">size_t</span> left = <span class="hljs-built_in">snprintf</span>(tmp,<span class="hljs-number">1024</span>,<span class="hljs-string">" [%s] "</span>, channel ? channel : <span class="hljs-string">"(status)"</span>);
+	<span class="hljs-keyword">size_t</span> avail = w.ws_col - left - <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">size_t</span> buflen = <span class="hljs-built_in">strlen</span>(buf);
+	<span class="hljs-keyword">char</span> * from = buf;
+
+	<span class="hljs-keyword">if</span> (buflen &gt;= avail) {
+		from = buf + (buflen - avail);
+	}
+
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"\033[%d;1H%s%s\033[K\033[?25h"</span>, w.ws_row, tmp, from);
+	fflush(<span class="hljs-built_in">stdout</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">handle_input</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * buf)</span> </span>{
+	fflush(<span class="hljs-built_in">stdout</span>);
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(buf, <span class="hljs-string">"/help"</span>) == buf) {
+		WRITE(<span class="hljs-string">"[help] help text goes here\n"</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(buf, <span class="hljs-string">"/quit"</span>) == buf) {
+		<span class="hljs-keyword">char</span> * m = <span class="hljs-built_in">strstr</span>(buf, <span class="hljs-string">" "</span>); <span class="hljs-keyword">if</span> (m) m++;
+		<span class="hljs-built_in">fprintf</span>(sock_w, <span class="hljs-string">"QUIT :%s\r\n"</span>, m ? m : <span class="hljs-string">"https://github.com/klange/toaruos"</span>);
+		fflush(sock_w);
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,<span class="hljs-string">"\033[0m\n"</span>);
+		set_buffered();
+		<span class="hljs-built_in">exit</span>(<span class="hljs-number">0</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(buf,<span class="hljs-string">"/part"</span>) == buf) {
+		<span class="hljs-keyword">if</span> (!channel) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Not in a channel.\n"</span>);
+			<span class="hljs-keyword">return</span>;
+		}
+		<span class="hljs-keyword">char</span> * m = <span class="hljs-built_in">strstr</span>(buf, <span class="hljs-string">" "</span>); <span class="hljs-keyword">if</span> (m) m++;
+		<span class="hljs-built_in">fprintf</span>(sock_w, <span class="hljs-string">"PART %s%s%s\r\n"</span>, channel, m ? <span class="hljs-string">" :"</span> : <span class="hljs-string">""</span>, m ? m : <span class="hljs-string">""</span>);
+		fflush(sock_w);
+		<span class="hljs-built_in">free</span>(channel);
+		channel = <span class="hljs-literal">NULL</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(buf,<span class="hljs-string">"/join "</span>) == buf) {
+		<span class="hljs-keyword">char</span> * m = <span class="hljs-built_in">strstr</span>(buf, <span class="hljs-string">" "</span>); <span class="hljs-keyword">if</span> (m) m++;
+		<span class="hljs-built_in">fprintf</span>(sock_w, <span class="hljs-string">"JOIN %s\r\n"</span>, m);
+		fflush(sock_w);
+		channel = strdup(m);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(buf, <span class="hljs-string">"/"</span>) == buf) {
+		WRITE(<span class="hljs-string">"[system] Unknown command: %s\n"</span>, buf);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">int</span> hr, <span class="hljs-built_in">min</span>, sec;
+		get_time(&amp;hr, &amp;<span class="hljs-built_in">min</span>, &amp;sec);
+		WRITE(<span class="hljs-string">"%02d:%02d:%02d \00314&lt;\003\002%s\002\00314&gt;\003 %s\n"</span>, hr, <span class="hljs-built_in">min</span>, sec, nick, buf);
+		<span class="hljs-built_in">fprintf</span>(sock_w, <span class="hljs-string">"PRIVMSG %s :%s\r\n"</span>, channel, buf);
+	}
+	redraw_buffer(<span class="hljs-string">""</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+
+	<span class="hljs-comment">/* Option parsing */</span>
+	<span class="hljs-keyword">int</span> c;
+	<span class="hljs-keyword">while</span> ((c = getopt(argc, argv, <span class="hljs-string">"?hp:n:P:"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (c) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'n'</span>:
+				nick = optarg;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'P'</span>:
+				pass = optarg;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'p'</span>:
+				port = atoi(optarg);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'h'</span>:
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+			<span class="hljs-keyword">default</span>:
+				show_usage(argc, argv);
+				<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (optind &gt;= argc) {
+		show_usage(argc, argv);
+	}
+
+	host = argv[optind];
+
+	<span class="hljs-comment">/* Connect */</span>
+	{
+		sock_fd = socket(AF_INET, SOCK_STREAM, <span class="hljs-number">0</span>);
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Looking up host...\n"</span>);
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">hostent</span> * <span class="hljs-title">remote</span> = <span class="hljs-title">gethostbyname</span>(<span class="hljs-title">host</span>);</span>
+		<span class="hljs-keyword">if</span> (!remote) {
+			perror(<span class="hljs-string">"gethostbyname"</span>);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_in</span> <span class="hljs-title">addr</span>;</span>
+		addr.sin_family = AF_INET;
+		<span class="hljs-built_in">memcpy</span>(&amp;addr.sin_addr.s_addr, remote-&gt;h_addr, remote-&gt;h_length);
+		addr.sin_port = htons(port);
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Connecting...\n"</span>);
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">connect</span>(sock_fd, (struct sockaddr*)&amp;addr, <span class="hljs-keyword">sizeof</span>(struct sockaddr_in)) &lt; <span class="hljs-number">0</span>) {
+			perror(<span class="hljs-string">"connect"</span>);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		sock_r = fdopen(sock_fd, <span class="hljs-string">"r"</span>);
+		sock_w = fdopen(sock_fd, <span class="hljs-string">"w"</span>);
+	}
+
+	set_unbuffered();
+
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">" - Toaru IRC v %s - \n"</span>, VERSION_STRING);
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">" Copyright 2015-2018 K. Lange\n"</span>);
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">" https://toaruos.org - https://github.com/klange/toaruos\n"</span>);
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">" \n"</span>);
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">" For help, type /help\n"</span>);
+
+	<span class="hljs-keyword">if</span> (pass) {
+		<span class="hljs-built_in">fprintf</span>(sock_w, <span class="hljs-string">"PASS %s\r\n"</span>, pass);
+	}
+	<span class="hljs-built_in">fprintf</span>(sock_w, <span class="hljs-string">"NICK %s\r\nUSER %s * 0 :%s\r\n"</span>, nick, nick, nick);
+	fflush(sock_w);
+
+	<span class="hljs-keyword">int</span> fds[] = {sock_fd, STDIN_FILENO, sock_fd};
+
+	<span class="hljs-keyword">char</span> net_buf[<span class="hljs-number">2048</span>];
+	<span class="hljs-built_in">memset</span>(net_buf, <span class="hljs-number">0</span>, <span class="hljs-number">2048</span>);
+	<span class="hljs-keyword">int</span> net_buf_p = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">char</span> buf[<span class="hljs-number">1024</span>] = {<span class="hljs-number">0</span>};
+	<span class="hljs-keyword">int</span> buf_p = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">int</span> index = fswait2(<span class="hljs-number">2</span>,fds,<span class="hljs-number">200</span>);
+
+		<span class="hljs-keyword">if</span> (index == <span class="hljs-number">1</span>) {
+			<span class="hljs-comment">/* stdin */</span>
+			<span class="hljs-keyword">int</span> c = fgetc(<span class="hljs-built_in">stdin</span>);
+			<span class="hljs-keyword">if</span> (c &lt; <span class="hljs-number">0</span>) {
+				<span class="hljs-keyword">continue</span>;
+			}
+			<span class="hljs-keyword">if</span> (c == <span class="hljs-number">0x08</span> || c == <span class="hljs-number">0x7F</span>) {
+				<span class="hljs-comment">/* Remove from buffer */</span>
+				<span class="hljs-keyword">if</span> (buf_p) {
+					buf[buf_p<span class="hljs-number">-1</span>] = <span class="hljs-string">'\0'</span>;
+					buf_p--;
+					redraw_buffer(buf);
+				}
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (c == <span class="hljs-string">'\n'</span>) {
+				<span class="hljs-comment">/* Send buffer */</span>
+				handle_input(buf);
+				<span class="hljs-built_in">memset</span>(buf, <span class="hljs-number">0</span>, <span class="hljs-number">1024</span>);
+				buf_p = <span class="hljs-number">0</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-comment">/* Append buffer, or check special keys */</span>
+				buf[buf_p] = c;
+				buf_p++;
+				redraw_buffer(buf);
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (index == <span class="hljs-number">0</span>) {
+			<span class="hljs-comment">/* network */</span>
+			<span class="hljs-keyword">do</span> {
+				<span class="hljs-keyword">int</span> c = fgetc(sock_r);
+				<span class="hljs-keyword">if</span> (c &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">continue</span>;
+				net_buf[net_buf_p] = c;
+				net_buf_p++;
+				<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'\n'</span> || net_buf_p == <span class="hljs-number">2046</span>) {
+					handle(net_buf);
+					net_buf_p = <span class="hljs-number">0</span>;
+					<span class="hljs-built_in">memset</span>(net_buf, <span class="hljs-number">0</span>, <span class="hljs-number">2048</span>);
+					redraw_buffer(buf);
+				}
+			} <span class="hljs-keyword">while</span> (!_fwouldblock(sock_r));
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-comment">/* timer */</span>
+		}
+	}
+
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

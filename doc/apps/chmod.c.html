@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>chmod.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\chmod.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>chmod.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;ctype.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/modecalc.h&gt;</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"usage: %s [-R] mode file...\n"</span>, argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">describe_mode</span><span class="hljs-params">(<span class="hljs-keyword">char</span> *modestr, <span class="hljs-keyword">mode_t</span> mode)</span> </span>{
+	<span class="hljs-keyword">char</span> * c = modestr;
+	*c++ = (mode &amp; S_IRUSR) ? <span class="hljs-string">'r'</span> : <span class="hljs-string">'-'</span>;
+	*c++ = (mode &amp; S_IWUSR) ? <span class="hljs-string">'w'</span> : <span class="hljs-string">'-'</span>;
+	*c++ = (mode &amp; S_IXUSR) ? ((mode &amp; S_ISUID) ? <span class="hljs-string">'s'</span> : <span class="hljs-string">'x'</span>) : ((mode &amp; S_ISUID) ? <span class="hljs-string">'S'</span> : <span class="hljs-string">'-'</span>);
+
+	*c++ = (mode &amp; S_IRGRP) ? <span class="hljs-string">'r'</span> : <span class="hljs-string">'-'</span>;
+	*c++ = (mode &amp; S_IWGRP) ? <span class="hljs-string">'w'</span> : <span class="hljs-string">'-'</span>;
+	*c++ = (mode &amp; S_IXGRP) ? ((mode &amp; S_ISGID) ? <span class="hljs-string">'s'</span> : <span class="hljs-string">'x'</span>) : ((mode &amp; S_ISGID) ? <span class="hljs-string">'S'</span> : <span class="hljs-string">'-'</span>);
+
+	*c++ = (mode &amp; S_IROTH) ? <span class="hljs-string">'r'</span> : <span class="hljs-string">'-'</span>;
+	*c++ = (mode &amp; S_IWOTH) ? <span class="hljs-string">'w'</span> : <span class="hljs-string">'-'</span>;
+	*c++ = (mode &amp; S_IXOTH) ? <span class="hljs-string">'x'</span> : <span class="hljs-string">'-'</span>;
+	*c = <span class="hljs-string">'\0'</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">int</span> opt;
+	<span class="hljs-keyword">int</span> recursive = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> verbose = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"Rv"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'R'</span>:
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: warning: recursion unsupported; each directory will yield a further diagnostic\n"</span>, argv[<span class="hljs-number">0</span>]);
+				recursive = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'v'</span>:
+				verbose = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">default</span>:
+				<span class="hljs-keyword">return</span> usage(argv);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (argc &lt; optind + <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> usage(argv);
+
+	<span class="hljs-keyword">if</span> (mode_calc(argv[optind], <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>) == (<span class="hljs-keyword">mode_t</span>)<span class="hljs-number">-1</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: unsupported mode '%s'\n"</span>, argv[<span class="hljs-number">0</span>], argv[optind]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+	}
+
+	<span class="hljs-keyword">mode_t</span> mask = umask(<span class="hljs-number">0</span>);
+	umask(mask);
+
+	<span class="hljs-keyword">int</span> out = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = optind + <span class="hljs-number">1</span>; i &lt; argc; ++i) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> _<span class="hljs-title">stat</span>;</span>
+		<span class="hljs-keyword">if</span> (stat(argv[i], &amp;_stat) &lt; <span class="hljs-number">0</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], argv[i], strerror(errno));
+			out |= <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (recursive &amp;&amp; S_ISDIR(_stat.st_mode)) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: recursion ignored on directory\n"</span>, argv[<span class="hljs-number">0</span>], argv[i]);
+		}
+
+		<span class="hljs-keyword">mode_t</span> old_mode = _stat.st_mode &amp; <span class="hljs-number">07777</span>;
+		<span class="hljs-keyword">mode_t</span> new_mode = mode_calc(argv[optind], old_mode, mask, S_ISDIR(_stat.st_mode) ? <span class="hljs-number">2</span> : <span class="hljs-number">0</span>);
+		<span class="hljs-keyword">char</span> old_mode_desc[<span class="hljs-number">10</span>];
+		<span class="hljs-keyword">char</span> new_mode_desc[<span class="hljs-number">10</span>];
+
+		<span class="hljs-keyword">if</span> (verbose) {
+			describe_mode(old_mode_desc, old_mode);
+			describe_mode(new_mode_desc, new_mode);
+		}
+
+		<span class="hljs-keyword">if</span> (chmod(argv[i], new_mode) &lt; <span class="hljs-number">0</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], argv[i], strerror(errno));
+			out |= <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">if</span> (verbose) {
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"failed to change mode of '%s' from %04o (%s) to %04o (%s)\n"</span>, argv[i], old_mode, old_mode_desc, new_mode, new_mode_desc);
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (verbose) {
+			<span class="hljs-keyword">if</span> (new_mode == old_mode) {
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"mode of '%s' retained as %04o (%s)\n"</span>, argv[i], new_mode, new_mode_desc);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"mode of '%s' changed from %04o (%s) to %04o (%s)\n"</span>, argv[i], old_mode, old_mode_desc, new_mode, new_mode_desc);
+			}
+		}
+	}
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

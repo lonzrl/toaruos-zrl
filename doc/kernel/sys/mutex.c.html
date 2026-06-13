@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>mutex.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\sys\\mutex.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>mutex.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Mutex that sleeps... and can be owned across sleeping...</p>
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/spinlock.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/assert.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mutex.h&gt;</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">int</span> <span class="hljs-title">wakeup_queue_one</span><span class="hljs-params">(<span class="hljs-keyword">list_t</span> * <span class="hljs-built_in">queue</span>)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">sched_mutex_t</span> * <span class="hljs-title">mutex_init</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-keyword">sched_mutex_t</span> * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">sched_mutex_t</span>));
+	spin_init(out-&gt;inner_lock);
+	out-&gt;status = <span class="hljs-number">0</span>;
+	out-&gt;owner = <span class="hljs-literal">NULL</span>;
+	out-&gt;waiters = list_create(name, out);
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">mutex_acquire</span><span class="hljs-params">(<span class="hljs-keyword">sched_mutex_t</span> * mutex)</span> </span>{
+	spin_lock(mutex-&gt;inner_lock);
+	<span class="hljs-keyword">while</span> (mutex-&gt;status) {
+		sleep_on_unlocking(mutex-&gt;waiters, &amp;mutex-&gt;inner_lock);
+		spin_lock(mutex-&gt;inner_lock);
+	}
+	mutex-&gt;status = <span class="hljs-number">1</span>;
+	mutex-&gt;owner  = (<span class="hljs-keyword">process_t</span>*)this_core-&gt;current_process;
+	spin_unlock(mutex-&gt;inner_lock);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">mutex_release</span><span class="hljs-params">(<span class="hljs-keyword">sched_mutex_t</span> * mutex)</span> </span>{
+	assert(mutex-&gt;owner == this_core-&gt;current_process);
+	spin_lock(mutex-&gt;inner_lock);
+	mutex-&gt;owner  = <span class="hljs-literal">NULL</span>;
+	mutex-&gt;status = <span class="hljs-number">0</span>;
+	wakeup_queue_one(mutex-&gt;waiters);
+	spin_unlock(mutex-&gt;inner_lock);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

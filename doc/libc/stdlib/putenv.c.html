@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>putenv.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "libc\\stdlib\\putenv.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>putenv.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">char</span> ** environ;
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">int</span> __environ_size;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">why_no_strnstr</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * a, <span class="hljs-keyword">char</span> * b, <span class="hljs-keyword">int</span> n)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; (i &lt; n) &amp;&amp; (a[i]) &amp;&amp; (b[i]); ++i) {
+		<span class="hljs-keyword">if</span> (a[i] != b[i]) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">unsetenv</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * str)</span> </span>{
+	<span class="hljs-keyword">int</span> last_index = <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">int</span> found_index = <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">int</span> len = <span class="hljs-built_in">strlen</span>(str);
+
+	<span class="hljs-keyword">if</span> (!len) {
+		errno = EINVAL;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	}
+
+	<span class="hljs-keyword">char</span> *c = strchrnul(str,<span class="hljs-string">'='</span>);
+	<span class="hljs-keyword">if</span> (*c) {
+		errno = EINVAL;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; environ[i]; ++i) {
+		<span class="hljs-keyword">if</span> (found_index == <span class="hljs-number">-1</span> &amp;&amp; (<span class="hljs-built_in">strstr</span>(environ[i], str) == environ[i] &amp;&amp; environ[i][len] == <span class="hljs-string">'='</span>)) {
+			found_index = i;
+		}
+		last_index = i;
+	}
+
+	<span class="hljs-keyword">if</span> (found_index == <span class="hljs-number">-1</span>) {
+		<span class="hljs-comment">/* not found = success */</span>
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (last_index == found_index) {
+		<span class="hljs-comment">/* Was last element */</span>
+		environ[last_index] = <span class="hljs-literal">NULL</span>;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-comment">/* Was not last element, swap ordering */</span>
+	environ[found_index] = environ[last_index];
+	environ[last_index] = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">putenv</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * <span class="hljs-built_in">string</span>)</span> </span>{
+	<span class="hljs-keyword">char</span> * c = strchrnul(<span class="hljs-built_in">string</span>, <span class="hljs-string">'='</span>);
+
+	<span class="hljs-keyword">if</span> (c == <span class="hljs-built_in">string</span>) {
+		errno = EINVAL;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (!*c) {
+		<span class="hljs-keyword">return</span> unsetenv(<span class="hljs-built_in">string</span>);
+	}
+
+	<span class="hljs-keyword">int</span> s = c - <span class="hljs-built_in">string</span>;
+
+	<span class="hljs-keyword">int</span> i;
+	<span class="hljs-keyword">for</span> (i = <span class="hljs-number">0</span>; i &lt; (__environ_size - <span class="hljs-number">1</span>) &amp;&amp; environ[i]; ++i) {
+		<span class="hljs-keyword">if</span> (!why_no_strnstr(<span class="hljs-built_in">string</span>, environ[i], s) &amp;&amp; environ[i][s] == <span class="hljs-string">'='</span>) {
+			environ[i] = <span class="hljs-built_in">string</span>;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+	}
+	<span class="hljs-comment">/* Not found */</span>
+	<span class="hljs-keyword">if</span> (i == __environ_size - <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">int</span> _new__environ_size = __environ_size * <span class="hljs-number">2</span>;
+		<span class="hljs-keyword">char</span> ** new_environ = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span>*) * _new__environ_size);
+		<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">while</span> (j &lt; _new__environ_size &amp;&amp; environ[j]) {
+			new_environ[j] = environ[j];
+			j++;
+		}
+		<span class="hljs-keyword">while</span> (j &lt; _new__environ_size) {
+			new_environ[j] = <span class="hljs-literal">NULL</span>;
+			j++;
+		}
+		__environ_size = _new__environ_size;
+		environ = new_environ;
+	}
+
+	environ[i] = <span class="hljs-built_in">string</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

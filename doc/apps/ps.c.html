@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ps.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\ps.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>ps.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;dirent.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;pwd.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/hashmap.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/procfs.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> show_all = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> show_nontty = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> show_threads = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> show_username = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> show_mem = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> show_cpu = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> show_time = <span class="hljs-number">1</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> collect_commandline = <span class="hljs-number">0</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> widths[] = {<span class="hljs-number">3</span>,<span class="hljs-number">3</span>,<span class="hljs-number">4</span>,<span class="hljs-number">3</span>,<span class="hljs-number">3</span>,<span class="hljs-number">4</span>,<span class="hljs-number">4</span>,<span class="hljs-number">4</span>,<span class="hljs-number">3</span>};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">hashmap_t</span> * process_ents = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">list_t</span> * ents_list = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">process</span> * <span class="hljs-title">me</span> = <span class="hljs-title">NULL</span>;</span>
+
+<span class="hljs-function">struct <span class="hljs-built_in">process</span> * <span class="hljs-title">process_from_pid</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid)</span> </span>{
+	<span class="hljs-keyword">return</span> hashmap_get(process_ents, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)pid);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">tty_from_procfs</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * t)</span> </span>{
+	<span class="hljs-keyword">if</span> (!*t) <span class="hljs-keyword">return</span> <span class="hljs-string">"?"</span>;
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(t, <span class="hljs-string">"/dev/"</span>) == t) {
+		<span class="hljs-keyword">return</span> t + <span class="hljs-number">5</span>;
+	}
+
+	<span class="hljs-keyword">return</span> t;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">ps_callback</span><span class="hljs-params">(struct <span class="hljs-built_in">process</span> * proc, <span class="hljs-keyword">void</span> * ctx)</span> </span>{
+	<span class="hljs-keyword">if</span> (!show_all &amp;&amp; !show_nontty &amp;&amp; <span class="hljs-built_in">strcmp</span>(proc-&gt;tty, me-&gt;tty)) <span class="hljs-keyword">return</span> procfs_free(proc), <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (!show_all &amp;&amp; proc-&gt;uid != getuid()) <span class="hljs-keyword">return</span> procfs_free(proc), <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (!show_nontty &amp;&amp; !*proc-&gt;tty) <span class="hljs-keyword">return</span> procfs_free(proc), <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (!show_threads &amp;&amp; proc-&gt;tgid != proc-&gt;pid) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">process</span> * <span class="hljs-title">parent</span> = <span class="hljs-title">process_from_pid</span>(<span class="hljs-title">proc</span>-&gt;<span class="hljs-title">tgid</span>);</span>
+		<span class="hljs-keyword">if</span> (parent) {
+			parent-&gt;cpu[<span class="hljs-number">0</span>] += proc-&gt;cpu[<span class="hljs-number">0</span>];
+			parent-&gt;time =+ proc-&gt;time;
+		}
+
+		procfs_free(proc);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	hashmap_set(process_ents, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)proc-&gt;pid, proc);
+	list_insert(ents_list, (<span class="hljs-keyword">void</span> *)proc);
+
+	<span class="hljs-keyword">int</span> len;
+
+	<span class="hljs-keyword">if</span> ((len = <span class="hljs-built_in">snprintf</span>(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, <span class="hljs-string">"%d"</span>, proc-&gt;tgid)) &gt; widths[<span class="hljs-number">0</span>]) widths[<span class="hljs-number">0</span>] = len;
+	<span class="hljs-keyword">if</span> ((len = <span class="hljs-built_in">snprintf</span>(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, <span class="hljs-string">"%d"</span>, proc-&gt;pid)) &gt; widths[<span class="hljs-number">1</span>]) widths[<span class="hljs-number">1</span>] = len;
+	<span class="hljs-keyword">if</span> ((len = <span class="hljs-built_in">snprintf</span>(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, <span class="hljs-string">"%d"</span>, proc-&gt;vsz)) &gt; widths[<span class="hljs-number">3</span>]) widths[<span class="hljs-number">3</span>] = len;
+	<span class="hljs-keyword">if</span> ((len = <span class="hljs-built_in">snprintf</span>(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, <span class="hljs-string">"%d"</span>, proc-&gt;shm)) &gt; widths[<span class="hljs-number">4</span>]) widths[<span class="hljs-number">4</span>] = len;
+	<span class="hljs-keyword">if</span> ((len = <span class="hljs-built_in">snprintf</span>(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, <span class="hljs-string">"%d.%01d"</span>, proc-&gt;mem / <span class="hljs-number">10</span>, proc-&gt;mem % <span class="hljs-number">10</span>)) &gt; widths[<span class="hljs-number">5</span>]) widths[<span class="hljs-number">5</span>] = len;
+	<span class="hljs-keyword">if</span> ((len = <span class="hljs-built_in">snprintf</span>(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, <span class="hljs-string">"%d.%01d"</span>, proc-&gt;cpu[<span class="hljs-number">0</span>] / <span class="hljs-number">10</span>, proc-&gt;cpu[<span class="hljs-number">0</span>] % <span class="hljs-number">10</span>)) &gt; widths[<span class="hljs-number">6</span>]) widths[<span class="hljs-number">6</span>] = len;
+	<span class="hljs-keyword">if</span> ((len = <span class="hljs-built_in">snprintf</span>(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, <span class="hljs-string">"%lu:%02lu.%02lu"</span>,
+		(proc-&gt;time / (<span class="hljs-number">1000000U</span>L * <span class="hljs-number">60</span> * <span class="hljs-number">60</span>)),
+		(proc-&gt;time / (<span class="hljs-number">1000000U</span>L * <span class="hljs-number">60</span>)) % <span class="hljs-number">60</span>,
+		(proc-&gt;time / (<span class="hljs-number">1000000U</span>L)) % <span class="hljs-number">60</span>)) &gt; widths[<span class="hljs-number">7</span>]) widths[<span class="hljs-number">7</span>] = len;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">passwd</span> * <span class="hljs-title">p</span> = <span class="hljs-title">getpwuid</span>(<span class="hljs-title">proc</span>-&gt;<span class="hljs-title">uid</span>);</span>
+	<span class="hljs-keyword">if</span> (p) {
+		<span class="hljs-keyword">if</span> ((len = <span class="hljs-built_in">strlen</span>(p-&gt;pw_name)) &gt; widths[<span class="hljs-number">2</span>]) widths[<span class="hljs-number">2</span>] = len;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">if</span> ((len = <span class="hljs-built_in">snprintf</span>(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, <span class="hljs-string">"%d"</span>, proc-&gt;uid)) &gt; widths[<span class="hljs-number">2</span>]) widths[<span class="hljs-number">2</span>] = len;
+	}
+	endpwent();
+
+	<span class="hljs-keyword">if</span> ((len = <span class="hljs-built_in">strlen</span>(tty_from_procfs(proc-&gt;tty))) &gt; widths[<span class="hljs-number">8</span>]) widths[<span class="hljs-number">8</span>] = len;
+
+	<span class="hljs-keyword">if</span> (collect_commandline &amp;&amp; proc-&gt;cmdline) {
+		<span class="hljs-comment">/* Replace \x1e with spaces */</span>
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; proc-&gt;cmdline_len; ++i) {
+			<span class="hljs-keyword">if</span> (proc-&gt;cmdline[i] == <span class="hljs-number">30</span>) proc-&gt;cmdline[i] = <span class="hljs-string">' '</span>;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">print_header</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (show_username) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%-*s "</span>, widths[<span class="hljs-number">2</span>], <span class="hljs-string">"USER"</span>);
+	}
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, widths[<span class="hljs-number">0</span>], <span class="hljs-string">"PID"</span>);
+	<span class="hljs-keyword">if</span> (show_threads) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, widths[<span class="hljs-number">1</span>], <span class="hljs-string">"TID"</span>);
+	}
+	<span class="hljs-keyword">if</span> (show_cpu) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, widths[<span class="hljs-number">6</span>], <span class="hljs-string">"%CPU"</span>);
+	}
+	<span class="hljs-keyword">if</span> (show_mem) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, widths[<span class="hljs-number">5</span>], <span class="hljs-string">"%MEM"</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, widths[<span class="hljs-number">3</span>], <span class="hljs-string">"VSZ"</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, widths[<span class="hljs-number">4</span>], <span class="hljs-string">"SHM"</span>);
+	}
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, widths[<span class="hljs-number">8</span>], <span class="hljs-string">"TTY"</span>);
+	<span class="hljs-keyword">if</span> (show_time) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, widths[<span class="hljs-number">7</span>], <span class="hljs-string">"TIME"</span>);
+	}
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"CMD\n"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">print_entry</span><span class="hljs-params">(struct <span class="hljs-built_in">process</span> * out)</span> </span>{
+	<span class="hljs-keyword">if</span> (show_username) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">passwd</span> * <span class="hljs-title">p</span> = <span class="hljs-title">getpwuid</span>(<span class="hljs-title">out</span>-&gt;<span class="hljs-title">uid</span>);</span>
+		<span class="hljs-keyword">if</span> (p) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%-*s "</span>, widths[<span class="hljs-number">2</span>], p-&gt;pw_name);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%-*d "</span>, widths[<span class="hljs-number">2</span>], out-&gt;uid);
+		}
+		endpwent();
+	}
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*d "</span>, widths[<span class="hljs-number">0</span>], out-&gt;tgid);
+	<span class="hljs-keyword">if</span> (show_threads) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*d "</span>, widths[<span class="hljs-number">1</span>], out-&gt;pid);
+	}
+	<span class="hljs-keyword">if</span> (show_cpu) {
+		<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">10</span>];
+		<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"%*d.%01d"</span>, widths[<span class="hljs-number">6</span>]<span class="hljs-number">-2</span>, out-&gt;cpu[<span class="hljs-number">0</span>] / <span class="hljs-number">10</span>, out-&gt;cpu[<span class="hljs-number">0</span>] % <span class="hljs-number">10</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, widths[<span class="hljs-number">6</span>], tmp);
+	}
+	<span class="hljs-keyword">if</span> (show_mem) {
+		<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">10</span>];
+		<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"%*d.%01d"</span>, widths[<span class="hljs-number">5</span>]<span class="hljs-number">-2</span>, out-&gt;mem / <span class="hljs-number">10</span>, out-&gt;mem % <span class="hljs-number">10</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, widths[<span class="hljs-number">5</span>], tmp);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*d "</span>, widths[<span class="hljs-number">3</span>], out-&gt;vsz);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*d "</span>, widths[<span class="hljs-number">4</span>], out-&gt;shm);
+	}
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, widths[<span class="hljs-number">8</span>], tty_from_procfs(out-&gt;tty));
+	<span class="hljs-keyword">if</span> (show_time) {
+		<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">30</span>];
+		<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"%lu:%02lu.%02lu"</span>,
+		(out-&gt;time / (<span class="hljs-number">1000000U</span>L * <span class="hljs-number">60</span> * <span class="hljs-number">60</span>)),
+		(out-&gt;time / (<span class="hljs-number">1000000U</span>L * <span class="hljs-number">60</span>)) % <span class="hljs-number">60</span>,
+		(out-&gt;time / (<span class="hljs-number">1000000U</span>L)) % <span class="hljs-number">60</span>);
+
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, widths[<span class="hljs-number">7</span>], tmp);
+	}
+	<span class="hljs-keyword">if</span> (out-&gt;cmdline) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s\n"</span>, out-&gt;cmdline);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s\n"</span>, out-&gt;name);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">show_usage</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_S <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_E <span class="hljs-meta-string">"\033[0m"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+			<span class="hljs-string">"%s - list running processes\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"usage: %s [-A] [-T] ["</span> X_S <span class="hljs-string">"format"</span> X_E <span class="hljs-string">"]\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -A     "</span> X_S <span class="hljs-string">"show other users' processes"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -T     "</span> X_S <span class="hljs-string">"show threads"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -?     "</span> X_S <span class="hljs-string">"show this help text"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" [format] supports some BSD options:\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"  a     "</span> X_S <span class="hljs-string">"show full command line"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"  u     "</span> X_S <span class="hljs-string">"use 'user-oriented' format"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"\n"</span>, argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span> <span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+
+	<span class="hljs-comment">/* Parse arguments */</span>
+	<span class="hljs-keyword">int</span> c;
+	<span class="hljs-keyword">while</span> ((c = getopt(argc, argv, <span class="hljs-string">"AT?"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (c) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'A'</span>:
+				show_all = <span class="hljs-number">1</span>;
+				show_nontty = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'T'</span>:
+				show_threads = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> show_usage(argc, argv);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (optind &lt; argc) {
+		<span class="hljs-keyword">char</span> * show = argv[optind];
+		<span class="hljs-keyword">while</span> (*show) {
+			<span class="hljs-keyword">switch</span> (*show) {
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'u'</span>:
+					show_username = <span class="hljs-number">1</span>;
+					show_mem = <span class="hljs-number">1</span>;
+					show_cpu = <span class="hljs-number">1</span>;
+					show_time = <span class="hljs-number">1</span>;
+					collect_commandline = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'a'</span>:
+					collect_commandline = <span class="hljs-number">1</span>;
+					show_all = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'x'</span>:
+					collect_commandline = <span class="hljs-number">1</span>;
+					show_nontty = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">default</span>:
+					<span class="hljs-keyword">break</span>;
+			}
+			show++;
+		}
+	}
+
+	me = procfs_get_pid(getpid(), <span class="hljs-number">0</span>);
+
+	<span class="hljs-comment">/* Open the directory */</span>
+	ents_list = list_create();
+	process_ents = hashmap_create_int(<span class="hljs-number">10</span>);
+
+	<span class="hljs-keyword">int</span> flags = PROCFSLIB_NO_FREE;
+	<span class="hljs-keyword">if</span> (collect_commandline) flags |= PROCFSLIB_COLLECT_COMMANDLINE;
+
+	procfs_iterate(ps_callback, <span class="hljs-literal">NULL</span>, flags);
+
+	print_header();
+	foreach(entry, ents_list) {
+		print_entry(entry-&gt;value);
+	}
+
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>c_functions.md</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\docs\\c_functions.md";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+      <div class="heading h2">
+        <a href="#binding-c-functions-c_functions">Binding C Functions {#c_functions}</a>
+      </div>
+
+      <div class="heading h3">
+        <a href="#the-easy-way">The Easy Way</a>
+      </div>
+
+      <div class="heading h3">
+        <a href="#the-hard-way">The Hard Way</a>
+      </div>
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="docs markdown"><div class="pilwrap" id="binding-c-functions-c_functions">
+  <h2>
+    <a href="#binding-c-functions-c_functions" name="binding-c-functions-c_functions" class="pilcrow"></a>
+Binding C Functions {#c_functions}
+  </h2>
+</div>
+<p>Whether you're embedding Kuroko in an application or writing an extension module, binding a C function is something you'll want to do.</p>
+<div class="pilwrap" id="the-easy-way">
+  <h3>
+    <a href="#the-easy-way" name="the-easy-way" class="pilcrow"></a>
+The Easy Way
+  </h3>
+</div>
+<pre><code class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/kuroko.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+
+KRK_Function(myfunction) {
+    FUNCTION_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+    CHECK_ARG(<span class="hljs-number">0</span>,<span class="hljs-keyword">int</span>,krk_integer_type,myarg);
+    <span class="hljs-keyword">return</span> INTEGER_VAL(myarg*myarg);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> *argv[])</span> </span>{
+    krk_initVM(<span class="hljs-number">0</span>);
+    BIND_FUNC(vm.builtins, myfunction);
+    krk_startModule(<span class="hljs-string">"__main__"</span>);
+    krk_interpret(<span class="hljs-string">"print(myfunction(42))"</span>,<span class="hljs-string">"&lt;stdin&gt;"</span>);
+    krk_freeVM();
+    <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+</code></pre>
+<p>This demo uses the utility macros provided in <code>&lt;kuroko/util.h&gt;</code> to easily create a function with argument checking and bind it to the builtin namespace.</p>
+<p><code>KRK_Function()</code> takes care of the function signature and function naming for exception messages.</p>
+<p><code>FUNCTION_TAKES_EXACTLY()</code> provides simple argument count validation. <code>FUNCTION_TAKES_AT_LEAST()</code> and <code>FUNCTION_TAKES_AT_MOST()</code> are also available.</p>
+<p><code>CHECK_ARG()</code> validates the type of arguments passed to the function and unboxes them to C types.</p>
+<p><code>INTEGER_VAL()</code> converts a C integer to a Kuroko <code>int</code> value.</p>
+<p><code>BIND_FUNC()</code> binds the function to a namespace table.</p>
+<div class="pilwrap" id="the-hard-way">
+  <h3>
+    <a href="#the-hard-way" name="the-hard-way" class="pilcrow"></a>
+The Hard Way
+  </h3>
+</div>
+<p>While the macros above provide a convenient way to bind functions, they are just wrappers around lower-level functionality of the API.</p>
+<pre><code class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/kuroko.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> KrkValue <span class="hljs-title">myfunction</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, KrkValue argv[], <span class="hljs-keyword">int</span> hasKw)</span> </span>{
+    <span class="hljs-keyword">int</span> myarg;
+
+    <span class="hljs-keyword">if</span> (argc != <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;argumentError, <span class="hljs-string">"myfunction() expects exactly 1 argument, %d given"</span>, argc);
+    <span class="hljs-keyword">if</span> (!IS_INTEGER(argv[<span class="hljs-number">0</span>])) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"expected int, not '%T'"</span>, argv[<span class="hljs-number">0</span>]);
+
+    myarg = AS_INTEGER(argv[<span class="hljs-number">0</span>]);
+
+    <span class="hljs-keyword">return</span> INTEGER_VAL(myarg*myarg);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> *argv[])</span> </span>{
+    krk_initVM(<span class="hljs-number">0</span>);
+    krk_defineNative(&amp;vm.builtins-&gt;fields, <span class="hljs-string">"myfunction"</span>, myfunction);
+    krk_startModule(<span class="hljs-string">"__main__"</span>);
+    krk_interpret(<span class="hljs-string">"print(myfunction(42))"</span>, <span class="hljs-string">"&lt;stdin&gt;"</span>);
+    krk_freeVM();
+    <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+</code></pre>
+</div>
+  </div>
+</body>
+</html>

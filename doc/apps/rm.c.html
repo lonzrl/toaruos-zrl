@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>rm.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\rm.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>rm.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;dirent.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> IS_MV</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> APP_NAME <span class="hljs-meta-string">"rm"</span></span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> recursive = <span class="hljs-number">0</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">rm_thing</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * tmp)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">rm_directory</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * source)</span> </span>{
+	DIR * dirp = opendir(source);
+	<span class="hljs-keyword">if</span> (dirp == <span class="hljs-literal">NULL</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"could not open %s\n"</span>, source);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent</span> * <span class="hljs-title">ent</span> = <span class="hljs-title">readdir</span>(<span class="hljs-title">dirp</span>);</span>
+	<span class="hljs-keyword">while</span> (ent != <span class="hljs-literal">NULL</span>) {
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(ent-&gt;d_name,<span class="hljs-string">"."</span>) || !<span class="hljs-built_in">strcmp</span>(ent-&gt;d_name,<span class="hljs-string">".."</span>)) {
+			ent = readdir(dirp);
+			<span class="hljs-keyword">continue</span>;
+		}
+		<span class="hljs-keyword">char</span> tmp[<span class="hljs-built_in">strlen</span>(source)+<span class="hljs-built_in">strlen</span>(ent-&gt;d_name)+<span class="hljs-number">2</span>];
+		<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"%s/%s"</span>, source, ent-&gt;d_name);
+		<span class="hljs-keyword">int</span> status = rm_thing(tmp);
+		<span class="hljs-keyword">if</span> (status) <span class="hljs-keyword">return</span> status;
+		rewinddir(dirp);
+		ent = readdir(dirp);
+	}
+	closedir(dirp);
+
+	<span class="hljs-keyword">int</span> res = unlink(source);
+	<span class="hljs-keyword">if</span> (res &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, APP_NAME <span class="hljs-string">": %s: %s\n"</span>, source, strerror(errno));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">rm_thing</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * tmp)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">statbuf</span>;</span>
+	lstat(tmp,&amp;statbuf);
+	<span class="hljs-keyword">if</span> (S_ISDIR(statbuf.st_mode)) {
+		<span class="hljs-keyword">if</span> (!recursive) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, APP_NAME <span class="hljs-string">": %s: is a directory\n"</span>, tmp);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		<span class="hljs-keyword">return</span> rm_directory(tmp);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">int</span> res = unlink(tmp);
+		<span class="hljs-keyword">if</span> (res &lt; <span class="hljs-number">0</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, APP_NAME <span class="hljs-string">": %s: %s\n"</span>, tmp, strerror(errno));
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> IS_MV</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">rm_top_level</span><span class="hljs-params">(<span class="hljs-keyword">char</span> **argv, <span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">int</span> optind)</span> </span>{
+	<span class="hljs-keyword">int</span> ret = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = optind; i &lt; argc; ++i) {
+		ret |= rm_thing(argv[i]);
+	}
+
+	<span class="hljs-keyword">return</span> ret;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">int</span> opt;
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"fr"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'r'</span>:
+				recursive = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>:
+				<span class="hljs-comment">/* ignore */</span>
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">default</span>:
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"rm: unrecognized option '%c'\n"</span>, opt);
+				<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> rm_top_level(argv, argc, optind);
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

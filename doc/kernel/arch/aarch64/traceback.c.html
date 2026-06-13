@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>traceback.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kernel\\arch\\aarch64\\traceback.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>traceback.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/ksym.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/aarch64/regs.h&gt;</span></span>
+
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">char</span> <span class="hljs-built_in">end</span>[];
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">validate_pointer</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> base, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">end</span>  = <span class="hljs-built_in">size</span> ? (base + (<span class="hljs-built_in">size</span> - <span class="hljs-number">1</span>)) : base;
+	<span class="hljs-keyword">uintptr_t</span> page_base = base &gt;&gt; <span class="hljs-number">12</span>;
+	<span class="hljs-keyword">uintptr_t</span> page_end  =  <span class="hljs-built_in">end</span> &gt;&gt; <span class="hljs-number">12</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uintptr_t</span> page = page_base; page &lt;= page_end; ++page) {
+		<span class="hljs-keyword">if</span> ((page &amp; <span class="hljs-number">0xffff800000000</span>) != <span class="hljs-number">0</span> &amp;&amp; (page &amp; <span class="hljs-number">0xffff800000000</span>) != <span class="hljs-number">0xffff800000000</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">union</span> PML * page_entry = mmu_get_page_other(this_core-&gt;current_process-&gt;thread.page_directory-&gt;directory, page &lt;&lt; <span class="hljs-number">12</span>);
+		<span class="hljs-keyword">if</span> (!page_entry) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (!page_entry-&gt;bits.present) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">dump_traceback</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> ip, <span class="hljs-keyword">uintptr_t</span> bp, <span class="hljs-keyword">uintptr_t</span> x30)</span> </span>{
+	<span class="hljs-keyword">int</span> depth = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> max_depth = <span class="hljs-number">20</span>;
+
+	<span class="hljs-keyword">while</span> (bp &amp;&amp; ip &amp;&amp; depth &lt; max_depth) {
+		dprintf(<span class="hljs-string">" 0x%016zx "</span>, ip);
+		<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+		<span class="hljs-keyword">if</span> (ip &gt;= <span class="hljs-number">0xffffffff80000000</span>UL) {
+			<span class="hljs-keyword">char</span> * name = <span class="hljs-literal">NULL</span>;
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">LoadedModule</span> * <span class="hljs-title">mod</span> = <span class="hljs-title">find_module</span>(<span class="hljs-title">ip</span>, &amp;<span class="hljs-title">name</span>);</span>
+			<span class="hljs-keyword">if</span> (mod) {
+				dprintf(<span class="hljs-string">"\a in module '%s', base address %#zx (offset %#zx)\n"</span>,
+					name, mod-&gt;baseAddress, ip - mod-&gt;baseAddress);
+			} <span class="hljs-keyword">else</span> {
+				dprintf(<span class="hljs-string">"\a (unknown)\n"</span>);
+			}
+		<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+		<span class="hljs-keyword">if</span> (<span class="hljs-number">0</span>) {
+		<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ip &lt;= <span class="hljs-number">0x800000000000</span>) {
+			dprintf(<span class="hljs-string">"\a in userspace\n"</span>);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ip &gt;= <span class="hljs-number">0xffffffff80000000</span>UL &amp;&amp; ip &lt;= (<span class="hljs-keyword">uintptr_t</span>)&amp;<span class="hljs-built_in">end</span>) {
+			<span class="hljs-comment">/* Find symbol match */</span>
+			<span class="hljs-keyword">char</span> * name;
+			<span class="hljs-keyword">uintptr_t</span> addr = ksym_closest(ip, &amp;name);
+			<span class="hljs-keyword">if</span> (!addr) {
+				dprintf(<span class="hljs-string">"\a (no match)\n"</span>);
+			} <span class="hljs-keyword">else</span> {
+				dprintf(<span class="hljs-string">"\a %s+0x%zx\n"</span>, name, ip-addr);
+			}
+		} <span class="hljs-keyword">else</span> {
+			dprintf(<span class="hljs-string">"\a (unknown)\n"</span>);
+		}
+		<span class="hljs-keyword">if</span> (!validate_pointer(bp, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uintptr_t</span>)) || !validate_pointer(bp + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uintptr_t</span>), <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uintptr_t</span>))) {
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">if</span> (depth == <span class="hljs-number">0</span>) {
+			ip = x30;
+		} <span class="hljs-keyword">else</span> {
+			ip = *(<span class="hljs-keyword">uintptr_t</span>*)(bp + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uintptr_t</span>));
+			bp = *(<span class="hljs-keyword">uintptr_t</span>*)(bp);
+		}
+		depth++;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">aarch64_safe_dump_traceback</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> elr, struct regs * r)</span> </span>{
+	dump_traceback(elr, r-&gt;x29, r-&gt;x30);
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>We need to pull the frame address from the caller or this isn't going work, but
+gcc is going to warn that that is unsafe...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">pragma</span> GCC diagnostic push</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">pragma</span> GCC diagnostic ignored <span class="hljs-meta-string">"-Wframe-address"</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">arch_dump_traceback</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	dump_traceback((<span class="hljs-keyword">uintptr_t</span>)arch_dump_traceback+<span class="hljs-number">1</span>, (<span class="hljs-keyword">uintptr_t</span>)__builtin_frame_address(<span class="hljs-number">1</span>), (<span class="hljs-keyword">uintptr_t</span>)__builtin_return_address(<span class="hljs-number">0</span>));
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">pragma</span> GCC diagnostic pop</span>
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

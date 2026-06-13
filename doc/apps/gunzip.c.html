@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>gunzip.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\gunzip.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>gunzip.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/inflate.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> to_stdout = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> keep = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> force = <span class="hljs-number">0</span>;
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">GunzipCtx</span> {</span>
+	<span class="hljs-keyword">int</span> fd;
+	<span class="hljs-keyword">char</span> buf[<span class="hljs-number">32768</span>];
+	<span class="hljs-keyword">size_t</span> written;
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint8_t</span> _get(struct inflate_context * ctx) {
+	<span class="hljs-keyword">return</span> fgetc(ctx-&gt;input_priv);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">flush_it</span><span class="hljs-params">(struct GunzipCtx * mine)</span> </span>{
+	<span class="hljs-built_in">write</span>(mine-&gt;fd, mine-&gt;buf, mine-&gt;written);
+	mine-&gt;written = <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _write(struct inflate_context * ctx, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> sym) {
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">GunzipCtx</span> * <span class="hljs-title">mine</span> = <span class="hljs-title">ctx</span>-&gt;<span class="hljs-title">output_priv</span>;</span>
+	mine-&gt;buf[mine-&gt;written++] = sym;
+	<span class="hljs-keyword">if</span> (mine-&gt;written == <span class="hljs-number">32768</span>) flush_it(mine);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_S <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_E <span class="hljs-meta-string">"\033[0m"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+			<span class="hljs-string">"%s - decompress gzip-compressed payloads\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"usage: %s [-ckf] "</span> X_S <span class="hljs-string">"name"</span> X_E <span class="hljs-string">"...\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -c     "</span> X_S <span class="hljs-string">"write to stdout; implies -k"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -k     "</span> X_S <span class="hljs-string">"keep original files unchanged"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -f     "</span> X_S <span class="hljs-string">"force decompression (eg. from tty,"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"        "</span> X_S <span class="hljs-string">"or to an existing file, etc.)"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"\n"</span>, argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">endswith</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * str, <span class="hljs-keyword">char</span> * suffix)</span> </span>{
+	<span class="hljs-keyword">size_t</span> len_suffix = <span class="hljs-built_in">strlen</span>(suffix);
+	<span class="hljs-keyword">size_t</span> len_str = <span class="hljs-built_in">strlen</span>(str);
+
+	<span class="hljs-keyword">if</span> (len_str &lt; len_suffix) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> !<span class="hljs-built_in">memcmp</span>(str+len_str-len_suffix,suffix,len_suffix);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">decompress_one</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[], <span class="hljs-keyword">char</span> * file)</span> </span>{
+	FILE * f = <span class="hljs-built_in">strcmp</span>(file, <span class="hljs-string">"-"</span>) ? fopen(file, <span class="hljs-string">"r"</span>) : <span class="hljs-built_in">stdin</span>;
+
+	<span class="hljs-keyword">if</span> (!f) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], file, strerror(errno));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (!force &amp;&amp; isatty(fileno(f))) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: not decompressng from terminal; use -f to override\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">if</span> (f != <span class="hljs-built_in">stdin</span>) fclose(f);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">GunzipCtx</span> <span class="hljs-title">mine</span> = {</span> <span class="hljs-number">0</span> };
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">inflate_context</span> <span class="hljs-title">ctx</span>;</span>
+	ctx.get_input = _get;
+	ctx.write_output = _write;
+	ctx.input_priv = f;
+	ctx.ring = <span class="hljs-literal">NULL</span>;
+	ctx.output_priv = &amp;mine;
+
+
+	<span class="hljs-keyword">if</span> (f == <span class="hljs-built_in">stdin</span> || to_stdout) {
+		mine.fd = STDOUT_FILENO;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">char</span> * tmp = strdup(file);
+		<span class="hljs-keyword">if</span> (endswith(file,<span class="hljs-string">".gz"</span>)) {
+			tmp[<span class="hljs-built_in">strlen</span>(tmp)<span class="hljs-number">-3</span>] = <span class="hljs-string">'\0'</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (endswith(file,<span class="hljs-string">".z"</span>) || endswith(file,<span class="hljs-string">".Z"</span>)) {
+			tmp[<span class="hljs-built_in">strlen</span>(tmp)<span class="hljs-number">-2</span>] = <span class="hljs-string">'\0'</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (endswith(file,<span class="hljs-string">".tgz"</span>)) {
+			tmp[<span class="hljs-built_in">strlen</span>(tmp)<span class="hljs-number">-2</span>] = <span class="hljs-string">'a'</span>;
+			tmp[<span class="hljs-built_in">strlen</span>(tmp)<span class="hljs-number">-1</span>] = <span class="hljs-string">'r'</span>;
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-built_in">free</span>(tmp);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: unrecognized suffix, ignoring\n"</span>, argv[<span class="hljs-number">0</span>], file);
+			fclose(f);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+
+		mine.fd = <span class="hljs-built_in">open</span>(tmp,O_WRONLY | O_CREAT | (force ? <span class="hljs-number">0</span> : O_EXCL));
+
+		<span class="hljs-keyword">if</span> (mine.fd &lt; <span class="hljs-number">0</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], tmp, strerror(errno));
+			<span class="hljs-built_in">free</span>(tmp);
+			fclose(f);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+
+		<span class="hljs-built_in">free</span>(tmp);
+	}
+
+	<span class="hljs-keyword">if</span> (gzip_decompress(&amp;ctx)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: unspecified error from inflate\n"</span>, argv[<span class="hljs-number">0</span>], file);
+		<span class="hljs-keyword">if</span> (mine.fd != STDOUT_FILENO) <span class="hljs-built_in">close</span>(mine.fd);
+		<span class="hljs-keyword">if</span> (f != <span class="hljs-built_in">stdin</span>) fclose(f);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	flush_it(&amp;mine);
+	<span class="hljs-keyword">if</span> (f != <span class="hljs-built_in">stdin</span>) fclose(f);
+
+	<span class="hljs-keyword">if</span> (mine.fd != STDOUT_FILENO) <span class="hljs-built_in">close</span>(mine.fd);
+	<span class="hljs-keyword">if</span> (f != <span class="hljs-built_in">stdin</span> &amp;&amp; !keep) unlink(file); <span class="hljs-comment">/* Just ignore errors, whatever. */</span>
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+
+	<span class="hljs-keyword">int</span> opt;
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"?ckf"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'c'</span>:
+				to_stdout = <span class="hljs-number">1</span>;
+				keep = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'k'</span>:
+				keep = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>:
+				force = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> usage(argc, argv);
+		}
+	}
+
+	<span class="hljs-comment">/* No argument, read from stdin */</span>
+	<span class="hljs-keyword">if</span> (optind &gt;= argc) {
+		<span class="hljs-keyword">return</span> decompress_one(argv, <span class="hljs-string">"-"</span>);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">int</span> ret = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = optind; i &lt; argc; ++i) {
+			ret |= decompress_one(argv, argv[i]);
+		}
+		<span class="hljs-keyword">return</span> ret;
+	}
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

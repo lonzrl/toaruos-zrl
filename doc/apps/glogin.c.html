@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>glogin.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\glogin.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>glogin.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;assert.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;math.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/wait.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/yutani.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/auth.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/trace.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TRACE_APP_NAME <span class="hljs-meta-string">"glogin"</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span> <span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> ** argv)</span> </span>{
+	<span class="hljs-keyword">if</span> (getuid() != <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* Ensure a somewhat sane environment going in */</span>
+	TRACE(<span class="hljs-string">"Graphical login starting."</span>);
+	yutani_init();
+
+	setenv(<span class="hljs-string">"USER"</span>, <span class="hljs-string">"root"</span>, <span class="hljs-number">1</span>);
+	setenv(<span class="hljs-string">"HOME"</span>, <span class="hljs-string">"/"</span>, <span class="hljs-number">1</span>);
+	setenv(<span class="hljs-string">"SHELL"</span>, <span class="hljs-string">"/bin/sh"</span>, <span class="hljs-number">1</span>);
+	setenv(<span class="hljs-string">"PATH"</span>, <span class="hljs-string">"/usr/bin:/bin"</span>, <span class="hljs-number">0</span>);
+	setenv(<span class="hljs-string">"WM_THEME"</span>, <span class="hljs-string">"fancy"</span>, <span class="hljs-number">0</span>);
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+
+		<span class="hljs-keyword">char</span> * username = <span class="hljs-literal">NULL</span>;
+		<span class="hljs-keyword">char</span> * password = <span class="hljs-literal">NULL</span>;
+		<span class="hljs-keyword">int</span> uid = <span class="hljs-number">-1</span>;
+
+		<span class="hljs-keyword">int</span> com_pipe[<span class="hljs-number">2</span>], rep_pipe[<span class="hljs-number">2</span>];
+		pipe2(com_pipe, O_CLOEXEC);
+		pipe2(rep_pipe, O_CLOEXEC);
+		TRACE(<span class="hljs-string">"Starting login client..."</span>);
+
+		<span class="hljs-keyword">pid_t</span> _gui_login = fork();
+		<span class="hljs-keyword">if</span> (!_gui_login) {
+			dup2(com_pipe[<span class="hljs-number">1</span>], STDOUT_FILENO);
+			dup2(rep_pipe[<span class="hljs-number">0</span>], STDIN_FILENO);
+			<span class="hljs-built_in">close</span>(com_pipe[<span class="hljs-number">0</span>]);
+			<span class="hljs-built_in">close</span>(rep_pipe[<span class="hljs-number">1</span>]);
+			TRACE(<span class="hljs-string">"In client..."</span>);
+			<span class="hljs-keyword">char</span> * args[] = {<span class="hljs-string">"/bin/glogin-provider"</span>, <span class="hljs-literal">NULL</span>};
+			execvp(args[<span class="hljs-number">0</span>], args);
+			TRACE(<span class="hljs-string">"Exec failure?"</span>);
+			<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+		}
+
+		<span class="hljs-built_in">close</span>(com_pipe[<span class="hljs-number">1</span>]);
+		<span class="hljs-built_in">close</span>(rep_pipe[<span class="hljs-number">0</span>]);
+
+		FILE * com = fdopen(com_pipe[<span class="hljs-number">0</span>], <span class="hljs-string">"r"</span>);
+		FILE * rep = fdopen(rep_pipe[<span class="hljs-number">1</span>], <span class="hljs-string">"w"</span>);
+
+		<span class="hljs-keyword">while</span> (!feof(com)) {
+			<span class="hljs-keyword">char</span> buf[<span class="hljs-number">1024</span>]; <span class="hljs-comment">/* line length? */</span>
+			<span class="hljs-keyword">char</span> * cmd = fgets(buf, <span class="hljs-keyword">sizeof</span>(buf), com);
+			<span class="hljs-keyword">size_t</span> r = <span class="hljs-built_in">strlen</span>(cmd);
+			<span class="hljs-keyword">if</span> (cmd &amp;&amp; r) {
+				<span class="hljs-keyword">if</span> (cmd[r<span class="hljs-number">-1</span>] == <span class="hljs-string">'\n'</span>) {
+					cmd[r<span class="hljs-number">-1</span>] = <span class="hljs-string">'\0'</span>;
+					r--;
+				}
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf,<span class="hljs-string">"RESTART"</span>)) {
+					TRACE(<span class="hljs-string">"Client requested system restart, rebooting."</span>);
+					system(<span class="hljs-string">"reboot"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf,<span class="hljs-string">"Hello"</span>)) {
+					TRACE(<span class="hljs-string">"Hello received from client."</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strncmp</span>(buf,<span class="hljs-string">"USER "</span>,<span class="hljs-number">5</span>)) {
+					TRACE(<span class="hljs-string">"Username received."</span>);
+					<span class="hljs-keyword">if</span> (username) <span class="hljs-built_in">free</span>(username);
+					username = strdup(buf + <span class="hljs-number">5</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strncmp</span>(buf,<span class="hljs-string">"PASS "</span>,<span class="hljs-number">5</span>)) {
+					TRACE(<span class="hljs-string">"Password received."</span>);
+					<span class="hljs-keyword">if</span> (password) <span class="hljs-built_in">free</span>(password);
+					password = strdup(buf + <span class="hljs-number">5</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(buf,<span class="hljs-string">"AUTH"</span>)) {
+					TRACE(<span class="hljs-string">"Perform auth request, client wants answer."</span>);
+					<span class="hljs-keyword">if</span> (!username || !password) {
+						<span class="hljs-built_in">fprintf</span>(rep, <span class="hljs-string">"FAIL\n"</span>);
+					} <span class="hljs-keyword">else</span> {
+						uid = toaru_auth_check_pass(username, password);
+						<span class="hljs-keyword">if</span> (uid &lt; <span class="hljs-number">0</span>) {
+							<span class="hljs-built_in">fprintf</span>(rep, <span class="hljs-string">"FAIL\n"</span>);
+							fflush(rep);
+						} <span class="hljs-keyword">else</span> {
+							<span class="hljs-built_in">fprintf</span>(rep, <span class="hljs-string">"SUCC\n"</span>);
+							fflush(rep);
+							<span class="hljs-keyword">break</span>;
+						}
+					}
+				}
+			}
+		}
+
+		waitpid(_gui_login, <span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>);
+
+		<span class="hljs-keyword">if</span> (uid == <span class="hljs-number">-1</span>) {
+			TRACE(<span class="hljs-string">"Not a valid session, returning login manager..."</span>);
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		TRACE(<span class="hljs-string">"Starting session..."</span>);
+
+		<span class="hljs-keyword">pid_t</span> _session_pid = fork();
+		<span class="hljs-keyword">if</span> (!_session_pid) {
+			<span class="hljs-keyword">gid_t</span> gid = toaru_auth_get_default_group(uid);
+			toaru_set_credentials(uid, gid);
+			<span class="hljs-keyword">char</span> * args[] = {<span class="hljs-string">"/bin/session"</span>, <span class="hljs-literal">NULL</span>};
+			execvp(args[<span class="hljs-number">0</span>], args);
+			<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+		}
+
+		waitpid(_session_pid, <span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>);
+		TRACE(<span class="hljs-string">"Session ended."</span>);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

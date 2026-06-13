@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>who.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\who.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>who.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;pwd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/tree.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/procfs.h&gt;</span></span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">WhoContext</span> {</span>
+	<span class="hljs-keyword">tree_t</span> *procs;
+	<span class="hljs-keyword">list_t</span> *logins;
+
+	<span class="hljs-keyword">int</span> print_header;
+	<span class="hljs-keyword">int</span> print_status;
+	<span class="hljs-keyword">int</span> print_idle;
+	<span class="hljs-keyword">int</span> only_mine;
+	<span class="hljs-keyword">char</span> * my_tty;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+		<span class="hljs-keyword">int</span> name;
+		<span class="hljs-keyword">int</span> status;
+		<span class="hljs-keyword">int</span> <span class="hljs-built_in">line</span>;
+		<span class="hljs-keyword">int</span> time;
+		<span class="hljs-keyword">int</span> idle;
+	} column_length;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">WhoLogin</span> {</span>
+	<span class="hljs-keyword">p_t</span> * manager;
+	<span class="hljs-keyword">p_t</span> * login_process;
+	<span class="hljs-keyword">char</span> * user_name;
+	<span class="hljs-keyword">char</span> * start;
+	<span class="hljs-keyword">char</span> * line_name;
+	<span class="hljs-keyword">char</span> * status;
+	<span class="hljs-keyword">char</span> * idle;
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">print_name</span><span class="hljs-params">(<span class="hljs-keyword">char</span> ** out, <span class="hljs-keyword">uid_t</span> user)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">passwd</span> * <span class="hljs-title">p</span> = <span class="hljs-title">getpwuid</span>(<span class="hljs-title">user</span>);</span>
+	<span class="hljs-keyword">if</span> (p) {
+		asprintf(out, <span class="hljs-string">"%s"</span>, p-&gt;pw_name);
+	} <span class="hljs-keyword">else</span> {
+		asprintf(out, <span class="hljs-string">"%d"</span>, user);
+	}
+	endpwent();
+}
+
+<span class="hljs-comment">/* Trimmed from pstree_callback; just collect processes into a tree. */</span>
+<span class="hljs-function"><span class="hljs-keyword">uint8_t</span> <span class="hljs-title">find_pid</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * proc_v, <span class="hljs-keyword">void</span> * pid_v)</span> </span>{
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">uint8_t</span>)(((<span class="hljs-keyword">p_t</span>*)proc_v)-&gt;pid == (<span class="hljs-keyword">pid_t</span>)(<span class="hljs-keyword">uintptr_t</span>)pid_v);
+}
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">who_callback</span><span class="hljs-params">(struct <span class="hljs-built_in">process</span> * proc, <span class="hljs-keyword">void</span> *_ctx)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">WhoContext</span> * <span class="hljs-title">ctx</span> = _<span class="hljs-title">ctx</span>;</span>
+	<span class="hljs-keyword">tree_t</span> * procs = ctx-&gt;procs;
+
+	<span class="hljs-keyword">if</span> (proc-&gt;ppid == <span class="hljs-number">0</span> &amp;&amp; proc-&gt;pid == <span class="hljs-number">1</span>) {
+		tree_set_root(procs, proc);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">pid_t</span> ppid = (proc-&gt;tgid != proc-&gt;pid ? proc-&gt;tgid : proc-&gt;ppid);
+		<span class="hljs-keyword">tree_node_t</span> * parent = tree_find(procs,(<span class="hljs-keyword">void</span> *)(<span class="hljs-keyword">uintptr_t</span>)ppid,find_pid);
+		<span class="hljs-keyword">if</span> (parent) {
+			tree_node_insert_child(procs, parent, proc);
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">tty_from_procfs</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * t)</span> </span>{
+	<span class="hljs-keyword">if</span> (!*t) <span class="hljs-keyword">return</span> <span class="hljs-string">"?"</span>;
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(t, <span class="hljs-string">"/dev/"</span>) == t) {
+		<span class="hljs-keyword">return</span> t + <span class="hljs-number">5</span>;
+	}
+
+	<span class="hljs-keyword">return</span> t;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">collect_logins</span><span class="hljs-params">(struct WhoContext * ctx, <span class="hljs-keyword">tree_node_t</span> * node)</span> </span>{
+	<span class="hljs-keyword">p_t</span> * proc = node-&gt;value;
+
+	<span class="hljs-comment">/* Only consider login processes owned by root, to avoid shenangians */</span>
+	<span class="hljs-keyword">if</span> (proc-&gt;uid == <span class="hljs-number">0</span>) {
+		<span class="hljs-comment">/* Any of these are good candidates */</span>
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(proc-&gt;name,<span class="hljs-string">"login"</span>) ||
+		    !<span class="hljs-built_in">strcmp</span>(proc-&gt;name, <span class="hljs-string">"glogin"</span>) ||
+		    !<span class="hljs-built_in">strcmp</span>(proc-&gt;name, <span class="hljs-string">"live-session"</span>)) {
+
+			foreach(child, node-&gt;children) {
+				<span class="hljs-comment">/* Potential login session */</span>
+				<span class="hljs-keyword">p_t</span> * session = ((<span class="hljs-keyword">tree_node_t</span> *)child-&gt;value)-&gt;value;
+
+				<span class="hljs-keyword">if</span> (ctx-&gt;only_mine) {
+					<span class="hljs-keyword">if</span> (!*ctx-&gt;my_tty || <span class="hljs-built_in">strcmp</span>(ctx-&gt;my_tty, session-&gt;tty)) <span class="hljs-keyword">continue</span>;
+				}
+
+				<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">WhoLogin</span> * <span class="hljs-title">this_login</span> = <span class="hljs-title">calloc</span>(1,<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">WhoLogin</span>));</span>
+
+				this_login-&gt;manager = proc;
+				this_login-&gt;login_process = session;
+
+				<span class="hljs-comment">/* NAME */</span>
+				print_name(&amp;this_login-&gt;user_name, session-&gt;uid);
+				<span class="hljs-keyword">int</span> name_len = <span class="hljs-built_in">strlen</span>(this_login-&gt;user_name);
+				<span class="hljs-keyword">if</span> (name_len &gt; ctx-&gt;column_length.name) ctx-&gt;column_length.name = name_len;
+
+				<span class="hljs-comment">/* LINE */</span>
+				this_login-&gt;line_name = tty_from_procfs(session-&gt;tty);
+				<span class="hljs-keyword">int</span> line_len = <span class="hljs-built_in">strlen</span>(this_login-&gt;line_name);
+				<span class="hljs-keyword">if</span> (line_len &gt; ctx-&gt;column_length.<span class="hljs-built_in">line</span>) ctx-&gt;column_length.<span class="hljs-built_in">line</span> = line_len;
+
+				this_login-&gt;status = <span class="hljs-string">"?"</span>;
+				this_login-&gt;idle = <span class="hljs-string">"  ?"</span>;
+				<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">st</span>;</span>
+				<span class="hljs-keyword">if</span> (*session-&gt;tty &amp;&amp; !stat(session-&gt;tty, &amp;st)) {
+					this_login-&gt;status = (st.st_mode &amp; S_IWGRP) ? <span class="hljs-string">"+"</span> : <span class="hljs-string">"-"</span>;
+					<span class="hljs-keyword">time_t</span> idle = time(<span class="hljs-literal">NULL</span>) - st.st_mtim.tv_sec;
+					<span class="hljs-keyword">if</span> (idle &gt;= <span class="hljs-number">60</span>) {
+						asprintf(&amp;this_login-&gt;idle, <span class="hljs-string">"%02d:%02d"</span>, idle / <span class="hljs-number">60</span> / <span class="hljs-number">60</span>, idle / <span class="hljs-number">60</span>);
+					} <span class="hljs-keyword">else</span> {
+						this_login-&gt;idle = <span class="hljs-string">"  ."</span>;
+					}
+				}
+				<span class="hljs-keyword">int</span> idle_len = <span class="hljs-built_in">strlen</span>(this_login-&gt;idle);
+				<span class="hljs-keyword">if</span> (idle_len &gt; ctx-&gt;column_length.idle) ctx-&gt;column_length.idle = idle_len;
+
+				<span class="hljs-comment">/* TIME */</span>
+				<span class="hljs-keyword">char</span> buf[<span class="hljs-number">1024</span>];
+				<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tm</span> * <span class="hljs-title">tm</span> = <span class="hljs-title">localtime</span>(&amp;<span class="hljs-title">session</span>-&gt;<span class="hljs-title">starttime</span>);</span>
+				strftime(buf, <span class="hljs-number">1024</span>, <span class="hljs-string">"%F %R"</span>, tm);
+				this_login-&gt;start = strdup(buf);
+				<span class="hljs-keyword">int</span> time_len = <span class="hljs-built_in">strlen</span>(this_login-&gt;start);
+				<span class="hljs-keyword">if</span> (time_len &gt; ctx-&gt;column_length.time) ctx-&gt;column_length.time = time_len;
+
+				list_insert(ctx-&gt;logins, this_login);
+			}
+
+		}
+	}
+
+	<span class="hljs-comment">/* Drill down */</span>
+	foreach(child, node-&gt;children) {
+		collect_logins(ctx, child-&gt;value);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> ** argv)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">WhoContext</span> <span class="hljs-title">ctx</span> = {</span><span class="hljs-number">0</span>};
+	<span class="hljs-keyword">int</span> opt;
+
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"mTuH"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'m'</span>: <span class="hljs-comment">/* only current terminal */</span>
+				ctx.only_mine = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'T'</span>: <span class="hljs-comment">/* show each terminal */</span>
+				ctx.print_status = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'u'</span>: <span class="hljs-comment">/* show idle time */</span>
+				ctx.print_idle = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'H'</span>:
+				ctx.print_header = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-comment">/* Special case "who am i" */</span>
+	<span class="hljs-keyword">if</span> (optind + <span class="hljs-number">2</span> == argc &amp;&amp; !<span class="hljs-built_in">strcmp</span>(argv[optind],<span class="hljs-string">"am"</span>) &amp;&amp; !strcasecmp(argv[optind+<span class="hljs-number">1</span>],<span class="hljs-string">"i"</span>)) {
+		<span class="hljs-keyword">char</span> * buf;
+		print_name(&amp;buf, geteuid());
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s\n"</span>, buf);
+		<span class="hljs-built_in">free</span>(buf);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	ctx.procs = tree_create();
+	ctx.logins = list_create();
+
+	<span class="hljs-keyword">if</span> (ctx.print_header) {
+		ctx.column_length.name = <span class="hljs-number">4</span>;
+		ctx.column_length.status = <span class="hljs-number">1</span>;
+		ctx.column_length.<span class="hljs-built_in">line</span> = <span class="hljs-number">4</span>;
+		ctx.column_length.time = <span class="hljs-number">4</span>;
+		ctx.column_length.idle = <span class="hljs-number">4</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (ctx.only_mine) {
+		<span class="hljs-keyword">p_t</span> * me = procfs_get_pid(getpid(), <span class="hljs-number">0</span>);
+		ctx.my_tty = me-&gt;tty;
+	}
+
+	procfs_iterate(who_callback, &amp;ctx, PROCFSLIB_COLLECT_STARTTIME | PROCFSLIB_NO_FREE);
+
+	collect_logins(&amp;ctx, ctx.procs-&gt;root);
+
+	<span class="hljs-keyword">if</span> (ctx.print_header) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, ctx.column_length.name, <span class="hljs-string">"NAME"</span>);
+		<span class="hljs-keyword">if</span> (ctx.print_status) <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, ctx.column_length.status, <span class="hljs-string">" "</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, ctx.column_length.<span class="hljs-built_in">line</span>, <span class="hljs-string">"LINE"</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, ctx.column_length.time, <span class="hljs-string">"TIME"</span>);
+		<span class="hljs-keyword">if</span> (ctx.print_idle) <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, ctx.column_length.idle, <span class="hljs-string">"IDLE"</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s"</span>, <span class="hljs-string">"PROC"</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\n"</span>);
+	}
+
+	foreach(node, ctx.logins) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">WhoLogin</span> * <span class="hljs-title">login</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, ctx.column_length.name, login-&gt;user_name);
+		<span class="hljs-keyword">if</span> (ctx.print_status) <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, ctx.column_length.status, login-&gt;status);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, ctx.column_length.<span class="hljs-built_in">line</span>, login-&gt;line_name);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, ctx.column_length.time, login-&gt;start);
+		<span class="hljs-keyword">if</span> (ctx.print_idle) <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, ctx.column_length.idle, login-&gt;idle);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s(%d)\n"</span>, login-&gt;login_process-&gt;name, login-&gt;login_process-&gt;tgid);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

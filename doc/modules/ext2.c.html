@@ -1,0 +1,2194 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ext2.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "modules\\ext2.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>ext2.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/spinlock.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/tokenize.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/module.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mutex.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> debug_print(lvl, str, ...) do { <span class="hljs-meta-keyword">if</span> (this-&gt;flags &amp; EXT2_FLAG_LOUD) { printf(<span class="hljs-meta-string">"ext2: %s: "</span> str <span class="hljs-meta-string">"\n"</span>, #lvl __VA_OPT__(,) __VA_ARGS__); } } while (0)</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_SUPER_MAGIC 0xEF53</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_DIRECT_BLOCKS 12</span>
+
+<span class="hljs-comment">/* Super block struct. */</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ext2_superblock</span> {</span>
+	<span class="hljs-keyword">uint32_t</span> inodes_count;
+	<span class="hljs-keyword">uint32_t</span> blocks_count;
+	<span class="hljs-keyword">uint32_t</span> r_blocks_count;
+	<span class="hljs-keyword">uint32_t</span> free_blocks_count;
+	<span class="hljs-keyword">uint32_t</span> free_inodes_count;
+	<span class="hljs-keyword">uint32_t</span> first_data_block;
+	<span class="hljs-keyword">uint32_t</span> log_block_size;
+	<span class="hljs-keyword">uint32_t</span> log_frag_size;
+	<span class="hljs-keyword">uint32_t</span> blocks_per_group;
+	<span class="hljs-keyword">uint32_t</span> frags_per_group;
+	<span class="hljs-keyword">uint32_t</span> inodes_per_group;
+	<span class="hljs-keyword">uint32_t</span> mtime;
+	<span class="hljs-keyword">uint32_t</span> wtime;
+
+	<span class="hljs-keyword">uint16_t</span> mnt_count;
+	<span class="hljs-keyword">uint16_t</span> max_mnt_count;
+	<span class="hljs-keyword">uint16_t</span> magic;
+	<span class="hljs-keyword">uint16_t</span> state;
+	<span class="hljs-keyword">uint16_t</span> errors;
+	<span class="hljs-keyword">uint16_t</span> minor_rev_level;
+
+	<span class="hljs-keyword">uint32_t</span> lastcheck;
+	<span class="hljs-keyword">uint32_t</span> checkinterval;
+	<span class="hljs-keyword">uint32_t</span> creator_os;
+	<span class="hljs-keyword">uint32_t</span> rev_level;
+
+	<span class="hljs-keyword">uint16_t</span> def_resuid;
+	<span class="hljs-keyword">uint16_t</span> def_resgid;
+
+	<span class="hljs-comment">/* EXT2_DYNAMIC_REV */</span>
+	<span class="hljs-keyword">uint32_t</span> first_ino;
+	<span class="hljs-keyword">uint16_t</span> inode_size;
+	<span class="hljs-keyword">uint16_t</span> block_group_nr;
+	<span class="hljs-keyword">uint32_t</span> feature_compat;
+	<span class="hljs-keyword">uint32_t</span> feature_incompat;
+	<span class="hljs-keyword">uint32_t</span> feature_ro_compat;
+
+	<span class="hljs-keyword">uint8_t</span> uuid[<span class="hljs-number">16</span>];
+	<span class="hljs-keyword">uint8_t</span> volume_name[<span class="hljs-number">16</span>];
+
+	<span class="hljs-keyword">uint8_t</span> last_mounted[<span class="hljs-number">64</span>];
+
+	<span class="hljs-keyword">uint32_t</span> algo_bitmap;
+
+	<span class="hljs-comment">/* Performance Hints */</span>
+	<span class="hljs-keyword">uint8_t</span> prealloc_blocks;
+	<span class="hljs-keyword">uint8_t</span> prealloc_dir_blocks;
+	<span class="hljs-keyword">uint16_t</span> _padding;
+
+	<span class="hljs-comment">/* Journaling Support */</span>
+	<span class="hljs-keyword">uint8_t</span> journal_uuid[<span class="hljs-number">16</span>];
+	<span class="hljs-keyword">uint32_t</span> journal_inum;
+	<span class="hljs-keyword">uint32_t</span> jounral_dev;
+	<span class="hljs-keyword">uint32_t</span> last_orphan;
+
+	<span class="hljs-comment">/* Directory Indexing Support */</span>
+	<span class="hljs-keyword">uint32_t</span> hash_seed[<span class="hljs-number">4</span>];
+	<span class="hljs-keyword">uint8_t</span> def_hash_version;
+	<span class="hljs-keyword">uint16_t</span> _padding_a;
+	<span class="hljs-keyword">uint8_t</span> _padding_b;
+
+	<span class="hljs-comment">/* Other Options */</span>
+	<span class="hljs-keyword">uint32_t</span> default_mount_options;
+	<span class="hljs-keyword">uint32_t</span> first_meta_bg;
+	<span class="hljs-keyword">uint8_t</span> _unused[<span class="hljs-number">760</span>];
+
+} __attribute__ ((packed));
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ext2_superblock</span> <span class="hljs-title">ext2_superblock_t</span>;</span>
+
+<span class="hljs-comment">/* Block group descriptor. */</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ext2_bgdescriptor</span> {</span>
+	<span class="hljs-keyword">uint32_t</span> block_bitmap;
+	<span class="hljs-keyword">uint32_t</span> inode_bitmap;		<span class="hljs-comment">// block no. of inode bitmap</span>
+	<span class="hljs-keyword">uint32_t</span> inode_table;
+	<span class="hljs-keyword">uint16_t</span> free_blocks_count;
+	<span class="hljs-keyword">uint16_t</span> free_inodes_count;
+	<span class="hljs-keyword">uint16_t</span> used_dirs_count;
+	<span class="hljs-keyword">uint16_t</span> pad;
+	<span class="hljs-keyword">uint8_t</span> reserved[<span class="hljs-number">12</span>];
+} __attribute__ ((packed));
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ext2_bgdescriptor</span> <span class="hljs-title">ext2_bgdescriptor_t</span>;</span>
+
+<span class="hljs-comment">/* File Types */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_S_IFSOCK	0xC000</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_S_IFLNK	0xA000</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_S_IFREG	0x8000</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_S_IFBLK	0x6000</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_S_IFDIR	0x4000</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_S_IFCHR	0x2000</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_S_IFIFO	0x1000</span>
+
+<span class="hljs-comment">/* setuid, etc. */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_S_ISUID	0x0800</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_S_ISGID	0x0400</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_S_ISVTX	0x0200</span>
+
+<span class="hljs-comment">/* rights */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_S_IRUSR	0x0100</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_S_IWUSR	0x0080</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_S_IXUSR	0x0040</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_S_IRGRP	0x0020</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_S_IWGRP	0x0010</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_S_IXGRP	0x0008</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_S_IROTH	0x0004</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_S_IWOTH	0x0002</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_S_IXOTH	0x0001</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>This is not actually the inode table.
+It represents an inode in an inode table on disk.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ext2_inodetable</span> {</span>
+	<span class="hljs-keyword">uint16_t</span> mode;
+	<span class="hljs-keyword">uint16_t</span> uid;
+	<span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">size</span>;			<span class="hljs-comment">// file length in byte.</span>
+	<span class="hljs-keyword">uint32_t</span> atime;
+	<span class="hljs-keyword">uint32_t</span> ctime;
+	<span class="hljs-keyword">uint32_t</span> mtime;
+	<span class="hljs-keyword">uint32_t</span> dtime;
+	<span class="hljs-keyword">uint16_t</span> gid;
+	<span class="hljs-keyword">uint16_t</span> links_count;
+	<span class="hljs-keyword">uint32_t</span> blocks;
+	<span class="hljs-keyword">uint32_t</span> flags;
+	<span class="hljs-keyword">uint32_t</span> osd1;
+	<span class="hljs-keyword">uint32_t</span> block[<span class="hljs-number">15</span>];
+	<span class="hljs-keyword">uint32_t</span> generation;
+	<span class="hljs-keyword">uint32_t</span> file_acl;
+	<span class="hljs-keyword">uint32_t</span> dir_acl;
+	<span class="hljs-keyword">uint32_t</span> faddr;
+	<span class="hljs-keyword">uint8_t</span> osd2[<span class="hljs-number">12</span>];
+} __attribute__ ((packed));
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ext2_inodetable</span> <span class="hljs-title">ext2_inodetable_t</span>;</span>
+
+<span class="hljs-comment">/* Represents directory entry on disk. */</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ext2_dir</span> {</span>
+	<span class="hljs-keyword">uint32_t</span> inode;
+	<span class="hljs-keyword">uint16_t</span> rec_len;
+	<span class="hljs-keyword">uint8_t</span> name_len;
+	<span class="hljs-keyword">uint8_t</span> file_type;
+	<span class="hljs-keyword">char</span> name[];		<span class="hljs-comment">/* Actually a set of characters, at most 255 bytes */</span>
+} __attribute__ ((packed));
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ext2_dir</span> <span class="hljs-title">ext2_dir_t</span>;</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_BGD_BLOCK 2</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> E_SUCCESS   0</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> E_BADBLOCK  1</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> E_NOSPACE   2</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> E_BADPARENT 3</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> _symlink</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _symlink(inode) ((char *)(inode)-&gt;block)</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>EXT2 filesystem object</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+	<span class="hljs-keyword">ext2_superblock_t</span>       * superblock;          <span class="hljs-comment">/* Device superblock, contains important information */</span>
+	<span class="hljs-keyword">ext2_bgdescriptor_t</span>     * block_groups;        <span class="hljs-comment">/* Block Group Descriptor / Block groups */</span>
+	<span class="hljs-keyword">fs_node_t</span>               * root_node;           <span class="hljs-comment">/* Root FS node (attached to mountpoint) */</span>
+
+	<span class="hljs-keyword">fs_node_t</span>               * block_device;        <span class="hljs-comment">/* Block device node XXX unused */</span>
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>              block_size;          <span class="hljs-comment">/* Size of one block */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>              pointers_per_block;  <span class="hljs-comment">/* Number of pointers that fit in a block */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>              inodes_per_group;    <span class="hljs-comment">/* Number of inodes in a "group" */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>              block_group_count;   <span class="hljs-comment">/* Number of blocks groups */</span>
+
+	<span class="hljs-keyword">uint8_t</span>                   bgd_block_span;
+	<span class="hljs-keyword">uint8_t</span>                   bgd_offset;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>              inode_size;
+
+	<span class="hljs-keyword">uint8_t</span> *                 cache_data;
+
+	<span class="hljs-keyword">int</span> flags;
+
+	<span class="hljs-keyword">sched_mutex_t</span> *           mutex;
+} <span class="hljs-keyword">ext2_fs_t</span>;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_FLAG_READWRITE 0x0002</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXT2_FLAG_LOUD      0x0004</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>These macros were used in the original toaru ext2 driver.
+They make referring to some of the core parts of the drive a bit easier.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BGDS (this-&gt;block_group_count)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SB   (this-&gt;superblock)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BGD  (this-&gt;block_groups)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> RN   (this-&gt;root_node)</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>These macros deal with the block group descriptor bitmap</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BLOCKBIT(n)  (bg_buffer[((n) &gt;&gt; 3)] &amp; (1 &lt;&lt; (((n) % 8))))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BLOCKBYTE(n) (bg_buffer[((n) &gt;&gt; 3)])</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SETBIT(n)    (1 &lt;&lt; (((n) % 8)))</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">node_from_file</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">ext2_inodetable_t</span> *inode, <span class="hljs-keyword">ext2_dir_t</span> *direntry,  <span class="hljs-keyword">fs_node_t</span> *fnode)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ext2_root</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">ext2_inodetable_t</span> *inode, <span class="hljs-keyword">fs_node_t</span> *fnode)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ext2_inodetable_t</span> * <span class="hljs-title">read_inode</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">size_t</span> inode)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">refresh_inode</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">ext2_inodetable_t</span> * inodet,  <span class="hljs-keyword">size_t</span> inode)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">write_inode</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">ext2_inodetable_t</span> *inode, <span class="hljs-keyword">size_t</span> index)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">finddir_ext2</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *name)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> <span class="hljs-title">allocate_block</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>)</span></span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>ext2-&gt;rewrite_superblock Rewrite the superblock.</p>
+</div>
+<div class="body">
+<p>Superblocks are a bit different from other blocks, as they are always in the same place,
+regardless of what the filesystem block size is. This doesn't work well with our setup,
+so we need to special-case it.</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">rewrite_superblock</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>)</span> </span>{
+	write_fs(<span class="hljs-keyword">this</span>-&gt;block_device, <span class="hljs-number">1024</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">ext2_superblock_t</span>), (<span class="hljs-keyword">uint8_t</span> *)SB);
+	<span class="hljs-keyword">return</span> E_SUCCESS;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>ext2-&gt;read_block Read a block from the block device associated with this filesystem.</p>
+</div>
+<div class="body">
+<p>The read block will be copied into the buffer pointed to by <code>buf</code>.</p>
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">block_no</span>
+<span>Number of block to read.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">buf</span>
+<span>Where to put the data read.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">read_block</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> block_no, <span class="hljs-keyword">uint8_t</span> * buf)</span> </span>{
+	<span class="hljs-comment">/* 0 is an invalid block number. So is anything beyond the total block count, but we can't check that. */</span>
+	<span class="hljs-keyword">if</span> (!block_no) {
+		<span class="hljs-keyword">return</span> E_BADBLOCK;
+	}
+
+	<span class="hljs-comment">/* In such cases, we read directly from the block device */</span>
+	read_fs(<span class="hljs-keyword">this</span>-&gt;block_device, block_no * <span class="hljs-keyword">this</span>-&gt;block_size, <span class="hljs-keyword">this</span>-&gt;block_size, (<span class="hljs-keyword">uint8_t</span> *)buf);
+
+	<span class="hljs-comment">/* And return SUCCESS */</span>
+	<span class="hljs-keyword">return</span> E_SUCCESS;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>ext2-&gt;write_block Write a block to the block device.</p>
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">block_no</span>
+<span>Block to write
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">buf</span>
+<span>Data in the block
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">write_block</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> block_no, <span class="hljs-keyword">uint8_t</span> *buf)</span> </span>{
+	<span class="hljs-keyword">if</span> (!block_no) {
+		debug_print(ERROR, <span class="hljs-string">"Attempted to write to block #0. Enable tracing and retry this operation."</span>);
+		debug_print(ERROR, <span class="hljs-string">"Your file system is most likely corrupted now."</span>);
+		<span class="hljs-keyword">return</span> E_BADBLOCK;
+	}
+
+	<span class="hljs-comment">/* This operation requires the filesystem lock */</span>
+	write_fs(<span class="hljs-keyword">this</span>-&gt;block_device, block_no * <span class="hljs-keyword">this</span>-&gt;block_size, <span class="hljs-keyword">this</span>-&gt;block_size, buf);
+
+	<span class="hljs-comment">/* We're done. */</span>
+	<span class="hljs-keyword">return</span> E_SUCCESS;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>ext2-&gt;set_block_number Set the &quot;real&quot; block number for a given &quot;inode&quot; block number.</p>
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">inode</span>
+<span>Inode to operate on
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">iblock</span>
+<span>Block offset within the inode
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">rblock</span>
+<span>Real block number
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> <span class="hljs-title">set_block_number</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">ext2_inodetable_t</span> * inode, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> inode_no, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> iblock, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> rblock)</span> </span>{
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> p = <span class="hljs-keyword">this</span>-&gt;pointers_per_block;
+
+	<span class="hljs-comment">/* We're going to do some crazy math in a bit... */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> a, b, c, d, e, f, g;
+
+	<span class="hljs-keyword">uint8_t</span> * tmp;
+
+	<span class="hljs-keyword">if</span> (iblock &lt; EXT2_DIRECT_BLOCKS) {
+		inode-&gt;block[iblock] = rblock;
+		<span class="hljs-keyword">return</span> E_SUCCESS;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (iblock &lt; EXT2_DIRECT_BLOCKS + p) {
+		<span class="hljs-comment">/* XXX what if inode-&gt;block[EXT2_DIRECT_BLOCKS] isn't set? */</span>
+		<span class="hljs-keyword">if</span> (!inode-&gt;block[EXT2_DIRECT_BLOCKS]) {
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> block_no = allocate_block(<span class="hljs-keyword">this</span>);
+			<span class="hljs-keyword">if</span> (!block_no) <span class="hljs-keyword">return</span> E_NOSPACE;
+			inode-&gt;block[EXT2_DIRECT_BLOCKS] = block_no;
+			write_inode(<span class="hljs-keyword">this</span>, inode, inode_no);
+		}
+		tmp = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+		read_block(<span class="hljs-keyword">this</span>, inode-&gt;block[EXT2_DIRECT_BLOCKS], (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		((<span class="hljs-keyword">uint32_t</span> *)tmp)[iblock - EXT2_DIRECT_BLOCKS] = rblock;
+		write_block(<span class="hljs-keyword">this</span>, inode-&gt;block[EXT2_DIRECT_BLOCKS], (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		<span class="hljs-built_in">free</span>(tmp);
+		<span class="hljs-keyword">return</span> E_SUCCESS;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (iblock &lt; EXT2_DIRECT_BLOCKS + p + p * p) {
+		a = iblock - EXT2_DIRECT_BLOCKS;
+		b = a - p;
+		c = b / p;
+		d = b - c * p;
+
+		<span class="hljs-keyword">if</span> (!inode-&gt;block[EXT2_DIRECT_BLOCKS+<span class="hljs-number">1</span>]) {
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> block_no = allocate_block(<span class="hljs-keyword">this</span>);
+			<span class="hljs-keyword">if</span> (!block_no) <span class="hljs-keyword">return</span> E_NOSPACE;
+			inode-&gt;block[EXT2_DIRECT_BLOCKS+<span class="hljs-number">1</span>] = block_no;
+			write_inode(<span class="hljs-keyword">this</span>, inode, inode_no);
+		}
+
+		tmp = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+		read_block(<span class="hljs-keyword">this</span>, inode-&gt;block[EXT2_DIRECT_BLOCKS + <span class="hljs-number">1</span>], (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		<span class="hljs-keyword">if</span> (!((<span class="hljs-keyword">uint32_t</span> *)tmp)[c]) {
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> block_no = allocate_block(<span class="hljs-keyword">this</span>);
+			<span class="hljs-keyword">if</span> (!block_no) <span class="hljs-keyword">goto</span> no_space_free;
+			((<span class="hljs-keyword">uint32_t</span> *)tmp)[c] = block_no;
+			write_block(<span class="hljs-keyword">this</span>, inode-&gt;block[EXT2_DIRECT_BLOCKS + <span class="hljs-number">1</span>], (<span class="hljs-keyword">uint8_t</span> *)tmp);
+		}
+
+		<span class="hljs-keyword">uint32_t</span> nblock = ((<span class="hljs-keyword">uint32_t</span> *)tmp)[c];
+		read_block(<span class="hljs-keyword">this</span>, nblock, (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		((<span class="hljs-keyword">uint32_t</span>  *)tmp)[d] = rblock;
+		write_block(<span class="hljs-keyword">this</span>, nblock, (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		<span class="hljs-built_in">free</span>(tmp);
+		<span class="hljs-keyword">return</span> E_SUCCESS;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (iblock &lt; EXT2_DIRECT_BLOCKS + p + p * p + p) {
+		a = iblock - EXT2_DIRECT_BLOCKS;
+		b = a - p;
+		c = b - p * p;
+		d = c / (p * p);
+		e = c - d * p * p;
+		f = e / p;
+		g = e - f * p;
+
+		<span class="hljs-keyword">if</span> (!inode-&gt;block[EXT2_DIRECT_BLOCKS+<span class="hljs-number">2</span>]) {
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> block_no = allocate_block(<span class="hljs-keyword">this</span>);
+			<span class="hljs-keyword">if</span> (!block_no) <span class="hljs-keyword">return</span> E_NOSPACE;
+			inode-&gt;block[EXT2_DIRECT_BLOCKS+<span class="hljs-number">2</span>] = block_no;
+			write_inode(<span class="hljs-keyword">this</span>, inode, inode_no);
+		}
+
+		tmp = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+		read_block(<span class="hljs-keyword">this</span>, inode-&gt;block[EXT2_DIRECT_BLOCKS + <span class="hljs-number">2</span>], (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		<span class="hljs-keyword">if</span> (!((<span class="hljs-keyword">uint32_t</span> *)tmp)[d]) {
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> block_no = allocate_block(<span class="hljs-keyword">this</span>);
+			<span class="hljs-keyword">if</span> (!block_no) <span class="hljs-keyword">goto</span> no_space_free;
+			((<span class="hljs-keyword">uint32_t</span> *)tmp)[d] = block_no;
+			write_block(<span class="hljs-keyword">this</span>, inode-&gt;block[EXT2_DIRECT_BLOCKS + <span class="hljs-number">2</span>], (<span class="hljs-keyword">uint8_t</span> *)tmp);
+		}
+
+		<span class="hljs-keyword">uint32_t</span> nblock = ((<span class="hljs-keyword">uint32_t</span> *)tmp)[d];
+		read_block(<span class="hljs-keyword">this</span>, nblock, (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		<span class="hljs-keyword">if</span> (!((<span class="hljs-keyword">uint32_t</span> *)tmp)[f]) {
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> block_no = allocate_block(<span class="hljs-keyword">this</span>);
+			<span class="hljs-keyword">if</span> (!block_no) <span class="hljs-keyword">goto</span> no_space_free;
+			((<span class="hljs-keyword">uint32_t</span> *)tmp)[f] = block_no;
+			write_block(<span class="hljs-keyword">this</span>, nblock, (<span class="hljs-keyword">uint8_t</span> *)tmp);
+		}
+
+		nblock = ((<span class="hljs-keyword">uint32_t</span> *)tmp)[f];
+		read_block(<span class="hljs-keyword">this</span>, nblock, (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		((<span class="hljs-keyword">uint32_t</span> *)tmp)[g] = nblock;
+		write_block(<span class="hljs-keyword">this</span>, nblock, (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		<span class="hljs-built_in">free</span>(tmp);
+		<span class="hljs-keyword">return</span> E_SUCCESS;
+	}
+
+	debug_print(CRITICAL, <span class="hljs-string">"EXT2 driver tried to write to a block number that was too high (%d)"</span>, rblock);
+	<span class="hljs-keyword">return</span> E_BADBLOCK;
+no_space_free:
+	<span class="hljs-built_in">free</span>(tmp);
+	<span class="hljs-keyword">return</span> E_NOSPACE;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>ext2-&gt;get_block_number Given an inode block number, get the real block number.</p>
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">inode</span>
+<span>Inode to operate on
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">iblock</span>
+<span>Block offset within the inode
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> <span class="hljs-title">get_block_number</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">ext2_inodetable_t</span> * inode, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> iblock)</span> </span>{
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> p = <span class="hljs-keyword">this</span>-&gt;pointers_per_block;
+
+	<span class="hljs-comment">/* We're going to do some crazy math in a bit... */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> a, b, c, d, e, f, g;
+
+	<span class="hljs-keyword">uint8_t</span> * tmp;
+
+	<span class="hljs-keyword">if</span> (iblock &lt; EXT2_DIRECT_BLOCKS) {
+		<span class="hljs-keyword">return</span> inode-&gt;block[iblock];
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (iblock &lt; EXT2_DIRECT_BLOCKS + p) {
+		<span class="hljs-comment">/* XXX what if inode-&gt;block[EXT2_DIRECT_BLOCKS] isn't set? */</span>
+		tmp = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+		read_block(<span class="hljs-keyword">this</span>, inode-&gt;block[EXT2_DIRECT_BLOCKS], (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> out = ((<span class="hljs-keyword">uint32_t</span> *)tmp)[iblock - EXT2_DIRECT_BLOCKS];
+		<span class="hljs-built_in">free</span>(tmp);
+		<span class="hljs-keyword">return</span> out;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (iblock &lt; EXT2_DIRECT_BLOCKS + p + p * p) {
+		a = iblock - EXT2_DIRECT_BLOCKS;
+		b = a - p;
+		c = b / p;
+		d = b - c * p;
+
+		tmp = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+		read_block(<span class="hljs-keyword">this</span>, inode-&gt;block[EXT2_DIRECT_BLOCKS + <span class="hljs-number">1</span>], (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		<span class="hljs-keyword">uint32_t</span> nblock = ((<span class="hljs-keyword">uint32_t</span> *)tmp)[c];
+		read_block(<span class="hljs-keyword">this</span>, nblock, (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> out = ((<span class="hljs-keyword">uint32_t</span>  *)tmp)[d];
+		<span class="hljs-built_in">free</span>(tmp);
+		<span class="hljs-keyword">return</span> out;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (iblock &lt; EXT2_DIRECT_BLOCKS + p + p * p + p) {
+		a = iblock - EXT2_DIRECT_BLOCKS;
+		b = a - p;
+		c = b - p * p;
+		d = c / (p * p);
+		e = c - d * p * p;
+		f = e / p;
+		g = e - f * p;
+
+		tmp = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+		read_block(<span class="hljs-keyword">this</span>, inode-&gt;block[EXT2_DIRECT_BLOCKS + <span class="hljs-number">2</span>], (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		<span class="hljs-keyword">uint32_t</span> nblock = ((<span class="hljs-keyword">uint32_t</span> *)tmp)[d];
+		read_block(<span class="hljs-keyword">this</span>, nblock, (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		nblock = ((<span class="hljs-keyword">uint32_t</span> *)tmp)[f];
+		read_block(<span class="hljs-keyword">this</span>, nblock, (<span class="hljs-keyword">uint8_t</span> *)tmp);
+
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> out = ((<span class="hljs-keyword">uint32_t</span>  *)tmp)[g];
+		<span class="hljs-built_in">free</span>(tmp);
+		<span class="hljs-keyword">return</span> out;
+	}
+
+	debug_print(CRITICAL, <span class="hljs-string">"EXT2 driver tried to read to a block number that was too high (%d)"</span>, iblock);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">write_inode</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">ext2_inodetable_t</span> *inode, <span class="hljs-keyword">size_t</span> index)</span> </span>{
+	<span class="hljs-keyword">if</span> (!index) {
+		dprintf(<span class="hljs-string">"ext2: Attempt to write inode 0\n"</span>);
+		<span class="hljs-keyword">return</span> E_BADBLOCK;
+	}
+	index--;
+
+	<span class="hljs-keyword">size_t</span> group = index / <span class="hljs-keyword">this</span>-&gt;inodes_per_group;
+	<span class="hljs-keyword">if</span> (group &gt; BGDS) {
+		<span class="hljs-keyword">return</span> E_BADBLOCK;
+	}
+
+	<span class="hljs-keyword">size_t</span> inode_table_block = BGD[group].inode_table;
+	index -= group * <span class="hljs-keyword">this</span>-&gt;inodes_per_group;
+	<span class="hljs-keyword">size_t</span> block_offset = (index * <span class="hljs-keyword">this</span>-&gt;inode_size) / <span class="hljs-keyword">this</span>-&gt;block_size;
+	<span class="hljs-keyword">size_t</span> offset_in_block = index - block_offset * (<span class="hljs-keyword">this</span>-&gt;block_size / <span class="hljs-keyword">this</span>-&gt;inode_size);
+
+	<span class="hljs-keyword">ext2_inodetable_t</span> *inodet = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+	<span class="hljs-comment">/* Read the current table block */</span>
+	read_block(<span class="hljs-keyword">this</span>, inode_table_block + block_offset, (<span class="hljs-keyword">uint8_t</span> *)inodet);
+	<span class="hljs-built_in">memcpy</span>((<span class="hljs-keyword">uint8_t</span> *)((<span class="hljs-keyword">uintptr_t</span>)inodet + offset_in_block * <span class="hljs-keyword">this</span>-&gt;inode_size), inode, <span class="hljs-keyword">this</span>-&gt;inode_size);
+	write_block(<span class="hljs-keyword">this</span>, inode_table_block + block_offset, (<span class="hljs-keyword">uint8_t</span> *)inodet);
+	<span class="hljs-built_in">free</span>(inodet);
+
+	<span class="hljs-keyword">return</span> E_SUCCESS;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> <span class="hljs-title">allocate_block</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>)</span> </span>{
+	<span class="hljs-keyword">size_t</span> block_no     = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> block_offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> group        = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint8_t</span> * bg_buffer = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+
+	mutex_acquire(<span class="hljs-keyword">this</span>-&gt;mutex);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; BGDS; ++i) {
+		<span class="hljs-keyword">if</span> (BGD[i].free_blocks_count &gt; <span class="hljs-number">0</span>) {
+			read_block(<span class="hljs-keyword">this</span>, BGD[i].block_bitmap, (<span class="hljs-keyword">uint8_t</span> *)bg_buffer);
+			<span class="hljs-keyword">while</span> (BLOCKBIT(block_offset)) {
+				++block_offset;
+			}
+			block_no = block_offset + SB-&gt;blocks_per_group * i;
+			group = i;
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!block_no) {
+		mutex_release(<span class="hljs-keyword">this</span>-&gt;mutex);
+		debug_print(CRITICAL, <span class="hljs-string">"No available blocks, disk is out of space!"</span>);
+		<span class="hljs-built_in">free</span>(bg_buffer);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	debug_print(WARNING, <span class="hljs-string">"allocating block #%zu (group %zu)"</span>, block_no, group);
+
+	BLOCKBYTE(block_offset) |= SETBIT(block_offset);
+	write_block(<span class="hljs-keyword">this</span>, BGD[group].block_bitmap, (<span class="hljs-keyword">uint8_t</span> *)bg_buffer);
+
+	BGD[group].free_blocks_count--;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-keyword">this</span>-&gt;bgd_block_span; ++i) {
+		write_block(<span class="hljs-keyword">this</span>, <span class="hljs-keyword">this</span>-&gt;bgd_offset + i, (<span class="hljs-keyword">uint8_t</span> *)((<span class="hljs-keyword">uintptr_t</span>)BGD + <span class="hljs-keyword">this</span>-&gt;block_size * i));
+	}
+
+	SB-&gt;free_blocks_count--;
+	rewrite_superblock(<span class="hljs-keyword">this</span>);
+
+	<span class="hljs-built_in">memset</span>(bg_buffer, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">this</span>-&gt;block_size);
+	write_block(<span class="hljs-keyword">this</span>, block_no, bg_buffer);
+
+	mutex_release(<span class="hljs-keyword">this</span>-&gt;mutex);
+
+	<span class="hljs-built_in">free</span>(bg_buffer);
+
+	<span class="hljs-keyword">return</span> block_no;
+
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-11" id="section-11"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>ext2-&gt;allocate_inode_block Allocate a block in an inode.</p>
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">inode</span>
+<span>Inode to operate on
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">inode_no</span>
+<span>Number of the inode (this is not part of the struct)
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">block</span>
+<span>Block within inode to allocate
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">allocate_inode_block</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">ext2_inodetable_t</span> * inode, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> inode_no, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> block)</span> </span>{
+	debug_print(NOTICE, <span class="hljs-string">"Allocating block #%d for inode #%d"</span>, block, inode_no);
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> block_no = allocate_block(<span class="hljs-keyword">this</span>);
+
+	<span class="hljs-keyword">if</span> (!block_no) <span class="hljs-keyword">return</span> E_NOSPACE;
+
+	set_block_number(<span class="hljs-keyword">this</span>, inode, inode_no, block, block_no);
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> t = (block + <span class="hljs-number">1</span>) * (<span class="hljs-keyword">this</span>-&gt;block_size / <span class="hljs-number">512</span>);
+	<span class="hljs-keyword">if</span> (inode-&gt;blocks &lt; t) {
+		debug_print(NOTICE, <span class="hljs-string">"Setting inode-&gt;blocks to %d = (%d fs blocks)"</span>, t, t / (<span class="hljs-keyword">this</span>-&gt;block_size / <span class="hljs-number">512</span>));
+		inode-&gt;blocks = t;
+	}
+	write_inode(<span class="hljs-keyword">this</span>, inode, inode_no);
+
+	<span class="hljs-keyword">return</span> E_SUCCESS;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-12" id="section-12"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>ext2-&gt;inode_read_block</p>
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">inode</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">no</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">block</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> <span class="hljs-title">inode_read_block</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">ext2_inodetable_t</span> * inode, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> block, <span class="hljs-keyword">uint8_t</span> * buf)</span> </span>{
+
+	<span class="hljs-keyword">if</span> (block &gt;= inode-&gt;blocks / (<span class="hljs-keyword">this</span>-&gt;block_size / <span class="hljs-number">512</span>)) {
+		<span class="hljs-built_in">memset</span>(buf, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">this</span>-&gt;block_size);
+		debug_print(WARNING, <span class="hljs-string">"Tried to read an invalid block. Asked for %d (0-indexed), but inode only has %d!"</span>, block, inode-&gt;blocks / (<span class="hljs-keyword">this</span>-&gt;block_size / <span class="hljs-number">512</span>));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> real_block = get_block_number(<span class="hljs-keyword">this</span>, inode, block);
+	read_block(<span class="hljs-keyword">this</span>, real_block, buf);
+
+	<span class="hljs-keyword">return</span> real_block;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-13" id="section-13"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>ext2-&gt;inode_write_block</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> <span class="hljs-title">inode_write_block</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">ext2_inodetable_t</span> * inode, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> inode_no, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> block, <span class="hljs-keyword">uint8_t</span> * buf)</span> </span>{
+	<span class="hljs-keyword">if</span> (block &gt;= inode-&gt;blocks / (<span class="hljs-keyword">this</span>-&gt;block_size / <span class="hljs-number">512</span>)) {
+		debug_print(WARNING, <span class="hljs-string">"Attempting to write beyond the existing allocated blocks for this inode."</span>);
+		debug_print(WARNING, <span class="hljs-string">"Inode %d, Block %d"</span>, inode_no, block);
+	}
+
+	debug_print(WARNING, <span class="hljs-string">"clearing and allocating up to required blocks (block=%d, %d)"</span>, block, inode-&gt;blocks);
+	<span class="hljs-keyword">char</span> * empty = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">while</span> (block &gt;= inode-&gt;blocks / (<span class="hljs-keyword">this</span>-&gt;block_size / <span class="hljs-number">512</span>)) {
+		allocate_inode_block(<span class="hljs-keyword">this</span>, inode, inode_no, inode-&gt;blocks / (<span class="hljs-keyword">this</span>-&gt;block_size / <span class="hljs-number">512</span>));
+		refresh_inode(<span class="hljs-keyword">this</span>, inode, inode_no);
+	}
+	<span class="hljs-keyword">if</span> (empty) <span class="hljs-built_in">free</span>(empty);
+	debug_print(WARNING, <span class="hljs-string">"... done"</span>);
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> real_block = get_block_number(<span class="hljs-keyword">this</span>, inode, block);
+	debug_print(WARNING, <span class="hljs-string">"Writing virtual block %d for inode %d maps to real block %d"</span>, block, inode_no, real_block);
+
+	write_block(<span class="hljs-keyword">this</span>, real_block, buf);
+	<span class="hljs-keyword">return</span> real_block;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-14" id="section-14"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>ext2-&gt;create_entry</p>
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">create_entry</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * parent, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name, <span class="hljs-keyword">uint32_t</span> inode)</span> </span>{
+	<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span> = (<span class="hljs-keyword">ext2_fs_t</span> *)parent-&gt;device;
+
+	<span class="hljs-keyword">ext2_inodetable_t</span> * pinode = read_inode(<span class="hljs-keyword">this</span>,parent-&gt;inode);
+	<span class="hljs-keyword">if</span> (((pinode-&gt;mode &amp; EXT2_S_IFDIR) == <span class="hljs-number">0</span>) || (name == <span class="hljs-literal">NULL</span>)) {
+		debug_print(WARNING, <span class="hljs-string">"Attempted to allocate an inode in a parent that was not a directory."</span>);
+		<span class="hljs-keyword">return</span> E_BADPARENT;
+	}
+
+	debug_print(WARNING, <span class="hljs-string">"Creating a directory entry for %s pointing to inode %d."</span>, name, inode);
+
+	<span class="hljs-comment">/* okay, how big is it... */</span>
+
+	debug_print(WARNING, <span class="hljs-string">"We need to append %zd bytes to the direcotry."</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">ext2_dir_t</span>) + <span class="hljs-built_in">strlen</span>(name));
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> rec_len = <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">ext2_dir_t</span>) + <span class="hljs-built_in">strlen</span>(name);
+	rec_len += (rec_len % <span class="hljs-number">4</span>) ? (<span class="hljs-number">4</span> - (rec_len % <span class="hljs-number">4</span>)) : <span class="hljs-number">0</span>;
+
+	debug_print(WARNING, <span class="hljs-string">"Our directory entry looks like this:"</span>);
+	debug_print(WARNING, <span class="hljs-string">"  inode     = %d"</span>, inode);
+	debug_print(WARNING, <span class="hljs-string">"  rec_len   = %d"</span>, rec_len);
+	debug_print(WARNING, <span class="hljs-string">"  name_len  = %zd"</span>, <span class="hljs-built_in">strlen</span>(name));
+	debug_print(WARNING, <span class="hljs-string">"  file_type = %d"</span>, <span class="hljs-number">0</span>);
+	debug_print(WARNING, <span class="hljs-string">"  name      = %s"</span>, name);
+
+	debug_print(WARNING, <span class="hljs-string">"The inode size is marked as: %d"</span>, pinode-&gt;<span class="hljs-built_in">size</span>);
+	debug_print(WARNING, <span class="hljs-string">"Block size is %d"</span>, <span class="hljs-keyword">this</span>-&gt;block_size);
+
+	<span class="hljs-keyword">uint8_t</span> * block = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+	<span class="hljs-keyword">uint8_t</span> block_nr = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint32_t</span> dir_offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint32_t</span> total_offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> modify_or_replace = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">ext2_dir_t</span> *previous;
+
+	inode_read_block(<span class="hljs-keyword">this</span>, pinode, block_nr, block);
+	<span class="hljs-keyword">while</span> (total_offset &lt; pinode-&gt;<span class="hljs-built_in">size</span>) {
+		<span class="hljs-keyword">if</span> (dir_offset &gt;= <span class="hljs-keyword">this</span>-&gt;block_size) {
+			block_nr++;
+			dir_offset -= <span class="hljs-keyword">this</span>-&gt;block_size;
+			inode_read_block(<span class="hljs-keyword">this</span>, pinode, block_nr, block);
+		}
+		<span class="hljs-keyword">ext2_dir_t</span> *d_ent = (<span class="hljs-keyword">ext2_dir_t</span> *)((<span class="hljs-keyword">uintptr_t</span>)block + dir_offset);
+
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> sreclen = d_ent-&gt;name_len + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">ext2_dir_t</span>);
+		sreclen += (sreclen % <span class="hljs-number">4</span>) ? (<span class="hljs-number">4</span> - (sreclen % <span class="hljs-number">4</span>)) : <span class="hljs-number">0</span>;
+
+		{
+			<span class="hljs-keyword">char</span> f[d_ent-&gt;name_len+<span class="hljs-number">1</span>];
+			<span class="hljs-built_in">memcpy</span>(f, d_ent-&gt;name, d_ent-&gt;name_len);
+			f[d_ent-&gt;name_len] = <span class="hljs-number">0</span>;
+			debug_print(WARNING, <span class="hljs-string">" * file: %s"</span>, f);
+		}
+		debug_print(WARNING, <span class="hljs-string">"   rec_len: %d"</span>, d_ent-&gt;rec_len);
+		debug_print(WARNING, <span class="hljs-string">"   type: %d"</span>, d_ent-&gt;file_type);
+		debug_print(WARNING, <span class="hljs-string">"   namel: %d"</span>, d_ent-&gt;name_len);
+		debug_print(WARNING, <span class="hljs-string">"   inode: %d"</span>, d_ent-&gt;inode);
+
+		<span class="hljs-keyword">if</span> (d_ent-&gt;rec_len != sreclen &amp;&amp; total_offset + d_ent-&gt;rec_len == pinode-&gt;<span class="hljs-built_in">size</span>) {
+			debug_print(WARNING, <span class="hljs-string">"  - should be %d, but instead points to end of block"</span>, sreclen);
+			debug_print(WARNING, <span class="hljs-string">"  - we've hit the end, should change this pointer"</span>);
+
+			dir_offset += sreclen;
+			total_offset += sreclen;
+
+			modify_or_replace = <span class="hljs-number">1</span>; <span class="hljs-comment">/* Modify */</span>
+			previous = d_ent;
+
+			<span class="hljs-keyword">break</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (d_ent-&gt;inode == <span class="hljs-number">0</span>) {
+			modify_or_replace = <span class="hljs-number">2</span>; <span class="hljs-comment">/* Replace */</span>
+		}
+
+		dir_offset += d_ent-&gt;rec_len;
+		total_offset += d_ent-&gt;rec_len;
+	}
+
+	<span class="hljs-keyword">if</span> (!modify_or_replace) {
+		debug_print(WARNING, <span class="hljs-string">"That's odd, this shouldn't have happened, we made it all the way here without hitting our two end conditions?"</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (modify_or_replace == <span class="hljs-number">1</span>) {
+		debug_print(WARNING, <span class="hljs-string">"The last node in the list is a real node, we need to modify it."</span>);
+
+		<span class="hljs-keyword">if</span> (dir_offset + rec_len &gt;= <span class="hljs-keyword">this</span>-&gt;block_size) {
+			block_nr++;
+			allocate_inode_block(<span class="hljs-keyword">this</span>, pinode, parent-&gt;inode, block_nr);
+			<span class="hljs-built_in">memset</span>(block, <span class="hljs-number">0</span>, <span class="hljs-keyword">this</span>-&gt;block_size);
+			dir_offset = <span class="hljs-number">0</span>;
+			pinode-&gt;<span class="hljs-built_in">size</span> += <span class="hljs-keyword">this</span>-&gt;block_size;
+			write_inode(<span class="hljs-keyword">this</span>, pinode, parent-&gt;inode);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> sreclen = previous-&gt;name_len + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">ext2_dir_t</span>);
+			sreclen += (sreclen % <span class="hljs-number">4</span>) ? (<span class="hljs-number">4</span> - (sreclen % <span class="hljs-number">4</span>)) : <span class="hljs-number">0</span>;
+			previous-&gt;rec_len = sreclen;
+			debug_print(WARNING, <span class="hljs-string">"Set previous node rec_len to %d"</span>, sreclen);
+		}
+
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (modify_or_replace == <span class="hljs-number">2</span>) {
+		debug_print(WARNING, <span class="hljs-string">"The last node in the list is a fake node, we'll replace it."</span>);
+	}
+
+	debug_print(WARNING, <span class="hljs-string">" total_offset = 0x%x"</span>, total_offset);
+	debug_print(WARNING, <span class="hljs-string">"   dir_offset = 0x%x"</span>, dir_offset);
+	<span class="hljs-keyword">ext2_dir_t</span> *d_ent = (<span class="hljs-keyword">ext2_dir_t</span> *)((<span class="hljs-keyword">uintptr_t</span>)block + dir_offset);
+
+	d_ent-&gt;inode     = inode;
+	d_ent-&gt;rec_len   = <span class="hljs-keyword">this</span>-&gt;block_size - dir_offset;
+	d_ent-&gt;name_len  = <span class="hljs-built_in">strlen</span>(name);
+	d_ent-&gt;file_type = <span class="hljs-number">0</span>; <span class="hljs-comment">/* This is unused */</span>
+	<span class="hljs-built_in">memcpy</span>(d_ent-&gt;name, name, <span class="hljs-built_in">strlen</span>(name));
+
+	inode_write_block(<span class="hljs-keyword">this</span>, pinode, parent-&gt;inode, block_nr, block);
+
+	<span class="hljs-built_in">free</span>(block);
+	<span class="hljs-built_in">free</span>(pinode);
+
+
+	<span class="hljs-keyword">return</span> E_NOSPACE;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> <span class="hljs-title">allocate_inode</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> node_no     = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint32_t</span> node_offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint32_t</span> group       = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint8_t</span> * bg_buffer  = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+
+	mutex_acquire(<span class="hljs-keyword">this</span>-&gt;mutex);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; BGDS; ++i) {
+		<span class="hljs-keyword">if</span> (BGD[i].free_inodes_count &gt; <span class="hljs-number">0</span>) {
+			debug_print(NOTICE, <span class="hljs-string">"Group %d has %d free inodes."</span>, i, BGD[i].free_inodes_count);
+			read_block(<span class="hljs-keyword">this</span>, BGD[i].inode_bitmap, (<span class="hljs-keyword">uint8_t</span> *)bg_buffer);
+
+			<span class="hljs-comment">/* Sorry for the weird loops */</span>
+			<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+				<span class="hljs-keyword">while</span> (BLOCKBIT(node_offset)) {
+					node_offset++;
+					<span class="hljs-keyword">if</span> (node_offset == <span class="hljs-keyword">this</span>-&gt;inodes_per_group) {
+						<span class="hljs-keyword">goto</span> _next_block;
+					}
+				}
+				node_no = node_offset + i * <span class="hljs-keyword">this</span>-&gt;inodes_per_group + <span class="hljs-number">1</span>;
+				<span class="hljs-comment">/* Is this a reserved inode? */</span>
+				<span class="hljs-keyword">if</span> (node_no &lt;= <span class="hljs-number">10</span>) {
+					node_offset++;
+					<span class="hljs-keyword">if</span> (node_offset == <span class="hljs-keyword">this</span>-&gt;inodes_per_group) {
+						<span class="hljs-keyword">goto</span> _next_block;
+					}
+					<span class="hljs-keyword">continue</span>;
+				}
+				<span class="hljs-keyword">break</span>;
+			}
+			<span class="hljs-keyword">if</span> (node_offset == <span class="hljs-keyword">this</span>-&gt;inodes_per_group) {
+				_next_block:
+				node_offset = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">continue</span>;
+			}
+			group = i;
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+	<span class="hljs-keyword">if</span> (!node_no) {
+		mutex_release(<span class="hljs-keyword">this</span>-&gt;mutex);
+		dprintf(<span class="hljs-string">"ext2: Out of inodes? node_no = 0\n"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	BLOCKBYTE(node_offset) |= SETBIT(node_offset);
+
+	write_block(<span class="hljs-keyword">this</span>, BGD[group].inode_bitmap, (<span class="hljs-keyword">uint8_t</span> *)bg_buffer);
+	<span class="hljs-built_in">free</span>(bg_buffer);
+
+	BGD[group].free_inodes_count--;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-keyword">this</span>-&gt;bgd_block_span; ++i) {
+		write_block(<span class="hljs-keyword">this</span>, <span class="hljs-keyword">this</span>-&gt;bgd_offset + i, (<span class="hljs-keyword">uint8_t</span> *)((<span class="hljs-keyword">uintptr_t</span>)BGD + <span class="hljs-keyword">this</span>-&gt;block_size * i));
+	}
+
+	SB-&gt;free_inodes_count--;
+	rewrite_superblock(<span class="hljs-keyword">this</span>);
+
+	mutex_release(<span class="hljs-keyword">this</span>-&gt;mutex);
+
+	<span class="hljs-keyword">return</span> node_no;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">mkdir_ext2</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * parent, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name, <span class="hljs-keyword">mode_t</span> permission, <span class="hljs-keyword">fs_node_t</span> **out)</span> </span>{
+	<span class="hljs-keyword">if</span> (!name) <span class="hljs-keyword">return</span> -EINVAL;
+
+	<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span> = parent-&gt;device;
+	<span class="hljs-keyword">if</span> (!(<span class="hljs-keyword">this</span>-&gt;flags &amp; EXT2_FLAG_READWRITE)) <span class="hljs-keyword">return</span> -EROFS;
+
+	<span class="hljs-comment">/* first off, check if it exists */</span>
+	<span class="hljs-keyword">fs_node_t</span> * check = finddir_ext2(parent, name);
+	<span class="hljs-keyword">if</span> (check) {
+		debug_print(WARNING, <span class="hljs-string">"A file by this name already exists: %s"</span>, name);
+		<span class="hljs-built_in">free</span>(check);
+		<span class="hljs-keyword">return</span> -EEXIST;
+	}
+
+	<span class="hljs-keyword">if</span> (!has_permission(parent, W_OK|X_OK)) {
+		<span class="hljs-keyword">return</span> -EACCES;
+	}
+
+	<span class="hljs-comment">/* Allocate an inode for it */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> inode_no = allocate_inode(<span class="hljs-keyword">this</span>);
+	<span class="hljs-keyword">ext2_inodetable_t</span> * inode = read_inode(<span class="hljs-keyword">this</span>,inode_no);
+
+	<span class="hljs-comment">/* Set the access and creation times to now */</span>
+	inode-&gt;atime = now();
+	inode-&gt;ctime = inode-&gt;atime;
+	inode-&gt;mtime = inode-&gt;atime;
+	inode-&gt;dtime = <span class="hljs-number">0</span>; <span class="hljs-comment">/* This inode was never deleted */</span>
+
+	<span class="hljs-comment">/* Empty the file */</span>
+	<span class="hljs-built_in">memset</span>(inode-&gt;block, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(inode-&gt;block));
+	inode-&gt;blocks = <span class="hljs-number">0</span>;
+	inode-&gt;<span class="hljs-built_in">size</span> = <span class="hljs-number">0</span>; <span class="hljs-comment">/* empty */</span>
+
+	<span class="hljs-comment">/* Assign it to root */</span>
+	inode-&gt;uid = this_core-&gt;current_process-&gt;user;
+	inode-&gt;gid = this_core-&gt;current_process-&gt;user_group;
+
+	<span class="hljs-comment">/* misc */</span>
+	inode-&gt;faddr = <span class="hljs-number">0</span>;
+	inode-&gt;links_count = <span class="hljs-number">2</span>; <span class="hljs-comment">/* There's the parent's pointer to us, and our pointer to us. */</span>
+	inode-&gt;flags = <span class="hljs-number">0</span>;
+	inode-&gt;osd1 = <span class="hljs-number">0</span>;
+	inode-&gt;generation = <span class="hljs-number">0</span>;
+	inode-&gt;file_acl = <span class="hljs-number">0</span>;
+	inode-&gt;dir_acl = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* File mode */</span>
+	inode-&gt;mode = EXT2_S_IFDIR;
+	inode-&gt;mode |= <span class="hljs-number">0xFFF</span> &amp; permission;
+
+	<span class="hljs-comment">/* Write the osd blocks to 0 */</span>
+	<span class="hljs-built_in">memset</span>(inode-&gt;osd2, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(inode-&gt;osd2));
+
+	<span class="hljs-comment">/* Write out inode changes */</span>
+	write_inode(<span class="hljs-keyword">this</span>, inode, inode_no);
+
+	<span class="hljs-comment">/* Now append the entry to the parent */</span>
+	create_entry(parent, name, inode_no);
+
+	inode-&gt;<span class="hljs-built_in">size</span> = <span class="hljs-keyword">this</span>-&gt;block_size;
+	write_inode(<span class="hljs-keyword">this</span>, inode, inode_no);
+
+	<span class="hljs-keyword">uint8_t</span> * tmp = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+	<span class="hljs-keyword">ext2_dir_t</span> * t = <span class="hljs-built_in">malloc</span>(<span class="hljs-number">12</span>);
+	<span class="hljs-built_in">memset</span>(t, <span class="hljs-number">0</span>, <span class="hljs-number">12</span>);
+	t-&gt;inode = inode_no;
+	t-&gt;rec_len = <span class="hljs-number">12</span>;
+	t-&gt;name_len = <span class="hljs-number">1</span>;
+	t-&gt;name[<span class="hljs-number">0</span>] = <span class="hljs-string">'.'</span>;
+	<span class="hljs-built_in">memcpy</span>(&amp;tmp[<span class="hljs-number">0</span>], t, <span class="hljs-number">12</span>);
+	t-&gt;inode = parent-&gt;inode;
+	t-&gt;name_len = <span class="hljs-number">2</span>;
+	t-&gt;name[<span class="hljs-number">1</span>] = <span class="hljs-string">'.'</span>;
+	t-&gt;rec_len = <span class="hljs-keyword">this</span>-&gt;block_size - <span class="hljs-number">12</span>;
+	<span class="hljs-built_in">memcpy</span>(&amp;tmp[<span class="hljs-number">12</span>], t, <span class="hljs-number">12</span>);
+	<span class="hljs-built_in">free</span>(t);
+
+	inode_write_block(<span class="hljs-keyword">this</span>, inode, inode_no, <span class="hljs-number">0</span>, tmp);
+
+	<span class="hljs-keyword">if</span> (out) {
+		<span class="hljs-keyword">ext2_dir_t</span> * fake = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">ext2_dir_t</span>) + <span class="hljs-built_in">strlen</span>(name));
+		fake-&gt;inode = inode_no;
+		fake-&gt;name_len = <span class="hljs-built_in">strlen</span>(name);
+
+		<span class="hljs-built_in">memcpy</span>(fake-&gt;name, name, fake-&gt;name_len);
+		<span class="hljs-keyword">fs_node_t</span> * _out = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+		node_from_file(<span class="hljs-keyword">this</span>, inode, fake, _out);
+		*out = _out;
+
+		<span class="hljs-built_in">free</span>(fake);
+	}
+
+	<span class="hljs-built_in">free</span>(inode);
+	<span class="hljs-built_in">free</span>(tmp);
+
+	<span class="hljs-comment">/* Update parent link count */</span>
+	<span class="hljs-keyword">ext2_inodetable_t</span> * pinode = read_inode(<span class="hljs-keyword">this</span>, parent-&gt;inode);
+	pinode-&gt;links_count++;
+	write_inode(<span class="hljs-keyword">this</span>, pinode, parent-&gt;inode);
+	<span class="hljs-built_in">free</span>(pinode);
+
+	<span class="hljs-comment">/* Update directory count in block group descriptor */</span>
+	<span class="hljs-keyword">uint32_t</span> group = inode_no / <span class="hljs-keyword">this</span>-&gt;inodes_per_group;
+	BGD[group].used_dirs_count++;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-keyword">this</span>-&gt;bgd_block_span; ++i) {
+		write_block(<span class="hljs-keyword">this</span>, <span class="hljs-keyword">this</span>-&gt;bgd_offset + i, (<span class="hljs-keyword">uint8_t</span> *)((<span class="hljs-keyword">uintptr_t</span>)BGD + <span class="hljs-keyword">this</span>-&gt;block_size * i));
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">create_ext2</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * parent, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name, <span class="hljs-keyword">mode_t</span> permission, <span class="hljs-keyword">fs_node_t</span> ** out)</span> </span>{
+	<span class="hljs-keyword">if</span> (!name) <span class="hljs-keyword">return</span> -EINVAL;
+
+	<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span> = parent-&gt;device;
+	<span class="hljs-keyword">if</span> (!(<span class="hljs-keyword">this</span>-&gt;flags &amp; EXT2_FLAG_READWRITE)) <span class="hljs-keyword">return</span> -EROFS;
+
+	<span class="hljs-comment">/* first off, check if it exists */</span>
+	<span class="hljs-keyword">fs_node_t</span> * check = finddir_ext2(parent, name);
+	<span class="hljs-keyword">if</span> (check) {
+		debug_print(WARNING, <span class="hljs-string">"A file by this name already exists: %s"</span>, name);
+		<span class="hljs-built_in">free</span>(check);
+		<span class="hljs-keyword">return</span> -EEXIST;
+	}
+
+	<span class="hljs-comment">/* Allocate an inode for it */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> inode_no = allocate_inode(<span class="hljs-keyword">this</span>);
+	<span class="hljs-keyword">ext2_inodetable_t</span> * inode = read_inode(<span class="hljs-keyword">this</span>,inode_no);
+
+	<span class="hljs-comment">/* Set the access and creation times to now */</span>
+	inode-&gt;atime = now();
+	inode-&gt;ctime = inode-&gt;atime;
+	inode-&gt;mtime = inode-&gt;atime;
+	inode-&gt;dtime = <span class="hljs-number">0</span>; <span class="hljs-comment">/* This inode was never deleted */</span>
+
+	<span class="hljs-comment">/* Empty the file */</span>
+	<span class="hljs-built_in">memset</span>(inode-&gt;block, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(inode-&gt;block));
+	inode-&gt;blocks = <span class="hljs-number">0</span>;
+	inode-&gt;<span class="hljs-built_in">size</span> = <span class="hljs-number">0</span>; <span class="hljs-comment">/* empty */</span>
+
+	inode-&gt;uid = this_core-&gt;current_process-&gt;user;
+	inode-&gt;gid = this_core-&gt;current_process-&gt;user_group;
+
+	<span class="hljs-comment">/* misc */</span>
+	inode-&gt;faddr = <span class="hljs-number">0</span>;
+	inode-&gt;links_count = <span class="hljs-number">1</span>; <span class="hljs-comment">/* The one we're about to create. */</span>
+	inode-&gt;flags = <span class="hljs-number">0</span>;
+	inode-&gt;osd1 = <span class="hljs-number">0</span>;
+	inode-&gt;generation = <span class="hljs-number">0</span>;
+	inode-&gt;file_acl = <span class="hljs-number">0</span>;
+	inode-&gt;dir_acl = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* File mode */</span>
+	<span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> Use the mask from `permission` */</span>
+	inode-&gt;mode = EXT2_S_IFREG;
+	inode-&gt;mode |= <span class="hljs-number">0xFFF</span> &amp; permission;
+
+	<span class="hljs-comment">/* Write the osd blocks to 0 */</span>
+	<span class="hljs-built_in">memset</span>(inode-&gt;osd2, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(inode-&gt;osd2));
+
+	<span class="hljs-comment">/* Write out inode changes */</span>
+	write_inode(<span class="hljs-keyword">this</span>, inode, inode_no);
+
+	<span class="hljs-comment">/* Now append the entry to the parent */</span>
+	create_entry(parent, name, inode_no);
+
+	<span class="hljs-keyword">ext2_dir_t</span> * fake = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">ext2_dir_t</span>) + <span class="hljs-built_in">strlen</span>(name));
+	fake-&gt;inode = inode_no;
+	fake-&gt;name_len = <span class="hljs-built_in">strlen</span>(name);
+	<span class="hljs-built_in">memcpy</span>(fake-&gt;name, name, fake-&gt;name_len);
+
+	<span class="hljs-keyword">fs_node_t</span> * _out = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	node_from_file(<span class="hljs-keyword">this</span>, inode, fake, _out);
+	*out = _out;
+
+	<span class="hljs-built_in">free</span>(fake);
+	<span class="hljs-built_in">free</span>(inode);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">chmod_ext2</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">mode_t</span> mode)</span> </span>{
+	<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span> = node-&gt;device;
+	<span class="hljs-keyword">if</span> (!(<span class="hljs-keyword">this</span>-&gt;flags &amp; EXT2_FLAG_READWRITE)) <span class="hljs-keyword">return</span> -EROFS;
+
+	<span class="hljs-keyword">ext2_inodetable_t</span> * inode = read_inode(<span class="hljs-keyword">this</span>,node-&gt;inode);
+
+	inode-&gt;mode = (inode-&gt;mode &amp; <span class="hljs-number">0xFFFFF000</span>) | mode;
+
+	write_inode(<span class="hljs-keyword">this</span>, inode, node-&gt;inode);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-15" id="section-15"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>direntry_ext2</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ext2_dir_t</span> * <span class="hljs-title">direntry_ext2</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">ext2_inodetable_t</span> * inode, <span class="hljs-keyword">uint32_t</span> no, <span class="hljs-keyword">uint32_t</span> index)</span> </span>{
+	<span class="hljs-keyword">uint8_t</span> *block = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+	<span class="hljs-keyword">uint8_t</span> block_nr = <span class="hljs-number">0</span>;
+	inode_read_block(<span class="hljs-keyword">this</span>, inode, block_nr, block);
+	<span class="hljs-keyword">uint32_t</span> dir_offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint32_t</span> total_offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint32_t</span> dir_index = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">while</span> (total_offset &lt; inode-&gt;<span class="hljs-built_in">size</span> &amp;&amp; dir_index &lt;= index) {
+		<span class="hljs-keyword">ext2_dir_t</span> *d_ent = (<span class="hljs-keyword">ext2_dir_t</span> *)((<span class="hljs-keyword">uintptr_t</span>)block + dir_offset);
+
+		<span class="hljs-keyword">if</span> (d_ent-&gt;inode != <span class="hljs-number">0</span> &amp;&amp; dir_index == index) {
+			<span class="hljs-keyword">ext2_dir_t</span> *out = <span class="hljs-built_in">malloc</span>(d_ent-&gt;rec_len);
+			<span class="hljs-built_in">memcpy</span>(out, d_ent, d_ent-&gt;rec_len);
+			<span class="hljs-built_in">free</span>(block);
+			<span class="hljs-keyword">return</span> out;
+		}
+
+		dir_offset += d_ent-&gt;rec_len;
+		total_offset += d_ent-&gt;rec_len;
+
+		<span class="hljs-keyword">if</span> (d_ent-&gt;inode) {
+			dir_index++;
+		}
+
+		<span class="hljs-keyword">if</span> (dir_offset &gt;= <span class="hljs-keyword">this</span>-&gt;block_size) {
+			block_nr++;
+			dir_offset -= <span class="hljs-keyword">this</span>-&gt;block_size;
+			inode_read_block(<span class="hljs-keyword">this</span>, inode, block_nr, block);
+		}
+	}
+
+	<span class="hljs-built_in">free</span>(block);
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-16" id="section-16"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>finddir_ext2</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">finddir_ext2</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *name)</span> </span>{
+
+	<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span> = (<span class="hljs-keyword">ext2_fs_t</span> *)node-&gt;device;
+
+	<span class="hljs-keyword">ext2_inodetable_t</span> *inode = read_inode(<span class="hljs-keyword">this</span>,node-&gt;inode);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-17" id="section-17"></a>
+</div>
+<p>assert(inode-&gt;mode &amp; EXT2_S_IFDIR);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">uint8_t</span> * block = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+	<span class="hljs-keyword">ext2_dir_t</span> *direntry = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">uint8_t</span> block_nr = <span class="hljs-number">0</span>;
+	inode_read_block(<span class="hljs-keyword">this</span>, inode, block_nr, block);
+	<span class="hljs-keyword">uint32_t</span> dir_offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint32_t</span> total_offset = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">while</span> (total_offset &lt; inode-&gt;<span class="hljs-built_in">size</span>) {
+		<span class="hljs-keyword">if</span> (dir_offset &gt;= <span class="hljs-keyword">this</span>-&gt;block_size) {
+			block_nr++;
+			dir_offset -= <span class="hljs-keyword">this</span>-&gt;block_size;
+			inode_read_block(<span class="hljs-keyword">this</span>, inode, block_nr, block);
+		}
+		<span class="hljs-keyword">ext2_dir_t</span> *d_ent = (<span class="hljs-keyword">ext2_dir_t</span> *)((<span class="hljs-keyword">uintptr_t</span>)block + dir_offset);
+
+		<span class="hljs-keyword">if</span> (d_ent-&gt;inode == <span class="hljs-number">0</span> || <span class="hljs-built_in">strlen</span>(name) != d_ent-&gt;name_len) {
+			dir_offset += d_ent-&gt;rec_len;
+			total_offset += d_ent-&gt;rec_len;
+
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-keyword">char</span> *dname = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span>) * (d_ent-&gt;name_len + <span class="hljs-number">1</span>));
+		<span class="hljs-built_in">memcpy</span>(dname, &amp;(d_ent-&gt;name), d_ent-&gt;name_len);
+		dname[d_ent-&gt;name_len] = <span class="hljs-string">'\0'</span>;
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(dname, name)) {
+			<span class="hljs-built_in">free</span>(dname);
+			direntry = <span class="hljs-built_in">malloc</span>(d_ent-&gt;rec_len);
+			<span class="hljs-built_in">memcpy</span>(direntry, d_ent, d_ent-&gt;rec_len);
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-built_in">free</span>(dname);
+
+		dir_offset += d_ent-&gt;rec_len;
+		total_offset += d_ent-&gt;rec_len;
+	}
+	<span class="hljs-built_in">free</span>(inode);
+	<span class="hljs-keyword">if</span> (!direntry) {
+		<span class="hljs-built_in">free</span>(block);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+	<span class="hljs-keyword">fs_node_t</span> *outnode = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">memset</span>(outnode, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+
+	inode = read_inode(<span class="hljs-keyword">this</span>, direntry-&gt;inode);
+
+	<span class="hljs-keyword">if</span> (!node_from_file(<span class="hljs-keyword">this</span>, inode, direntry, outnode)) {
+		debug_print(CRITICAL, <span class="hljs-string">"Oh dear. Couldn't allocate the outnode?"</span>);
+	}
+
+	<span class="hljs-built_in">free</span>(direntry);
+	<span class="hljs-built_in">free</span>(inode);
+	<span class="hljs-built_in">free</span>(block);
+	<span class="hljs-keyword">return</span> outnode;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">unlink_ext2</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-comment">/* XXX this is a very bad implementation */</span>
+	<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span> = (<span class="hljs-keyword">ext2_fs_t</span> *)node-&gt;device;
+	<span class="hljs-keyword">if</span> (!(<span class="hljs-keyword">this</span>-&gt;flags &amp; EXT2_FLAG_READWRITE)) <span class="hljs-keyword">return</span> -EROFS;
+
+	<span class="hljs-keyword">ext2_inodetable_t</span> *inode = read_inode(<span class="hljs-keyword">this</span>,node-&gt;inode);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-18" id="section-18"></a>
+</div>
+<p>assert(inode-&gt;mode &amp; EXT2_S_IFDIR);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">uint8_t</span> * block = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+	<span class="hljs-keyword">ext2_dir_t</span> *direntry = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">uint8_t</span> block_nr = <span class="hljs-number">0</span>;
+	inode_read_block(<span class="hljs-keyword">this</span>, inode, block_nr, block);
+	<span class="hljs-keyword">uint32_t</span> dir_offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint32_t</span> total_offset = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">while</span> (total_offset &lt; inode-&gt;<span class="hljs-built_in">size</span>) {
+		<span class="hljs-keyword">if</span> (dir_offset &gt;= <span class="hljs-keyword">this</span>-&gt;block_size) {
+			block_nr++;
+			dir_offset -= <span class="hljs-keyword">this</span>-&gt;block_size;
+			inode_read_block(<span class="hljs-keyword">this</span>, inode, block_nr, block);
+		}
+		<span class="hljs-keyword">ext2_dir_t</span> *d_ent = (<span class="hljs-keyword">ext2_dir_t</span> *)((<span class="hljs-keyword">uintptr_t</span>)block + dir_offset);
+
+		<span class="hljs-keyword">if</span> (d_ent-&gt;inode == <span class="hljs-number">0</span> || <span class="hljs-built_in">strlen</span>(name) != d_ent-&gt;name_len) {
+			dir_offset += d_ent-&gt;rec_len;
+			total_offset += d_ent-&gt;rec_len;
+
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-keyword">char</span> *dname = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span>) * (d_ent-&gt;name_len + <span class="hljs-number">1</span>));
+		<span class="hljs-built_in">memcpy</span>(dname, &amp;(d_ent-&gt;name), d_ent-&gt;name_len);
+		dname[d_ent-&gt;name_len] = <span class="hljs-string">'\0'</span>;
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(dname, name)) {
+			<span class="hljs-built_in">free</span>(dname);
+			direntry = d_ent;
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-built_in">free</span>(dname);
+
+		dir_offset += d_ent-&gt;rec_len;
+		total_offset += d_ent-&gt;rec_len;
+	}
+	<span class="hljs-keyword">if</span> (!direntry) {
+		<span class="hljs-built_in">free</span>(inode);
+		<span class="hljs-built_in">free</span>(block);
+		<span class="hljs-keyword">return</span> -ENOENT;
+	}
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> new_inode = direntry-&gt;inode;
+	direntry-&gt;inode = <span class="hljs-number">0</span>;
+	inode_write_block(<span class="hljs-keyword">this</span>, inode, node-&gt;inode, block_nr, block);
+	<span class="hljs-built_in">free</span>(inode);
+	<span class="hljs-built_in">free</span>(block);
+
+	inode = read_inode(<span class="hljs-keyword">this</span>, new_inode);
+
+	<span class="hljs-keyword">if</span> (inode-&gt;links_count == <span class="hljs-number">1</span>) {
+		dprintf(<span class="hljs-string">"ext2: TODO: unlinking '%s' (inode=%u) which now has no links; should delete\n"</span>,
+			name, new_inode);
+	}
+
+	<span class="hljs-keyword">if</span> (inode-&gt;links_count &gt; <span class="hljs-number">0</span>) {
+		inode-&gt;links_count--;
+		write_inode(<span class="hljs-keyword">this</span>, inode, new_inode);
+	}
+
+	<span class="hljs-built_in">free</span>(inode);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">refresh_inode</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">ext2_inodetable_t</span> * inodet,  <span class="hljs-keyword">size_t</span> inode)</span> </span>{
+	<span class="hljs-keyword">if</span> (!inode) {
+		dprintf(<span class="hljs-string">"ext2: Attempt to read inode 0\n"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+	inode--;
+
+	<span class="hljs-keyword">uint32_t</span> group = inode / <span class="hljs-keyword">this</span>-&gt;inodes_per_group;
+	<span class="hljs-keyword">if</span> (group &gt; BGDS) {
+		<span class="hljs-keyword">return</span>;
+	}
+	<span class="hljs-keyword">uint32_t</span> inode_table_block = BGD[group].inode_table;
+	inode -= group * <span class="hljs-keyword">this</span>-&gt;inodes_per_group;	<span class="hljs-comment">// adjust index within group</span>
+	<span class="hljs-keyword">uint32_t</span> block_offset		= (inode * <span class="hljs-keyword">this</span>-&gt;inode_size) / <span class="hljs-keyword">this</span>-&gt;block_size;
+	<span class="hljs-keyword">uint32_t</span> offset_in_block    = inode - block_offset * (<span class="hljs-keyword">this</span>-&gt;block_size / <span class="hljs-keyword">this</span>-&gt;inode_size);
+
+	<span class="hljs-keyword">uint8_t</span> * buf = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+
+	read_block(<span class="hljs-keyword">this</span>, inode_table_block + block_offset, buf);
+
+	<span class="hljs-keyword">ext2_inodetable_t</span> *inodes = (<span class="hljs-keyword">ext2_inodetable_t</span> *)buf;
+
+	<span class="hljs-built_in">memcpy</span>(inodet, (<span class="hljs-keyword">uint8_t</span> *)((<span class="hljs-keyword">uintptr_t</span>)inodes + offset_in_block * <span class="hljs-keyword">this</span>-&gt;inode_size), <span class="hljs-keyword">this</span>-&gt;inode_size);
+
+	<span class="hljs-built_in">free</span>(buf);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-19" id="section-19"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>read_inode</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ext2_inodetable_t</span> * <span class="hljs-title">read_inode</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">size_t</span> inode)</span> </span>{
+	<span class="hljs-keyword">ext2_inodetable_t</span> *inodet   = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;inode_size);
+	refresh_inode(<span class="hljs-keyword">this</span>, inodet, inode);
+	<span class="hljs-keyword">return</span> inodet;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">read_ext2</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span> = (<span class="hljs-keyword">ext2_fs_t</span> *)node-&gt;device;
+	<span class="hljs-keyword">ext2_inodetable_t</span> * inode = read_inode(<span class="hljs-keyword">this</span>, node-&gt;inode);
+	<span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">end</span>;
+	<span class="hljs-keyword">if</span> (inode-&gt;<span class="hljs-built_in">size</span> == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (offset + <span class="hljs-built_in">size</span> &gt; inode-&gt;<span class="hljs-built_in">size</span>) {
+		<span class="hljs-built_in">end</span> = inode-&gt;<span class="hljs-built_in">size</span>;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">end</span> = offset + <span class="hljs-built_in">size</span>;
+	}
+	<span class="hljs-keyword">uint32_t</span> start_block  = offset / <span class="hljs-keyword">this</span>-&gt;block_size;
+	<span class="hljs-keyword">uint32_t</span> end_block    = <span class="hljs-built_in">end</span> / <span class="hljs-keyword">this</span>-&gt;block_size;
+	<span class="hljs-keyword">uint32_t</span> end_size     = <span class="hljs-built_in">end</span> - end_block * <span class="hljs-keyword">this</span>-&gt;block_size;
+	<span class="hljs-keyword">uint32_t</span> size_to_read = <span class="hljs-built_in">end</span> - offset;
+
+	<span class="hljs-keyword">uint8_t</span> * buf = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+	<span class="hljs-keyword">if</span> (start_block == end_block) {
+		inode_read_block(<span class="hljs-keyword">this</span>, inode, start_block, buf);
+		<span class="hljs-built_in">memcpy</span>(<span class="hljs-built_in">buffer</span>, (<span class="hljs-keyword">uint8_t</span> *)(((<span class="hljs-keyword">uintptr_t</span>)buf) + ((<span class="hljs-keyword">uintptr_t</span>)offset % <span class="hljs-keyword">this</span>-&gt;block_size)), size_to_read);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">uint32_t</span> block_offset;
+		<span class="hljs-keyword">uint32_t</span> blocks_read = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">for</span> (block_offset = start_block; block_offset &lt; end_block; block_offset++, blocks_read++) {
+			<span class="hljs-keyword">if</span> (block_offset == start_block) {
+				inode_read_block(<span class="hljs-keyword">this</span>, inode, block_offset, buf);
+				<span class="hljs-built_in">memcpy</span>(<span class="hljs-built_in">buffer</span>, (<span class="hljs-keyword">uint8_t</span> *)(((<span class="hljs-keyword">uintptr_t</span>)buf) + ((<span class="hljs-keyword">uintptr_t</span>)offset % <span class="hljs-keyword">this</span>-&gt;block_size)), <span class="hljs-keyword">this</span>-&gt;block_size - (offset % <span class="hljs-keyword">this</span>-&gt;block_size));
+			} <span class="hljs-keyword">else</span> {
+				inode_read_block(<span class="hljs-keyword">this</span>, inode, block_offset, buf);
+				<span class="hljs-built_in">memcpy</span>(<span class="hljs-built_in">buffer</span> + <span class="hljs-keyword">this</span>-&gt;block_size * blocks_read - (offset % <span class="hljs-keyword">this</span>-&gt;block_size), buf, <span class="hljs-keyword">this</span>-&gt;block_size);
+			}
+		}
+		<span class="hljs-keyword">if</span> (end_size) {
+			inode_read_block(<span class="hljs-keyword">this</span>, inode, end_block, buf);
+			<span class="hljs-built_in">memcpy</span>(<span class="hljs-built_in">buffer</span> + <span class="hljs-keyword">this</span>-&gt;block_size * blocks_read - (offset % <span class="hljs-keyword">this</span>-&gt;block_size), buf, end_size);
+		}
+	}
+	<span class="hljs-built_in">free</span>(inode);
+	<span class="hljs-built_in">free</span>(buf);
+	<span class="hljs-keyword">return</span> size_to_read;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">write_inode_buffer</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">ext2_inodetable_t</span> * inode, <span class="hljs-keyword">uint32_t</span> inode_number, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">end</span> = offset + <span class="hljs-built_in">size</span>;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">end</span> &gt; inode-&gt;<span class="hljs-built_in">size</span>) {
+		inode-&gt;<span class="hljs-built_in">size</span> = <span class="hljs-built_in">end</span>;
+		write_inode(<span class="hljs-keyword">this</span>, inode, inode_number);
+	}
+
+	<span class="hljs-keyword">uint32_t</span> start_block  = offset / <span class="hljs-keyword">this</span>-&gt;block_size;
+	<span class="hljs-keyword">uint32_t</span> end_block    = <span class="hljs-built_in">end</span> / <span class="hljs-keyword">this</span>-&gt;block_size;
+	<span class="hljs-keyword">uint32_t</span> end_size     = <span class="hljs-built_in">end</span> - end_block * <span class="hljs-keyword">this</span>-&gt;block_size;
+	<span class="hljs-keyword">uint32_t</span> size_to_read = <span class="hljs-built_in">end</span> - offset;
+	<span class="hljs-keyword">uint8_t</span> * buf = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+	<span class="hljs-keyword">if</span> (start_block == end_block) {
+		inode_read_block(<span class="hljs-keyword">this</span>, inode, start_block, buf);
+		<span class="hljs-built_in">memcpy</span>((<span class="hljs-keyword">uint8_t</span> *)(((<span class="hljs-keyword">uintptr_t</span>)buf) + ((<span class="hljs-keyword">uintptr_t</span>)offset % <span class="hljs-keyword">this</span>-&gt;block_size)), <span class="hljs-built_in">buffer</span>, size_to_read);
+		inode_write_block(<span class="hljs-keyword">this</span>, inode, inode_number, start_block, buf);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">uint32_t</span> block_offset;
+		<span class="hljs-keyword">uint32_t</span> blocks_read = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">for</span> (block_offset = start_block; block_offset &lt; end_block; block_offset++, blocks_read++) {
+			<span class="hljs-keyword">if</span> (block_offset == start_block) {
+				<span class="hljs-keyword">int</span> b = inode_read_block(<span class="hljs-keyword">this</span>, inode, block_offset, buf);
+				<span class="hljs-built_in">memcpy</span>((<span class="hljs-keyword">uint8_t</span> *)(((<span class="hljs-keyword">uintptr_t</span>)buf) + ((<span class="hljs-keyword">uintptr_t</span>)offset % <span class="hljs-keyword">this</span>-&gt;block_size)), <span class="hljs-built_in">buffer</span>, <span class="hljs-keyword">this</span>-&gt;block_size - (offset % <span class="hljs-keyword">this</span>-&gt;block_size));
+				inode_write_block(<span class="hljs-keyword">this</span>, inode, inode_number, block_offset, buf);
+				<span class="hljs-keyword">if</span> (!b) {
+					refresh_inode(<span class="hljs-keyword">this</span>, inode, inode_number);
+				}
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">int</span> b = inode_read_block(<span class="hljs-keyword">this</span>, inode, block_offset, buf);
+				<span class="hljs-built_in">memcpy</span>(buf, <span class="hljs-built_in">buffer</span> + <span class="hljs-keyword">this</span>-&gt;block_size * blocks_read - (offset % <span class="hljs-keyword">this</span>-&gt;block_size), <span class="hljs-keyword">this</span>-&gt;block_size);
+				inode_write_block(<span class="hljs-keyword">this</span>, inode, inode_number, block_offset, buf);
+				<span class="hljs-keyword">if</span> (!b) {
+					refresh_inode(<span class="hljs-keyword">this</span>, inode, inode_number);
+				}
+			}
+		}
+		<span class="hljs-keyword">if</span> (end_size) {
+			inode_read_block(<span class="hljs-keyword">this</span>, inode, end_block, buf);
+			<span class="hljs-built_in">memcpy</span>(buf, <span class="hljs-built_in">buffer</span> + <span class="hljs-keyword">this</span>-&gt;block_size * blocks_read - (offset % <span class="hljs-keyword">this</span>-&gt;block_size), end_size);
+			inode_write_block(<span class="hljs-keyword">this</span>, inode, inode_number, end_block, buf);
+		}
+	}
+	<span class="hljs-built_in">free</span>(buf);
+	<span class="hljs-keyword">return</span> size_to_read;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">write_ext2</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span> = (<span class="hljs-keyword">ext2_fs_t</span> *)node-&gt;device;
+	<span class="hljs-keyword">if</span> (!(<span class="hljs-keyword">this</span>-&gt;flags &amp; EXT2_FLAG_READWRITE)) <span class="hljs-keyword">return</span> -EROFS;
+
+	<span class="hljs-keyword">ext2_inodetable_t</span> * inode = read_inode(<span class="hljs-keyword">this</span>, node-&gt;inode);
+
+	<span class="hljs-keyword">ssize_t</span> rv = write_inode_buffer(<span class="hljs-keyword">this</span>, inode, node-&gt;inode, offset, <span class="hljs-built_in">size</span>, <span class="hljs-built_in">buffer</span>);
+	<span class="hljs-built_in">free</span>(inode);
+	<span class="hljs-keyword">return</span> rv;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">truncate_ext2</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span> = node-&gt;device;
+	<span class="hljs-keyword">if</span> (!(<span class="hljs-keyword">this</span>-&gt;flags &amp; EXT2_FLAG_READWRITE)) <span class="hljs-keyword">return</span> -EROFS;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> != <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -ENOTSUP;
+
+	<span class="hljs-keyword">ext2_inodetable_t</span> * inode = read_inode(<span class="hljs-keyword">this</span>,node-&gt;inode);
+	inode-&gt;<span class="hljs-built_in">size</span> = <span class="hljs-number">0</span>;
+	write_inode(<span class="hljs-keyword">this</span>, inode, node-&gt;inode);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">open_ext2</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-comment">/* Nothing to do here */</span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">close_ext2</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+	<span class="hljs-comment">/* Nothing to do here */</span>
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-20" id="section-20"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>readdir_ext2</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">readdir_ext2</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> index, struct dirent *dirent)</span> </span>{
+
+	<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span> = (<span class="hljs-keyword">ext2_fs_t</span> *)node-&gt;device;
+
+	<span class="hljs-keyword">ext2_inodetable_t</span> *inode = read_inode(<span class="hljs-keyword">this</span>, node-&gt;inode);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-21" id="section-21"></a>
+</div>
+<p>assert(inode-&gt;mode &amp; EXT2_S_IFDIR);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">ext2_dir_t</span> *direntry = direntry_ext2(<span class="hljs-keyword">this</span>, inode, node-&gt;inode, index);
+	<span class="hljs-keyword">if</span> (!direntry) {
+		<span class="hljs-built_in">free</span>(inode);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-built_in">memcpy</span>(&amp;dirent-&gt;d_name, &amp;direntry-&gt;name, direntry-&gt;name_len);
+	dirent-&gt;d_name[direntry-&gt;name_len] = <span class="hljs-string">'\0'</span>;
+	dirent-&gt;d_ino = direntry-&gt;inode;
+	<span class="hljs-built_in">free</span>(direntry);
+	<span class="hljs-built_in">free</span>(inode);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">symlink_ext2</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * parent, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * target, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-keyword">if</span> (!name) <span class="hljs-keyword">return</span> -EINVAL;
+
+	<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span> = parent-&gt;device;
+	<span class="hljs-keyword">if</span> (!(<span class="hljs-keyword">this</span>-&gt;flags &amp; EXT2_FLAG_READWRITE)) <span class="hljs-keyword">return</span> -EROFS;
+
+	<span class="hljs-comment">/* first off, check if it exists */</span>
+	<span class="hljs-keyword">fs_node_t</span> * check = finddir_ext2(parent, name);
+	<span class="hljs-keyword">if</span> (check) {
+		debug_print(WARNING, <span class="hljs-string">"A file by this name already exists: %s"</span>, name);
+		<span class="hljs-built_in">free</span>(check);
+		<span class="hljs-keyword">return</span> -EEXIST; <span class="hljs-comment">/* this should probably have a return value... */</span>
+	}
+
+	<span class="hljs-comment">/* Allocate an inode for it */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> inode_no = allocate_inode(<span class="hljs-keyword">this</span>);
+	<span class="hljs-keyword">ext2_inodetable_t</span> * inode = read_inode(<span class="hljs-keyword">this</span>,inode_no);
+
+	<span class="hljs-comment">/* Set the access and creation times to now */</span>
+	inode-&gt;atime = now();
+	inode-&gt;ctime = inode-&gt;atime;
+	inode-&gt;mtime = inode-&gt;atime;
+	inode-&gt;dtime = <span class="hljs-number">0</span>; <span class="hljs-comment">/* This inode was never deleted */</span>
+
+	<span class="hljs-comment">/* Empty the file */</span>
+	<span class="hljs-built_in">memset</span>(inode-&gt;block, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(inode-&gt;block));
+	inode-&gt;blocks = <span class="hljs-number">0</span>;
+	inode-&gt;<span class="hljs-built_in">size</span> = <span class="hljs-number">0</span>; <span class="hljs-comment">/* empty */</span>
+
+	<span class="hljs-comment">/* Assign it to current user */</span>
+	inode-&gt;uid = this_core-&gt;current_process-&gt;user;
+	inode-&gt;gid = this_core-&gt;current_process-&gt;user_group;
+
+	<span class="hljs-comment">/* misc */</span>
+	inode-&gt;faddr = <span class="hljs-number">0</span>;
+	inode-&gt;links_count = <span class="hljs-number">1</span>; <span class="hljs-comment">/* The one we're about to create. */</span>
+	inode-&gt;flags = <span class="hljs-number">0</span>;
+	inode-&gt;osd1 = <span class="hljs-number">0</span>;
+	inode-&gt;generation = <span class="hljs-number">0</span>;
+	inode-&gt;file_acl = <span class="hljs-number">0</span>;
+	inode-&gt;dir_acl = <span class="hljs-number">0</span>;
+
+	inode-&gt;mode = EXT2_S_IFLNK;
+
+	<span class="hljs-comment">/* I *think* this is what you're supposed to do with symlinks */</span>
+	inode-&gt;mode |= <span class="hljs-number">0777</span>;
+
+	<span class="hljs-comment">/* Write the osd blocks to 0 */</span>
+	<span class="hljs-built_in">memset</span>(inode-&gt;osd2, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(inode-&gt;osd2));
+
+	<span class="hljs-keyword">size_t</span> target_len = <span class="hljs-built_in">strlen</span>(target);
+	<span class="hljs-keyword">int</span> embedded = target_len &lt;= <span class="hljs-number">60</span>; <span class="hljs-comment">// sizeof(_symlink(inode));</span>
+	<span class="hljs-keyword">if</span> (embedded) {
+		<span class="hljs-built_in">memcpy</span>(_symlink(inode), target, target_len);
+		inode-&gt;<span class="hljs-built_in">size</span> = target_len;
+	}
+
+	<span class="hljs-comment">/* Write out inode changes */</span>
+	write_inode(<span class="hljs-keyword">this</span>, inode, inode_no);
+
+	<span class="hljs-comment">/* Now append the entry to the parent */</span>
+	create_entry(parent, name, inode_no);
+
+
+	<span class="hljs-comment">/* If we didn't embed it in the inode just use write_inode_buffer to finish the job */</span>
+	<span class="hljs-keyword">if</span> (!embedded) {
+		write_inode_buffer(parent-&gt;device, inode, inode_no, <span class="hljs-number">0</span>, target_len, (<span class="hljs-keyword">uint8_t</span> *)target);
+	}
+	<span class="hljs-built_in">free</span>(inode);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">readlink_ext2</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">char</span> * buf, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span> = (<span class="hljs-keyword">ext2_fs_t</span> *)node-&gt;device;
+	<span class="hljs-keyword">ext2_inodetable_t</span> * inode = read_inode(<span class="hljs-keyword">this</span>, node-&gt;inode);
+	<span class="hljs-keyword">size_t</span> read_size = <span class="hljs-built_in">size</span> &lt; inode-&gt;<span class="hljs-built_in">size</span> ? <span class="hljs-built_in">size</span> : inode-&gt;<span class="hljs-built_in">size</span>;
+	<span class="hljs-keyword">if</span> (inode-&gt;<span class="hljs-built_in">size</span> &gt; <span class="hljs-number">60</span>) { <span class="hljs-comment">//sizeof(_symlink(inode))) {</span>
+		read_ext2(node, <span class="hljs-number">0</span>, read_size, (<span class="hljs-keyword">uint8_t</span> *)buf);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">memcpy</span>(buf, _symlink(inode), read_size);
+	}
+
+	<span class="hljs-built_in">free</span>(inode);
+	<span class="hljs-keyword">return</span> read_size;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ioctl_ext2</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> request, <span class="hljs-keyword">void</span> * argp)</span> </span>{
+	<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span> = (<span class="hljs-keyword">ext2_fs_t</span> *)node-&gt;device;
+
+	<span class="hljs-keyword">switch</span> (request) {
+		<span class="hljs-keyword">case</span> IOCTLSYNC:
+			<span class="hljs-keyword">return</span> ioctl_fs(<span class="hljs-keyword">this</span>-&gt;block_device, IOCTLSYNC, <span class="hljs-literal">NULL</span>);
+
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> -ENOTTY;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">node_from_file</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">ext2_inodetable_t</span> *inode, <span class="hljs-keyword">ext2_dir_t</span> *direntry,  <span class="hljs-keyword">fs_node_t</span> *fnode)</span> </span>{
+	<span class="hljs-keyword">if</span> (!fnode) {
+		<span class="hljs-comment">/* You didn't give me a node to write into, go **** yourself */</span>
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-comment">/* Information from the direntry */</span>
+	fnode-&gt;device = (<span class="hljs-keyword">void</span> *)<span class="hljs-keyword">this</span>;
+	fnode-&gt;inode = direntry-&gt;inode;
+	<span class="hljs-built_in">memcpy</span>(&amp;fnode-&gt;name, &amp;direntry-&gt;name, direntry-&gt;name_len);
+	fnode-&gt;name[direntry-&gt;name_len] = <span class="hljs-string">'\0'</span>;
+	<span class="hljs-comment">/* Information from the inode */</span>
+	fnode-&gt;uid = inode-&gt;uid;
+	fnode-&gt;gid = inode-&gt;gid;
+	fnode-&gt;length = inode-&gt;<span class="hljs-built_in">size</span>;
+	fnode-&gt;mask = inode-&gt;mode &amp; <span class="hljs-number">0xFFF</span>;
+	fnode-&gt;nlink = inode-&gt;links_count;
+	<span class="hljs-comment">/* File Flags */</span>
+	fnode-&gt;flags = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> ((inode-&gt;mode &amp; EXT2_S_IFREG) == EXT2_S_IFREG) {
+		fnode-&gt;flags   |= FS_FILE;
+		fnode-&gt;<span class="hljs-built_in">read</span>     = read_ext2;
+		fnode-&gt;<span class="hljs-built_in">write</span>    = write_ext2;
+		fnode-&gt;truncate = truncate_ext2;
+		fnode-&gt;create   = <span class="hljs-literal">NULL</span>;
+		fnode-&gt;<span class="hljs-built_in">mkdir</span>    = <span class="hljs-literal">NULL</span>;
+		fnode-&gt;readdir  = <span class="hljs-literal">NULL</span>;
+		fnode-&gt;finddir  = <span class="hljs-literal">NULL</span>;
+		fnode-&gt;symlink  = <span class="hljs-literal">NULL</span>;
+		fnode-&gt;readlink = <span class="hljs-literal">NULL</span>;
+	}
+	<span class="hljs-keyword">if</span> ((inode-&gt;mode &amp; EXT2_S_IFDIR) == EXT2_S_IFDIR) {
+		fnode-&gt;flags   |= FS_DIRECTORY;
+		fnode-&gt;create   = create_ext2;
+		fnode-&gt;<span class="hljs-built_in">mkdir</span>    = mkdir_ext2;
+		fnode-&gt;unlink   = unlink_ext2;
+		fnode-&gt;symlink  = symlink_ext2;
+		fnode-&gt;readdir  = readdir_ext2;
+		fnode-&gt;finddir  = finddir_ext2;
+		fnode-&gt;<span class="hljs-built_in">write</span>    = <span class="hljs-literal">NULL</span>;
+		fnode-&gt;readlink = <span class="hljs-literal">NULL</span>;
+	}
+	<span class="hljs-keyword">if</span> ((inode-&gt;mode &amp; EXT2_S_IFBLK) == EXT2_S_IFBLK) {
+		fnode-&gt;flags |= FS_BLOCKDEVICE;
+	}
+	<span class="hljs-keyword">if</span> ((inode-&gt;mode &amp; EXT2_S_IFCHR) == EXT2_S_IFCHR) {
+		fnode-&gt;flags |= FS_CHARDEVICE;
+	}
+	<span class="hljs-keyword">if</span> ((inode-&gt;mode &amp; EXT2_S_IFIFO) == EXT2_S_IFIFO) {
+		fnode-&gt;flags |= FS_PIPE;
+	}
+	<span class="hljs-keyword">if</span> ((inode-&gt;mode &amp; EXT2_S_IFLNK) == EXT2_S_IFLNK) {
+		fnode-&gt;flags   |= FS_SYMLINK;
+		fnode-&gt;<span class="hljs-built_in">read</span>     = <span class="hljs-literal">NULL</span>;
+		fnode-&gt;<span class="hljs-built_in">write</span>    = <span class="hljs-literal">NULL</span>;
+		fnode-&gt;create   = <span class="hljs-literal">NULL</span>;
+		fnode-&gt;<span class="hljs-built_in">mkdir</span>    = <span class="hljs-literal">NULL</span>;
+		fnode-&gt;readdir  = <span class="hljs-literal">NULL</span>;
+		fnode-&gt;finddir  = <span class="hljs-literal">NULL</span>;
+		fnode-&gt;readlink = readlink_ext2;
+	}
+
+	fnode-&gt;atime   = inode-&gt;atime;
+	fnode-&gt;mtime   = inode-&gt;mtime;
+	fnode-&gt;ctime   = inode-&gt;ctime;
+
+	fnode-&gt;chmod   = chmod_ext2;
+	fnode-&gt;<span class="hljs-built_in">open</span>    = open_ext2;
+	fnode-&gt;<span class="hljs-built_in">close</span>   = close_ext2;
+	fnode-&gt;ioctl = ioctl_ext2;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ext2_root</span><span class="hljs-params">(<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">ext2_inodetable_t</span> *inode, <span class="hljs-keyword">fs_node_t</span> *fnode)</span> </span>{
+	<span class="hljs-keyword">if</span> (!fnode) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-comment">/* Information for root dir */</span>
+	fnode-&gt;device = (<span class="hljs-keyword">void</span> *)<span class="hljs-keyword">this</span>;
+	fnode-&gt;inode = <span class="hljs-number">2</span>;
+	fnode-&gt;name[<span class="hljs-number">0</span>] = <span class="hljs-string">'/'</span>;
+	fnode-&gt;name[<span class="hljs-number">1</span>] = <span class="hljs-string">'\0'</span>;
+	<span class="hljs-comment">/* Information from the inode */</span>
+	fnode-&gt;uid = inode-&gt;uid;
+	fnode-&gt;gid = inode-&gt;gid;
+	fnode-&gt;length = inode-&gt;<span class="hljs-built_in">size</span>;
+	fnode-&gt;mask = inode-&gt;mode &amp; <span class="hljs-number">0xFFF</span>;
+	fnode-&gt;nlink = inode-&gt;links_count;
+	<span class="hljs-comment">/* File Flags */</span>
+	fnode-&gt;flags = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> ((inode-&gt;mode &amp; EXT2_S_IFREG) == EXT2_S_IFREG) {
+		debug_print(CRITICAL, <span class="hljs-string">"Root appears to be a regular file."</span>);
+		debug_print(CRITICAL, <span class="hljs-string">"This is probably very, very wrong."</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">if</span> ((inode-&gt;mode &amp; EXT2_S_IFDIR) == EXT2_S_IFDIR) {
+	} <span class="hljs-keyword">else</span> {
+		debug_print(CRITICAL, <span class="hljs-string">"Root doesn't appear to be a directory."</span>);
+		debug_print(CRITICAL, <span class="hljs-string">"This is probably very, very wrong."</span>);
+
+		debug_print(ERROR, <span class="hljs-string">"Other useful information:"</span>);
+		debug_print(ERROR, <span class="hljs-string">"%d"</span>, inode-&gt;uid);
+		debug_print(ERROR, <span class="hljs-string">"%d"</span>, inode-&gt;gid);
+		debug_print(ERROR, <span class="hljs-string">"%d"</span>, inode-&gt;<span class="hljs-built_in">size</span>);
+		debug_print(ERROR, <span class="hljs-string">"%d"</span>, inode-&gt;mode);
+		debug_print(ERROR, <span class="hljs-string">"%d"</span>, inode-&gt;links_count);
+
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">if</span> ((inode-&gt;mode &amp; EXT2_S_IFBLK) == EXT2_S_IFBLK) {
+		fnode-&gt;flags |= FS_BLOCKDEVICE;
+	}
+	<span class="hljs-keyword">if</span> ((inode-&gt;mode &amp; EXT2_S_IFCHR) == EXT2_S_IFCHR) {
+		fnode-&gt;flags |= FS_CHARDEVICE;
+	}
+	<span class="hljs-keyword">if</span> ((inode-&gt;mode &amp; EXT2_S_IFIFO) == EXT2_S_IFIFO) {
+		fnode-&gt;flags |= FS_PIPE;
+	}
+	<span class="hljs-keyword">if</span> ((inode-&gt;mode &amp; EXT2_S_IFLNK) == EXT2_S_IFLNK) {
+		fnode-&gt;flags |= FS_SYMLINK;
+	}
+
+	fnode-&gt;atime   = inode-&gt;atime;
+	fnode-&gt;mtime   = inode-&gt;mtime;
+	fnode-&gt;ctime   = inode-&gt;ctime;
+
+	fnode-&gt;flags |= FS_DIRECTORY;
+	fnode-&gt;<span class="hljs-built_in">read</span>    = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;<span class="hljs-built_in">write</span>   = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;chmod   = chmod_ext2;
+	fnode-&gt;<span class="hljs-built_in">open</span>    = open_ext2;
+	fnode-&gt;<span class="hljs-built_in">close</span>   = close_ext2;
+	fnode-&gt;readdir = readdir_ext2;
+	fnode-&gt;finddir = finddir_ext2;
+	fnode-&gt;ioctl   = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;create  = create_ext2;
+	fnode-&gt;<span class="hljs-built_in">mkdir</span>   = mkdir_ext2;
+	fnode-&gt;unlink  = unlink_ext2;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">mount_ext2</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * block_device, <span class="hljs-keyword">int</span> flags)</span> </span>{
+
+	<span class="hljs-keyword">ext2_fs_t</span> * <span class="hljs-keyword">this</span> = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">ext2_fs_t</span>));
+
+	<span class="hljs-built_in">memset</span>(<span class="hljs-keyword">this</span>, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">ext2_fs_t</span>));
+
+	<span class="hljs-keyword">this</span>-&gt;flags = flags;
+
+	<span class="hljs-keyword">this</span>-&gt;block_device = block_device;
+	<span class="hljs-keyword">this</span>-&gt;block_size = <span class="hljs-number">1024</span>;
+	<span class="hljs-comment">/* We need to keep an owned refcount to this device if it was something we opened... */</span>
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-22" id="section-22"></a>
+</div>
+<p>vfs_lock(this-&gt;block_device);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+	<span class="hljs-keyword">this</span>-&gt;mutex = mutex_init(<span class="hljs-string">"ext2 fs"</span>);
+
+	SB = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+
+	debug_print(INFO, <span class="hljs-string">"Reading superblock..."</span>);
+	read_block(<span class="hljs-keyword">this</span>, <span class="hljs-number">1</span>, (<span class="hljs-keyword">uint8_t</span> *)SB);
+	<span class="hljs-keyword">if</span> (SB-&gt;magic != EXT2_SUPER_MAGIC) {
+		debug_print(ERROR, <span class="hljs-string">"... not an EXT2 filesystem? (magic didn't match, got 0x%x)"</span>, SB-&gt;magic);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+	<span class="hljs-keyword">this</span>-&gt;inode_size = SB-&gt;inode_size;
+	<span class="hljs-keyword">if</span> (SB-&gt;inode_size == <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">this</span>-&gt;inode_size = <span class="hljs-number">128</span>;
+	}
+	<span class="hljs-keyword">this</span>-&gt;block_size = <span class="hljs-number">1024</span> &lt;&lt; SB-&gt;log_block_size;
+	<span class="hljs-keyword">this</span>-&gt;pointers_per_block = <span class="hljs-keyword">this</span>-&gt;block_size / <span class="hljs-number">4</span>;
+	debug_print(INFO, <span class="hljs-string">"Log block size = %d -&gt; %d"</span>, SB-&gt;log_block_size, <span class="hljs-keyword">this</span>-&gt;block_size);
+	BGDS = SB-&gt;blocks_count / SB-&gt;blocks_per_group;
+	<span class="hljs-keyword">if</span> (SB-&gt;blocks_per_group * BGDS &lt; SB-&gt;blocks_count) {
+		BGDS += <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">this</span>-&gt;inodes_per_group = SB-&gt;inodes_count / BGDS;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-23" id="section-23"></a>
+</div>
+<p>load the block group descriptors</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">this</span>-&gt;bgd_block_span = <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">ext2_bgdescriptor_t</span>) * BGDS / <span class="hljs-keyword">this</span>-&gt;block_size + <span class="hljs-number">1</span>;
+	BGD = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size * <span class="hljs-keyword">this</span>-&gt;bgd_block_span);
+
+	debug_print(INFO, <span class="hljs-string">"bgd_block_span = %d"</span>, <span class="hljs-keyword">this</span>-&gt;bgd_block_span);
+
+	<span class="hljs-keyword">this</span>-&gt;bgd_offset = <span class="hljs-number">2</span>;
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-keyword">this</span>-&gt;block_size &gt; <span class="hljs-number">1024</span>) {
+		<span class="hljs-keyword">this</span>-&gt;bgd_offset = <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-keyword">this</span>-&gt;bgd_block_span; ++i) {
+		read_block(<span class="hljs-keyword">this</span>, <span class="hljs-keyword">this</span>-&gt;bgd_offset + i, (<span class="hljs-keyword">uint8_t</span> *)((<span class="hljs-keyword">uintptr_t</span>)BGD + <span class="hljs-keyword">this</span>-&gt;block_size * i));
+	}
+
+	dprintf(<span class="hljs-string">"ext2: %u BGDs, %u inodes, %u inodes per group\n"</span>,
+		BGDS, SB-&gt;inodes_count, <span class="hljs-keyword">this</span>-&gt;inodes_per_group);
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 1 <span class="hljs-comment">// DEBUG_BLOCK_DESCRIPTORS</span></span>
+	<span class="hljs-keyword">char</span> * bg_buffer = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span>));
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint32_t</span> i = <span class="hljs-number">0</span>; i &lt; BGDS; ++i) {
+		debug_print(INFO, <span class="hljs-string">"Block Group Descriptor #%d @ %d"</span>, i, <span class="hljs-keyword">this</span>-&gt;bgd_offset + i * SB-&gt;blocks_per_group);
+		debug_print(INFO, <span class="hljs-string">"\tBlock Bitmap @ %d"</span>, BGD[i].block_bitmap); {
+			debug_print(INFO, <span class="hljs-string">"\t\tExamining block bitmap at %d"</span>, BGD[i].block_bitmap);
+			read_block(<span class="hljs-keyword">this</span>, BGD[i].block_bitmap, (<span class="hljs-keyword">uint8_t</span> *)bg_buffer);
+			<span class="hljs-keyword">uint32_t</span> j = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">while</span> (BLOCKBIT(j)) {
+				++j;
+			}
+			debug_print(INFO, <span class="hljs-string">"\t\tFirst free block in group is %d"</span>, j + BGD[i].block_bitmap - <span class="hljs-number">2</span>);
+		}
+		debug_print(INFO, <span class="hljs-string">"\tInode Bitmap @ %d"</span>, BGD[i].inode_bitmap); {
+			debug_print(INFO, <span class="hljs-string">"\t\tExamining inode bitmap at %d"</span>, BGD[i].inode_bitmap);
+			read_block(<span class="hljs-keyword">this</span>, BGD[i].inode_bitmap, (<span class="hljs-keyword">uint8_t</span> *)bg_buffer);
+			<span class="hljs-keyword">uint32_t</span> j = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">while</span> (BLOCKBIT(j)) {
+				++j;
+			}
+			debug_print(INFO, <span class="hljs-string">"\t\tFirst free inode in group is %d"</span>, j + <span class="hljs-keyword">this</span>-&gt;inodes_per_group * i + <span class="hljs-number">1</span>);
+		}
+		debug_print(INFO, <span class="hljs-string">"\tInode Table  @ %d"</span>, BGD[i].inode_table);
+		debug_print(INFO, <span class="hljs-string">"\tFree Blocks =  %d"</span>, BGD[i].free_blocks_count);
+		debug_print(INFO, <span class="hljs-string">"\tFree Inodes =  %d"</span>, BGD[i].free_inodes_count);
+	}
+	<span class="hljs-built_in">free</span>(bg_buffer);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	<span class="hljs-keyword">ext2_inodetable_t</span> *root_inode = read_inode(<span class="hljs-keyword">this</span>, <span class="hljs-number">2</span>);
+	RN = (<span class="hljs-keyword">fs_node_t</span> *)<span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-keyword">if</span> (!ext2_root(<span class="hljs-keyword">this</span>, root_inode, RN)) {
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+	debug_print(NOTICE, <span class="hljs-string">"Mounted EXT2 disk, root VFS node is at %#zx"</span>, (<span class="hljs-keyword">uintptr_t</span>)RN);
+	<span class="hljs-keyword">return</span> RN;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">ext2_fs_mount</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * device, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * mount_path)</span> </span>{
+	<span class="hljs-keyword">char</span> * arg = strdup(device);
+	<span class="hljs-keyword">char</span> * argv[<span class="hljs-number">10</span>];
+	<span class="hljs-keyword">int</span> argc = tokenize(arg, <span class="hljs-string">","</span>, argv);
+
+	<span class="hljs-keyword">fs_node_t</span> * dev = kopen(argv[<span class="hljs-number">0</span>], <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">if</span> (!dev) {
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">int</span> flags = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; i &lt; argc; ++i) {
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[i],<span class="hljs-string">"rw"</span>)) {
+			flags |= EXT2_FLAG_READWRITE;
+		}
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[i],<span class="hljs-string">"verbose"</span>)) {
+			flags |= EXT2_FLAG_LOUD;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> mount_ext2(dev, flags);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">init</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	vfs_register(<span class="hljs-string">"ext2"</span>, ext2_fs_mount);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">fini</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Module</span> <span class="hljs-title">metadata</span> = {</span>
+	.name = <span class="hljs-string">"ext2"</span>,
+	.init = init,
+	.fini = fini,
+};
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

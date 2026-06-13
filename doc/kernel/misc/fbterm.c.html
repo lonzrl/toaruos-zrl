@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>fbterm.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\misc\\fbterm.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>fbterm.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/args.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/video.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+
+<span class="hljs-comment">/* Whether to scroll or wrap when cursor reaches the bottom. */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> fbterm_scroll = <span class="hljs-number">0</span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-title">void</span> <span class="hljs-params">(*write_char)</span><span class="hljs-params">(<span class="hljs-keyword">int</span>, <span class="hljs-keyword">int</span>, <span class="hljs-keyword">int</span>, <span class="hljs-keyword">int</span>, <span class="hljs-keyword">int</span>)</span> </span>= <span class="hljs-literal">NULL</span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-title">int</span> <span class="hljs-params">(*get_width)</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>= <span class="hljs-literal">NULL</span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-title">int</span> <span class="hljs-params">(*get_height)</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>= <span class="hljs-literal">NULL</span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-title">void</span> <span class="hljs-params">(*scroll_terminal)</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>= <span class="hljs-literal">NULL</span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-title">void</span> <span class="hljs-params">(*get_cursor_adj)</span><span class="hljs-params">(<span class="hljs-keyword">int</span>*,<span class="hljs-keyword">int</span>*)</span> </span>= <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> y = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> term_state = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> term_buf[<span class="hljs-number">1024</span>] = {<span class="hljs-number">0</span>};
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> term_buf_c = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> fb_left_margin = <span class="hljs-number">0</span>;
+
+<span class="hljs-comment">/* Bitmap font details */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"../../apps/terminal-font.h"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> char_height LARGE_FONT_CELL_HEIGHT</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> char_width  LARGE_FONT_CELL_WIDTH</span>
+
+<span class="hljs-comment">/* Default colors */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BG_COLOR 0</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> FG_COLOR 7</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> * term_colors;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> palette_tango[] = {
+	<span class="hljs-comment">/* black  */</span> <span class="hljs-number">0xFF000000</span>,
+	<span class="hljs-comment">/* red    */</span> <span class="hljs-number">0xFFcc0000</span>,
+	<span class="hljs-comment">/* green  */</span> <span class="hljs-number">0xFF3e9a06</span>,
+	<span class="hljs-comment">/* brown  */</span> <span class="hljs-number">0xFFc4a000</span>,
+	<span class="hljs-comment">/* navy   */</span> <span class="hljs-number">0xFF3465a4</span>,
+	<span class="hljs-comment">/* purple */</span> <span class="hljs-number">0xFF75507b</span>,
+	<span class="hljs-comment">/* d cyan */</span> <span class="hljs-number">0xFF06989a</span>,
+	<span class="hljs-comment">/* gray   */</span> <span class="hljs-number">0xFFbbbbbb</span>, <span class="hljs-comment">/* slightly dimmer than the userspace terminal, so bold stands out more */</span>
+	<span class="hljs-comment">/* d gray */</span> <span class="hljs-number">0xFF555753</span>,
+	<span class="hljs-comment">/* red    */</span> <span class="hljs-number">0xFFef2929</span>,
+	<span class="hljs-comment">/* green  */</span> <span class="hljs-number">0xFF8ae234</span>,
+	<span class="hljs-comment">/* yellow */</span> <span class="hljs-number">0xFFfce94f</span>,
+	<span class="hljs-comment">/* blue   */</span> <span class="hljs-number">0xFF729fcf</span>,
+	<span class="hljs-comment">/* magenta*/</span> <span class="hljs-number">0xFFad7fa8</span>,
+	<span class="hljs-comment">/* cyan   */</span> <span class="hljs-number">0xFF34e2e2</span>,
+	<span class="hljs-comment">/* white  */</span> <span class="hljs-number">0xFFFFFFFF</span>,
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> palette_vga[] = {
+	<span class="hljs-comment">/* black  */</span> <span class="hljs-number">0xFF000000</span>,
+	<span class="hljs-comment">/* red    */</span> <span class="hljs-number">0xFFaa0000</span>,
+	<span class="hljs-comment">/* green  */</span> <span class="hljs-number">0xFF00aa00</span>,
+	<span class="hljs-comment">/* brown  */</span> <span class="hljs-number">0xFFaa5500</span>,
+	<span class="hljs-comment">/* navy   */</span> <span class="hljs-number">0xFF0000aa</span>,
+	<span class="hljs-comment">/* purple */</span> <span class="hljs-number">0xFFaa00aa</span>,
+	<span class="hljs-comment">/* d cyan */</span> <span class="hljs-number">0xFF00aaaa</span>,
+	<span class="hljs-comment">/* gray   */</span> <span class="hljs-number">0xFFaaaaaa</span>,
+	<span class="hljs-comment">/* d gray */</span> <span class="hljs-number">0xFF555555</span>,
+	<span class="hljs-comment">/* red    */</span> <span class="hljs-number">0xFFff5555</span>,
+	<span class="hljs-comment">/* green  */</span> <span class="hljs-number">0xFF55ff55</span>,
+	<span class="hljs-comment">/* yellow */</span> <span class="hljs-number">0xFFffff55</span>,
+	<span class="hljs-comment">/* blue   */</span> <span class="hljs-number">0xFF5555ff</span>,
+	<span class="hljs-comment">/* magenta*/</span> <span class="hljs-number">0xFFff55ff</span>,
+	<span class="hljs-comment">/* cyan   */</span> <span class="hljs-number">0xFF55ffff</span>,
+	<span class="hljs-comment">/* white  */</span> <span class="hljs-number">0xFFffffff</span>,
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> ansi_to_vga[] = {
+	<span class="hljs-number">0</span>, <span class="hljs-number">4</span>, <span class="hljs-number">2</span>, <span class="hljs-number">6</span>, <span class="hljs-number">1</span>, <span class="hljs-number">5</span>, <span class="hljs-number">3</span>, <span class="hljs-number">7</span>,
+	<span class="hljs-number">8</span>,<span class="hljs-number">12</span>,<span class="hljs-number">10</span>,<span class="hljs-number">14</span>, <span class="hljs-number">9</span>,<span class="hljs-number">13</span>,<span class="hljs-number">11</span>,<span class="hljs-number">15</span>
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> fg_color = FG_COLOR;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> bg_color = BG_COLOR;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">void</span> <span class="hljs-title">set_point</span><span class="hljs-params">(<span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y, <span class="hljs-keyword">uint32_t</span> value)</span> </span>{
+	<span class="hljs-keyword">if</span> (lfb_resolution_b == <span class="hljs-number">32</span>) {
+		((<span class="hljs-keyword">uint32_t</span>*)lfb_vid_memory)[y * (lfb_resolution_s/<span class="hljs-number">4</span>) + x] = value;
+		<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __aarch64__</span>
+		<span class="hljs-comment">/* TODO just map it uncached in the first place... */</span>
+		<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc cvac, %0\n"</span> :: <span class="hljs-string">"r"</span>((<span class="hljs-keyword">uintptr_t</span>)&amp;((<span class="hljs-keyword">uint32_t</span>*)lfb_vid_memory)[y * (lfb_resolution_s/<span class="hljs-number">4</span>) + x]) : <span class="hljs-string">"memory"</span>)</span></span>;
+		<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (lfb_resolution_b == <span class="hljs-number">24</span>) {
+		lfb_vid_memory[y * lfb_resolution_s + x * <span class="hljs-number">3</span> + <span class="hljs-number">0</span>] = (value &gt;&gt; <span class="hljs-number">0</span>) &amp; <span class="hljs-number">0xFF</span>;
+		lfb_vid_memory[y * lfb_resolution_s + x * <span class="hljs-number">3</span> + <span class="hljs-number">1</span>] = (value &gt;&gt; <span class="hljs-number">8</span>) &amp; <span class="hljs-number">0xFF</span>;
+		lfb_vid_memory[y * lfb_resolution_s + x * <span class="hljs-number">3</span> + <span class="hljs-number">2</span>] = (value &gt;&gt; <span class="hljs-number">16</span>) &amp; <span class="hljs-number">0xFF</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">fb_write_char</span><span class="hljs-params">(<span class="hljs-keyword">int</span> _x, <span class="hljs-keyword">int</span> _y, <span class="hljs-keyword">int</span> val, <span class="hljs-keyword">int</span> color, <span class="hljs-keyword">int</span> bg_color)</span> </span>{
+	<span class="hljs-keyword">if</span> (val &gt; <span class="hljs-number">255</span>) {
+		val = <span class="hljs-number">4</span>;
+	}
+
+	<span class="hljs-keyword">int</span> x = fb_left_margin + _x * char_width;
+	<span class="hljs-keyword">int</span> y = _y * char_height;
+
+	<span class="hljs-keyword">uint8_t</span> * c = large_font[val];
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint8_t</span> i = <span class="hljs-number">0</span>; i &lt; char_height; ++i) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint8_t</span> j = <span class="hljs-number">0</span>; j &lt; char_width; ++j) {
+			<span class="hljs-keyword">if</span> (c[i] &amp; (<span class="hljs-number">1</span> &lt;&lt; (LARGE_FONT_MASK-j))) {
+				set_point(x+j,y+i,term_colors[color]);
+			} <span class="hljs-keyword">else</span> {
+				set_point(x+j,y+i,term_colors[bg_color]);
+			}
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">fb_get_width</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> (lfb_resolution_x - fb_left_margin) / char_width;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">fb_get_height</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> lfb_resolution_y / char_height;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">fb_get_cursor_adj</span><span class="hljs-params">(<span class="hljs-keyword">int</span> *x, <span class="hljs-keyword">int</span> *y)</span> </span>{
+	*x = char_width;
+	*y = char_height;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">fb_scroll_terminal</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	memmove(lfb_vid_memory, lfb_vid_memory + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>) * lfb_resolution_x * char_height, (lfb_resolution_y - char_height) * lfb_resolution_x * <span class="hljs-number">4</span>);
+	<span class="hljs-built_in">memset</span>(lfb_vid_memory + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>) * (lfb_resolution_y - char_height) * lfb_resolution_x, <span class="hljs-number">0x00</span>, char_height * lfb_resolution_x * <span class="hljs-number">4</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">draw_square</span><span class="hljs-params">(<span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y)</span> </span>{
+	<span class="hljs-keyword">int</span> center_x = lfb_resolution_x / <span class="hljs-number">2</span>;
+	<span class="hljs-keyword">int</span> center_y = lfb_resolution_y / <span class="hljs-number">2</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> _y = <span class="hljs-number">0</span>; _y &lt; <span class="hljs-number">7</span>; ++_y) {
+		<span class="hljs-keyword">uint32_t</span> color = <span class="hljs-number">0xFF00B2FF</span> - (y * <span class="hljs-number">8</span> + _y) * <span class="hljs-number">0x200</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> _x = <span class="hljs-number">0</span>; _x &lt; <span class="hljs-number">7</span>; ++_x) {
+			set_point(center_x - <span class="hljs-number">32</span> + x * <span class="hljs-number">8</span> + _x, center_y - <span class="hljs-number">32</span> + y * <span class="hljs-number">8</span> + _y, color);
+		}
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint64_t</span> logo_squares = <span class="hljs-number">0x981818181818FFFF</span>UL;
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">fbterm_draw_logo</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> y = <span class="hljs-number">0</span>; y &lt; <span class="hljs-number">8</span>; ++y) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> x = <span class="hljs-number">0</span>; x &lt; <span class="hljs-number">8</span>; ++x) {
+			<span class="hljs-keyword">if</span> (logo_squares &amp; (<span class="hljs-number">1</span> &lt;&lt; x)) {
+				draw_square(x,y);
+			}
+		}
+		logo_squares &gt;&gt;= <span class="hljs-number">8</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">fbterm_reset</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	x = <span class="hljs-number">0</span>;
+	y = <span class="hljs-number">0</span>;
+	term_state = <span class="hljs-number">0</span>;
+	fg_color = FG_COLOR;
+	bg_color = BG_COLOR;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">fbterm_init_framebuffer</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">char</span> *left_margin_val, *palette_val, *logo_val;
+	<span class="hljs-keyword">if</span> ((left_margin_val = args_value(<span class="hljs-string">"fbterm-margin"</span>))) {
+		fb_left_margin = atoi(left_margin_val);
+	}
+	term_colors = palette_tango;
+	<span class="hljs-keyword">if</span> ((palette_val = args_value(<span class="hljs-string">"fbterm-palette"</span>))) {
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(palette_val, <span class="hljs-string">"vga"</span>)) {
+			term_colors = palette_vga;
+		}
+	}
+	<span class="hljs-keyword">if</span> ((logo_val = args_value(<span class="hljs-string">"fbterm-logo"</span>))) {
+		logo_squares = xtoi(logo_val);
+	}
+	write_char = fb_write_char;
+	get_width = fb_get_width;
+	get_height = fb_get_height;
+	scroll_terminal = fb_scroll_terminal;
+	get_cursor_adj = fb_get_cursor_adj;
+	fbterm_draw_logo();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ega_write_char</span><span class="hljs-params">(<span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y, <span class="hljs-keyword">int</span> ch, <span class="hljs-keyword">int</span> color, <span class="hljs-keyword">int</span> bg_color)</span> </span>{
+	<span class="hljs-keyword">unsigned</span> short att = (ansi_to_vga[bg_color] &lt;&lt; <span class="hljs-number">12</span>) | (ansi_to_vga[color] &lt;&lt; <span class="hljs-number">8</span>);
+	<span class="hljs-keyword">unsigned</span> short *where = (<span class="hljs-keyword">unsigned</span> short*)(mmu_map_from_physical(<span class="hljs-number">0xB8000</span>)) + (y * <span class="hljs-number">80</span> + x);
+	*where = (ch &amp; <span class="hljs-number">0xFF</span>) | att;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ega_get_width</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{ <span class="hljs-keyword">return</span> <span class="hljs-number">80</span>; }
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ega_get_height</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{ <span class="hljs-keyword">return</span> <span class="hljs-number">25</span>; }
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ega_get_cursor_adj</span><span class="hljs-params">(<span class="hljs-keyword">int</span> *x, <span class="hljs-keyword">int</span> *y)</span> </span>{
+	*x = <span class="hljs-number">820</span>;
+	*y = <span class="hljs-number">2621</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ega_scroll_terminal</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	memmove(mmu_map_from_physical(<span class="hljs-number">0xB8000</span>), (<span class="hljs-keyword">char</span>*)mmu_map_from_physical(<span class="hljs-number">0xB8000</span>) + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">unsigned</span> short) * <span class="hljs-number">80</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">unsigned</span> short) * (<span class="hljs-number">80</span> * <span class="hljs-number">24</span>));
+	<span class="hljs-built_in">memset</span>((<span class="hljs-keyword">char</span>*)mmu_map_from_physical(<span class="hljs-number">0xB8000</span>) + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">unsigned</span> short) * (<span class="hljs-number">80</span> * <span class="hljs-number">24</span>), <span class="hljs-number">0x00</span>, <span class="hljs-number">80</span> * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">unsigned</span> short));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">fbterm_init_ega</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	write_char = ega_write_char;
+	get_width = ega_get_width;
+	get_height = ega_get_height;
+	scroll_terminal = ega_scroll_terminal;
+	get_cursor_adj = ega_get_cursor_adj;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">cursor_update</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (x &gt;= get_width()) {
+		x = <span class="hljs-number">0</span>;
+		y++;
+	}
+	<span class="hljs-keyword">if</span> (y &gt;= get_height()) {
+		<span class="hljs-keyword">if</span> (fbterm_scroll) {
+			y--;
+			scroll_terminal();
+		} <span class="hljs-keyword">else</span> {
+			y = <span class="hljs-number">0</span>;
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">process_char</span><span class="hljs-params">(<span class="hljs-keyword">char</span> ch)</span> </span>{
+	<span class="hljs-keyword">if</span> (term_state == <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">if</span> (ch == <span class="hljs-string">'['</span>) {
+			term_buf_c = <span class="hljs-number">0</span>;
+			term_buf[term_buf_c] = <span class="hljs-string">'\0'</span>;
+			term_state = <span class="hljs-number">2</span>;
+		} <span class="hljs-keyword">else</span> {
+			term_state = <span class="hljs-number">0</span>;
+			process_char(ch);
+		}
+		<span class="hljs-keyword">return</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (term_state == <span class="hljs-number">2</span>) {
+		<span class="hljs-keyword">if</span> ((ch &gt;= <span class="hljs-string">'a'</span> &amp;&amp; ch &lt;= <span class="hljs-string">'z'</span>) || (ch &gt;= <span class="hljs-string">'A'</span> &amp;&amp; ch &lt;= <span class="hljs-string">'Z'</span>)) {
+			<span class="hljs-comment">/* do the thing */</span>
+			<span class="hljs-keyword">switch</span> (ch) {
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'m'</span>: {
+					<span class="hljs-keyword">char</span> * arg = &amp;term_buf[<span class="hljs-number">0</span>];
+					<span class="hljs-keyword">char</span> * next;
+					<span class="hljs-keyword">int</span> isBold = <span class="hljs-number">0</span>;
+					<span class="hljs-keyword">do</span> {
+						next = <span class="hljs-built_in">strchr</span>(arg, <span class="hljs-string">';'</span>);
+						<span class="hljs-keyword">if</span> (next) { *next = <span class="hljs-string">'\0'</span>; next++; }
+						<span class="hljs-keyword">int</span> asInt = atoi(arg);
+						<span class="hljs-keyword">if</span> (asInt == <span class="hljs-number">0</span>) {
+							fg_color = FG_COLOR;
+							bg_color = BG_COLOR;
+							isBold = <span class="hljs-number">0</span>;
+						} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (asInt == <span class="hljs-number">1</span>) {
+							isBold = <span class="hljs-number">1</span>;
+						} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (asInt == <span class="hljs-number">22</span>) {
+							fg_color = FG_COLOR;
+							isBold = <span class="hljs-number">0</span>;
+						} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (asInt &gt;= <span class="hljs-number">30</span> &amp;&amp; asInt &lt;= <span class="hljs-number">37</span>) {
+							fg_color = asInt<span class="hljs-number">-30</span> + (isBold ? <span class="hljs-number">8</span> : <span class="hljs-number">0</span>);
+						} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (asInt &gt;= <span class="hljs-number">90</span> &amp;&amp; asInt &lt;= <span class="hljs-number">97</span>) {
+							fg_color = asInt<span class="hljs-number">-90</span> + <span class="hljs-number">8</span>;
+						} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (asInt &gt;= <span class="hljs-number">40</span> &amp;&amp; asInt &lt;= <span class="hljs-number">47</span>) {
+							bg_color = asInt<span class="hljs-number">-40</span> + (isBold ? <span class="hljs-number">8</span> : <span class="hljs-number">0</span>);
+						} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (asInt &gt;= <span class="hljs-number">100</span> &amp;&amp; asInt &lt;= <span class="hljs-number">107</span>) {
+							bg_color = asInt<span class="hljs-number">-100</span> + <span class="hljs-number">8</span>;
+						} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (asInt == <span class="hljs-number">38</span>) {
+							fg_color = FG_COLOR;
+						} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (asInt == <span class="hljs-number">48</span>) {
+							bg_color = BG_COLOR;
+						} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (asInt == <span class="hljs-number">7</span>) {
+							<span class="hljs-keyword">uint32_t</span> tmp = fg_color;
+							fg_color = bg_color;
+							bg_color = tmp;
+						}
+						arg = next;
+					} <span class="hljs-keyword">while</span> (arg);
+					<span class="hljs-keyword">break</span>;
+				}
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'G'</span>: {
+					<span class="hljs-comment">/* Set cursor column */</span>
+					x = atoi(term_buf) - <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">break</span>;
+				}
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'K'</span>: {
+					<span class="hljs-keyword">if</span> (atoi(term_buf) == <span class="hljs-number">0</span>) {
+						<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = x; i &lt; get_width(); ++i) {
+							write_char(i,y,<span class="hljs-string">' '</span>,fg_color,bg_color);
+						}
+					}
+					<span class="hljs-keyword">break</span>;
+				}
+			}
+			term_state = <span class="hljs-number">0</span>;
+		} <span class="hljs-keyword">else</span> {
+			term_buf[term_buf_c++] = ch;
+			term_buf[term_buf_c] = <span class="hljs-string">'\0'</span>;
+		}
+		<span class="hljs-keyword">return</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ch == <span class="hljs-string">'\033'</span>) {
+		term_state = <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">return</span>;
+	}
+
+	write_char(x,y,<span class="hljs-string">' '</span>,fg_color,bg_color);
+	<span class="hljs-keyword">switch</span> (ch) {
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'\n'</span>:
+			x = <span class="hljs-number">0</span>;
+			y++;
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'\r'</span>:
+			x = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'\b'</span>:
+			<span class="hljs-keyword">if</span> (x) {
+				x--;
+				write_char(x,y,<span class="hljs-string">' '</span>,fg_color,bg_color);
+			}
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)ch &gt; <span class="hljs-number">127</span>) <span class="hljs-keyword">return</span>;
+			write_char(x,y,ch,fg_color,bg_color);
+			x++;
+			<span class="hljs-keyword">break</span>;
+	}
+	cursor_update();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-title">size_t</span> <span class="hljs-params">(*previous_writer)</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span>,<span class="hljs-keyword">uint8_t</span>*)</span> </span>= <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">size_t</span> <span class="hljs-title">fbterm_write</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">buffer</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">size</span>; ++i) {
+		process_char(<span class="hljs-built_in">buffer</span>[i]);
+	}
+
+	<span class="hljs-keyword">if</span> (previous_writer) previous_writer(<span class="hljs-built_in">size</span>,<span class="hljs-built_in">buffer</span>);
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">size</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * vga_text_device = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> vga_width_override = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> vga_height_override = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">vga_width</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> vga_width_override ? vga_width_override : get_width();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">vga_height</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> vga_height_override ? vga_height_override : get_height();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">write_vga_emul</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (offset &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -EIO;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> % <span class="hljs-number">2</span> || offset % <span class="hljs-number">2</span>) <span class="hljs-keyword">return</span> -EIO;
+	<span class="hljs-keyword">size_t</span> written = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">width</span>  = vga_width();
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">height</span> = vga_height();
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-built_in">size</span> &gt;= <span class="hljs-number">2</span>) {
+		<span class="hljs-keyword">if</span> (offset &gt;= (<span class="hljs-keyword">long</span>)<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">unsigned</span> short) * <span class="hljs-built_in">width</span> * <span class="hljs-built_in">height</span> - <span class="hljs-number">1</span>) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">int</span> row = (offset / <span class="hljs-number">2</span>) / <span class="hljs-built_in">width</span>;
+		<span class="hljs-keyword">int</span> col = (offset / <span class="hljs-number">2</span>) % <span class="hljs-built_in">width</span>;
+
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> flags = <span class="hljs-built_in">buffer</span>[<span class="hljs-number">1</span>];
+		write_char(col, row, *<span class="hljs-built_in">buffer</span>, ansi_to_vga[flags&amp;<span class="hljs-number">0xF</span>], ansi_to_vga[flags&gt;&gt;<span class="hljs-number">4</span>]);
+
+		offset += <span class="hljs-number">2</span>;
+		<span class="hljs-built_in">buffer</span> += <span class="hljs-number">2</span>;
+		written += <span class="hljs-number">2</span>;
+		<span class="hljs-built_in">size</span> -= <span class="hljs-number">2</span>;
+	}
+
+	<span class="hljs-keyword">return</span> written;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ioctl_vga_emul</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> request, <span class="hljs-keyword">void</span> * argp)</span> </span>{
+	<span class="hljs-keyword">switch</span> (request) {
+		<span class="hljs-keyword">case</span> IO_VID_WIDTH:
+			<span class="hljs-comment">/* Get framebuffer width */</span>
+			<span class="hljs-keyword">if</span> (!mmu_validate_user_pointer(argp, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">size_t</span>), MMU_PTR_WRITE)) <span class="hljs-keyword">return</span> -EFAULT;
+			*((<span class="hljs-keyword">size_t</span> *)argp) = vga_width();
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">case</span> IO_VID_HEIGHT:
+			<span class="hljs-comment">/* Get framebuffer height */</span>
+			<span class="hljs-keyword">if</span> (!mmu_validate_user_pointer(argp, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">size_t</span>), MMU_PTR_WRITE)) <span class="hljs-keyword">return</span> -EFAULT;
+			*((<span class="hljs-keyword">size_t</span> *)argp) = vga_height();
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">case</span> IO_VGA_MOUSE_ADJ:
+			<span class="hljs-keyword">if</span> (!mmu_validate_user_pointer(argp, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>) * <span class="hljs-number">2</span>, MMU_PTR_WRITE)) <span class="hljs-keyword">return</span> -EFAULT;
+			get_cursor_adj(&amp;((<span class="hljs-keyword">int</span>*)argp)[<span class="hljs-number">0</span>], &amp;((<span class="hljs-keyword">int</span>*)argp)[<span class="hljs-number">1</span>]);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> -ENOTTY;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">vga_text_init</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	vga_text_device = <span class="hljs-built_in">calloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>), <span class="hljs-number">1</span>);
+	<span class="hljs-built_in">snprintf</span>(vga_text_device-&gt;name, <span class="hljs-number">100</span>, <span class="hljs-string">"vga0"</span>);
+	vga_text_device-&gt;length = <span class="hljs-number">0</span>;
+	vga_text_device-&gt;flags  = FS_BLOCKDEVICE;
+	vga_text_device-&gt;mask   = <span class="hljs-number">0660</span>;
+	vga_text_device-&gt;ioctl  = ioctl_vga_emul;
+	vga_text_device-&gt;<span class="hljs-built_in">write</span>  = write_vga_emul;
+	vfs_mount(<span class="hljs-string">"/dev/vga0"</span>, vga_text_device, <span class="hljs-string">"vgatext"</span>, <span class="hljs-string">""</span>);
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">fbterm_initialize</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (lfb_resolution_x) {
+		<span class="hljs-keyword">if</span> (args_present(<span class="hljs-string">"fbterm-scroll"</span>)) {
+			fbterm_scroll = <span class="hljs-number">1</span>;
+		}
+		fbterm_init_framebuffer();
+		<span class="hljs-keyword">if</span> (args_present(<span class="hljs-string">"emulvga"</span>)) {
+			<span class="hljs-keyword">char</span> * arg = args_value(<span class="hljs-string">"emulvga"</span>);
+			<span class="hljs-keyword">if</span> (arg) {
+				<span class="hljs-keyword">char</span> * x = <span class="hljs-built_in">strchr</span>(arg,<span class="hljs-string">'x'</span>);
+				<span class="hljs-keyword">if</span> (x) {
+					*x = <span class="hljs-string">'\0'</span>;
+					vga_width_override = atoi(arg);
+					vga_height_override = atoi(x+<span class="hljs-number">1</span>);
+				}
+			}
+			vga_text_init();
+		}
+	} <span class="hljs-keyword">else</span> {
+#ifdef __x86_64__
+		fbterm_scroll = <span class="hljs-number">1</span>;
+		fbterm_init_ega();
+		vga_text_init();
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+		<span class="hljs-keyword">return</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	}
+
+	previous_writer = printf_output;
+	printf_output = fbterm_write;
+	console_set_output(fbterm_write);
+
+	dprintf(<span class="hljs-string">"fbterm: Generic framebuffer text output enabled.\n"</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>pthread.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "libc\\pthread\\pthread.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>pthread.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>This file is part of ToaruOS and is released under the terms
+of the NCSA / University of Illinois License - see LICENSE.md
+Copyright (C) 2012-2018 K. Lange</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _TOARU_SOURCE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;libc/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;pthread.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sched.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/wait.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/mman.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;libc/pthread/internal.h&gt;</span></span>
+
+DEFN_SYSCALL1(set_tls_base, SYS_SETTLSBASE, <span class="hljs-keyword">uintptr_t</span>);
+
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">int</span> __libc_is_multicore;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">void</span> _yield(<span class="hljs-keyword">void</span>) {
+	<span class="hljs-keyword">if</span> (!__libc_is_multicore) syscall_yield();
+}
+
+<span class="hljs-keyword">void</span> * __tls_get_addr(<span class="hljs-keyword">void</span>* input) {
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __x86_64__</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tls_index</span> {</span>
+		<span class="hljs-keyword">uintptr_t</span> <span class="hljs-keyword">module</span>;
+		<span class="hljs-keyword">uintptr_t</span> offset;
+	};
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tls_index</span> * <span class="hljs-title">index</span> = <span class="hljs-title">input</span>;</span>
+	<span class="hljs-comment">/* We only support initial-exec stuff, so this must be %fs:offset */</span>
+	<span class="hljs-keyword">uintptr_t</span> threadbase;
+	<span class="hljs-keyword">asm</span> (<span class="hljs-string">"mov %%fs:0, %0"</span> :<span class="hljs-string">"=r"</span>(threadbase));
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">void</span>*)(threadbase + index-&gt;offset);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">pthread_t</span> <span class="hljs-title">pthread_self</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> threadbase;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__x86_64__)</span>
+	<span class="hljs-keyword">asm</span> (<span class="hljs-string">"mov %%fs:0, %0"</span> :<span class="hljs-string">"=r"</span>(threadbase));
+<span class="hljs-meta">#<span class="hljs-meta-keyword">elif</span> defined(__aarch64__)</span>
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"mrs %0,TPIDR_EL0"</span> :<span class="hljs-string">"=r"</span>(threadbase))</span></span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+<span class="hljs-meta"># <span class="hljs-meta-keyword">error</span> <span class="hljs-meta-string">"Unknown arch."</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	<span class="hljs-keyword">return</span> (struct __pthread*)(<span class="hljs-keyword">void</span>*)(threadbase - <span class="hljs-number">4096</span>);
+}
+
+_hidden <span class="hljs-keyword">void</span> __make_tls(<span class="hljs-keyword">void</span>) {
+	<span class="hljs-keyword">char</span> * tlsSpace = mmap(<span class="hljs-literal">NULL</span>, <span class="hljs-number">8192</span>, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, <span class="hljs-number">-1</span>, <span class="hljs-number">0</span>);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> __<span class="hljs-title">pthread</span> * <span class="hljs-title">this</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">tlsSpace</span>;</span>
+	<span class="hljs-keyword">this</span>-&gt;tid = getpid();
+	<span class="hljs-keyword">this</span>-&gt;err_addr = &amp;__errno;
+	<span class="hljs-comment">/* self-pointer start? */</span>
+	<span class="hljs-keyword">char</span> ** tlsSelf = (<span class="hljs-keyword">char</span> **)(tlsSpace+<span class="hljs-number">4096</span>);
+	*tlsSelf = (<span class="hljs-keyword">char</span>*)tlsSelf;
+	syscall_set_tls_base((<span class="hljs-keyword">uintptr_t</span>)tlsSelf);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">pthread_exit</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * value)</span> </span>{
+	syscall_exit(<span class="hljs-number">0</span>);
+	__builtin_unreachable();
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> * __thread_start(<span class="hljs-keyword">void</span> * pthreadbase) {
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> __<span class="hljs-title">pthread</span> * <span class="hljs-title">this</span> = <span class="hljs-title">pthreadbase</span>;</span>
+	<span class="hljs-keyword">this</span>-&gt;tid = gettid();
+	<span class="hljs-keyword">this</span>-&gt;err_addr = &amp;<span class="hljs-keyword">this</span>-&gt;thread_err_val;
+	<span class="hljs-keyword">char</span> ** tlsbase = (<span class="hljs-keyword">char</span>**)((<span class="hljs-keyword">char</span>*)<span class="hljs-keyword">this</span> + <span class="hljs-number">4096</span>);
+	*tlsbase = (<span class="hljs-keyword">char</span>*)tlsbase;
+	syscall_set_tls_base((<span class="hljs-keyword">uintptr_t</span>)tlsbase);
+	pthread_exit(<span class="hljs-keyword">this</span>-&gt;entry(<span class="hljs-keyword">this</span>-&gt;arg));
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">pthread_create</span><span class="hljs-params">(<span class="hljs-keyword">pthread_t</span> * thread, <span class="hljs-keyword">pthread_attr_t</span> * attr, <span class="hljs-keyword">void</span> *(*start_routine)(<span class="hljs-keyword">void</span> *), <span class="hljs-keyword">void</span> * arg)</span> </span>{
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">stack</span> = mmap(<span class="hljs-literal">NULL</span>, PTHREAD_STACK_SIZE + <span class="hljs-number">8192</span>, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, <span class="hljs-number">-1</span>, <span class="hljs-number">0</span>);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> __<span class="hljs-title">pthread</span> * <span class="hljs-title">this</span> = (<span class="hljs-title">void</span>*)(<span class="hljs-title">stack</span> + <span class="hljs-title">PTHREAD_STACK_SIZE</span>);</span>
+	*thread = <span class="hljs-keyword">this</span>;
+	<span class="hljs-keyword">this</span>-&gt;entry = start_routine;
+	<span class="hljs-keyword">this</span>-&gt;arg = arg;
+	clone((<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-keyword">this</span>, (<span class="hljs-keyword">uintptr_t</span>)__thread_start, <span class="hljs-keyword">this</span>);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">pthread_kill</span><span class="hljs-params">(<span class="hljs-keyword">pthread_t</span> thread, <span class="hljs-keyword">int</span> sig)</span> </span>{
+	__sets_errno(kill(thread-&gt;tid, sig));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">pthread_cleanup_push</span><span class="hljs-params">(<span class="hljs-keyword">void</span> (*routine)(<span class="hljs-keyword">void</span> *), <span class="hljs-keyword">void</span> *arg)</span> </span>{
+	<span class="hljs-comment">/* do nothing */</span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">pthread_cleanup_pop</span><span class="hljs-params">(<span class="hljs-keyword">int</span> execute)</span> </span>{
+	<span class="hljs-comment">/* do nothing */</span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">pthread_mutex_lock</span><span class="hljs-params">(<span class="hljs-keyword">pthread_mutex_t</span> *mutex)</span> </span>{
+	<span class="hljs-keyword">while</span> (__sync_lock_test_and_set(mutex, <span class="hljs-number">0x01</span>)) {
+		_yield();
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">pthread_mutex_trylock</span><span class="hljs-params">(<span class="hljs-keyword">pthread_mutex_t</span> *mutex)</span> </span>{
+	<span class="hljs-keyword">if</span> (__sync_lock_test_and_set(mutex, <span class="hljs-number">0x01</span>)) {
+		<span class="hljs-keyword">return</span> EBUSY;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">pthread_mutex_unlock</span><span class="hljs-params">(<span class="hljs-keyword">pthread_mutex_t</span> *mutex)</span> </span>{
+	__sync_lock_release(mutex);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">pthread_mutex_init</span><span class="hljs-params">(<span class="hljs-keyword">pthread_mutex_t</span> *mutex, <span class="hljs-keyword">const</span> <span class="hljs-keyword">pthread_mutexattr_t</span> *attr)</span> </span>{
+	*mutex = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">pthread_mutex_destroy</span><span class="hljs-params">(<span class="hljs-keyword">pthread_mutex_t</span> *mutex)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">pthread_attr_init</span><span class="hljs-params">(<span class="hljs-keyword">pthread_attr_t</span> *attr)</span> </span>{
+	*attr = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">pthread_attr_destroy</span><span class="hljs-params">(<span class="hljs-keyword">pthread_attr_t</span> *attr)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">pthread_join</span><span class="hljs-params">(<span class="hljs-keyword">pthread_t</span> thread, <span class="hljs-keyword">void</span> **retval)</span> </span>{
+	<span class="hljs-keyword">int</span> status;
+	<span class="hljs-keyword">int</span> result = waitpid(thread-&gt;tid, &amp;status, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">if</span> (retval) {
+		*retval = (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)status;
+	}
+	<span class="hljs-keyword">return</span> result;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">pthread_detach</span><span class="hljs-params">(<span class="hljs-keyword">pthread_t</span> thread)</span> </span>{
+	<span class="hljs-comment">/* TODO */</span>
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

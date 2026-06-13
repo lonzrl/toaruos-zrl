@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>calculator.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\calculator.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>calculator.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/yutani.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/decorations.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/menu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/button.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/text.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/markup_text.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/kuroko.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">menu_bar</span> <span class="hljs-title">menu_bar</span> = {</span><span class="hljs-number">0</span>};
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">menu_bar_entries</span> <span class="hljs-title">menu_entries</span>[] = {</span>
+	{<span class="hljs-string">"File"</span>, <span class="hljs-string">"file"</span>},
+	{<span class="hljs-string">"Help"</span>, <span class="hljs-string">"help"</span>},
+	{<span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>},
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_t</span> * yctx;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_window_t</span> * window = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">gfx_context_t</span> * ctx = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int32_t</span> <span class="hljs-built_in">width</span> = <span class="hljs-number">600</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int32_t</span> <span class="hljs-built_in">height</span> = <span class="hljs-number">240</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * title_str = <span class="hljs-string">"Calculator"</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> textInputIsAccumulatorValue = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> accumulator[<span class="hljs-number">1024</span>] = {<span class="hljs-number">0</span>};
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> textInput[<span class="hljs-number">1024</span>] = {<span class="hljs-number">0</span>};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">CalculatorButton</span> {</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TTKButton</span> <span class="hljs-title">ttkButton</span>;</span>
+	<span class="hljs-keyword">char</span> * label;
+	<span class="hljs-keyword">void</span> (*onClick)(struct CalculatorButton *);
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">clear_result</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (textInputIsAccumulatorValue) {
+		textInputIsAccumulatorValue = <span class="hljs-number">0</span>;
+		*textInput = <span class="hljs-string">'\0'</span>;
+		*accumulator = <span class="hljs-string">'\0'</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">calc_numeric</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * <span class="hljs-built_in">text</span>)</span> </span>{
+	clear_result();
+	<span class="hljs-built_in">strcat</span>(textInput, <span class="hljs-built_in">text</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">calc_func</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * txt)</span> </span>{
+	clear_result();
+	<span class="hljs-built_in">strcat</span>(accumulator, textInput);
+	<span class="hljs-built_in">strcat</span>(accumulator, txt);
+	*textInput = <span class="hljs-string">'\0'</span>;
+	textInputIsAccumulatorValue = <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">calc_backspace</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (textInputIsAccumulatorValue) {
+		clear_result();
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!*textInput) {
+		<span class="hljs-keyword">size_t</span> l = <span class="hljs-built_in">strlen</span>(accumulator);
+		<span class="hljs-keyword">if</span> (l) {
+			accumulator[l<span class="hljs-number">-1</span>] = <span class="hljs-string">'\0'</span>;
+		}
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">size_t</span> l = <span class="hljs-built_in">strlen</span>(textInput);
+		<span class="hljs-keyword">if</span> (l) {
+			textInput[l<span class="hljs-number">-1</span>] = <span class="hljs-string">'\0'</span>;
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">btn_numeric</span><span class="hljs-params">(struct CalculatorButton * self)</span> </span>{ calc_numeric(self-&gt;label); }
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">btn_func_div</span><span class="hljs-params">(struct CalculatorButton * self)</span> </span>{ calc_func(<span class="hljs-string">"/"</span>); }
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">btn_func_mul</span><span class="hljs-params">(struct CalculatorButton * self)</span> </span>{ calc_func(<span class="hljs-string">"*"</span>); }
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">btn_func_sub</span><span class="hljs-params">(struct CalculatorButton * self)</span> </span>{ calc_func(<span class="hljs-string">"-"</span>); }
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">btn_func_add</span><span class="hljs-params">(struct CalculatorButton * self)</span> </span>{ calc_func(<span class="hljs-string">"+"</span>); }
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">btn_func_pct</span><span class="hljs-params">(struct CalculatorButton * self)</span> </span>{ calc_func(<span class="hljs-string">"%"</span>); }
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">btn_func_opr</span><span class="hljs-params">(struct CalculatorButton * self)</span> </span>{ calc_func(<span class="hljs-string">"("</span>); }
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">btn_func_cpr</span><span class="hljs-params">(struct CalculatorButton * self)</span> </span>{ calc_func(<span class="hljs-string">")"</span>); }
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">btn_func_clr</span><span class="hljs-params">(struct CalculatorButton * self)</span> </span>{
+	<span class="hljs-keyword">if</span> (!*textInput) {
+		*accumulator = <span class="hljs-string">'\0'</span>;
+	} <span class="hljs-keyword">else</span> {
+		*textInput = <span class="hljs-string">'\0'</span>;
+	}
+}
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">btn_func_equ</span><span class="hljs-params">(struct CalculatorButton * self)</span> </span>{
+	<span class="hljs-keyword">if</span> (textInputIsAccumulatorValue) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">if</span> (*textInput) {
+		<span class="hljs-built_in">strcat</span>(accumulator, textInput);
+		*textInput = <span class="hljs-string">'\0'</span>;
+	}
+
+	KrkValue result = krk_interpret(accumulator, <span class="hljs-string">"&lt;stdin&gt;"</span>);
+	<span class="hljs-keyword">if</span> (!IS_NONE(result)) {
+		krk_attachNamedValue(&amp;vm.builtins-&gt;fields, <span class="hljs-string">"_"</span>, result);
+		krk_push(result);
+		krk_push(krk_stringFromFormat(<span class="hljs-string">"%R"</span>, result));
+		krk_swap(<span class="hljs-number">1</span>);
+		krk_pop();
+		<span class="hljs-keyword">if</span> (IS_STRING(krk_peek(<span class="hljs-number">0</span>))) {
+			<span class="hljs-built_in">snprintf</span>(textInput, <span class="hljs-number">1024</span>, <span class="hljs-string">"%s"</span>, AS_CSTRING(krk_peek(<span class="hljs-number">0</span>)));
+		}
+		krk_pop();
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION) {
+		<span class="hljs-built_in">strcat</span>(textInput, <span class="hljs-string">"Error."</span>);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">strcat</span>(textInput, <span class="hljs-string">"*"</span>);
+	}
+	krk_resetStack();
+
+	textInputIsAccumulatorValue = <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> N(n) {{0},#n,btn_numeric}</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> F(n,func) {{0},n,btn_func_ ## func}</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BTN_ROWS 4</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BTN_COLS 5</span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">CalculatorButton</span> <span class="hljs-title">buttons</span>[] = {</span>
+	N(<span class="hljs-number">7</span>), N(<span class="hljs-number">8</span>), N(<span class="hljs-number">9</span>),         F(<span class="hljs-string">"÷"</span>,div), F(<span class="hljs-string">"("</span>,opr),
+	N(<span class="hljs-number">4</span>), N(<span class="hljs-number">5</span>), N(<span class="hljs-number">6</span>),         F(<span class="hljs-string">"×"</span>,mul), F(<span class="hljs-string">")"</span>,cpr),
+	N(<span class="hljs-number">1</span>), N(<span class="hljs-number">2</span>), N(<span class="hljs-number">3</span>),         F(<span class="hljs-string">"-"</span>,sub), F(<span class="hljs-string">"C"</span>,clr),
+	N(<span class="hljs-number">0</span>), N(.), F(<span class="hljs-string">"mod"</span>,pct), F(<span class="hljs-string">"+"</span>,add), F(<span class="hljs-string">"="</span>,equ),
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">redraw</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(window, &amp;bounds);
+	draw_fill(ctx, rgb(<span class="hljs-number">204</span>,<span class="hljs-number">204</span>,<span class="hljs-number">204</span>));
+
+	draw_rectangle_solid(ctx, bounds.left_width, bounds.top_height + MENU_BAR_HEIGHT + <span class="hljs-number">4</span>, window-&gt;<span class="hljs-built_in">width</span> - bounds.<span class="hljs-built_in">width</span>, <span class="hljs-number">42</span>, rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>));
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MarkupState</span> * <span class="hljs-title">renderer</span> = <span class="hljs-title">markup_setup_renderer</span>(<span class="hljs-title">ctx</span>, <span class="hljs-title">bounds</span>.<span class="hljs-title">left_width</span> + 5, <span class="hljs-title">bounds</span>.<span class="hljs-title">top_height</span> + <span class="hljs-title">MENU_BAR_HEIGHT</span> + 14, <span class="hljs-title">rgb</span>(0,0,0), 0);</span>
+	markup_set_base_font_size(renderer, <span class="hljs-number">10</span>);
+	markup_set_base_state(renderer, MARKUP_TEXT_STATE_MONO);
+	markup_push_raw_string(renderer, accumulator);
+	<span class="hljs-keyword">if</span> (!textInputIsAccumulatorValue &amp;&amp; !textInput[<span class="hljs-number">0</span>]) markup_push_raw_string(renderer, <span class="hljs-string">"_"</span>);
+	markup_finish_renderer(renderer);
+
+	renderer = markup_setup_renderer(ctx, bounds.left_width + <span class="hljs-number">5</span>, bounds.top_height + MENU_BAR_HEIGHT + <span class="hljs-number">35</span>, rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>), <span class="hljs-number">0</span>);
+	markup_set_base_font_size(renderer, <span class="hljs-number">16</span>);
+	markup_set_base_state(renderer, (textInputIsAccumulatorValue ? MARKUP_TEXT_STATE_BOLD : <span class="hljs-number">0</span>) | MARKUP_TEXT_STATE_MONO);
+	markup_push_raw_string(renderer, textInput);
+	<span class="hljs-keyword">if</span> (!textInputIsAccumulatorValue &amp;&amp; textInput[<span class="hljs-number">0</span>]) markup_push_raw_string(renderer, <span class="hljs-string">"_"</span>);
+	markup_finish_renderer(renderer);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; (BTN_ROWS * BTN_COLS); ++i) {
+		ttk_button_draw(ctx, &amp;buttons[i].ttkButton);
+	}
+
+	menu_bar_render(&amp;menu_bar, ctx);
+
+	render_decorations(window, ctx, title_str);
+	flip(ctx);
+	yutani_flip(yctx, window);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">redraw_window_callback</span><span class="hljs-params">(struct menu_bar * self)</span> </span>{
+	(<span class="hljs-keyword">void</span>)self;
+	redraw();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">in_button</span><span class="hljs-params">(struct TTKButton * button, struct yutani_msg_window_mouse_event * me)</span> </span>{
+	<span class="hljs-keyword">if</span> (me-&gt;new_y &gt;= button-&gt;y &amp;&amp; me-&gt;new_y &lt; button-&gt;y  + button-&gt;<span class="hljs-built_in">height</span>) {
+		<span class="hljs-keyword">if</span> (me-&gt;new_x &gt;= button-&gt;x &amp;&amp; me-&gt;new_x &lt; button-&gt;x + button-&gt;<span class="hljs-built_in">width</span>) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BASE_TOP 50</span>
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">setup_buttons</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(window, &amp;bounds);
+
+	menu_bar.x = bounds.left_width;
+	menu_bar.y = bounds.top_height;
+	menu_bar.<span class="hljs-built_in">width</span> = ctx-&gt;<span class="hljs-built_in">width</span> - bounds.<span class="hljs-built_in">width</span>;
+	menu_bar.window = window;
+
+	<span class="hljs-keyword">size_t</span> ind = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">int</span> aWidth     = ctx-&gt;<span class="hljs-built_in">width</span> - bounds.<span class="hljs-built_in">width</span> - <span class="hljs-number">10</span>;
+	<span class="hljs-keyword">int</span> baseWidth  = aWidth / BTN_COLS;
+	<span class="hljs-keyword">int</span> extraWidth = aWidth - baseWidth * BTN_COLS;
+
+	<span class="hljs-keyword">int</span> aHeight     = ctx-&gt;<span class="hljs-built_in">height</span> - bounds.<span class="hljs-built_in">height</span> - <span class="hljs-number">10</span> - MENU_BAR_HEIGHT - BASE_TOP;
+	<span class="hljs-keyword">int</span> baseHeight  = aHeight / BTN_ROWS;
+	<span class="hljs-keyword">int</span> extraHeight = aHeight - baseHeight * BTN_ROWS;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> row = <span class="hljs-number">0</span>; row &lt; BTN_ROWS; ++row) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> col = <span class="hljs-number">0</span>; col &lt; BTN_COLS; ++col, ++ind) {
+			buttons[ind].ttkButton.title  = buttons[ind].label;
+			buttons[ind].ttkButton.<span class="hljs-built_in">width</span>  = ((col + <span class="hljs-number">1</span> &lt; BTN_COLS) ? baseWidth : (baseWidth + extraWidth)) - <span class="hljs-number">5</span>;
+			buttons[ind].ttkButton.<span class="hljs-built_in">height</span> = ((row + <span class="hljs-number">1</span> &lt; BTN_ROWS) ? baseHeight : (baseHeight + extraHeight)) - <span class="hljs-number">5</span>;
+			buttons[ind].ttkButton.x = <span class="hljs-number">5</span> + bounds.left_width + baseWidth * col;
+			buttons[ind].ttkButton.y = MENU_BAR_HEIGHT + BASE_TOP + <span class="hljs-number">5</span> + bounds.top_height + baseHeight * row;
+		}
+	}
+
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">resize_finish</span><span class="hljs-params">(<span class="hljs-keyword">int</span> w, <span class="hljs-keyword">int</span> h)</span> </span>{
+	<span class="hljs-keyword">if</span> (w &lt; <span class="hljs-number">300</span> || h &lt; <span class="hljs-number">240</span>) {
+		yutani_window_resize_offer(yctx, window, w &lt; <span class="hljs-number">300</span> ? <span class="hljs-number">300</span> : w, h &lt; <span class="hljs-number">240</span> ? <span class="hljs-number">240</span> : h);
+		<span class="hljs-keyword">return</span>;
+	}
+	yutani_window_resize_accept(yctx, window, w, h);
+	reinit_graphics_yutani(ctx, window);
+	<span class="hljs-built_in">width</span>  = w;
+	<span class="hljs-built_in">height</span> = h;
+	setup_buttons();
+	redraw();
+	yutani_window_resize_done(yctx, window);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">clear_highlights</span><span class="hljs-params">(<span class="hljs-keyword">int</span> *changed)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; BTN_ROWS * BTN_COLS; ++i) {
+		<span class="hljs-keyword">if</span> (buttons[i].ttkButton.hilight) {
+			*changed = <span class="hljs-number">1</span>;
+			buttons[i].ttkButton.hilight = <span class="hljs-number">0</span>;
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">set_hilight</span><span class="hljs-params">(struct TTKButton * button, <span class="hljs-keyword">int</span> hilight)</span> </span>{
+	<span class="hljs-keyword">int</span> changed = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (!button) {
+		clear_highlights(&amp;changed);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (button &amp;&amp; (button-&gt;hilight != hilight)) {
+		changed = <span class="hljs-number">1</span>;
+		clear_highlights(&amp;changed);
+		button-&gt;hilight = hilight;
+	}
+	<span class="hljs-keyword">if</span> (changed) redraw();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">update_buttons</span><span class="hljs-params">(struct yutani_msg_window_mouse_event * me, <span class="hljs-keyword">int</span> hilight)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TTKButton</span> * <span class="hljs-title">inButton</span> = <span class="hljs-title">NULL</span>;</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; BTN_ROWS * BTN_COLS; ++i) {
+		<span class="hljs-keyword">if</span> (in_button(&amp;buttons[i].ttkButton, me)) {
+			inButton = &amp;buttons[i].ttkButton;
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+	set_hilight(inButton, inButton ? hilight : <span class="hljs-number">0</span>);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _menu_action_exit(struct MenuEntry * entry) {
+	<span class="hljs-built_in">exit</span>(<span class="hljs-number">0</span>);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _menu_action_help(struct MenuEntry * entry) {
+	system(<span class="hljs-string">"help-browser calculator.trt &amp;"</span>);
+	redraw();
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _menu_action_about(struct MenuEntry * entry) {
+	<span class="hljs-comment">/* Show About dialog */</span>
+	<span class="hljs-keyword">char</span> about_cmd[<span class="hljs-number">1024</span>] = <span class="hljs-string">"\0"</span>;
+	<span class="hljs-built_in">strcat</span>(about_cmd, <span class="hljs-string">"about \"About Calculator\" /usr/share/icons/48/calculator.png \"Calculator\" \"© 2021-2022 K. Lange\n-\nPart of ToaruOS, which is free software\nreleased under the NCSA/University of Illinois\nlicense.\n-\n%https://toaruos.org\n%https://github.com/klange/toaruos\" "</span>);
+	<span class="hljs-keyword">char</span> coords[<span class="hljs-number">100</span>];
+	<span class="hljs-built_in">sprintf</span>(coords, <span class="hljs-string">"%d %d &amp;"</span>, (<span class="hljs-keyword">int</span>)window-&gt;x + (<span class="hljs-keyword">int</span>)window-&gt;<span class="hljs-built_in">width</span> / <span class="hljs-number">2</span>, (<span class="hljs-keyword">int</span>)window-&gt;y + (<span class="hljs-keyword">int</span>)window-&gt;<span class="hljs-built_in">height</span> / <span class="hljs-number">2</span>);
+	<span class="hljs-built_in">strcat</span>(about_cmd, coords);
+	system(about_cmd);
+	redraw();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">int</span> req_center_x, req_center_y;
+	yctx = yutani_init();
+	<span class="hljs-keyword">if</span> (!yctx) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: failed to connect to compositor\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	init_decorations();
+	markup_text_init();
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(<span class="hljs-literal">NULL</span>, &amp;bounds);
+
+	window = yutani_window_create(yctx, <span class="hljs-built_in">width</span> + bounds.<span class="hljs-built_in">width</span>, <span class="hljs-built_in">height</span> + bounds.<span class="hljs-built_in">height</span>);
+	req_center_x = yctx-&gt;display_width / <span class="hljs-number">2</span>;
+	req_center_y = yctx-&gt;display_height / <span class="hljs-number">2</span>;
+
+	yutani_window_move(yctx, window, req_center_x - window-&gt;<span class="hljs-built_in">width</span> / <span class="hljs-number">2</span>, req_center_y - window-&gt;<span class="hljs-built_in">height</span> / <span class="hljs-number">2</span>);
+
+	yutani_window_advertise_icon(yctx, window, title_str, <span class="hljs-string">"calculator"</span>);
+
+	ctx = init_graphics_yutani_double_buffer(window);
+
+	menu_bar.entries = menu_entries;
+	menu_bar.redraw_callback = redraw_window_callback;
+	menu_bar.<span class="hljs-built_in">set</span> = menu_set_create();
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">m</span> = <span class="hljs-title">menu_create</span>();</span> <span class="hljs-comment">/* File */</span>
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"exit"</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-string">"Exit"</span>, _menu_action_exit));
+	menu_set_insert(menu_bar.<span class="hljs-built_in">set</span>, <span class="hljs-string">"file"</span>, m);
+
+	m = menu_create();
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"help"</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-string">"Contents"</span>,_menu_action_help));
+	menu_insert(m, menu_create_separator());
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"star"</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-string">"About Calculator"</span>,_menu_action_about));
+	menu_set_insert(menu_bar.<span class="hljs-built_in">set</span>, <span class="hljs-string">"help"</span>, m);
+
+	setup_buttons();
+	redraw();
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TTKButton</span> * _<span class="hljs-title">down_button</span> = <span class="hljs-title">NULL</span>;</span>
+
+	vm.binpath = strdup(<span class="hljs-string">"/bin/calculator"</span>); <span class="hljs-comment">/* Just assume this so we can get module imports */</span>
+	krk_initVM(KRK_GLOBAL_CLEAN_OUTPUT);
+	krk_startModule(<span class="hljs-string">"__main__"</span>);
+
+	<span class="hljs-keyword">int</span> playing = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">while</span> (playing) {
+		<span class="hljs-keyword">yutani_msg_t</span> * m = yutani_poll(yctx);
+		<span class="hljs-keyword">while</span> (m) {
+			<span class="hljs-keyword">if</span> (menu_process_event(yctx, m)) {
+				redraw();
+			}
+			<span class="hljs-keyword">switch</span> (m-&gt;type) {
+				<span class="hljs-keyword">case</span> YUTANI_MSG_KEY_EVENT:
+					{
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_key_event</span> * <span class="hljs-title">ke</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+						<span class="hljs-keyword">yutani_window_t</span> * win = hashmap_get(yctx-&gt;windows, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)ke-&gt;wid);
+						<span class="hljs-keyword">if</span> (win == window) {
+							<span class="hljs-keyword">if</span> (ke-&gt;event.action == KEY_ACTION_DOWN) {
+								<span class="hljs-keyword">if</span> (ke-&gt;event.key == <span class="hljs-string">'\n'</span>) btn_func_equ(<span class="hljs-literal">NULL</span>);
+								<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> ((ke-&gt;event.key &gt;= <span class="hljs-string">'0'</span> &amp;&amp; ke-&gt;event.key &lt;= <span class="hljs-string">'9'</span>) || ke-&gt;event.key == <span class="hljs-string">'.'</span>) {
+									<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">2</span>] = {ke-&gt;event.key, <span class="hljs-string">'\0'</span>};
+									calc_numeric(tmp);
+								} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> ((ke-&gt;event.key == KEY_BACKSPACE)) {
+									calc_backspace();
+								} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> ((ke-&gt;event.key)) {
+									<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">2</span>] = {ke-&gt;event.key, <span class="hljs-string">'\0'</span>};
+									calc_func(tmp);
+								}
+								redraw();
+							}
+						}
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_FOCUS_CHANGE:
+					{
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_focus_change</span> * <span class="hljs-title">wf</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+						<span class="hljs-keyword">yutani_window_t</span> * win = hashmap_get(yctx-&gt;windows, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)wf-&gt;wid);
+						<span class="hljs-keyword">if</span> (win) {
+							win-&gt;focused = wf-&gt;focused;
+							redraw();
+						}
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> YUTANI_MSG_RESIZE_OFFER:
+					{
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_resize</span> * <span class="hljs-title">wr</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+						resize_finish(wr-&gt;<span class="hljs-built_in">width</span>, wr-&gt;<span class="hljs-built_in">height</span>);
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_MOUSE_EVENT:
+					{
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_mouse_event</span> * <span class="hljs-title">me</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+						<span class="hljs-keyword">if</span> (me-&gt;wid == window-&gt;wid) {
+							<span class="hljs-keyword">int</span> result = decor_handle_event(yctx, m);
+							<span class="hljs-keyword">switch</span> (result) {
+								<span class="hljs-keyword">case</span> DECOR_CLOSE:
+									playing = <span class="hljs-number">0</span>;
+									<span class="hljs-keyword">break</span>;
+								<span class="hljs-keyword">case</span> DECOR_RIGHT:
+									<span class="hljs-comment">/* right click in decoration, show appropriate menu */</span>
+									decor_show_default_menu(window, window-&gt;x + me-&gt;new_x, window-&gt;y + me-&gt;new_y);
+									<span class="hljs-keyword">break</span>;
+								<span class="hljs-keyword">default</span>:
+									<span class="hljs-comment">/* Other actions */</span>
+									<span class="hljs-keyword">break</span>;
+							}
+
+							menu_bar_mouse_event(yctx, window, &amp;menu_bar, me, me-&gt;new_x, me-&gt;new_y);
+
+							<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+							decor_get_bounds(window, &amp;bounds);
+							<span class="hljs-keyword">if</span> (me-&gt;new_y &gt; bounds.top_height) {
+
+								<span class="hljs-keyword">if</span> (me-&gt;command == YUTANI_MOUSE_EVENT_DOWN) {
+									<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; BTN_ROWS * BTN_COLS; ++i) {
+										<span class="hljs-keyword">if</span> (in_button(&amp;buttons[i].ttkButton, me)) {
+											set_hilight(&amp;buttons[i].ttkButton, <span class="hljs-number">2</span>);
+											_down_button = &amp;buttons[i].ttkButton;
+										}
+									}
+								} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (me-&gt;command == YUTANI_MOUSE_EVENT_RAISE || me-&gt;command == YUTANI_MOUSE_EVENT_CLICK) {
+									<span class="hljs-keyword">if</span> (_down_button) {
+										<span class="hljs-keyword">if</span> (in_button(_down_button, me)) {
+											((struct CalculatorButton*)_down_button)-&gt;onClick((struct CalculatorButton*)_down_button);
+											_down_button-&gt;hilight = <span class="hljs-number">0</span>;
+										}
+									}
+									_down_button = <span class="hljs-literal">NULL</span>;
+								}
+
+								<span class="hljs-keyword">if</span> (!me-&gt;buttons &amp; YUTANI_MOUSE_BUTTON_LEFT) {
+									update_buttons(me, <span class="hljs-number">1</span>);
+								} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (_down_button) {
+									<span class="hljs-keyword">if</span> (in_button(_down_button, me)) {
+										set_hilight(_down_button, <span class="hljs-number">2</span>);
+									} <span class="hljs-keyword">else</span> {
+										set_hilight(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>);
+									}
+								}
+							}
+						}
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_CLOSE:
+				<span class="hljs-keyword">case</span> YUTANI_MSG_SESSION_END:
+					playing = <span class="hljs-number">0</span>;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">default</span>:
+					<span class="hljs-keyword">break</span>;
+			}
+			<span class="hljs-built_in">free</span>(m);
+			m = yutani_poll_async(yctx);
+		}
+	}
+
+	yutani_close(yctx, window);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

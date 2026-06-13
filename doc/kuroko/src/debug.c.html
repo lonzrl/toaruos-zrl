@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>debug.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\src\\debug.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>debug.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/debug.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/compiler.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"private.h"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"opcode_enum.h"</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_DISABLE_DEBUG</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> NOOP (void)0</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__GNUC__) &amp;&amp; !defined(__llvm__) &amp;&amp; !defined(__INTEL_COMPILER)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">pragma</span> GCC optimize (<span class="hljs-meta-string">"Os"</span>)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> STRING_DEBUG_TRUNCATE 50</span>
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_printValueSafe</span><span class="hljs-params">(FILE * f, KrkValue printable)</span> </span>{
+	<span class="hljs-keyword">if</span> (!IS_OBJECT(printable)) {
+		<span class="hljs-keyword">switch</span> (KRK_VAL_TYPE(printable)) {
+			<span class="hljs-keyword">case</span> KRK_VAL_INTEGER:  <span class="hljs-built_in">fprintf</span>(f, PRIkrk_int, AS_INTEGER(printable)); <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KRK_VAL_BOOLEAN:  <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"%s"</span>, AS_BOOLEAN(printable) ? <span class="hljs-string">"True"</span> : <span class="hljs-string">"False"</span>); <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KRK_VAL_NONE:     <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"None"</span>); <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KRK_VAL_HANDLER:
+				<span class="hljs-keyword">switch</span> (AS_HANDLER_TYPE(printable)) {
+					<span class="hljs-keyword">case</span> OP_PUSH_TRY:      <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"{try-&gt;%d}"</span>,     (<span class="hljs-keyword">int</span>)AS_HANDLER_TARGET(printable)); <span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> OP_PUSH_WITH:     <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"{with-&gt;%d}"</span>,    (<span class="hljs-keyword">int</span>)AS_HANDLER_TARGET(printable)); <span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> OP_RAISE:         <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"{raise&lt;-%d}"</span>,   (<span class="hljs-keyword">int</span>)AS_HANDLER_TARGET(printable)); <span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> OP_FILTER_EXCEPT: <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"{except&lt;-%d}"</span>,  (<span class="hljs-keyword">int</span>)AS_HANDLER_TARGET(printable)); <span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> OP_BEGIN_FINALLY: <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"{finally&lt;-%d}"</span>, (<span class="hljs-keyword">int</span>)AS_HANDLER_TARGET(printable)); <span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> OP_RETURN:        <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"{return&lt;-%d}"</span>,  (<span class="hljs-keyword">int</span>)AS_HANDLER_TARGET(printable)); <span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> OP_END_FINALLY:   <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"{end&lt;-%d}"</span>,     (<span class="hljs-keyword">int</span>)AS_HANDLER_TARGET(printable)); <span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> OP_EXIT_LOOP:     <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"{exit&lt;-%d}"</span>,    (<span class="hljs-keyword">int</span>)AS_HANDLER_TARGET(printable)); <span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> OP_RAISE_FROM:    <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"{reraise&lt;-%d}"</span>, (<span class="hljs-keyword">int</span>)AS_HANDLER_TARGET(printable)); <span class="hljs-keyword">break</span>;
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KRK_VAL_KWARGS: {
+				<span class="hljs-keyword">if</span> (AS_INTEGER(printable) == KWARGS_SINGLE) {
+					<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"{unpack single}"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (AS_INTEGER(printable) == KWARGS_LIST) {
+					<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"{unpack list}"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (AS_INTEGER(printable) == KWARGS_DICT) {
+					<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"{unpack dict}"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (AS_INTEGER(printable) == KWARGS_NIL) {
+					<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"{unpack nil}"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (AS_INTEGER(printable) == KWARGS_UNSET) {
+					<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"{unset default}"</span>);
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"{sentinel="</span> PRIkrk_int <span class="hljs-string">"}"</span>,AS_INTEGER(printable));
+				}
+				<span class="hljs-keyword">break</span>;
+			}
+			<span class="hljs-keyword">default</span>:
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_NO_FLOAT</span>
+				<span class="hljs-keyword">if</span> (IS_FLOATING(printable)) <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"%.16g"</span>, AS_FLOATING(printable));
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+				<span class="hljs-keyword">break</span>;
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_STRING(printable)) {
+		<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"'"</span>);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Print at most STRING_DEBUG_TRUNCATE characters, as bytes, escaping anything not ASCII.
+See also str.<strong>repr</strong> which does something similar with escape sequences, but this
+is a dumber, safer, and slightly faster approach.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> c = <span class="hljs-number">0</span>; c &lt; AS_STRING(printable)-&gt;length &amp;&amp; c &lt; STRING_DEBUG_TRUNCATE; ++c) {
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> <span class="hljs-keyword">byte</span> = (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span>)AS_CSTRING(printable)[c];
+			<span class="hljs-keyword">switch</span> (<span class="hljs-keyword">byte</span>) {
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'\\'</span>: <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"\\\\"</span>); <span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'\n'</span>: <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"\\n"</span>); <span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'\r'</span>: <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"\\r"</span>); <span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'\''</span>: <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"\\'"</span>); <span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">default</span>: {
+					<span class="hljs-keyword">if</span> (<span class="hljs-keyword">byte</span> &lt; <span class="hljs-string">' '</span> || <span class="hljs-keyword">byte</span> &gt; <span class="hljs-string">'~'</span>) {
+						<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"\\x%02x"</span>, <span class="hljs-keyword">byte</span>);
+					} <span class="hljs-keyword">else</span> {
+						<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"%c"</span>, <span class="hljs-keyword">byte</span>);
+					}
+					<span class="hljs-keyword">break</span>;
+				}
+			}
+		}
+		<span class="hljs-keyword">if</span> (AS_STRING(printable)-&gt;length &gt; STRING_DEBUG_TRUNCATE) {
+			<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"..."</span>);
+		}
+		<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"'"</span>);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">switch</span> (AS_OBJECT(printable)-&gt;type) {
+			<span class="hljs-keyword">case</span> KRK_OBJ_CODEOBJECT: <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"&lt;codeobject %s&gt;"</span>, AS_codeobject(printable)-&gt;name ? AS_codeobject(printable)-&gt;name-&gt;chars : <span class="hljs-string">"?"</span>); <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KRK_OBJ_CLASS: <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"&lt;class %s&gt;"</span>, AS_CLASS(printable)-&gt;name ? AS_CLASS(printable)-&gt;name-&gt;chars : <span class="hljs-string">"?"</span>); <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KRK_OBJ_INSTANCE: <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"&lt;instance of %s&gt;"</span>, AS_INSTANCE(printable)-&gt;_class-&gt;name-&gt;chars); <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KRK_OBJ_NATIVE: <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"&lt;nativefn %s&gt;"</span>, ((KrkNative*)AS_OBJECT(printable))-&gt;name); <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KRK_OBJ_CLOSURE: <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"&lt;function %s&gt;"</span>, AS_CLOSURE(printable)-&gt;function-&gt;name-&gt;chars); <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KRK_OBJ_BYTES: <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"&lt;bytes of len %ld&gt;"</span>, (<span class="hljs-keyword">long</span>)AS_BYTES(printable)-&gt;length); <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KRK_OBJ_TUPLE: {
+				<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"("</span>);
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; AS_TUPLE(printable)-&gt;values.count; ++i) {
+					krk_printValueSafe(f, AS_TUPLE(printable)-&gt;values.values[i]);
+					<span class="hljs-keyword">if</span> (i + <span class="hljs-number">1</span> != AS_TUPLE(printable)-&gt;values.count) {
+						<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">","</span>);
+					}
+				}
+				<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">")"</span>);
+			} <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KRK_OBJ_BOUND_METHOD: <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"&lt;method %s&gt;"</span>,
+				AS_BOUND_METHOD(printable)-&gt;method ? (
+				AS_BOUND_METHOD(printable)-&gt;method-&gt;type == KRK_OBJ_CLOSURE ? ((KrkClosure*)AS_BOUND_METHOD(printable)-&gt;method)-&gt;function-&gt;name-&gt;chars :
+					(AS_BOUND_METHOD(printable)-&gt;method-&gt;type == KRK_OBJ_NATIVE ? ((KrkNative*)AS_BOUND_METHOD(printable)-&gt;method)-&gt;name : <span class="hljs-string">"(unknown)"</span>)) : <span class="hljs-string">"(corrupt bound method)"</span>); <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">default</span>: <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"&lt;%s&gt;"</span>, krk_typeName(printable)); <span class="hljs-keyword">break</span>;
+		}
+	}
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>When tracing is enabled, we will present the elements on the stack with
+a safe printer; the format of values printed by krk_printValueSafe will
+look different from those printed by printValue, but they guarantee that
+the VM will never be called to produce a string, which would result in
+a nasty infinite recursion if we did it while trying to trace the VM!</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_debug_dumpStack</span><span class="hljs-params">(FILE * file, KrkCallFrame * frame)</span> </span>{
+	<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (!frame) frame = &amp;krk_currentThread.frames[krk_currentThread.frameCount<span class="hljs-number">-1</span>];
+	<span class="hljs-keyword">for</span> (KrkValue * slot = krk_currentThread.<span class="hljs-built_in">stack</span>; slot &lt; krk_currentThread.stackTop; slot++) {
+		<span class="hljs-built_in">fprintf</span>(file, <span class="hljs-string">"[%c"</span>, frame-&gt;slots == i ? <span class="hljs-string">'*'</span> : <span class="hljs-string">' '</span>);
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> x = krk_currentThread.frameCount; x &gt; <span class="hljs-number">0</span>; x--) {
+			<span class="hljs-keyword">if</span> (krk_currentThread.frames[x<span class="hljs-number">-1</span>].slots &gt; i) <span class="hljs-keyword">continue</span>;
+			KrkCallFrame * f = &amp;krk_currentThread.frames[x<span class="hljs-number">-1</span>];
+			<span class="hljs-keyword">size_t</span> relative = i - f-&gt;slots;
+
+			<span class="hljs-comment">/* Figure out the name of this value */</span>
+			<span class="hljs-keyword">int</span> found = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> j = <span class="hljs-number">0</span>; j &lt; f-&gt;closure-&gt;function-&gt;localNameCount; ++j) {
+				<span class="hljs-keyword">if</span> (relative == f-&gt;closure-&gt;function-&gt;localNames[j].id
+					<span class="hljs-comment">/* Only display this name if it's currently valid */</span>
+					&amp;&amp;  f-&gt;closure-&gt;function-&gt;localNames[j].birthday &lt;= (<span class="hljs-keyword">size_t</span>)(f-&gt;ip - f-&gt;closure-&gt;function-&gt;chunk.code)
+					&amp;&amp;  f-&gt;closure-&gt;function-&gt;localNames[j].deathday &gt;= (<span class="hljs-keyword">size_t</span>)(f-&gt;ip - f-&gt;closure-&gt;function-&gt;chunk.code)
+					) {
+					<span class="hljs-built_in">fprintf</span>(file, <span class="hljs-string">"%s="</span>, f-&gt;closure-&gt;function-&gt;localNames[j].name-&gt;chars);
+					found = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">break</span>;
+				}
+			}
+			<span class="hljs-keyword">if</span> (found) <span class="hljs-keyword">break</span>;
+		}
+
+		krk_printValueSafe(file, *slot);
+		<span class="hljs-built_in">fprintf</span>(file, <span class="hljs-string">" ]"</span>);
+		i++;
+	}
+	<span class="hljs-keyword">if</span> (i == frame-&gt;slots) {
+		<span class="hljs-built_in">fprintf</span>(file, <span class="hljs-string">" * "</span>);
+	}
+	<span class="hljs-built_in">fprintf</span>(file, <span class="hljs-string">"\n"</span>);
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_disassembleCodeObject</span><span class="hljs-params">(FILE * f, KrkCodeObject * func, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name)</span> </span>{
+	KrkChunk * chunk = &amp;func-&gt;chunk;
+	<span class="hljs-comment">/* Function header */</span>
+	<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"&lt;%s("</span>, name);
+	<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; func-&gt;potentialPositionals; ++i) {
+		<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"%s"</span>,func-&gt;localNames[j].name-&gt;chars);
+		<span class="hljs-keyword">if</span> (j + <span class="hljs-number">1</span> &lt; func-&gt;totalArguments) <span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">","</span>);
+		j++;
+	}
+	<span class="hljs-keyword">if</span> (func-&gt;obj.flags &amp; KRK_OBJ_FLAGS_CODEOBJECT_COLLECTS_ARGS) {
+		<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"*%s"</span>,func-&gt;localNames[j].name-&gt;chars);
+		<span class="hljs-keyword">if</span> (j + <span class="hljs-number">1</span> &lt; func-&gt;totalArguments) <span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">","</span>);
+		j++;
+	}
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; func-&gt;keywordArgs; ++i) {
+		<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"%s="</span>,func-&gt;localNames[j].name-&gt;chars);
+		<span class="hljs-keyword">if</span> (j + <span class="hljs-number">1</span> &lt; func-&gt;totalArguments) <span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">","</span>);
+		j++;
+	}
+	<span class="hljs-keyword">if</span> (func-&gt;obj.flags &amp; KRK_OBJ_FLAGS_CODEOBJECT_COLLECTS_KWS) {
+		<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"**%s"</span>,func-&gt;localNames[j].name-&gt;chars);
+	}
+	<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">") from %s&gt;\n"</span>, chunk-&gt;filename-&gt;chars);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> offset = <span class="hljs-number">0</span>; offset &lt; chunk-&gt;count;) {
+		offset = krk_disassembleInstruction(f, func, offset);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">opcodeClean</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * opc)</span> </span>{
+	<span class="hljs-keyword">return</span> &amp;opc[<span class="hljs-number">3</span>];
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _overlong_jump(KrkCodeObject * func, <span class="hljs-keyword">size_t</span> offset, <span class="hljs-keyword">size_t</span> operand) {
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; func-&gt;overlongJumpsCount; ++i) {
+		<span class="hljs-keyword">if</span> (func-&gt;overlongJumps[i].instructionOffset == offset) {
+			operand |= (<span class="hljs-keyword">int</span>)func-&gt;overlongJumps[i].intendedTarget &lt;&lt; <span class="hljs-number">16</span>;
+			<span class="hljs-keyword">size_t</span> target = offset + <span class="hljs-number">2</span> + operand;
+			<span class="hljs-keyword">if</span> (func-&gt;overlongJumps[i].originalOpcode == OP_LOOP ||
+				func-&gt;overlongJumps[i].originalOpcode == OP_LOOP_ITER) {
+				target = offset + <span class="hljs-number">2</span> - operand;
+			}
+			krk_tableSet(AS_DICT(func-&gt;jumpTargets), INTEGER_VAL(target), BOOLEAN_VAL(<span class="hljs-number">1</span>));
+			<span class="hljs-keyword">return</span>;
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">isJumpTarget</span><span class="hljs-params">(KrkCodeObject * func, <span class="hljs-keyword">size_t</span> startPoint)</span> </span>{
+	KrkChunk * chunk = &amp;func-&gt;chunk;
+	<span class="hljs-keyword">size_t</span> offset = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (IS_NONE(func-&gt;jumpTargets)) {
+		func-&gt;jumpTargets = krk_dict_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SIMPLE(opc) case opc: size = 1; break;</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CONSTANT(opc,more) case opc: { size_t constant _unused = chunk-&gt;code[offset + 1]; size = 2; more; break; } \
+	case opc ## _LONG: { size_t constant _unused = (chunk-&gt;code[offset + 1] &lt;&lt; 16) | \
+	(chunk-&gt;code[offset + 2] <span class="hljs-meta-string">&lt;&lt; 8) | (chunk-&gt;code[offset + 3]); size = 4; more; break; }</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> OPERANDB(opc,more) case opc: { size = 2; more; break; }</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> OPERAND(opc,more) OPERANDB(opc,more) \
+	case opc ## _LONG: { size = 4; more; break; }</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> JUMP(opc,sign) case opc: { uint16_t jump = (chunk-&gt;code[offset + 1] <span class="hljs-meta-string">&lt;&lt; 8) | (chunk-&gt;code[offset + 2]); \</span></span>
+	krk_tableSet(AS_DICT(func-&gt;jumpTargets), INTEGER_VAL((<span class="hljs-keyword">size_t</span>)(offset + <span class="hljs-number">3</span> sign jump)), BOOLEAN_VAL(<span class="hljs-number">1</span>)); \
+	<span class="hljs-built_in">size</span> = <span class="hljs-number">3</span>; <span class="hljs-keyword">break</span>; }
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> COMPLICATED(opc,more) case opc: size = 1; more; break;</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> OVERLONG_JUMP_MORE size += 2; _overlong_jump(func, offset+1, (chunk-&gt;code[offset + 1] <span class="hljs-meta-string">&lt;&lt; 8) | (chunk-&gt;code[offset + 2]))</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CLOSURE_MORE \
+	KrkCodeObject * function = AS_codeobject(chunk-&gt;constants.values[constant]); \
+	for (size_t j = 0; j <span class="hljs-meta-string">&lt; function-&gt;upvalueCount; ++j) { \</span></span>
+		<span class="hljs-keyword">int</span> isLocal = chunk-&gt;code[offset++ + <span class="hljs-built_in">size</span>]; \
+		offset++; \
+		<span class="hljs-keyword">if</span> (isLocal &amp; <span class="hljs-number">2</span>) { \
+			offset += <span class="hljs-number">2</span>; \
+		} \
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXPAND_ARGS_MORE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> LOCAL_MORE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> FORMAT_VALUE_MORE</span>
+
+	<span class="hljs-keyword">while</span> (offset &lt; chunk-&gt;count) {
+		<span class="hljs-keyword">uint8_t</span> opcode = chunk-&gt;code[offset];
+		<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">switch</span> (opcode) {
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"opcodes.h"</span></span>
+		}
+		offset += <span class="hljs-built_in">size</span>;
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> SIMPLE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> OPERANDB</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> OPERAND</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> CONSTANT</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> JUMP</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> COMPLICATED</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> OVERLONG_JUMP_MORE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> CLOSURE_MORE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> LOCAL_MORE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> EXPAND_ARGS_MORE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> FORMAT_VALUE_MORE</span>
+	}
+
+	<span class="hljs-keyword">if</span> (!IS_dict(func-&gt;jumpTargets)) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	KrkValue garbage;
+	<span class="hljs-keyword">if</span> (krk_tableGet(AS_DICT(func-&gt;jumpTargets), INTEGER_VAL(startPoint), &amp;garbage)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> OPARGS FILE * f, const char * fullName, size_t * size, size_t * offset, KrkCodeObject * func, KrkChunk * chunk</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> OPARG_VALS f,fullName,size,offset,func,chunk</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _print_opcode(OPARGS) {
+	<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"%-16s "</span>, opcodeClean(fullName));
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _simple(OPARGS) {
+	_print_opcode(OPARG_VALS);
+	<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"     "</span>);
+	*<span class="hljs-built_in">size</span> = <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _constant(OPARGS, <span class="hljs-keyword">int</span> isLong, <span class="hljs-keyword">void</span> (*more)(OPARGS, <span class="hljs-keyword">size_t</span> constant)) {
+	_print_opcode(OPARG_VALS);
+	<span class="hljs-keyword">size_t</span> constant = isLong ? (chunk-&gt;code[*offset + <span class="hljs-number">1</span>] &lt;&lt; <span class="hljs-number">16</span>) | (chunk-&gt;code[*offset + <span class="hljs-number">2</span>] &lt;&lt; <span class="hljs-number">8</span>) | (chunk-&gt;code[*offset + <span class="hljs-number">3</span>]) : chunk-&gt;code[*offset + <span class="hljs-number">1</span>];
+	<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"%4d "</span>, (<span class="hljs-keyword">int</span>)constant);
+	krk_printValueSafe(f, chunk-&gt;constants.values[constant]);
+	*<span class="hljs-built_in">size</span> = isLong ? <span class="hljs-number">4</span> : <span class="hljs-number">2</span>;
+	<span class="hljs-keyword">if</span> (more) more(OPARG_VALS, constant);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _operand(OPARGS, <span class="hljs-keyword">int</span> isLong, <span class="hljs-keyword">void</span> (*more)(OPARGS, <span class="hljs-keyword">size_t</span> constant)) {
+	_print_opcode(OPARG_VALS);
+	<span class="hljs-keyword">uint32_t</span> operand = isLong ? (chunk-&gt;code[*offset + <span class="hljs-number">1</span>] &lt;&lt; <span class="hljs-number">16</span>) | (chunk-&gt;code[*offset + <span class="hljs-number">2</span>] &lt;&lt; <span class="hljs-number">8</span>) | (chunk-&gt;code[*offset + <span class="hljs-number">3</span>]) : chunk-&gt;code[*offset + <span class="hljs-number">1</span>];
+	<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"%4d"</span>, (<span class="hljs-keyword">int</span>)operand);
+	*<span class="hljs-built_in">size</span> = isLong ? <span class="hljs-number">4</span> : <span class="hljs-number">2</span>;
+	<span class="hljs-keyword">if</span> (more) more(OPARG_VALS, operand);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _jump(OPARGS, <span class="hljs-keyword">int</span> sign) {
+	_print_opcode(OPARG_VALS);
+	<span class="hljs-keyword">uint16_t</span> jump = (chunk-&gt;code[*offset + <span class="hljs-number">1</span>] &lt;&lt; <span class="hljs-number">8</span>) | (chunk-&gt;code[*offset + <span class="hljs-number">2</span>]);
+	<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"%4d (to %d)"</span>, (<span class="hljs-keyword">int</span>)jump, (<span class="hljs-keyword">int</span>)(*offset + <span class="hljs-number">3</span> + sign * jump));
+	*<span class="hljs-built_in">size</span> = <span class="hljs-number">3</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _complicated(OPARGS, <span class="hljs-keyword">void</span> (*more)(OPARGS)) {
+	_print_opcode(OPARG_VALS);
+	<span class="hljs-keyword">if</span> (more) more(OPARG_VALS);
+	<span class="hljs-keyword">else</span> *<span class="hljs-built_in">size</span> = <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SIMPLE(opc)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> JUMP(opc,sign) case opc: fprintf(f, <span class="hljs-meta-string">"(%s, to %zu)"</span>, opcodeClean(#opc), *offset + 3 sign current_jump); return;</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> OPERAND(opc,more)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CONSTANT(opc,more)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> COMPLICATED(opc,more)</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _overlong_jump_more(OPARGS) {
+	<span class="hljs-keyword">size_t</span> current_jump = (chunk-&gt;code[*offset + <span class="hljs-number">1</span>] &lt;&lt; <span class="hljs-number">8</span>) | (chunk-&gt;code[*offset + <span class="hljs-number">2</span>]);
+	*<span class="hljs-built_in">size</span> = <span class="hljs-number">3</span>;
+
+	<span class="hljs-comment">/* Now look it up */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; func-&gt;overlongJumpsCount; ++i) {
+		<span class="hljs-keyword">if</span> (*offset + <span class="hljs-number">1</span> == (<span class="hljs-keyword">size_t</span>)func-&gt;overlongJumps[i].instructionOffset) {
+			current_jump |= ((<span class="hljs-keyword">size_t</span>)func-&gt;overlongJumps[i].intendedTarget &lt;&lt; <span class="hljs-number">16</span>);
+			<span class="hljs-keyword">switch</span> (func-&gt;overlongJumps[i].originalOpcode) {
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"opcodes.h"</span></span>
+				<span class="hljs-keyword">default</span>: <span class="hljs-keyword">break</span>;
+			}
+		}
+	}
+
+	<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"(invalid destination)"</span>);
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> SIMPLE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> OPERAND</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> CONSTANT</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> JUMP</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> COMPLICATED</span>
+
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> NOOP</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> NOOP (NULL)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SIMPLE(opc) case opc: _simple(f,#opc,&amp;size,&amp;offset,func,chunk); break;</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CONSTANT(opc,more) case opc: _constant(f,#opc,&amp;size,&amp;offset,func,chunk,0,more); break; \
+	case opc ## _LONG: _constant(f,#opc <span class="hljs-meta-string">"_LONG"</span>,&amp;size,&amp;offset,func,chunk,1,more); break;</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> OPERAND(opc,more) case opc: _operand(f,#opc,&amp;size,&amp;offset,func,chunk,0,more); break; \
+	case opc ## _LONG: _operand(f,#opc <span class="hljs-meta-string">"_LONG"</span>,&amp;size,&amp;offset,func,chunk,1,more); break;</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> JUMP(opc,sign) case opc: _jump(f,#opc,&amp;size,&amp;offset,func,chunk,sign 1); break;</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> COMPLICATED(opc,more) case opc: _complicated(f,#opc,&amp;size,&amp;offset,func,chunk,more); break;</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> OVERLONG_JUMP_MORE _overlong_jump_more</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CLOSURE_MORE _closure_more</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _closure_more(OPARGS, <span class="hljs-keyword">size_t</span> constant) {
+	KrkCodeObject * function = AS_codeobject(chunk-&gt;constants.values[constant]);
+	<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">" "</span>);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> j = <span class="hljs-number">0</span>; j &lt; function-&gt;upvalueCount; ++j) {
+		<span class="hljs-keyword">int</span> isLocal = chunk-&gt;code[(*offset)++ + *<span class="hljs-built_in">size</span>];
+		<span class="hljs-keyword">int</span> index = chunk-&gt;code[(*offset)++ + *<span class="hljs-built_in">size</span>];
+		<span class="hljs-keyword">if</span> (isLocal &amp; <span class="hljs-number">2</span>) {
+			index = (index &lt;&lt; <span class="hljs-number">16</span>) | (chunk-&gt;code[*offset + *<span class="hljs-built_in">size</span>] &lt;&lt; <span class="hljs-number">8</span>) | chunk-&gt;code[*offset + <span class="hljs-number">1</span> + *<span class="hljs-built_in">size</span>];
+			offset += <span class="hljs-number">2</span>;
+		}
+		<span class="hljs-keyword">if</span> (isLocal &amp; <span class="hljs-number">1</span>) {
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; func-&gt;localNameCount; ++i) {
+				<span class="hljs-keyword">if</span> (func-&gt;localNames[i].id == (<span class="hljs-keyword">size_t</span>)index &amp;&amp; func-&gt;localNames[i].birthday &lt;= *offset &amp;&amp; func-&gt;localNames[i].deathday &gt;= *offset) {
+					<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"%s"</span>, func-&gt;localNames[i].name-&gt;chars);
+					<span class="hljs-keyword">break</span>;
+				}
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (isLocal &amp; <span class="hljs-number">4</span>) {
+			<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"classcell"</span>);
+		} <span class="hljs-keyword">else</span> { <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"upvalue&lt;%d&gt;"</span>, index); }
+		<span class="hljs-keyword">if</span> (j + <span class="hljs-number">1</span> != function-&gt;upvalueCount) <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">", "</span>);
+	}
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EXPAND_ARGS_MORE _expand_args_more</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _expand_args_more(OPARGS, <span class="hljs-keyword">size_t</span> operand) {
+	<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">" (%s)"</span>, operand == <span class="hljs-number">0</span> ? <span class="hljs-string">"singleton"</span> : (operand == <span class="hljs-number">1</span> ? <span class="hljs-string">"list"</span> : <span class="hljs-string">"dict"</span>));
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> FORMAT_VALUE_MORE _format_value_more</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _format_value_more(OPARGS, <span class="hljs-keyword">size_t</span> operand) {
+	<span class="hljs-keyword">if</span> (operand != <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">int</span> hasThing = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">" ("</span>);
+		<span class="hljs-keyword">if</span> (operand &amp; FORMAT_OP_EQ)     { <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"eq"</span>); hasThing = <span class="hljs-number">1</span>; }
+		<span class="hljs-keyword">if</span> (operand &amp; FORMAT_OP_STR)    { <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"%sstr"</span>, hasThing ? <span class="hljs-string">", "</span> : <span class="hljs-string">""</span>); hasThing = <span class="hljs-number">1</span>; }
+		<span class="hljs-keyword">if</span> (operand &amp; FORMAT_OP_REPR)   { <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"%srepr"</span>, hasThing ? <span class="hljs-string">", "</span> : <span class="hljs-string">""</span>); hasThing = <span class="hljs-number">1</span>; }
+		<span class="hljs-keyword">if</span> (operand &amp; FORMAT_OP_FORMAT) { <span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"%swith format"</span>, hasThing ? <span class="hljs-string">", "</span> : <span class="hljs-string">""</span>); }
+		<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">")"</span>);
+	}
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> LOCAL_MORE _local_more</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _local_more(OPARGS, <span class="hljs-keyword">size_t</span> operand) {
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; func-&gt;localNameCount; ++i) {
+		<span class="hljs-keyword">if</span> (func-&gt;localNames[i].id == operand &amp;&amp; func-&gt;localNames[i].birthday &lt;= *offset &amp;&amp; func-&gt;localNames[i].deathday &gt;= *offset) {
+			<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">" (%s"</span>, func-&gt;localNames[i].name-&gt;chars);
+			<span class="hljs-keyword">if</span> ((short <span class="hljs-keyword">int</span>) operand &lt; func-&gt;potentialPositionals) {
+				<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">", arg"</span>);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> ((short <span class="hljs-keyword">int</span>)operand &lt; func-&gt;potentialPositionals + func-&gt;keywordArgs + !!(func-&gt;obj.flags &amp; KRK_OBJ_FLAGS_CODEOBJECT_COLLECTS_ARGS)) {
+				<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">", kwarg"</span>);
+			}
+			<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">")"</span>);
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">size_t</span> <span class="hljs-title">krk_disassembleInstruction</span><span class="hljs-params">(FILE * f, KrkCodeObject * func, <span class="hljs-keyword">size_t</span> offset)</span> </span>{
+	KrkChunk * chunk = &amp;func-&gt;chunk;
+	<span class="hljs-keyword">if</span> (offset &gt; <span class="hljs-number">0</span> &amp;&amp; krk_lineNumber(chunk, offset) == krk_lineNumber(chunk, offset - <span class="hljs-number">1</span>)) {
+		<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"     "</span>);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">if</span> (offset &gt; <span class="hljs-number">0</span>) <span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"\n"</span>);
+		<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"%4d "</span>, (<span class="hljs-keyword">int</span>)krk_lineNumber(chunk, offset));
+	}
+	<span class="hljs-keyword">if</span> (isJumpTarget(func,offset)) {
+		<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">" &gt;&gt; "</span>);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"    "</span>);
+	}
+	<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"%4u "</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)offset);
+	<span class="hljs-keyword">uint8_t</span> opcode = chunk-&gt;code[offset];
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">switch</span> (opcode) {
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"opcodes.h"</span></span>
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">"Unknown opcode: %02x"</span>, opcode);
+	}
+
+	<span class="hljs-comment">/* Birthdays - Local names that have become valid from this instruction */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; func-&gt;localNameCount; ++i) {
+		<span class="hljs-keyword">if</span> (func-&gt;localNames[i].birthday &gt;= offset &amp;&amp; func-&gt;localNames[i].birthday &lt; offset + <span class="hljs-built_in">size</span>) {
+			<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">" +%s"</span>, func-&gt;localNames[i].name-&gt;chars);
+		}
+	}
+
+	<span class="hljs-comment">/* Deathdays - Local names that are no longer valid as of this instruction */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; func-&gt;localNameCount; ++i) {
+		<span class="hljs-keyword">if</span> (func-&gt;localNames[i].deathday &gt;= offset &amp;&amp; func-&gt;localNames[i].deathday &lt; offset + <span class="hljs-built_in">size</span>) {
+			<span class="hljs-built_in">fprintf</span>(f, <span class="hljs-string">" -%s"</span>, func-&gt;localNames[i].name-&gt;chars);
+		}
+	}
+
+	<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"\n"</span>);
+
+	<span class="hljs-keyword">return</span> offset + <span class="hljs-built_in">size</span>;
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> SIMPLE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> OPERANDB</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> OPERAND</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> CONSTANT</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> JUMP</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> COMPLICATED</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> OVERLONG_JUMP_MORE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> CLOSURE_MORE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> LOCAL_MORE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> EXPAND_ARGS_MORE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> FORMAT_VALUE_MORE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> NOOP</span>
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_debug_addBreakpointCodeOffset</span><span class="hljs-params">(KrkCodeObject * target, <span class="hljs-keyword">size_t</span> offset, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">int</span> index = vm.dbgState-&gt;breakpointsCount;
+	<span class="hljs-keyword">if</span> (vm.dbgState-&gt;breakpointsCount == MAX_BREAKPOINTS) {
+		<span class="hljs-comment">/* See if any are available */</span>
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; MAX_BREAKPOINTS; ++i) {
+			<span class="hljs-keyword">if</span> (vm.dbgState-&gt;breakpoints[i].inFunction == <span class="hljs-literal">NULL</span>) {
+				index = i;
+				<span class="hljs-keyword">break</span>;
+			}
+		}
+		<span class="hljs-keyword">if</span> (index == vm.dbgState-&gt;breakpointsCount) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+		}
+	} <span class="hljs-keyword">else</span> {
+		index = vm.dbgState-&gt;breakpointsCount++;
+	}
+
+	vm.dbgState-&gt;breakpoints[index].inFunction = target;
+	vm.dbgState-&gt;breakpoints[index].offset = offset;
+	vm.dbgState-&gt;breakpoints[index].originalOpcode = target-&gt;chunk.code[offset];
+	vm.dbgState-&gt;breakpoints[index].flags = flags;
+	target-&gt;chunk.code[offset] = OP_BREAKPOINT;
+
+	<span class="hljs-keyword">return</span> index;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_debug_addBreakpointFileLine</span><span class="hljs-params">(KrkString * filename, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">line</span>, <span class="hljs-keyword">int</span> flags)</span> </span>{
+
+	KrkCodeObject * target = <span class="hljs-literal">NULL</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Examine all code objects to find one that matches the requested
+filename and line number...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	KrkObj * object = vm.objects;
+	<span class="hljs-keyword">while</span> (object) {
+		<span class="hljs-keyword">if</span> (object-&gt;type == KRK_OBJ_CODEOBJECT) {
+			KrkChunk * chunk = &amp;((KrkCodeObject*)object)-&gt;chunk;
+			<span class="hljs-keyword">if</span> (filename == chunk-&gt;filename) {
+				<span class="hljs-comment">/* We have a candidate. */</span>
+				<span class="hljs-keyword">if</span> (krk_lineNumber(chunk, <span class="hljs-number">0</span>) &lt;= <span class="hljs-built_in">line</span> &amp;&amp;
+				    krk_lineNumber(chunk,chunk-&gt;count) &gt;= <span class="hljs-built_in">line</span>) {
+					target = (KrkCodeObject*)object;
+					<span class="hljs-keyword">break</span>;
+				}
+			}
+		}
+		object = object-&gt;next;
+	}
+
+	<span class="hljs-comment">/* No matching function was found... */</span>
+	<span class="hljs-keyword">if</span> (!target) <span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+
+	<span class="hljs-comment">/* Find the right offset in this function */</span>
+
+	<span class="hljs-keyword">size_t</span> offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; target-&gt;chunk.linesCount; ++i) {
+		<span class="hljs-keyword">if</span> (target-&gt;chunk.lines[i].<span class="hljs-built_in">line</span> &gt; <span class="hljs-built_in">line</span>) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">if</span> (target-&gt;chunk.lines[i].<span class="hljs-built_in">line</span> == <span class="hljs-built_in">line</span>) {
+			offset = target-&gt;chunk.lines[i].startOffset;
+			<span class="hljs-keyword">break</span>;
+		}
+		offset = target-&gt;chunk.lines[i].startOffset;
+	}
+
+	<span class="hljs-keyword">return</span> krk_debug_addBreakpointCodeOffset(target, offset, flags);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_debug_enableBreakpoint</span><span class="hljs-params">(<span class="hljs-keyword">int</span> breakIndex)</span> </span>{
+	<span class="hljs-keyword">if</span> (breakIndex &lt; <span class="hljs-number">0</span> || breakIndex &gt;= vm.dbgState-&gt;breakpointsCount || vm.dbgState-&gt;breakpoints[breakIndex].inFunction == <span class="hljs-literal">NULL</span>)
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	vm.dbgState-&gt;breakpoints[breakIndex].inFunction-&gt;chunk.code[vm.dbgState-&gt;breakpoints[breakIndex].offset] = OP_BREAKPOINT;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_debug_disableBreakpoint</span><span class="hljs-params">(<span class="hljs-keyword">int</span> breakIndex)</span> </span>{
+	<span class="hljs-keyword">if</span> (breakIndex &lt; <span class="hljs-number">0</span> || breakIndex &gt;= vm.dbgState-&gt;breakpointsCount || vm.dbgState-&gt;breakpoints[breakIndex].inFunction == <span class="hljs-literal">NULL</span>)
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	vm.dbgState-&gt;breakpoints[breakIndex].inFunction-&gt;chunk.code[vm.dbgState-&gt;breakpoints[breakIndex].offset] =
+		vm.dbgState-&gt;breakpoints[breakIndex].originalOpcode;
+	<span class="hljs-keyword">if</span> (breakIndex == vm.dbgState-&gt;repeatStack_top) {
+		vm.dbgState-&gt;repeatStack_top = <span class="hljs-number">-1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_debug_removeBreakpoint</span><span class="hljs-params">(<span class="hljs-keyword">int</span> breakIndex)</span> </span>{
+	<span class="hljs-keyword">if</span> (breakIndex &lt; <span class="hljs-number">0</span> || breakIndex &gt;= vm.dbgState-&gt;breakpointsCount || vm.dbgState-&gt;breakpoints[breakIndex].inFunction == <span class="hljs-literal">NULL</span>)
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	krk_debug_disableBreakpoint(breakIndex);
+	vm.dbgState-&gt;breakpoints[breakIndex].inFunction = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">while</span> (vm.dbgState-&gt;breakpointsCount &amp;&amp; vm.dbgState-&gt;breakpoints[vm.dbgState-&gt;breakpointsCount<span class="hljs-number">-1</span>].inFunction == <span class="hljs-literal">NULL</span>) {
+		vm.dbgState-&gt;breakpointsCount--;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Begin debugger utility functions.</p>
+</div>
+<div class="body">
+<p>These functions are exported for use in debuggers that
+are registered with krk_registerDebugger(...);</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_debug_dumpTraceback</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">int</span> flagsBefore = krk_currentThread.flags;
+	krk_debug_disableSingleStep();
+	krk_push(krk_currentThread.currentException);
+
+	krk_runtimeError(vm.exceptions-&gt;baseException, <span class="hljs-string">"(breakpoint)"</span>);
+	krk_dumpTraceback();
+
+	krk_currentThread.currentException = krk_pop();
+	krk_currentThread.flags = flagsBefore;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_debug_enableSingleStep</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	krk_currentThread.flags |= KRK_THREAD_SINGLE_STEP;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_debug_disableSingleStep</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	krk_currentThread.flags &amp;= ~(KRK_THREAD_SINGLE_STEP);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_debuggerHook</span><span class="hljs-params">(KrkCallFrame * frame)</span> </span>{
+	<span class="hljs-keyword">if</span> (!vm.dbgState-&gt;debuggerHook)
+		<span class="hljs-built_in">abort</span>();
+
+	<span class="hljs-keyword">if</span> (vm.dbgState-&gt;repeatStack_top != <span class="hljs-number">-1</span>) {
+		<span class="hljs-comment">/* Re-enable stored repeat breakpoint */</span>
+		krk_debug_enableBreakpoint(vm.dbgState-&gt;repeatStack_top);
+	}
+
+	vm.dbgState-&gt;repeatStack_top = vm.dbgState-&gt;repeatStack_bottom;
+	vm.dbgState-&gt;repeatStack_bottom = <span class="hljs-number">-1</span>;
+
+	<span class="hljs-keyword">if</span> (!vm.dbgState-&gt;thisWasForced) {
+		<span class="hljs-keyword">int</span> result = vm.dbgState-&gt;debuggerHook(frame);
+		<span class="hljs-keyword">switch</span> (result) {
+			<span class="hljs-keyword">case</span> KRK_DEBUGGER_CONTINUE:
+				krk_debug_disableSingleStep();
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KRK_DEBUGGER_ABORT:
+				<span class="hljs-built_in">abort</span>();
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KRK_DEBUGGER_STEP:
+				krk_debug_enableSingleStep();
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KRK_DEBUGGER_QUIT:
+				<span class="hljs-built_in">exit</span>(<span class="hljs-number">0</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KRK_DEBUGGER_RAISE:
+				krk_runtimeError(vm.exceptions-&gt;baseException, <span class="hljs-string">"raise from debugger"</span>);
+				<span class="hljs-keyword">break</span>;
+		}
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-comment">/* If we weren't asked to step to the next breakpoint, we need to disable single stepping. */</span>
+		krk_debug_disableSingleStep();
+		vm.dbgState-&gt;thisWasForced = <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-comment">/* If the top of the repeat stack is an index, we need to ensure we re-enable that breakpoint */</span>
+	<span class="hljs-keyword">if</span> (vm.dbgState-&gt;repeatStack_top != <span class="hljs-number">-1</span> &amp;&amp; !(krk_currentThread.flags &amp; KRK_THREAD_SINGLE_STEP)) {
+		vm.dbgState-&gt;thisWasForced = <span class="hljs-number">1</span>;
+		krk_debug_enableSingleStep();
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_debug_registerCallback</span><span class="hljs-params">(KrkDebugCallback hook)</span> </span>{
+	<span class="hljs-keyword">if</span> (vm.dbgState-&gt;debuggerHook) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	vm.dbgState-&gt;debuggerHook = hook;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_debug_examineBreakpoint</span><span class="hljs-params">(<span class="hljs-keyword">int</span> breakIndex, KrkCodeObject ** funcOut, <span class="hljs-keyword">size_t</span> * offsetOut, <span class="hljs-keyword">int</span> * flagsOut, <span class="hljs-keyword">int</span> * enabled)</span> </span>{
+	<span class="hljs-keyword">if</span> (breakIndex &lt; <span class="hljs-number">0</span> || breakIndex &gt;= vm.dbgState-&gt;breakpointsCount)
+		<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">if</span> (vm.dbgState-&gt;breakpoints[breakIndex].inFunction == <span class="hljs-literal">NULL</span>)
+		<span class="hljs-keyword">return</span> <span class="hljs-number">-2</span>;
+
+	<span class="hljs-keyword">if</span> (funcOut) *funcOut = vm.dbgState-&gt;breakpoints[breakIndex].inFunction;
+	<span class="hljs-keyword">if</span> (offsetOut) *offsetOut = vm.dbgState-&gt;breakpoints[breakIndex].offset;
+	<span class="hljs-keyword">if</span> (flagsOut) *flagsOut = vm.dbgState-&gt;breakpoints[breakIndex].flags;
+	<span class="hljs-keyword">if</span> (enabled) *enabled = (vm.dbgState-&gt;breakpoints[breakIndex].inFunction-&gt;chunk.code[vm.dbgState-&gt;breakpoints[breakIndex].offset] == OP_BREAKPOINT) || breakIndex == vm.dbgState-&gt;repeatStack_top;
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_debugBreakpointHandler</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">int</span> index = <span class="hljs-number">-1</span>;
+
+	KrkCallFrame * frame = &amp;krk_currentThread.frames[krk_currentThread.frameCount<span class="hljs-number">-1</span>];
+	KrkCodeObject * callee = frame-&gt;closure-&gt;function;
+	<span class="hljs-keyword">size_t</span> offset        = (frame-&gt;ip - <span class="hljs-number">1</span>) - callee-&gt;chunk.code;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; vm.dbgState-&gt;breakpointsCount; ++i) {
+		<span class="hljs-keyword">if</span> (vm.dbgState-&gt;breakpoints[i].inFunction == callee &amp;&amp; vm.dbgState-&gt;breakpoints[i].offset == offset) {
+			index = i;
+		}
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>A breakpoint instruction without an associated breakpoint entry?
+This must be an invalid block of bytecode - just bail!</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (index == <span class="hljs-number">-1</span>) {
+		<span class="hljs-built_in">abort</span>();
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Restore the instruction to its original state. If the debugger
+wants to break here again it can set the breakpoint again</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	callee-&gt;chunk.code[offset] = vm.dbgState-&gt;breakpoints[index].originalOpcode;
+
+	<span class="hljs-comment">/* If this was a single-shot, we can remove it. */</span>
+	<span class="hljs-keyword">if</span> (vm.dbgState-&gt;breakpoints[index].flags == KRK_BREAKPOINT_ONCE) {
+		krk_debug_removeBreakpoint(index);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (vm.dbgState-&gt;breakpoints[index].flags == KRK_BREAKPOINT_REPEAT) {
+		vm.dbgState-&gt;repeatStack_bottom = index;
+	}
+
+	<span class="hljs-comment">/* Rewind to rerun this instruction. */</span>
+	frame-&gt;ip--;
+
+	<span class="hljs-keyword">return</span> krk_debuggerHook(frame);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_debug_init</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	vm.dbgState = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(struct DebuggerState));
+	vm.dbgState-&gt;repeatStack_top = <span class="hljs-number">-1</span>;
+	vm.dbgState-&gt;repeatStack_bottom = <span class="hljs-number">-1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_debug_addExpression</span><span class="hljs-params">(KrkCodeObject * codeobject, <span class="hljs-keyword">uint8_t</span> start, <span class="hljs-keyword">uint8_t</span> midStart, <span class="hljs-keyword">uint8_t</span> midEnd, <span class="hljs-keyword">uint8_t</span> <span class="hljs-built_in">end</span>)</span> </span>{
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Traceback entries point to the last byte of an opcode, due to the way instruction fetch
+advances the instruction pointer past all of the constituent operands of an opcode; as
+such, our map is based on these last bytes and we need to look at the byte preceding
+the current count when adding new entries.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">size_t</span> offset = codeobject-&gt;chunk.count - <span class="hljs-number">1</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>We can feasibly support offsets larger than UINT32_MAX on 64-bit platforms, though this
+should never really happen. Just in case, avoid messing up our table with bad values.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (offset &gt; UINT32_MAX) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-keyword">if</span> (codeobject-&gt;expressionsCapacity &lt; codeobject-&gt;expressionsCount + <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">size_t</span> old = codeobject-&gt;expressionsCapacity;
+		codeobject-&gt;expressionsCapacity = KRK_GROW_CAPACITY(old);
+		codeobject-&gt;expressions = KRK_GROW_ARRAY(KrkExpressionsMap, codeobject-&gt;expressions, old, codeobject-&gt;expressionsCapacity);
+	}
+
+	codeobject-&gt;expressions[codeobject-&gt;expressionsCount] = (KrkExpressionsMap){offset,start,midStart,midEnd,<span class="hljs-built_in">end</span>};
+	codeobject-&gt;expressionsCount++;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_debug_expressionUnderline</span><span class="hljs-params">(<span class="hljs-keyword">const</span> KrkCodeObject* codeobject, <span class="hljs-keyword">uint8_t</span>* start, <span class="hljs-keyword">uint8_t</span>* midStart, <span class="hljs-keyword">uint8_t</span>* midEnd, <span class="hljs-keyword">uint8_t</span>* <span class="hljs-built_in">end</span>, <span class="hljs-keyword">size_t</span> instruction)</span> </span>{
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-11" id="section-11"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>We could do binary search here, but as we only print these when an exception 'escapes',
+it's not really worth the optimization over a linear search per line in the traceback.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; codeobject-&gt;expressionsCount; ++i) {
+		<span class="hljs-keyword">if</span> (codeobject-&gt;expressions[i].bytecodeOffset == instruction) {
+			*start = codeobject-&gt;expressions[i].start;
+			*midStart = codeobject-&gt;expressions[i].midStart;
+			*midEnd = codeobject-&gt;expressions[i].midEnd;
+			*<span class="hljs-built_in">end</span> = codeobject-&gt;expressions[i].<span class="hljs-built_in">end</span>;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

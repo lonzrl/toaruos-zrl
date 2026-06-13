@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>threads.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\src\\threads.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>threads.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _GNU_SOURCE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/kuroko.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_DISABLE_THREADS</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/threads.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;pthread.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(_WIN32)</span>
+<span class="hljs-meta"># <span class="hljs-meta-keyword">define</span> gettid() GetCurrentThreadId()</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">elif</span>  !defined(__linux__) &amp;&amp; !defined(__toaru__)</span>
+<span class="hljs-meta"># <span class="hljs-meta-keyword">define</span> gettid() -1</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Thread</span> {</span>
+	KrkInstance inst;
+	KrkThreadState * threadState;
+	<span class="hljs-keyword">pthread_t</span> nativeRef;
+	<span class="hljs-keyword">pid_t</span>  tid;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>    started:<span class="hljs-number">1</span>;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>    alive:<span class="hljs-number">1</span>;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> maxrec;
+};
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Lock</span> {</span>
+	KrkInstance inst;
+	<span class="hljs-keyword">pthread_mutex_t</span> mutex;
+};
+
+KRK_Function(current_thread) {
+	<span class="hljs-keyword">if</span> (&amp;krk_currentThread == vm.threads) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">return</span> krk_currentThread.<span class="hljs-built_in">stack</span>[<span class="hljs-number">0</span>];
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> IS_Thread(o)  (krk_isInstanceOf(o, KRK_BASE_CLASS(Thread)))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AS_Thread(o)  ((struct Thread *)AS_OBJECT(o))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE struct Thread *</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_NAME  self</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">volatile</span> <span class="hljs-keyword">int</span> _threadLock = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> * _startthread(<span class="hljs-keyword">void</span> * _threadObj) {
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Thread</span> * <span class="hljs-title">self</span> = _<span class="hljs-title">threadObj</span>;</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__APPLE__) &amp;&amp; defined(__aarch64__)</span>
+	krk_forceThreadData();
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	<span class="hljs-built_in">memset</span>(&amp;krk_currentThread, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(KrkThreadState));
+	krk_currentThread.maximumCallDepth = self-&gt;maxrec;
+	krk_currentThread.frames = <span class="hljs-built_in">calloc</span>(krk_currentThread.maximumCallDepth,<span class="hljs-keyword">sizeof</span>(KrkCallFrame));
+	vm.globalFlags |= KRK_GLOBAL_THREADS;
+	_obtain_lock(_threadLock);
+	<span class="hljs-keyword">if</span> (vm.threads-&gt;next) {
+		krk_currentThread.next = vm.threads-&gt;next;
+	}
+	vm.threads-&gt;next = &amp;krk_currentThread;
+	_release_lock(_threadLock);
+
+	<span class="hljs-comment">/* Get our run function */</span>
+	self-&gt;threadState = &amp;krk_currentThread;
+	self-&gt;tid = gettid();
+
+	KrkValue runMethod = NONE_VAL();
+	KrkClass * ourType = self-&gt;inst._class;
+	<span class="hljs-keyword">if</span> (!krk_tableGet(&amp;ourType-&gt;methods, OBJECT_VAL(S(<span class="hljs-string">"run"</span>)), &amp;runMethod)) {
+		krk_runtimeError(KRK_EXC(ThreadError), <span class="hljs-string">"Thread object has no run() method"</span>);
+	} <span class="hljs-keyword">else</span> {
+		krk_push(runMethod);
+		krk_push(OBJECT_VAL(self));
+		krk_callStack(<span class="hljs-number">1</span>);
+	}
+
+	self-&gt;alive = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Remove this thread from the thread pool, its stack is garbage anyway */</span>
+	_obtain_lock(_threadLock);
+	krk_resetStack();
+	KrkThreadState * previous = vm.threads;
+	<span class="hljs-keyword">while</span> (previous) {
+		<span class="hljs-keyword">if</span> (previous-&gt;next == &amp;krk_currentThread) {
+			previous-&gt;next = krk_currentThread.next;
+			<span class="hljs-keyword">break</span>;
+		}
+		previous = previous-&gt;next;
+	}
+	_release_lock(_threadLock);
+
+	KRK_FREE_ARRAY(<span class="hljs-keyword">size_t</span>, krk_currentThread.<span class="hljs-built_in">stack</span>, krk_currentThread.stackSize);
+	<span class="hljs-built_in">free</span>(krk_currentThread.frames);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+KRK_Method(Thread,tid) {
+	METHOD_TAKES_NONE(); <span class="hljs-comment">/* Property, but can not be assigned. */</span>
+	<span class="hljs-keyword">return</span> INTEGER_VAL(self-&gt;tid);
+}
+
+KRK_Method(Thread,join) {
+	<span class="hljs-keyword">if</span> (self-&gt;threadState == &amp;krk_currentThread)
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(ThreadError), <span class="hljs-string">"Thread can not join itself."</span>);
+	<span class="hljs-keyword">if</span> (!self-&gt;started)
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(ThreadError), <span class="hljs-string">"Thread has not been started."</span>);
+
+	pthread_join(self-&gt;nativeRef, <span class="hljs-literal">NULL</span>);
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(Thread,start) {
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> maxrec = krk_currentThread.maximumCallDepth;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">".|I"</span>, (<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"maxrec"</span>}, &amp;maxrec)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-keyword">if</span> (self-&gt;started)
+		<span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(ThreadError), <span class="hljs-string">"Thread has already been started."</span>);
+
+	self-&gt;started = <span class="hljs-number">1</span>;
+	self-&gt;alive   = <span class="hljs-number">1</span>;
+	self-&gt;maxrec  = maxrec;
+	pthread_create(&amp;self-&gt;nativeRef, <span class="hljs-literal">NULL</span>, _startthread, (<span class="hljs-keyword">void</span>*)self);
+
+	<span class="hljs-keyword">return</span> argv[<span class="hljs-number">0</span>];
+}
+
+KRK_Method(Thread,is_alive) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">return</span> BOOLEAN_VAL(self-&gt;alive);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> CURRENT_CTYPE</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> IS_Lock(o)  (krk_isInstanceOf(o, KRK_BASE_CLASS(Lock)))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AS_Lock(o)  ((struct Lock *)AS_OBJECT(o))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE struct Lock *</span>
+
+KRK_Method(Lock,__init__) {
+	METHOD_TAKES_NONE(); <span class="hljs-comment">/* TODO lock options, like recursive or error-checked? */</span>
+	pthread_mutex_init(&amp;self-&gt;mutex, <span class="hljs-literal">NULL</span>);
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">void</span> _pushLockStatus(struct Lock * self, struct StringBuilder * sb) {
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __GLIBC__</span>
+	{
+		<span class="hljs-keyword">if</span> (self-&gt;mutex.__data.__owner) {
+			pushStringBuilderStr(sb, <span class="hljs-string">" (locked)"</span>, <span class="hljs-number">9</span>);
+		} <span class="hljs-keyword">else</span> {
+			pushStringBuilderStr(sb, <span class="hljs-string">" (unlocked)"</span>, <span class="hljs-number">11</span>);
+		}
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+	(<span class="hljs-keyword">void</span>)self;
+	(<span class="hljs-keyword">void</span>)sb;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+}
+
+KRK_Method(Lock,__repr__) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+	pushStringBuilderStr(&amp;sb, <span class="hljs-string">"&lt;Lock "</span>, <span class="hljs-number">6</span>);
+
+	<span class="hljs-comment">/* Address of lock object */</span>
+	{
+		<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">100</span>];
+		<span class="hljs-keyword">size_t</span> len = <span class="hljs-built_in">snprintf</span>(tmp, <span class="hljs-number">100</span>, <span class="hljs-string">"%p"</span>, (<span class="hljs-keyword">void</span>*)self);
+		pushStringBuilderStr(&amp;sb, tmp, len);
+	}
+
+	_pushLockStatus(self,&amp;sb);
+
+	pushStringBuilder(&amp;sb,<span class="hljs-string">'&gt;'</span>);
+	<span class="hljs-keyword">return</span> finishStringBuilder(&amp;sb);
+}
+
+KRK_Method(Lock,__enter__) {
+	METHOD_TAKES_NONE();
+	pthread_mutex_lock(&amp;self-&gt;mutex);
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(Lock,__exit__) {
+	pthread_mutex_unlock(&amp;self-&gt;mutex);
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">krk_module_init_threading</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>threads = module()</p>
+</div>
+<div class="body">
+<p>Methods for dealing with threads.</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	KrkInstance * threadsModule = krk_newInstance(vm.baseClasses-&gt;moduleClass);
+
+	krk_attachNamedObject(&amp;vm.modules, <span class="hljs-string">"threading"</span>, (KrkObj*)threadsModule);
+	krk_attachNamedObject(&amp;threadsModule-&gt;fields, <span class="hljs-string">"__name__"</span>, (KrkObj*)S(<span class="hljs-string">"threading"</span>));
+	krk_attachNamedValue(&amp;threadsModule-&gt;fields, <span class="hljs-string">"__file__"</span>, NONE_VAL());
+	KRK_DOC(threadsModule,
+		<span class="hljs-string">"@brief Methods and classes for creating platform threads."</span>);
+
+	KRK_DOC(BIND_FUNC(threadsModule, current_thread),
+		<span class="hljs-string">"@brief Obtain a reference to the current thread.\n"</span>
+		<span class="hljs-string">"@arguments \n\n"</span>
+		<span class="hljs-string">"Returns the @ref Thread object associated with the calling thread, if one exists."</span>);
+
+	KrkClass * ThreadError = krk_makeClass(threadsModule, &amp;KRK_EXC(ThreadError), <span class="hljs-string">"ThreadError"</span>, vm.exceptions-&gt;OSError);
+	KRK_DOC(ThreadError,
+		<span class="hljs-string">"Raised in various situations when an action on a thread is invalid."</span>
+	);
+	krk_finalizeClass(ThreadError);
+
+	KrkClass * Thread = krk_makeClass(threadsModule, &amp;KRK_BASE_CLASS(Thread), <span class="hljs-string">"Thread"</span>, vm.baseClasses-&gt;objectClass);
+	KRK_DOC(Thread,
+		<span class="hljs-string">"Base class for building threaded execution contexts.\n\n"</span>
+		<span class="hljs-string">"The @ref Thread class should be subclassed and the subclass should implement a @c run method."</span>
+	);
+	Thread-&gt;allocSize = <span class="hljs-keyword">sizeof</span>(struct Thread);
+	KRK_DOC(BIND_METHOD(Thread,start), <span class="hljs-string">"Start the thread. A thread may only be started once."</span>);
+	KRK_DOC(BIND_METHOD(Thread,join), <span class="hljs-string">"Join the thread. Does not return until the thread finishes."</span>);
+	KRK_DOC(BIND_METHOD(Thread,is_alive), <span class="hljs-string">"Query the status of the thread."</span>);
+	KRK_DOC(BIND_PROP(Thread,tid), <span class="hljs-string">"The platform-specific thread identifier, if available. Usually an integer."</span>);
+	krk_finalizeClass(Thread);
+
+	KrkClass * Lock = krk_makeClass(threadsModule, &amp;KRK_BASE_CLASS(Lock), <span class="hljs-string">"Lock"</span>, vm.baseClasses-&gt;objectClass);
+	KRK_DOC(Lock,
+		<span class="hljs-string">"Represents an atomic mutex.\n\n"</span>
+		<span class="hljs-string">"@ref Lock objects allow for exclusive access to a resource and can be used in a @c with block."</span>
+	);
+	Lock-&gt;allocSize = <span class="hljs-keyword">sizeof</span>(struct Lock);
+	KRK_DOC(BIND_METHOD(Lock,__init__), <span class="hljs-string">"Initialize a system mutex."</span>);
+	KRK_DOC(BIND_METHOD(Lock,__enter__),<span class="hljs-string">"Acquire the lock."</span>);
+	KRK_DOC(BIND_METHOD(Lock,__exit__), <span class="hljs-string">"Release the lock."</span>);
+	BIND_METHOD(Lock,__repr__);
+	krk_finalizeClass(Lock);
+}
+
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

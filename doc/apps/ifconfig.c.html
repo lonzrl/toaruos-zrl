@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ifconfig.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\ifconfig.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>ifconfig.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;dirent.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;ctype.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/socket.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;net/if.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;arpa/inet.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;netinet/in.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * _argv_0;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ip_ntoa</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">uint32_t</span> src_addr, <span class="hljs-keyword">char</span> * out)</span> </span>{
+	<span class="hljs-built_in">snprintf</span>(out, <span class="hljs-number">16</span>, <span class="hljs-string">"%d.%d.%d.%d"</span>,
+		(src_addr &amp; <span class="hljs-number">0xFF000000</span>) &gt;&gt; <span class="hljs-number">24</span>,
+		(src_addr &amp; <span class="hljs-number">0xFF0000</span>) &gt;&gt; <span class="hljs-number">16</span>,
+		(src_addr &amp; <span class="hljs-number">0xFF00</span>) &gt;&gt; <span class="hljs-number">8</span>,
+		(src_addr &amp; <span class="hljs-number">0xFF</span>));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">flagsToStr</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> flags)</span> </span>{
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> out[<span class="hljs-number">1024</span>] = {<span class="hljs-number">0</span>};
+	<span class="hljs-keyword">char</span> * o = out;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> FLAG(f) <span class="hljs-meta-keyword">if</span> (flags &amp; IFF_ ## f) { \
+	<span class="hljs-meta-keyword">if</span> (o != out) o += sprintf(o,<span class="hljs-meta-string">","</span>);          \
+	o += sprintf(o,<span class="hljs-meta-string">"%s"</span>,#f); }                  \
+</span>
+	FLAG(UP)
+	FLAG(BROADCAST)
+	FLAG(DEBUG)
+	FLAG(LOOPBACK)
+	FLAG(RUNNING)
+	FLAG(MULTICAST)
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">print_human_readable_size</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * _out, <span class="hljs-keyword">size_t</span> s)</span> </span>{
+	<span class="hljs-keyword">size_t</span> count = <span class="hljs-number">5</span>;
+	<span class="hljs-keyword">char</span> * prefix = <span class="hljs-string">"PTGMK"</span>;
+	<span class="hljs-keyword">for</span> (; count &gt; <span class="hljs-number">0</span> &amp;&amp; *prefix; count--, prefix++) {
+		<span class="hljs-keyword">size_t</span> base = <span class="hljs-number">1U</span>L &lt;&lt; (count * <span class="hljs-number">10</span>);
+		<span class="hljs-keyword">if</span> (s &gt;= base) {
+			<span class="hljs-keyword">size_t</span> t = s / base;
+			<span class="hljs-keyword">return</span> <span class="hljs-built_in">sprintf</span>(_out, <span class="hljs-string">"%zu.%1zu %cB"</span>, t, (s - t * base) / (base / <span class="hljs-number">10</span>), *prefix);
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">sprintf</span>(_out, <span class="hljs-string">"%d B"</span>, (<span class="hljs-keyword">int</span>)s);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">open_netdev</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * if_name)</span> </span>{
+	<span class="hljs-keyword">char</span> if_path[<span class="hljs-number">100</span>];
+	<span class="hljs-built_in">snprintf</span>(if_path, <span class="hljs-number">100</span>, <span class="hljs-string">"/dev/net/%s"</span>, if_name);
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">open</span>(if_path, O_RDONLY);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">print_interface</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * if_name)</span> </span>{
+	<span class="hljs-keyword">int</span> netdev = open_netdev(if_name);
+
+	<span class="hljs-keyword">if</span> (netdev &lt; <span class="hljs-number">0</span>) {
+		perror(_argv_0);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">uint32_t</span> flags = <span class="hljs-number">0</span>;
+	ioctl(netdev, SIOCGIFFLAGS, &amp;flags);
+	<span class="hljs-keyword">uint32_t</span> mtu = <span class="hljs-number">0</span>;
+	ioctl(netdev, SIOCGIFMTU, &amp;mtu);
+
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"%s: flags=%d&lt;%s&gt; mtu %d\n"</span>, if_name, flags, flagsToStr(flags), mtu);
+
+	<span class="hljs-comment">/* Get IPv4 address */</span>
+	<span class="hljs-keyword">uint32_t</span> ip_addr = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (!ioctl(netdev, SIOCGIFADDR, &amp;ip_addr)) {
+		<span class="hljs-keyword">char</span> ip_str[<span class="hljs-number">16</span>];
+		ip_ntoa(ntohl(ip_addr), ip_str);
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"        inet %s"</span>, ip_str);
+		<span class="hljs-comment">/* Netmask ? */</span>
+		<span class="hljs-keyword">uint32_t</span> netmask = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (!ioctl(netdev, SIOCGIFNETMASK, &amp;netmask)) {
+			ip_ntoa(ntohl(netmask), ip_str);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"  netmask %s"</span>, ip_str);
+
+			<span class="hljs-keyword">uint32_t</span> bcast = (ip_addr &amp; netmask) | (~netmask);
+			ip_ntoa(ntohl(bcast), ip_str);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"  broadcast %s"</span>, ip_str);
+		}
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"\n"</span>);
+	}
+
+	<span class="hljs-keyword">uint8_t</span> ip6_addr[<span class="hljs-number">16</span>];
+	<span class="hljs-keyword">if</span> (!ioctl(netdev, SIOCGIFADDR6, &amp;ip6_addr)) {
+		<span class="hljs-comment">/* TODO inet6 address to nice string */</span>
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"        inet6 %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n"</span>,
+			ip6_addr[<span class="hljs-number">0</span>], ip6_addr[<span class="hljs-number">1</span>], ip6_addr[<span class="hljs-number">2</span>], ip6_addr[<span class="hljs-number">3</span>],
+			ip6_addr[<span class="hljs-number">4</span>], ip6_addr[<span class="hljs-number">5</span>], ip6_addr[<span class="hljs-number">6</span>], ip6_addr[<span class="hljs-number">7</span>],
+			ip6_addr[<span class="hljs-number">8</span>], ip6_addr[<span class="hljs-number">9</span>], ip6_addr[<span class="hljs-number">10</span>], ip6_addr[<span class="hljs-number">11</span>],
+			ip6_addr[<span class="hljs-number">12</span>], ip6_addr[<span class="hljs-number">13</span>], ip6_addr[<span class="hljs-number">14</span>], ip6_addr[<span class="hljs-number">15</span>]);
+	}
+
+	<span class="hljs-comment">/* Get ethernet address */</span>
+	<span class="hljs-keyword">uint8_t</span> mac_addr[<span class="hljs-number">6</span>];
+	<span class="hljs-keyword">if</span> (!ioctl(netdev, SIOCGIFHWADDR, &amp;mac_addr)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"        ether %02x:%02x:%02x:%02x:%02x:%02x\n"</span>,
+			mac_addr[<span class="hljs-number">0</span>], mac_addr[<span class="hljs-number">1</span>], mac_addr[<span class="hljs-number">2</span>],
+			mac_addr[<span class="hljs-number">3</span>], mac_addr[<span class="hljs-number">4</span>], mac_addr[<span class="hljs-number">5</span>]);
+	}
+
+	<span class="hljs-keyword">netif_counters_t</span> counts;
+	<span class="hljs-keyword">if</span> (!ioctl(netdev, SIOCGIFCOUNTS, &amp;counts)) {
+		<span class="hljs-keyword">char</span> _buf[<span class="hljs-number">100</span>];
+		print_human_readable_size(_buf, counts.rx_bytes);
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"        RX packets %zu  bytes %zu (%s)\n"</span>, counts.rx_count, counts.rx_bytes, _buf);
+		print_human_readable_size(_buf, counts.tx_bytes);
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"        TX packets %zu  bytes %zu (%s)\n"</span>, counts.tx_count, counts.tx_bytes, _buf);
+	}
+
+	<span class="hljs-comment">/* TODO stats */</span>
+
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"\n"</span>);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">print_all_interfaces</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">int</span> retval = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Read /dev/net for interfaces */</span>
+	DIR * d = opendir(<span class="hljs-string">"/dev/net"</span>);
+	<span class="hljs-keyword">if</span> (!d) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: no network?\n"</span>, _argv_0);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent</span> * <span class="hljs-title">ent</span>;</span>
+	<span class="hljs-keyword">while</span> ((ent = readdir(d))) {
+		<span class="hljs-keyword">if</span> (ent-&gt;d_name[<span class="hljs-number">0</span>] == <span class="hljs-string">'.'</span>) <span class="hljs-keyword">continue</span>;
+
+		<span class="hljs-comment">/* Retrieve data for the interface and print the results. */</span>
+		<span class="hljs-keyword">if</span> (print_interface(ent-&gt;d_name)) {
+			retval = <span class="hljs-number">1</span>;
+		}
+	}
+
+	closedir(d);
+	<span class="hljs-keyword">return</span> retval;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">maybe_address</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * s)</span> </span>{
+	<span class="hljs-comment">/* Our inet_addr is not great, let's help it a little... */</span>
+	<span class="hljs-keyword">int</span> dots = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (;*s;s++) {
+		<span class="hljs-keyword">if</span> (*s == <span class="hljs-string">'.'</span>) {
+			dots++;
+			<span class="hljs-keyword">if</span> (dots &gt; <span class="hljs-number">3</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">continue</span>;
+		}
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">isdigit</span>(*s)) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">return</span> dots == <span class="hljs-number">3</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">parse_address</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * cmd, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * addr, <span class="hljs-keyword">in_addr_t</span> * out)</span> </span>{
+	<span class="hljs-keyword">if</span> (!addr) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: expected argument\n"</span>, _argv_0, cmd);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">if</span> (!maybe_address(addr)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: '%s' doesn't look like a valid address\n"</span>, _argv_0, cmd, addr);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	*out = inet_addr(addr);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> _set_address(<span class="hljs-keyword">int</span> netdev, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * cmd, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * arg, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * ioctlstr, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> ioctltype) {
+	<span class="hljs-keyword">int</span> status;
+	<span class="hljs-keyword">in_addr_t</span> ip;
+	<span class="hljs-keyword">if</span> ((status = parse_address(cmd, arg, &amp;ip))) <span class="hljs-keyword">return</span> status;
+	<span class="hljs-keyword">if</span> ((status = ioctl(netdev, ioctltype, &amp;ip))) { perror(ioctlstr); <span class="hljs-keyword">return</span> status; }
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> set_address(cmd, arg, itype) _set_address(netdev, cmd, arg, #itype, itype)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> command_with_address(cmd, itype) <span class="hljs-meta-keyword">if</span> (!strcmp(argv[i], cmd)) { <span class="hljs-meta-keyword">if</span> (_set_address(netdev, argv[i], argv[i+1], #itype, itype)) { return 1; } i++; continue; }</span>
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	_argv_0 = argv[<span class="hljs-number">0</span>];
+	<span class="hljs-comment">/* Figure out what we're trying to do. */</span>
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">2</span>) <span class="hljs-keyword">return</span> print_all_interfaces();
+
+	<span class="hljs-comment">/* Handle (ignore) some common commands */</span>
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">1</span>], <span class="hljs-string">"up"</span>) || !<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">1</span>],<span class="hljs-string">"down"</span>)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: 'up' and 'down' commands are unsupported\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* If there is an interface name and nothing else, print and be done with it. */</span>
+	<span class="hljs-keyword">if</span> (argc == <span class="hljs-number">2</span>) <span class="hljs-keyword">return</span> print_interface(argv[<span class="hljs-number">1</span>]);
+
+	<span class="hljs-comment">/* All other options here require a leading interface. */</span>
+	<span class="hljs-keyword">int</span> netdev = open_netdev(argv[<span class="hljs-number">1</span>]);
+
+	<span class="hljs-keyword">if</span> (netdev &lt; <span class="hljs-number">0</span>) {
+		perror(argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* Now let's figure out what we want to do with remaining options */</span>
+	<span class="hljs-keyword">int</span> collected_address = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">2</span>; i &lt; argc; ++i) {
+		<span class="hljs-comment">/* Is this argument an address? */</span>
+		<span class="hljs-keyword">if</span> (maybe_address(argv[i])) {
+			<span class="hljs-comment">/* Try to set IPv4 address */</span>
+			<span class="hljs-keyword">if</span> (collected_address) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: expected at most one bare address, but found a second\n"</span>, argv[<span class="hljs-number">0</span>]);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			}
+			<span class="hljs-keyword">if</span> (set_address(<span class="hljs-string">"inet"</span>, argv[i], SIOCSIFADDR)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			collected_address = <span class="hljs-number">1</span>;
+		} <span class="hljs-keyword">else</span> {
+			command_with_address(<span class="hljs-string">"netmask"</span>, SIOCSIFNETMASK);
+			command_with_address(<span class="hljs-string">"gw"</span>, SIOCSIFGATEWAY);
+			command_with_address(<span class="hljs-string">"gateway"</span>, SIOCSIFGATEWAY);
+			command_with_address(<span class="hljs-string">"inet"</span>, SIOCSIFADDR);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: '%s' is not an understood command\n"</span>, argv[<span class="hljs-number">0</span>], argv[i]);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

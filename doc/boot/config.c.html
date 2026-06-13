@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>config.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "boot\\config.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>config.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stddef.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"options.h"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"util.h"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"menu.h"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"text.h"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"multiboot.h"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"editor.h"</span></span>
+
+<span class="hljs-comment">/* Basic text strings */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BASE_VERSION <span class="hljs-meta-string">"ToaruOS Bootloader v5.0"</span></span>
+<span class="hljs-keyword">char</span> * VERSION_TEXT = BASE_VERSION
+#ifdef EFI_PLATFORM
+	<span class="hljs-string">" (EFI)"</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+	<span class="hljs-string">" (BIOS)"</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+<span class="hljs-keyword">char</span> * HELP_TEXT = <span class="hljs-string">"&lt;Enter&gt; to boot, &lt;e&gt; to edit, or select a menu option with \030/\031/\032/\033."</span>;
+<span class="hljs-keyword">char</span> * HELP_TEXT_OPT = <span class="hljs-string">"&lt;Enter&gt; to toggle, or select another option with \030/\031/\032/\033."</span>;
+<span class="hljs-keyword">char</span> * COPYRIGHT_TEXT = <span class="hljs-string">"ToaruOS is free software under the NCSA license."</span>;
+<span class="hljs-keyword">char</span> * LINK_TEXT = <span class="hljs-string">"https://toaruos.org - https://github.com/klange/toaruos"</span>;
+
+<span class="hljs-comment">/* Boot command line strings */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DEFAULT_ROOT_CMDLINE <span class="hljs-meta-string">"root=/dev/ram0 "</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DEFAULT_GRAPHICAL_CMDLINE <span class="hljs-meta-string">"start=live-session "</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DEFAULT_SINGLE_CMDLINE <span class="hljs-meta-string">"start=\"terminal -F\" "</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DEFAULT_TEXT_CMDLINE <span class="hljs-meta-string">"start=--vga "</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DEFAULT_VID_CMDLINE <span class="hljs-meta-string">"vid=auto "</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MIGRATE_CMDLINE <span class="hljs-meta-string">"migrate "</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DEFAULT_HEADLESS_CMDLINE <span class="hljs-meta-string">"start=--headless "</span></span>
+
+<span class="hljs-keyword">char</span> * kernel_path = <span class="hljs-string">"KERNEL."</span>;
+<span class="hljs-keyword">char</span> * ramdisk_path = <span class="hljs-string">"RAMDISK.IGZ"</span>;
+<span class="hljs-keyword">char</span> cmdline[<span class="hljs-number">1024</span>] = {<span class="hljs-number">0</span>};
+
+<span class="hljs-comment">/* Names of the available boot modes. */</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">bootmode</span> <span class="hljs-title">boot_mode_names</span>[] = {</span>
+	{<span class="hljs-number">1</span>, <span class="hljs-string">"normal"</span>,   <span class="hljs-string">"Normal Boot"</span>},
+	{<span class="hljs-number">2</span>, <span class="hljs-string">"video"</span>,    <span class="hljs-string">"Configure Video Output"</span>},
+	{<span class="hljs-number">3</span>, <span class="hljs-string">"single"</span>,   <span class="hljs-string">"Single-User Graphical Terminal"</span>},
+	{<span class="hljs-number">4</span>, <span class="hljs-string">"headless"</span>, <span class="hljs-string">"Headless"</span>},
+	{<span class="hljs-number">5</span>, <span class="hljs-string">"vga"</span>,      <span class="hljs-string">"Text-Mode Console"</span>},
+};
+
+<span class="hljs-keyword">int</span> base_sel = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">kmain</span><span class="hljs-params">()</span> </span>{
+	BOOT_SET();
+
+	BOOT_OPTION(_debug,       <span class="hljs-number">0</span>, <span class="hljs-string">"Debug output"</span>,
+			<span class="hljs-string">"Enable debug output in the bootloader and enable the"</span>,
+			<span class="hljs-string">"serial debug log in the operating system itself."</span>);
+
+	BOOT_OPTION(_smp,         <span class="hljs-number">1</span>, <span class="hljs-string">"Enable SMP"</span>,
+			<span class="hljs-string">"SMP support may not be completely stable and can be"</span>,
+			<span class="hljs-string">"disabled with this option if desired."</span>);
+
+	BOOT_OPTION(_vbox,        <span class="hljs-number">1</span>, <span class="hljs-string">"VirtualBox Guest Additions"</span>,
+			<span class="hljs-string">"Enable integration with VirtualBox, including"</span>,
+			<span class="hljs-string">"automatic mode setting and absolute mouse pointer."</span>);
+
+	BOOT_OPTION(_vboxrects,   <span class="hljs-number">0</span>, <span class="hljs-string">"VirtualBox Seamless support"</span>,
+			<span class="hljs-string">"(Requires Guest Additions) Enables support for the"</span>,
+			<span class="hljs-string">"Seamless Desktop mode in VirtualBox."</span>);
+
+	BOOT_OPTION(_vboxpointer, <span class="hljs-number">1</span>, <span class="hljs-string">"VirtualBox Pointer"</span>,
+			<span class="hljs-string">"(Requires Guest Additions) Enables support for the"</span>,
+			<span class="hljs-string">"VirtualBox hardware pointer mapping."</span>);
+
+	BOOT_OPTION(_vmware,      <span class="hljs-number">1</span>, <span class="hljs-string">"VMWare driver"</span>,
+			<span class="hljs-string">"Enable the VMware / QEMU absolute mouse pointer,"</span>,
+			<span class="hljs-string">"and optional guest scaling."</span>);
+
+	BOOT_OPTION(_vmwareres,   <span class="hljs-number">1</span>, <span class="hljs-string">"VMware guest size"</span>,
+			<span class="hljs-string">"(Requires VMware driver) Enables support for"</span>,
+			<span class="hljs-string">"automatically setting display size in VMware"</span>);
+
+	BOOT_OPTION(_migrate,     <span class="hljs-number">1</span>, <span class="hljs-string">"Writable root"</span>,
+			<span class="hljs-string">"Migrates the ramdisk from tarball to an in-memory"</span>,
+			<span class="hljs-string">"temporary filesystem at boot. Needed for packages."</span>);
+
+	BOOT_OPTION(_lfbwc,       <span class="hljs-number">1</span>, <span class="hljs-string">"WC framebuffer"</span>,
+			<span class="hljs-string">"Enables write-combining PAT configuration for"</span>,
+			<span class="hljs-string">"framebuffers. Toggle if graphics are slow."</span>);
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> EFI_PLATFORM</span>
+	BOOT_OPTION(_true_vga,    <span class="hljs-number">0</span>, <span class="hljs-string">"VGA text mode"</span>,
+			<span class="hljs-string">"When using the Text-Mode Console, use the real VGA"</span>,
+			<span class="hljs-string">"text mode instead of emulated text mode."</span>);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+	<span class="hljs-keyword">int</span> _true_vga = <span class="hljs-number">0</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-comment">/* Loop over rendering the menu */</span>
+		show_menu();
+
+		<span class="hljs-keyword">if</span> (boot_mode == <span class="hljs-number">2</span>) {
+			<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">int</span> <span class="hljs-title">video_menu</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span></span>;
+			video_menu();
+			boot_edit = <span class="hljs-number">0</span>;
+			<span class="hljs-built_in">memset</span>(cmdline, <span class="hljs-number">0</span>, <span class="hljs-number">1024</span>);
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-comment">/* Build our command line. */</span>
+		<span class="hljs-built_in">strcat</span>(cmdline, DEFAULT_ROOT_CMDLINE);
+
+		<span class="hljs-keyword">if</span> (_migrate) {
+			<span class="hljs-built_in">strcat</span>(cmdline, MIGRATE_CMDLINE);
+		}
+
+		<span class="hljs-keyword">char</span> * _video_command_line = DEFAULT_VID_CMDLINE;
+
+		<span class="hljs-keyword">if</span> (boot_mode == <span class="hljs-number">1</span>) {
+			<span class="hljs-built_in">strcat</span>(cmdline, DEFAULT_GRAPHICAL_CMDLINE);
+			<span class="hljs-built_in">strcat</span>(cmdline, _video_command_line);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (boot_mode == <span class="hljs-number">3</span>) {
+			<span class="hljs-built_in">strcat</span>(cmdline, DEFAULT_SINGLE_CMDLINE);
+			<span class="hljs-built_in">strcat</span>(cmdline, _video_command_line);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (boot_mode == <span class="hljs-number">4</span>) {
+			<span class="hljs-built_in">strcat</span>(cmdline, DEFAULT_HEADLESS_CMDLINE);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (boot_mode == <span class="hljs-number">5</span>) {
+			<span class="hljs-built_in">strcat</span>(cmdline, DEFAULT_TEXT_CMDLINE);
+		}
+
+		<span class="hljs-keyword">if</span> (_debug) {
+			txt_debug = <span class="hljs-number">1</span>;
+			<span class="hljs-built_in">strcat</span>(cmdline, <span class="hljs-string">"debug "</span>);
+		}
+
+		<span class="hljs-keyword">if</span> (!_vbox) {
+			<span class="hljs-built_in">strcat</span>(cmdline, <span class="hljs-string">"novbox "</span>);
+		}
+
+		<span class="hljs-keyword">if</span> (_vbox &amp;&amp; !_vboxrects) {
+			<span class="hljs-built_in">strcat</span>(cmdline, <span class="hljs-string">"novboxseamless "</span>);
+		}
+
+		<span class="hljs-keyword">if</span> (_vbox &amp;&amp; !_vboxpointer) {
+			<span class="hljs-built_in">strcat</span>(cmdline, <span class="hljs-string">"novboxpointer "</span>);
+		}
+
+		<span class="hljs-keyword">if</span> (_vmware &amp;&amp; !_vmwareres) {
+			<span class="hljs-built_in">strcat</span>(cmdline, <span class="hljs-string">"novmwareresset "</span>);
+		}
+
+		<span class="hljs-keyword">if</span> (!_smp) {
+			<span class="hljs-built_in">strcat</span>(cmdline, <span class="hljs-string">"nosmp "</span>);
+		}
+
+		<span class="hljs-keyword">if</span> (_lfbwc) {
+			<span class="hljs-built_in">strcat</span>(cmdline, <span class="hljs-string">"lfbwc "</span>);
+		}
+
+		<span class="hljs-keyword">if</span> (_true_vga) {
+			<span class="hljs-built_in">strcat</span>(cmdline, <span class="hljs-string">"vid=text "</span>);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-built_in">strcat</span>(cmdline, <span class="hljs-string">"emulvga "</span>);
+			<span class="hljs-built_in">strcat</span>(cmdline, _video_command_line);
+		}
+
+		<span class="hljs-keyword">if</span> (!boot_edit) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">if</span> (boot_editor()) <span class="hljs-keyword">break</span>;
+
+		boot_edit = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">memset</span>(cmdline, <span class="hljs-number">0</span>, <span class="hljs-number">1024</span>);
+	}
+
+	boot();
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

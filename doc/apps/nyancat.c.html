@@ -1,0 +1,1527 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>nyancat.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\nyancat.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>nyancat.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Copyright (c) 2011-2018 K. Lange.  All rights reserved.</p>
+</div>
+<div class="body">
+<p>Developed by:            K. Lange
+http://github.com/klange/nyancat
+http://nyancat.dakko.us</p>
+<p>40-column support by:    Peter Hazenberg
+http://github.com/Peetz0r/nyancat
+http://peter.haas-en-berg.nl</p>
+<p>Build tools unified by:  Aaron Peschel
+https://github.com/apeschel</p>
+<p>For a complete listing of contributors, please see the git commit history.</p>
+<p>This is a simple telnet server / standalone application which renders the
+classic Nyan Cat (or &quot;poptart cat&quot;) to your terminal.</p>
+<p>It makes use of various ANSI escape sequences to render color, or in the case
+of a VT220, simply dumps text to the screen.</p>
+<p>For more information, please see:</p>
+<pre><code>http://nyancat.dakko.us
+</code></pre>
+<p>Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the &quot;Software&quot;), to
+deal with the Software without restriction, including without limitation the
+rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:</p>
+<ol>
+<li>Redistributions of source code must retain the above copyright notice,
+this list of conditions and the following disclaimers.</li>
+<li>Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimers in the
+documentation and/or other materials provided with the distribution.</li>
+<li>Neither the names of the Association for Computing Machinery, K.
+Lange, nor the names of its contributors may be used to endorse
+or promote products derived from this Software without specific prior
+written permission.</li>
+</ol>
+<p>THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+CONTRIBUTORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+WITH THE SOFTWARE.</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _XOPEN_SOURCE 700</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _DARWIN_C_SOURCE 1</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _BSD_SOURCE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _DEFAULT_SOURCE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> __BSD_VISIBLE 1</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;ctype.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;setjmp.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;getopt.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> TIOCGWINSZ</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;termios.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> ECHO</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> ECHO</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>telnet.h contains some #defines for the various
+commands, escape characters, and modes for telnet.
+(it surprises some people that telnet is, really,
+a protocol, and not just raw text transmission)</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"nyancat/telnet.h"</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>The animation frames are stored separately in
+this header so they don't clutter the core source</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"nyancat/animation.h"</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Color palette to use for final output
+Specifically, this should be either control sequences
+or raw characters (ie, for vt220 mode)</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * colors[<span class="hljs-number">256</span>] = {<span class="hljs-literal">NULL</span>};
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>For most modes, we output spaces, but for some
+we will use block characters (or even nothing)</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * output = <span class="hljs-string">"  "</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Are we currently in telnet mode?</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">int</span> telnet = <span class="hljs-number">0</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Whether or not to show the counter</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">int</span> show_counter = <span class="hljs-number">1</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Number of frames to show before quitting
+or 0 to repeat forever (default)</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> frame_count = <span class="hljs-number">0</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Clear the screen between frames (as opposed to resetting
+the cursor position)</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">int</span> clear_screen = <span class="hljs-number">1</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Force-set the terminal title.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">int</span> set_title = <span class="hljs-number">1</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-11" id="section-11"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Environment to use for setjmp/longjmp
+when breaking out of options handler</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">jmp_buf environment;
+
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-12" id="section-12"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>I refuse to include libm to keep this low
+on external dependencies.</p>
+</div>
+<div class="body">
+<p>Count the number of digits in a number for
+use with string output.</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">digits</span><span class="hljs-params">(<span class="hljs-keyword">int</span> val)</span> </span>{
+	<span class="hljs-keyword">int</span> d = <span class="hljs-number">1</span>, c;
+	<span class="hljs-keyword">if</span> (val &gt;= <span class="hljs-number">0</span>) <span class="hljs-keyword">for</span> (c = <span class="hljs-number">10</span>; c &lt;= val; c *= <span class="hljs-number">10</span>) d++;
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">for</span> (c = <span class="hljs-number">-10</span> ; c &gt;= val; c *= <span class="hljs-number">10</span>) d++;
+	<span class="hljs-keyword">return</span> (c &lt; <span class="hljs-number">0</span>) ? ++d : d;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-13" id="section-13"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>These values crop the animation, as we have a full 64x64 stored,
+but we only want to display 40x24 (double width).</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">int</span> min_row = <span class="hljs-number">-1</span>;
+<span class="hljs-keyword">int</span> max_row = <span class="hljs-number">-1</span>;
+<span class="hljs-keyword">int</span> min_col = <span class="hljs-number">-1</span>;
+<span class="hljs-keyword">int</span> max_col = <span class="hljs-number">-1</span>;
+<span class="hljs-keyword">int</span> extra_space = <span class="hljs-number">0</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-14" id="section-14"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Actual width/height of terminal.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">int</span> terminal_width = <span class="hljs-number">80</span>;
+<span class="hljs-keyword">int</span> terminal_height = <span class="hljs-number">24</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-15" id="section-15"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Flags to keep track of whether width/height were automatically set.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">char</span> using_automatic_width = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">char</span> using_automatic_height = <span class="hljs-number">0</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-16" id="section-16"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Print escape sequences to return cursor to visible mode
+and exit the application.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">finish</span><span class="hljs-params">()</span> </span>{
+	<span class="hljs-keyword">if</span> (clear_screen) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[?25h\033[0m\033[H\033[2J"</span>);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[0m\n"</span>);
+	}
+	<span class="hljs-built_in">exit</span>(<span class="hljs-number">0</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-17" id="section-17"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>In the standalone mode, we want to handle an interrupt signal
+(^C) so that we can restore the cursor and clear the terminal.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">SIGINT_handler</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sig)</span></span>{
+	(<span class="hljs-keyword">void</span>)sig;
+	finish();
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-18" id="section-18"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Handle the alarm which breaks us off of options
+handling if we didn't receive a terminal</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">SIGALRM_handler</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sig)</span> </span>{
+	(<span class="hljs-keyword">void</span>)sig;
+	alarm(<span class="hljs-number">0</span>);
+	longjmp(environment, <span class="hljs-number">1</span>);
+	<span class="hljs-comment">/* Unreachable */</span>
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-19" id="section-19"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Handle the loss of stdout, as would be the case when
+in telnet mode and the client disconnects</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">SIGPIPE_handler</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sig)</span> </span>{
+	(<span class="hljs-keyword">void</span>)sig;
+	finish();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">SIGWINCH_handler</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sig)</span> </span>{
+	(<span class="hljs-keyword">void</span>)sig;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">winsize</span> <span class="hljs-title">w</span>;</span>
+	ioctl(<span class="hljs-number">0</span>, TIOCGWINSZ, &amp;w);
+	terminal_width = w.ws_col;
+	terminal_height = w.ws_row;
+
+	<span class="hljs-keyword">if</span> (using_automatic_width) {
+		min_col = (FRAME_WIDTH - terminal_width/<span class="hljs-number">2</span>) / <span class="hljs-number">2</span>;
+		max_col = min_col + terminal_width/<span class="hljs-number">2</span>;
+		extra_space = (terminal_width % <span class="hljs-number">2</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (using_automatic_height) {
+		min_row = (FRAME_HEIGHT - (terminal_height<span class="hljs-number">-1</span>)) / <span class="hljs-number">2</span>;
+		max_row = (FRAME_HEIGHT + (terminal_height<span class="hljs-number">-1</span>)) / <span class="hljs-number">2</span>;
+	}
+
+	signal(SIGWINCH, SIGWINCH_handler);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-20" id="section-20"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Telnet requires us to send a specific sequence
+for a line break (\r\000\n), so let's make it happy.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">newline</span><span class="hljs-params">(<span class="hljs-keyword">int</span> n)</span> </span>{
+	<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (i = <span class="hljs-number">0</span>; i &lt; n; ++i) {
+		<span class="hljs-comment">/* We will send `n` linefeeds to the client */</span>
+		<span class="hljs-keyword">if</span> (telnet) {
+			<span class="hljs-comment">/* Send the telnet newline sequence */</span>
+			putc(<span class="hljs-string">'\r'</span>, <span class="hljs-built_in">stdout</span>);
+			putc(<span class="hljs-number">0</span>, <span class="hljs-built_in">stdout</span>);
+			putc(<span class="hljs-string">'\n'</span>, <span class="hljs-built_in">stdout</span>);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-comment">/* Send a regular line feed */</span>
+			putc(<span class="hljs-string">'\n'</span>, <span class="hljs-built_in">stdout</span>);
+		}
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-21" id="section-21"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>These are the options we want to use as
+a telnet server. These are set in set_options()</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> telnet_options[<span class="hljs-number">256</span>] = { <span class="hljs-number">0</span> };
+<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> telnet_willack[<span class="hljs-number">256</span>] = { <span class="hljs-number">0</span> };
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-22" id="section-22"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>These are the values we have set or
+agreed to during our handshake.
+These are set in send_command(...)</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> telnet_do_set[<span class="hljs-number">256</span>]  = { <span class="hljs-number">0</span> };
+<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> telnet_will_set[<span class="hljs-number">256</span>]= { <span class="hljs-number">0</span> };
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-23" id="section-23"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Set the default options for the telnet server.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">set_options</span><span class="hljs-params">()</span> </span>{
+	<span class="hljs-comment">/* We will not echo input */</span>
+	telnet_options[ECHO] = WONT;
+	<span class="hljs-comment">/* We will set graphics modes */</span>
+	telnet_options[SGA]  = WILL;
+	<span class="hljs-comment">/* We will not set new environments */</span>
+	telnet_options[NEW_ENVIRON] = WONT;
+
+	<span class="hljs-comment">/* The client should echo its own input */</span>
+	telnet_willack[ECHO]  = DO;
+	<span class="hljs-comment">/* The client can set a graphics mode */</span>
+	telnet_willack[SGA]   = DO;
+	<span class="hljs-comment">/* The client should not change, but it should tell us its window size */</span>
+	telnet_willack[NAWS]  = DO;
+	<span class="hljs-comment">/* The client should tell us its terminal type (very important) */</span>
+	telnet_willack[TTYPE] = DO;
+	<span class="hljs-comment">/* No linemode */</span>
+	telnet_willack[LINEMODE] = DONT;
+	<span class="hljs-comment">/* And the client can set a new environment */</span>
+	telnet_willack[NEW_ENVIRON] = DO;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-24" id="section-24"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Send a command (cmd) to the telnet client
+Also does special handling for DO/DONT/WILL/WONT</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">send_command</span><span class="hljs-params">(<span class="hljs-keyword">int</span> cmd, <span class="hljs-keyword">int</span> opt)</span> </span>{
+	<span class="hljs-comment">/* Send a command to the telnet client */</span>
+	<span class="hljs-keyword">if</span> (cmd == DO || cmd == DONT) {
+		<span class="hljs-comment">/* DO commands say what the client should do. */</span>
+		<span class="hljs-keyword">if</span> (((cmd == DO) &amp;&amp; (telnet_do_set[opt] != DO)) ||
+			((cmd == DONT) &amp;&amp; (telnet_do_set[opt] != DONT))) {
+			<span class="hljs-comment">/* And we only send them if there is a disagreement */</span>
+			telnet_do_set[opt] = cmd;
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%c%c%c"</span>, IAC, cmd, opt);
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (cmd == WILL || cmd == WONT) {
+		<span class="hljs-comment">/* Similarly, WILL commands say what the server will do. */</span>
+		<span class="hljs-keyword">if</span> (((cmd == WILL) &amp;&amp; (telnet_will_set[opt] != WILL)) ||
+			((cmd == WONT) &amp;&amp; (telnet_will_set[opt] != WONT))) {
+			<span class="hljs-comment">/* And we only send them during disagreements */</span>
+			telnet_will_set[opt] = cmd;
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%c%c%c"</span>, IAC, cmd, opt);
+		}
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-comment">/* Other commands are sent raw */</span>
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%c%c"</span>, IAC, cmd);
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-25" id="section-25"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Print the usage / help text describing options</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-built_in">printf</span>(
+			<span class="hljs-string">"Terminal Nyancat\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"usage: %s [-hitn] [-f \033[3mframes\033[0m]\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -i --intro      \033[3mShow the introduction / about information at startup.\033[0m\n"</span>
+			<span class="hljs-string">" -t --telnet     \033[3mTelnet mode.\033[0m\n"</span>
+			<span class="hljs-string">" -n --no-counter \033[3mDo not display the timer\033[0m\n"</span>
+			<span class="hljs-string">" -s --no-title   \033[3mDo not set the titlebar text\033[0m\n"</span>
+			<span class="hljs-string">" -e --no-clear   \033[3mDo not clear the display between frames\033[0m\n"</span>
+			<span class="hljs-string">" -d --delay      \033[3mDelay image rendering by anywhere between 10ms and 1000ms\n"</span>
+			<span class="hljs-string">" -f --frames     \033[3mDisplay the requested number of frames, then quit\033[0m\n"</span>
+			<span class="hljs-string">" -r --min-rows   \033[3mCrop the animation from the top\033[0m\n"</span>
+			<span class="hljs-string">" -R --max-rows   \033[3mCrop the animation from the bottom\033[0m\n"</span>
+			<span class="hljs-string">" -c --min-cols   \033[3mCrop the animation from the left\033[0m\n"</span>
+			<span class="hljs-string">" -C --max-cols   \033[3mCrop the animation from the right\033[0m\n"</span>
+			<span class="hljs-string">" -W --width      \033[3mCrop the animation to the given width\033[0m\n"</span>
+			<span class="hljs-string">" -H --height     \033[3mCrop the animation to the given height\033[0m\n"</span>
+			<span class="hljs-string">" -h --help       \033[3mShow this help message.\033[0m\n"</span>,
+			argv[<span class="hljs-number">0</span>]);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> ** argv)</span> </span>{
+
+	<span class="hljs-keyword">char</span> *term = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> k;
+
+	<span class="hljs-keyword">int</span> ttype;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+	<span class="hljs-keyword">uint32_t</span> option = <span class="hljs-number">0</span>, done = <span class="hljs-number">0</span>, sb_mode = <span class="hljs-number">0</span>;
+	<span class="hljs-comment">/* Various pieces for the telnet communication */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span>  sb[<span class="hljs-number">1024</span>] = {<span class="hljs-number">0</span>};
+	<span class="hljs-keyword">unsigned</span> short sb_len   = <span class="hljs-number">0</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	<span class="hljs-comment">/* Whether or not to show the MOTD intro */</span>
+	<span class="hljs-keyword">char</span> show_intro = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> skip_intro = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Long option names */</span>
+	<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">option</span> <span class="hljs-title">long_opts</span>[] = {</span>
+		{<span class="hljs-string">"help"</span>,       no_argument,       <span class="hljs-number">0</span>, <span class="hljs-string">'h'</span>},
+		{<span class="hljs-string">"telnet"</span>,     no_argument,       <span class="hljs-number">0</span>, <span class="hljs-string">'t'</span>},
+		{<span class="hljs-string">"intro"</span>,      no_argument,       <span class="hljs-number">0</span>, <span class="hljs-string">'i'</span>},
+		{<span class="hljs-string">"skip-intro"</span>, no_argument,       <span class="hljs-number">0</span>, <span class="hljs-string">'I'</span>},
+		{<span class="hljs-string">"no-counter"</span>, no_argument,       <span class="hljs-number">0</span>, <span class="hljs-string">'n'</span>},
+		{<span class="hljs-string">"no-title"</span>,   no_argument,       <span class="hljs-number">0</span>, <span class="hljs-string">'s'</span>},
+		{<span class="hljs-string">"no-clear"</span>,   no_argument,       <span class="hljs-number">0</span>, <span class="hljs-string">'e'</span>},
+		{<span class="hljs-string">"delay"</span>,      required_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'d'</span>},
+		{<span class="hljs-string">"frames"</span>,     required_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'f'</span>},
+		{<span class="hljs-string">"min-rows"</span>,   required_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'r'</span>},
+		{<span class="hljs-string">"max-rows"</span>,   required_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'R'</span>},
+		{<span class="hljs-string">"min-cols"</span>,   required_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'c'</span>},
+		{<span class="hljs-string">"max-cols"</span>,   required_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'C'</span>},
+		{<span class="hljs-string">"width"</span>,      required_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'W'</span>},
+		{<span class="hljs-string">"height"</span>,     required_argument, <span class="hljs-number">0</span>, <span class="hljs-string">'H'</span>},
+		{<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>}
+	};
+
+	<span class="hljs-comment">/* Time delay in milliseconds */</span>
+	<span class="hljs-keyword">int</span> delay_ms = <span class="hljs-number">90</span>; <span class="hljs-comment">// Default to original value</span>
+
+	<span class="hljs-comment">/* Process arguments */</span>
+	<span class="hljs-keyword">int</span> index, c;
+	<span class="hljs-keyword">while</span> ((c = getopt_long(argc, argv, <span class="hljs-string">"eshiItnd:f:r:R:c:C:W:H:"</span>, long_opts, &amp;index)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">if</span> (!c) {
+			<span class="hljs-keyword">if</span> (long_opts[index].flag == <span class="hljs-number">0</span>) {
+				c = long_opts[index].val;
+			}
+		}
+		<span class="hljs-keyword">switch</span> (c) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'e'</span>:
+				clear_screen = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'s'</span>:
+				set_title = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'i'</span>: <span class="hljs-comment">/* Show introduction */</span>
+				show_intro = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'I'</span>:
+				skip_intro = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'t'</span>: <span class="hljs-comment">/* Expect telnet bits */</span>
+				telnet = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'h'</span>: <span class="hljs-comment">/* Show help and exit */</span>
+				usage(argv);
+				<span class="hljs-built_in">exit</span>(<span class="hljs-number">0</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'n'</span>:
+				show_counter = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'d'</span>:
+				<span class="hljs-keyword">if</span> (<span class="hljs-number">10</span> &lt;= atoi(optarg) &amp;&amp; atoi(optarg) &lt;= <span class="hljs-number">1000</span>)
+					delay_ms = atoi(optarg);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>:
+				frame_count = atoi(optarg);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'r'</span>:
+				min_row = atoi(optarg);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'R'</span>:
+				max_row = atoi(optarg);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'c'</span>:
+				min_col = atoi(optarg);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'C'</span>:
+				max_col = atoi(optarg);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'W'</span>:
+				min_col = (FRAME_WIDTH - atoi(optarg)) / <span class="hljs-number">2</span>;
+				max_col = (FRAME_WIDTH + atoi(optarg)) / <span class="hljs-number">2</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'H'</span>:
+				min_row = (FRAME_HEIGHT - atoi(optarg)) / <span class="hljs-number">2</span>;
+				max_row = (FRAME_HEIGHT + atoi(optarg)) / <span class="hljs-number">2</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">default</span>:
+				<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	(<span class="hljs-keyword">void</span>)skip_intro;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+	<span class="hljs-keyword">if</span> (telnet) {
+		<span class="hljs-comment">/* Telnet mode */</span>
+
+		<span class="hljs-comment">/* show_intro is implied unless skip_intro was set */</span>
+		show_intro = (skip_intro == <span class="hljs-number">0</span>) ? <span class="hljs-number">1</span> : <span class="hljs-number">0</span>;
+
+		<span class="hljs-comment">/* Set the default options */</span>
+		set_options();
+
+		<span class="hljs-comment">/* Let the client know what we're using */</span>
+		<span class="hljs-keyword">for</span> (option = <span class="hljs-number">0</span>; option &lt; <span class="hljs-number">256</span>; option++) {
+			<span class="hljs-keyword">if</span> (telnet_options[option]) {
+				send_command(telnet_options[option], option);
+				fflush(<span class="hljs-built_in">stdout</span>);
+			}
+		}
+		<span class="hljs-keyword">for</span> (option = <span class="hljs-number">0</span>; option &lt; <span class="hljs-number">256</span>; option++) {
+			<span class="hljs-keyword">if</span> (telnet_willack[option]) {
+				send_command(telnet_willack[option], option);
+				fflush(<span class="hljs-built_in">stdout</span>);
+			}
+		}
+
+		<span class="hljs-comment">/* Set the alarm handler to execute the longjmp */</span>
+		signal(SIGALRM, SIGALRM_handler);
+
+		<span class="hljs-comment">/* Negotiate options */</span>
+		<span class="hljs-keyword">if</span> (!setjmp(environment)) {
+			<span class="hljs-comment">/* We will stop handling options after one second */</span>
+			alarm(<span class="hljs-number">1</span>);
+
+			<span class="hljs-comment">/* Let's do this */</span>
+			<span class="hljs-keyword">while</span> (!feof(<span class="hljs-built_in">stdin</span>) &amp;&amp; done &lt; <span class="hljs-number">2</span>) {
+				<span class="hljs-comment">/* Get either IAC (start command) or a regular character (break, unless in SB mode) */</span>
+				<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> i = getchar();
+				<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> opt = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">if</span> (i == IAC) {
+					<span class="hljs-comment">/* If IAC, get the command */</span>
+					i = getchar();
+					<span class="hljs-keyword">switch</span> (i) {
+						<span class="hljs-keyword">case</span> SE:
+							<span class="hljs-comment">/* End of extended option mode */</span>
+							sb_mode = <span class="hljs-number">0</span>;
+							<span class="hljs-keyword">if</span> (sb[<span class="hljs-number">0</span>] == TTYPE) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-26" id="section-26"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>This was a response to the TTYPE command, meaning
+that this should be a terminal type</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">								alarm(<span class="hljs-number">2</span>);
+								term = strndup((<span class="hljs-keyword">char</span> *)&amp;sb[<span class="hljs-number">2</span>], <span class="hljs-keyword">sizeof</span>(sb)<span class="hljs-number">-2</span>);
+								done++;
+							}
+							<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (sb[<span class="hljs-number">0</span>] == NAWS) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-27" id="section-27"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>This was a response to the NAWS command, meaning
+that this should be a window size</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">								alarm(<span class="hljs-number">2</span>);
+								terminal_width = (sb[<span class="hljs-number">1</span>] &lt;&lt; <span class="hljs-number">8</span>) | sb[<span class="hljs-number">2</span>];
+								terminal_height = (sb[<span class="hljs-number">3</span>] &lt;&lt; <span class="hljs-number">8</span>) | sb[<span class="hljs-number">4</span>];
+								done++;
+							}
+							<span class="hljs-keyword">break</span>;
+						<span class="hljs-keyword">case</span> NOP:
+							<span class="hljs-comment">/* No Op */</span>
+							send_command(NOP, <span class="hljs-number">0</span>);
+							fflush(<span class="hljs-built_in">stdout</span>);
+							<span class="hljs-keyword">break</span>;
+						<span class="hljs-keyword">case</span> WILL:
+						<span class="hljs-keyword">case</span> WONT:
+							<span class="hljs-comment">/* Will / Won't Negotiation */</span>
+							opt = getchar();
+							<span class="hljs-keyword">if</span> (!telnet_willack[opt]) {
+								<span class="hljs-comment">/* We default to WONT */</span>
+								telnet_willack[opt] = WONT;
+							}
+							send_command(telnet_willack[opt], opt);
+							fflush(<span class="hljs-built_in">stdout</span>);
+							<span class="hljs-keyword">if</span> ((i == WILL) &amp;&amp; (opt == TTYPE)) {
+								<span class="hljs-comment">/* WILL TTYPE? Great, let's do that now! */</span>
+								<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%c%c%c%c%c%c"</span>, IAC, SB, TTYPE, SEND, IAC, SE);
+								fflush(<span class="hljs-built_in">stdout</span>);
+							}
+							<span class="hljs-keyword">break</span>;
+						<span class="hljs-keyword">case</span> DO:
+						<span class="hljs-keyword">case</span> DONT:
+							<span class="hljs-comment">/* Do / Don't Negotiation */</span>
+							opt = getchar();
+							<span class="hljs-keyword">if</span> (!telnet_options[opt]) {
+								<span class="hljs-comment">/* We default to DONT */</span>
+								telnet_options[opt] = DONT;
+							}
+							send_command(telnet_options[opt], opt);
+							fflush(<span class="hljs-built_in">stdout</span>);
+							<span class="hljs-keyword">break</span>;
+						<span class="hljs-keyword">case</span> SB:
+							<span class="hljs-comment">/* Begin Extended Option Mode */</span>
+							sb_mode = <span class="hljs-number">1</span>;
+							sb_len  = <span class="hljs-number">0</span>;
+							<span class="hljs-built_in">memset</span>(sb, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(sb));
+							<span class="hljs-keyword">break</span>;
+						<span class="hljs-keyword">case</span> IAC: 
+							<span class="hljs-comment">/* IAC IAC? That's probably not right. */</span>
+							done = <span class="hljs-number">2</span>;
+							<span class="hljs-keyword">break</span>;
+						<span class="hljs-keyword">default</span>:
+							<span class="hljs-keyword">break</span>;
+					}
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (sb_mode) {
+					<span class="hljs-comment">/* Extended Option Mode -&gt; Accept character */</span>
+					<span class="hljs-keyword">if</span> (sb_len &lt; <span class="hljs-keyword">sizeof</span>(sb) - <span class="hljs-number">1</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-28" id="section-28"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Append this character to the SB string,
+but only if it doesn't put us over
+our limit; honestly, we shouldn't hit
+the limit, as we're only collecting characters
+for a terminal type or window size, but better safe than
+sorry (and vulnerable).</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">						sb[sb_len] = i;
+						sb_len++;
+					}
+				}
+			}
+		}
+		alarm(<span class="hljs-number">0</span>);
+	} <span class="hljs-keyword">else</span>
+#endif
+	{
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-29" id="section-29"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>We are running standalone, retrieve the
+terminal type from the environment.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		term = getenv(<span class="hljs-string">"TERM"</span>);
+
+		<span class="hljs-comment">/* Also get the number of columns */</span>
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">winsize</span> <span class="hljs-title">w</span>;</span>
+		ioctl(<span class="hljs-number">0</span>, TIOCGWINSZ, &amp;w);
+		terminal_width = w.ws_col;
+		terminal_height = w.ws_row;
+	}
+
+	<span class="hljs-comment">/* Default ttype */</span>
+	ttype = <span class="hljs-number">2</span>;
+
+	<span class="hljs-keyword">if</span> (term) {
+		<span class="hljs-comment">/* Convert the entire terminal string to lower case */</span>
+		<span class="hljs-keyword">for</span> (k = <span class="hljs-number">0</span>; k &lt; <span class="hljs-built_in">strlen</span>(term); ++k) {
+			term[k] = <span class="hljs-built_in">tolower</span>(term[k]);
+		}
+
+		<span class="hljs-comment">/* Do our terminal detection */</span>
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(term, <span class="hljs-string">"xterm"</span>)) {
+			ttype = <span class="hljs-number">1</span>; <span class="hljs-comment">/* 256-color, spaces */</span>
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(term, <span class="hljs-string">"toaru-vga"</span>)) {
+			ttype = <span class="hljs-number">2</span>; <span class="hljs-comment">/* best results from fallback */</span>
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(term, <span class="hljs-string">"toaru"</span>)) {
+			ttype = <span class="hljs-number">8</span>; <span class="hljs-comment">/* use truecolor */</span>
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(term, <span class="hljs-string">"linux"</span>)) {
+			ttype = <span class="hljs-number">3</span>; <span class="hljs-comment">/* Spaces and blink attribute */</span>
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(term, <span class="hljs-string">"vtnt"</span>)) {
+			ttype = <span class="hljs-number">5</span>; <span class="hljs-comment">/* Extended ASCII fallback == Windows */</span>
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(term, <span class="hljs-string">"cygwin"</span>)) {
+			ttype = <span class="hljs-number">5</span>; <span class="hljs-comment">/* Extended ASCII fallback == Windows */</span>
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(term, <span class="hljs-string">"vt220"</span>)) {
+			ttype = <span class="hljs-number">6</span>; <span class="hljs-comment">/* No color support */</span>
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(term, <span class="hljs-string">"fallback"</span>)) {
+			ttype = <span class="hljs-number">4</span>; <span class="hljs-comment">/* Unicode fallback */</span>
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(term, <span class="hljs-string">"rxvt-256color"</span>)) {
+			ttype = <span class="hljs-number">1</span>; <span class="hljs-comment">/* xterm 256-color compatible */</span>
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(term, <span class="hljs-string">"rxvt"</span>)) {
+			ttype = <span class="hljs-number">3</span>; <span class="hljs-comment">/* Accepts LINUX mode */</span>
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(term, <span class="hljs-string">"vt100"</span>) &amp;&amp; terminal_width == <span class="hljs-number">40</span>) {
+			ttype = <span class="hljs-number">7</span>; <span class="hljs-comment">/* No color support, only 40 columns */</span>
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strncmp</span>(term, <span class="hljs-string">"st"</span>, <span class="hljs-number">2</span>)) {
+			ttype = <span class="hljs-number">1</span>; <span class="hljs-comment">/* suckless simple terminal is xterm-256color-compatible */</span>
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strncmp</span>(term, <span class="hljs-string">"truecolor"</span>, <span class="hljs-number">9</span>)) {
+			ttype = <span class="hljs-number">8</span>;
+		}
+	}
+
+	<span class="hljs-keyword">int</span> always_escape = <span class="hljs-number">0</span>; <span class="hljs-comment">/* Used for text mode */</span>
+
+	<span class="hljs-comment">/* Accept ^C -&gt; restore cursor */</span>
+	signal(SIGINT, SIGINT_handler);
+
+	<span class="hljs-comment">/* Handle loss of stdout */</span>
+	signal(SIGPIPE, SIGPIPE_handler);
+
+	<span class="hljs-comment">/* Handle window changes */</span>
+	<span class="hljs-keyword">if</span> (!telnet) {
+		signal(SIGWINCH, SIGWINCH_handler);
+	}
+
+	<span class="hljs-keyword">switch</span> (ttype) {
+		<span class="hljs-keyword">case</span> <span class="hljs-number">1</span>:
+			colors[<span class="hljs-string">','</span>]  = <span class="hljs-string">"\033[48;5;17m"</span>;  <span class="hljs-comment">/* Blue background */</span>
+			colors[<span class="hljs-string">'.'</span>]  = <span class="hljs-string">"\033[48;5;231m"</span>; <span class="hljs-comment">/* White stars */</span>
+			colors[<span class="hljs-string">'\''</span>] = <span class="hljs-string">"\033[48;5;16m"</span>;  <span class="hljs-comment">/* Black border */</span>
+			colors[<span class="hljs-string">'@'</span>]  = <span class="hljs-string">"\033[48;5;230m"</span>; <span class="hljs-comment">/* Tan poptart */</span>
+			colors[<span class="hljs-string">'$'</span>]  = <span class="hljs-string">"\033[48;5;175m"</span>; <span class="hljs-comment">/* Pink poptart */</span>
+			colors[<span class="hljs-string">'-'</span>]  = <span class="hljs-string">"\033[48;5;162m"</span>; <span class="hljs-comment">/* Red poptart */</span>
+			colors[<span class="hljs-string">'&gt;'</span>]  = <span class="hljs-string">"\033[48;5;196m"</span>; <span class="hljs-comment">/* Red rainbow */</span>
+			colors[<span class="hljs-string">'&amp;'</span>]  = <span class="hljs-string">"\033[48;5;214m"</span>; <span class="hljs-comment">/* Orange rainbow */</span>
+			colors[<span class="hljs-string">'+'</span>]  = <span class="hljs-string">"\033[48;5;226m"</span>; <span class="hljs-comment">/* Yellow Rainbow */</span>
+			colors[<span class="hljs-string">'#'</span>]  = <span class="hljs-string">"\033[48;5;118m"</span>; <span class="hljs-comment">/* Green rainbow */</span>
+			colors[<span class="hljs-string">'='</span>]  = <span class="hljs-string">"\033[48;5;33m"</span>;  <span class="hljs-comment">/* Light blue rainbow */</span>
+			colors[<span class="hljs-string">';'</span>]  = <span class="hljs-string">"\033[48;5;19m"</span>;  <span class="hljs-comment">/* Dark blue rainbow */</span>
+			colors[<span class="hljs-string">'*'</span>]  = <span class="hljs-string">"\033[48;5;240m"</span>; <span class="hljs-comment">/* Gray cat face */</span>
+			colors[<span class="hljs-string">'%'</span>]  = <span class="hljs-string">"\033[48;5;175m"</span>; <span class="hljs-comment">/* Pink cheeks */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">2</span>:
+			colors[<span class="hljs-string">','</span>]  = <span class="hljs-string">"\033[104m"</span>;      <span class="hljs-comment">/* Blue background */</span>
+			colors[<span class="hljs-string">'.'</span>]  = <span class="hljs-string">"\033[107m"</span>;      <span class="hljs-comment">/* White stars */</span>
+			colors[<span class="hljs-string">'\''</span>] = <span class="hljs-string">"\033[40m"</span>;       <span class="hljs-comment">/* Black border */</span>
+			colors[<span class="hljs-string">'@'</span>]  = <span class="hljs-string">"\033[47m"</span>;       <span class="hljs-comment">/* Tan poptart */</span>
+			colors[<span class="hljs-string">'$'</span>]  = <span class="hljs-string">"\033[105m"</span>;      <span class="hljs-comment">/* Pink poptart */</span>
+			colors[<span class="hljs-string">'-'</span>]  = <span class="hljs-string">"\033[101m"</span>;      <span class="hljs-comment">/* Red poptart */</span>
+			colors[<span class="hljs-string">'&gt;'</span>]  = <span class="hljs-string">"\033[101m"</span>;      <span class="hljs-comment">/* Red rainbow */</span>
+			colors[<span class="hljs-string">'&amp;'</span>]  = <span class="hljs-string">"\033[43m"</span>;       <span class="hljs-comment">/* Orange rainbow */</span>
+			colors[<span class="hljs-string">'+'</span>]  = <span class="hljs-string">"\033[103m"</span>;      <span class="hljs-comment">/* Yellow Rainbow */</span>
+			colors[<span class="hljs-string">'#'</span>]  = <span class="hljs-string">"\033[102m"</span>;      <span class="hljs-comment">/* Green rainbow */</span>
+			colors[<span class="hljs-string">'='</span>]  = <span class="hljs-string">"\033[104m"</span>;      <span class="hljs-comment">/* Light blue rainbow */</span>
+			colors[<span class="hljs-string">';'</span>]  = <span class="hljs-string">"\033[44m"</span>;       <span class="hljs-comment">/* Dark blue rainbow */</span>
+			colors[<span class="hljs-string">'*'</span>]  = <span class="hljs-string">"\033[100m"</span>;      <span class="hljs-comment">/* Gray cat face */</span>
+			colors[<span class="hljs-string">'%'</span>]  = <span class="hljs-string">"\033[105m"</span>;      <span class="hljs-comment">/* Pink cheeks */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">3</span>:
+			colors[<span class="hljs-string">','</span>]  = <span class="hljs-string">"\033[25;44m"</span>;    <span class="hljs-comment">/* Blue background */</span>
+			colors[<span class="hljs-string">'.'</span>]  = <span class="hljs-string">"\033[5;47m"</span>;     <span class="hljs-comment">/* White stars */</span>
+			colors[<span class="hljs-string">'\''</span>] = <span class="hljs-string">"\033[25;40m"</span>;    <span class="hljs-comment">/* Black border */</span>
+			colors[<span class="hljs-string">'@'</span>]  = <span class="hljs-string">"\033[5;47m"</span>;     <span class="hljs-comment">/* Tan poptart */</span>
+			colors[<span class="hljs-string">'$'</span>]  = <span class="hljs-string">"\033[5;45m"</span>;     <span class="hljs-comment">/* Pink poptart */</span>
+			colors[<span class="hljs-string">'-'</span>]  = <span class="hljs-string">"\033[5;41m"</span>;     <span class="hljs-comment">/* Red poptart */</span>
+			colors[<span class="hljs-string">'&gt;'</span>]  = <span class="hljs-string">"\033[5;41m"</span>;     <span class="hljs-comment">/* Red rainbow */</span>
+			colors[<span class="hljs-string">'&amp;'</span>]  = <span class="hljs-string">"\033[25;43m"</span>;    <span class="hljs-comment">/* Orange rainbow */</span>
+			colors[<span class="hljs-string">'+'</span>]  = <span class="hljs-string">"\033[5;43m"</span>;     <span class="hljs-comment">/* Yellow Rainbow */</span>
+			colors[<span class="hljs-string">'#'</span>]  = <span class="hljs-string">"\033[5;42m"</span>;     <span class="hljs-comment">/* Green rainbow */</span>
+			colors[<span class="hljs-string">'='</span>]  = <span class="hljs-string">"\033[25;44m"</span>;    <span class="hljs-comment">/* Light blue rainbow */</span>
+			colors[<span class="hljs-string">';'</span>]  = <span class="hljs-string">"\033[5;44m"</span>;     <span class="hljs-comment">/* Dark blue rainbow */</span>
+			colors[<span class="hljs-string">'*'</span>]  = <span class="hljs-string">"\033[5;40m"</span>;     <span class="hljs-comment">/* Gray cat face */</span>
+			colors[<span class="hljs-string">'%'</span>]  = <span class="hljs-string">"\033[5;45m"</span>;     <span class="hljs-comment">/* Pink cheeks */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">4</span>:
+			colors[<span class="hljs-string">','</span>]  = <span class="hljs-string">"\033[0;34;44m"</span>;  <span class="hljs-comment">/* Blue background */</span>
+			colors[<span class="hljs-string">'.'</span>]  = <span class="hljs-string">"\033[1;37;47m"</span>;  <span class="hljs-comment">/* White stars */</span>
+			colors[<span class="hljs-string">'\''</span>] = <span class="hljs-string">"\033[0;30;40m"</span>;  <span class="hljs-comment">/* Black border */</span>
+			colors[<span class="hljs-string">'@'</span>]  = <span class="hljs-string">"\033[1;37;47m"</span>;  <span class="hljs-comment">/* Tan poptart */</span>
+			colors[<span class="hljs-string">'$'</span>]  = <span class="hljs-string">"\033[1;35;45m"</span>;  <span class="hljs-comment">/* Pink poptart */</span>
+			colors[<span class="hljs-string">'-'</span>]  = <span class="hljs-string">"\033[1;31;41m"</span>;  <span class="hljs-comment">/* Red poptart */</span>
+			colors[<span class="hljs-string">'&gt;'</span>]  = <span class="hljs-string">"\033[1;31;41m"</span>;  <span class="hljs-comment">/* Red rainbow */</span>
+			colors[<span class="hljs-string">'&amp;'</span>]  = <span class="hljs-string">"\033[0;33;43m"</span>;  <span class="hljs-comment">/* Orange rainbow */</span>
+			colors[<span class="hljs-string">'+'</span>]  = <span class="hljs-string">"\033[1;33;43m"</span>;  <span class="hljs-comment">/* Yellow Rainbow */</span>
+			colors[<span class="hljs-string">'#'</span>]  = <span class="hljs-string">"\033[1;32;42m"</span>;  <span class="hljs-comment">/* Green rainbow */</span>
+			colors[<span class="hljs-string">'='</span>]  = <span class="hljs-string">"\033[1;34;44m"</span>;  <span class="hljs-comment">/* Light blue rainbow */</span>
+			colors[<span class="hljs-string">';'</span>]  = <span class="hljs-string">"\033[0;34;44m"</span>;  <span class="hljs-comment">/* Dark blue rainbow */</span>
+			colors[<span class="hljs-string">'*'</span>]  = <span class="hljs-string">"\033[1;30;40m"</span>;  <span class="hljs-comment">/* Gray cat face */</span>
+			colors[<span class="hljs-string">'%'</span>]  = <span class="hljs-string">"\033[1;35;45m"</span>;  <span class="hljs-comment">/* Pink cheeks */</span>
+			output = <span class="hljs-string">"██"</span>;
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">5</span>:
+			colors[<span class="hljs-string">','</span>]  = <span class="hljs-string">"\033[0;34;44m"</span>;  <span class="hljs-comment">/* Blue background */</span>
+			colors[<span class="hljs-string">'.'</span>]  = <span class="hljs-string">"\033[1;37;47m"</span>;  <span class="hljs-comment">/* White stars */</span>
+			colors[<span class="hljs-string">'\''</span>] = <span class="hljs-string">"\033[0;30;40m"</span>;  <span class="hljs-comment">/* Black border */</span>
+			colors[<span class="hljs-string">'@'</span>]  = <span class="hljs-string">"\033[1;37;47m"</span>;  <span class="hljs-comment">/* Tan poptart */</span>
+			colors[<span class="hljs-string">'$'</span>]  = <span class="hljs-string">"\033[1;35;45m"</span>;  <span class="hljs-comment">/* Pink poptart */</span>
+			colors[<span class="hljs-string">'-'</span>]  = <span class="hljs-string">"\033[1;31;41m"</span>;  <span class="hljs-comment">/* Red poptart */</span>
+			colors[<span class="hljs-string">'&gt;'</span>]  = <span class="hljs-string">"\033[1;31;41m"</span>;  <span class="hljs-comment">/* Red rainbow */</span>
+			colors[<span class="hljs-string">'&amp;'</span>]  = <span class="hljs-string">"\033[0;33;43m"</span>;  <span class="hljs-comment">/* Orange rainbow */</span>
+			colors[<span class="hljs-string">'+'</span>]  = <span class="hljs-string">"\033[1;33;43m"</span>;  <span class="hljs-comment">/* Yellow Rainbow */</span>
+			colors[<span class="hljs-string">'#'</span>]  = <span class="hljs-string">"\033[1;32;42m"</span>;  <span class="hljs-comment">/* Green rainbow */</span>
+			colors[<span class="hljs-string">'='</span>]  = <span class="hljs-string">"\033[1;34;44m"</span>;  <span class="hljs-comment">/* Light blue rainbow */</span>
+			colors[<span class="hljs-string">';'</span>]  = <span class="hljs-string">"\033[0;34;44m"</span>;  <span class="hljs-comment">/* Dark blue rainbow */</span>
+			colors[<span class="hljs-string">'*'</span>]  = <span class="hljs-string">"\033[1;30;40m"</span>;  <span class="hljs-comment">/* Gray cat face */</span>
+			colors[<span class="hljs-string">'%'</span>]  = <span class="hljs-string">"\033[1;35;45m"</span>;  <span class="hljs-comment">/* Pink cheeks */</span>
+			output = <span class="hljs-string">"\333\333"</span>;
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">6</span>:
+			colors[<span class="hljs-string">','</span>]  = <span class="hljs-string">"::"</span>;             <span class="hljs-comment">/* Blue background */</span>
+			colors[<span class="hljs-string">'.'</span>]  = <span class="hljs-string">"@@"</span>;             <span class="hljs-comment">/* White stars */</span>
+			colors[<span class="hljs-string">'\''</span>] = <span class="hljs-string">"  "</span>;             <span class="hljs-comment">/* Black border */</span>
+			colors[<span class="hljs-string">'@'</span>]  = <span class="hljs-string">"##"</span>;             <span class="hljs-comment">/* Tan poptart */</span>
+			colors[<span class="hljs-string">'$'</span>]  = <span class="hljs-string">"??"</span>;             <span class="hljs-comment">/* Pink poptart */</span>
+			colors[<span class="hljs-string">'-'</span>]  = <span class="hljs-string">"&lt;&gt;"</span>;             <span class="hljs-comment">/* Red poptart */</span>
+			colors[<span class="hljs-string">'&gt;'</span>]  = <span class="hljs-string">"##"</span>;             <span class="hljs-comment">/* Red rainbow */</span>
+			colors[<span class="hljs-string">'&amp;'</span>]  = <span class="hljs-string">"=="</span>;             <span class="hljs-comment">/* Orange rainbow */</span>
+			colors[<span class="hljs-string">'+'</span>]  = <span class="hljs-string">"--"</span>;             <span class="hljs-comment">/* Yellow Rainbow */</span>
+			colors[<span class="hljs-string">'#'</span>]  = <span class="hljs-string">"++"</span>;             <span class="hljs-comment">/* Green rainbow */</span>
+			colors[<span class="hljs-string">'='</span>]  = <span class="hljs-string">"~~"</span>;             <span class="hljs-comment">/* Light blue rainbow */</span>
+			colors[<span class="hljs-string">';'</span>]  = <span class="hljs-string">"$$"</span>;             <span class="hljs-comment">/* Dark blue rainbow */</span>
+			colors[<span class="hljs-string">'*'</span>]  = <span class="hljs-string">";;"</span>;             <span class="hljs-comment">/* Gray cat face */</span>
+			colors[<span class="hljs-string">'%'</span>]  = <span class="hljs-string">"()"</span>;             <span class="hljs-comment">/* Pink cheeks */</span>
+			always_escape = <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">7</span>:
+			colors[<span class="hljs-string">','</span>]  = <span class="hljs-string">"."</span>;             <span class="hljs-comment">/* Blue background */</span>
+			colors[<span class="hljs-string">'.'</span>]  = <span class="hljs-string">"@"</span>;             <span class="hljs-comment">/* White stars */</span>
+			colors[<span class="hljs-string">'\''</span>] = <span class="hljs-string">" "</span>;             <span class="hljs-comment">/* Black border */</span>
+			colors[<span class="hljs-string">'@'</span>]  = <span class="hljs-string">"#"</span>;             <span class="hljs-comment">/* Tan poptart */</span>
+			colors[<span class="hljs-string">'$'</span>]  = <span class="hljs-string">"?"</span>;             <span class="hljs-comment">/* Pink poptart */</span>
+			colors[<span class="hljs-string">'-'</span>]  = <span class="hljs-string">"O"</span>;             <span class="hljs-comment">/* Red poptart */</span>
+			colors[<span class="hljs-string">'&gt;'</span>]  = <span class="hljs-string">"#"</span>;             <span class="hljs-comment">/* Red rainbow */</span>
+			colors[<span class="hljs-string">'&amp;'</span>]  = <span class="hljs-string">"="</span>;             <span class="hljs-comment">/* Orange rainbow */</span>
+			colors[<span class="hljs-string">'+'</span>]  = <span class="hljs-string">"-"</span>;             <span class="hljs-comment">/* Yellow Rainbow */</span>
+			colors[<span class="hljs-string">'#'</span>]  = <span class="hljs-string">"+"</span>;             <span class="hljs-comment">/* Green rainbow */</span>
+			colors[<span class="hljs-string">'='</span>]  = <span class="hljs-string">"~"</span>;             <span class="hljs-comment">/* Light blue rainbow */</span>
+			colors[<span class="hljs-string">';'</span>]  = <span class="hljs-string">"$"</span>;             <span class="hljs-comment">/* Dark blue rainbow */</span>
+			colors[<span class="hljs-string">'*'</span>]  = <span class="hljs-string">";"</span>;             <span class="hljs-comment">/* Gray cat face */</span>
+			colors[<span class="hljs-string">'%'</span>]  = <span class="hljs-string">"o"</span>;             <span class="hljs-comment">/* Pink cheeks */</span>
+			always_escape = <span class="hljs-number">1</span>;
+			terminal_width = <span class="hljs-number">40</span>;
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-number">8</span>:
+			colors[<span class="hljs-string">','</span>]  = <span class="hljs-string">"\033[48;2;0;49;105m"</span>;    <span class="hljs-comment">/* Blue background */</span>
+			colors[<span class="hljs-string">'.'</span>]  = <span class="hljs-string">"\033[48;2;255;255;255m"</span>; <span class="hljs-comment">/* White stars */</span>
+			colors[<span class="hljs-string">'\''</span>] = <span class="hljs-string">"\033[48;2;0;0;0m"</span>;       <span class="hljs-comment">/* Black border */</span>
+			colors[<span class="hljs-string">'@'</span>]  = <span class="hljs-string">"\033[48;2;255;205;152m"</span>; <span class="hljs-comment">/* Tan poptart */</span>
+			colors[<span class="hljs-string">'$'</span>]  = <span class="hljs-string">"\033[48;2;255;169;255m"</span>; <span class="hljs-comment">/* Pink poptart */</span>
+			colors[<span class="hljs-string">'-'</span>]  = <span class="hljs-string">"\033[48;2;255;76;152m"</span>;  <span class="hljs-comment">/* Red poptart */</span>
+			colors[<span class="hljs-string">'&gt;'</span>]  = <span class="hljs-string">"\033[48;2;255;25;0m"</span>;    <span class="hljs-comment">/* Red rainbow */</span>
+			colors[<span class="hljs-string">'&amp;'</span>]  = <span class="hljs-string">"\033[48;2;255;154;0m"</span>;   <span class="hljs-comment">/* Orange rainbow */</span>
+			colors[<span class="hljs-string">'+'</span>]  = <span class="hljs-string">"\033[48;2;255;240;0m"</span>;   <span class="hljs-comment">/* Yellow Rainbow */</span>
+			colors[<span class="hljs-string">'#'</span>]  = <span class="hljs-string">"\033[48;2;40;220;0m"</span>;    <span class="hljs-comment">/* Green rainbow */</span>
+			colors[<span class="hljs-string">'='</span>]  = <span class="hljs-string">"\033[48;2;0;144;255m"</span>;   <span class="hljs-comment">/* Light blue rainbow */</span>
+			colors[<span class="hljs-string">';'</span>]  = <span class="hljs-string">"\033[48;2;104;68;255m"</span>;  <span class="hljs-comment">/* Dark blue rainbow */</span>
+			colors[<span class="hljs-string">'*'</span>]  = <span class="hljs-string">"\033[48;2;153;153;153m"</span>; <span class="hljs-comment">/* Gray cat face */</span>
+			colors[<span class="hljs-string">'%'</span>]  = <span class="hljs-string">"\033[48;2;255;163;152m"</span>; <span class="hljs-comment">/* Pink cheeks */</span>
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">break</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (min_col == max_col) {
+		min_col = (FRAME_WIDTH - terminal_width/<span class="hljs-number">2</span>) / <span class="hljs-number">2</span>;
+		max_col = min_col + terminal_width/<span class="hljs-number">2</span>;
+		extra_space = (terminal_width % <span class="hljs-number">2</span>);
+		using_automatic_width = <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (min_row == max_row) {
+		min_row = (FRAME_HEIGHT - (terminal_height<span class="hljs-number">-1</span>)) / <span class="hljs-number">2</span>;
+		max_row = (FRAME_HEIGHT + (terminal_height<span class="hljs-number">-1</span>)) / <span class="hljs-number">2</span>;
+		using_automatic_height = <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* Attempt to set terminal title */</span>
+	<span class="hljs-keyword">if</span> (set_title) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033kNyanyanyanyanyanyanya...\033\134"</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033]1;Nyanyanyanyanyanyanya...\007"</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033]2;Nyanyanyanyanyanyanya...\007"</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (clear_screen) {
+		<span class="hljs-comment">/* Clear the screen */</span>
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[H\033[2J\033[?25l"</span>);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[s"</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (show_intro) {
+		<span class="hljs-comment">/* Display the MOTD */</span>
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> countdown_clock = <span class="hljs-number">5</span>;
+		<span class="hljs-keyword">for</span> (k = <span class="hljs-number">0</span>; k &lt; countdown_clock; ++k) {
+			newline(<span class="hljs-number">3</span>);
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"                             \033[1mNyancat Telnet Server\033[0m"</span>);
+			newline(<span class="hljs-number">2</span>);
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"                   written and run by \033[1;32mK. Lange\033[1;34m @_klange\033[0m"</span>);
+			newline(<span class="hljs-number">2</span>);
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"        If things don't look right, try:"</span>);
+			newline(<span class="hljs-number">1</span>);
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"                TERM=fallback telnet ..."</span>);
+			newline(<span class="hljs-number">2</span>);
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"        Or on Windows:"</span>);
+			newline(<span class="hljs-number">1</span>);
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"                telnet -t vtnt ..."</span>);
+			newline(<span class="hljs-number">2</span>);
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"        Problems? Check the website:"</span>);
+			newline(<span class="hljs-number">1</span>);
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"                \033[1;34mhttp://nyancat.dakko.us\033[0m"</span>);
+			newline(<span class="hljs-number">2</span>);
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"        This is a telnet server, remember your escape keys!"</span>);
+			newline(<span class="hljs-number">1</span>);
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"                \033[1;31m^]quit\033[0m to exit"</span>);
+			newline(<span class="hljs-number">2</span>);
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"        Starting in %d...                \n"</span>, countdown_clock-k);
+
+			fflush(<span class="hljs-built_in">stdout</span>);
+			usleep(<span class="hljs-number">400000</span>);
+			<span class="hljs-keyword">if</span> (clear_screen) {
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[H"</span>); <span class="hljs-comment">/* Reset cursor */</span>
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[u"</span>);
+			}
+		}
+
+		<span class="hljs-keyword">if</span> (clear_screen) {
+			<span class="hljs-comment">/* Clear the screen again */</span>
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[H\033[2J\033[?25l"</span>);
+		}
+	}
+
+	<span class="hljs-comment">/* Store the start time */</span>
+	<span class="hljs-keyword">time_t</span> start, current;
+	time(&amp;start);
+
+	<span class="hljs-keyword">int</span> playing = <span class="hljs-number">1</span>;    <span class="hljs-comment">/* Animation should continue [left here for modifications] */</span>
+	<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>;       <span class="hljs-comment">/* Current frame # */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> f = <span class="hljs-number">0</span>; <span class="hljs-comment">/* Total frames passed */</span>
+	<span class="hljs-keyword">char</span> last = <span class="hljs-number">0</span>;      <span class="hljs-comment">/* Last color index rendered */</span>
+	<span class="hljs-keyword">int</span> y, x;        <span class="hljs-comment">/* x/y coordinates of what we're drawing */</span>
+	<span class="hljs-keyword">while</span> (playing) {
+		<span class="hljs-comment">/* Reset cursor */</span>
+		<span class="hljs-keyword">if</span> (clear_screen) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[H"</span>);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[u"</span>);
+		}
+		<span class="hljs-comment">/* Render the frame */</span>
+		<span class="hljs-keyword">for</span> (y = min_row; y &lt; max_row; ++y) {
+			<span class="hljs-keyword">for</span> (x = min_col; x &lt; max_col; ++x) {
+				<span class="hljs-keyword">char</span> color;
+				<span class="hljs-keyword">if</span> (y &gt; <span class="hljs-number">23</span> &amp;&amp; y &lt; <span class="hljs-number">43</span> &amp;&amp; x &lt; <span class="hljs-number">0</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-30" id="section-30"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Generate the rainbow tail.</p>
+</div>
+<div class="body">
+<p>This is done with a pretty simplistic square wave.</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">					<span class="hljs-keyword">int</span> mod_x = ((-x+<span class="hljs-number">2</span>) % <span class="hljs-number">16</span>) / <span class="hljs-number">8</span>;
+					<span class="hljs-keyword">if</span> ((i / <span class="hljs-number">2</span>) % <span class="hljs-number">2</span>) {
+						mod_x = <span class="hljs-number">1</span> - mod_x;
+					}
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-31" id="section-31"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Our rainbow, with some padding.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">					<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *rainbow = <span class="hljs-string">",,&gt;&gt;&amp;&amp;&amp;+++###==;;;,,"</span>;
+					color = rainbow[mod_x + y<span class="hljs-number">-23</span>];
+					<span class="hljs-keyword">if</span> (color == <span class="hljs-number">0</span>) color = <span class="hljs-string">','</span>;
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (x &lt; <span class="hljs-number">0</span> || y &lt; <span class="hljs-number">0</span> || y &gt;= FRAME_HEIGHT || x &gt;= FRAME_WIDTH) {
+					<span class="hljs-comment">/* Fill all other areas with background */</span>
+					color = <span class="hljs-string">','</span>;
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-comment">/* Otherwise, get the color from the animation frame. */</span>
+					color = frames[i][y][x];
+				}
+				<span class="hljs-keyword">if</span> (always_escape) {
+					<span class="hljs-comment">/* Text mode (or "Always Send Color Escapes") */</span>
+					<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s"</span>, colors[(<span class="hljs-keyword">int</span>)color]);
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-keyword">if</span> (color != last &amp;&amp; colors[(<span class="hljs-keyword">int</span>)color]) {
+						<span class="hljs-comment">/* Normal Mode, send escape (because the color changed) */</span>
+						last = color;
+						<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s%s"</span>, colors[(<span class="hljs-keyword">int</span>)color], output);
+					} <span class="hljs-keyword">else</span> {
+						<span class="hljs-comment">/* Same color, just send the output characters */</span>
+						<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s"</span>, output);
+					}
+				}
+			}
+			<span class="hljs-keyword">if</span> (extra_space) <span class="hljs-built_in">printf</span>(<span class="hljs-string">" "</span>);
+			<span class="hljs-comment">/* End of row, send newline */</span>
+			newline(<span class="hljs-number">1</span>);
+		}
+		<span class="hljs-keyword">if</span> (show_counter) {
+			<span class="hljs-comment">/* Get the current time for the "You have nyaned..." string */</span>
+			time(&amp;current);
+			<span class="hljs-keyword">double</span> diff = difftime(current, start);
+			<span class="hljs-comment">/* Now count the length of the time difference so we can center */</span>
+			<span class="hljs-keyword">int</span> nLen = digits((<span class="hljs-keyword">int</span>)diff);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-32" id="section-32"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>29 = the length of the rest of the string;
+XXX: Replace this was actually checking the written bytes from a
+call to sprintf or something</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			<span class="hljs-keyword">int</span> <span class="hljs-built_in">width</span> = (terminal_width - <span class="hljs-number">29</span> - nLen) / <span class="hljs-number">2</span>;
+			<span class="hljs-comment">/* Spit out some spaces so that we're actually centered */</span>
+			<span class="hljs-keyword">while</span> (<span class="hljs-built_in">width</span> &gt; <span class="hljs-number">0</span>) {
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">" "</span>);
+				<span class="hljs-built_in">width</span>--;
+			}
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-33" id="section-33"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>You have nyaned for [n] seconds!
+The \033[J ensures that the rest of the line has the dark blue
+background, and the \033[1;37m ensures that our text is bright white.
+The \033[0m prevents the Apple ][ from flipping everything, but
+makes the whole nyancat less bright on the vt220</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[1;37mYou have nyaned for %d seconds!\033[J\033[0m"</span>, (<span class="hljs-keyword">int</span>)diff);
+		}
+		<span class="hljs-comment">/* Reset the last color so that the escape sequences rewrite */</span>
+		last = <span class="hljs-number">0</span>;
+		<span class="hljs-comment">/* Update frame count */</span>
+		++f;
+		<span class="hljs-keyword">if</span> (frame_count != <span class="hljs-number">0</span> &amp;&amp; f == frame_count) {
+			finish();
+		}
+		++i;
+		<span class="hljs-keyword">if</span> (!frames[i]) {
+			<span class="hljs-comment">/* Loop animation */</span>
+			i = <span class="hljs-number">0</span>;
+		}
+		<span class="hljs-comment">/* Wait */</span>
+		usleep(<span class="hljs-number">1000</span> * delay_ms);
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

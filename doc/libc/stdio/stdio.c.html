@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>stdio.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "libc\\stdio\\stdio.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>stdio.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;libc/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/mman.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;libc/internal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;libc/stdio/stdio_internal.h&gt;</span></span>
+
+_hidden FILE __stdin = {
+	.fd = <span class="hljs-number">0</span>,
+	.read_buf = <span class="hljs-literal">NULL</span>,
+	.<span class="hljs-built_in">available</span> = <span class="hljs-number">0</span>,
+	.offset = <span class="hljs-number">0</span>,
+	.read_from = <span class="hljs-number">0</span>,
+	.ungetc = <span class="hljs-number">-1</span>,
+	.last_read_start = <span class="hljs-number">0</span>,
+	.bufsiz = BUFSIZ,
+
+	.wbufsiz = BUFSIZ,
+	.write_buf = <span class="hljs-literal">NULL</span>,
+	.written = <span class="hljs-number">0</span>,
+	.flags = <span class="hljs-number">0</span>,
+};
+
+_hidden FILE __stdout = {
+	.fd = <span class="hljs-number">1</span>,
+	.read_buf = <span class="hljs-literal">NULL</span>,
+	.<span class="hljs-built_in">available</span> = <span class="hljs-number">0</span>,
+	.offset = <span class="hljs-number">0</span>,
+	.read_from = <span class="hljs-number">0</span>,
+	.ungetc = <span class="hljs-number">-1</span>,
+	.last_read_start = <span class="hljs-number">0</span>,
+	.bufsiz = BUFSIZ,
+
+	.wbufsiz = BUFSIZ,
+	.write_buf = <span class="hljs-literal">NULL</span>,
+	.written = <span class="hljs-number">0</span>,
+	.flags = <span class="hljs-number">0</span>,
+};
+
+_hidden FILE __stderr = {
+	.fd = <span class="hljs-number">2</span>,
+	.read_buf = <span class="hljs-literal">NULL</span>,
+	.<span class="hljs-built_in">available</span> = <span class="hljs-number">0</span>,
+	.offset = <span class="hljs-number">0</span>,
+	.read_from = <span class="hljs-number">0</span>,
+	.ungetc = <span class="hljs-number">-1</span>,
+	.last_read_start = <span class="hljs-number">0</span>,
+	.bufsiz = BUFSIZ,
+
+	.wbufsiz = BUFSIZ,
+	.write_buf = <span class="hljs-literal">NULL</span>,
+	.written = <span class="hljs-number">0</span>,
+	.flags = <span class="hljs-number">0</span>,
+};
+
+FILE * <span class="hljs-built_in">stdin</span>  = &amp;__stdin;
+FILE * <span class="hljs-built_in">stdout</span> = &amp;__stdout;
+FILE * <span class="hljs-built_in">stderr</span> = &amp;__stderr;
+
+<span class="hljs-keyword">static</span> FILE * _head = <span class="hljs-literal">NULL</span>;
+
+_hidden <span class="hljs-keyword">void</span> __stdio_init_buffers(<span class="hljs-keyword">void</span>) {
+	__stdin.read_buf   = mmap(<span class="hljs-literal">NULL</span>, BUFSIZ, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, <span class="hljs-number">-1</span>, <span class="hljs-number">0</span>);
+	__stdout.write_buf = mmap(<span class="hljs-literal">NULL</span>, BUFSIZ, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, <span class="hljs-number">-1</span>, <span class="hljs-number">0</span>);
+	__stderr.write_buf = mmap(<span class="hljs-literal">NULL</span>, BUFSIZ, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, <span class="hljs-number">-1</span>, <span class="hljs-number">0</span>);
+	__stdin._name = strdup(<span class="hljs-string">"stdin"</span>);
+	__stdout._name = strdup(<span class="hljs-string">"stdout"</span>);
+	__stderr._name = strdup(<span class="hljs-string">"stderr"</span>);
+}
+
+_hidden <span class="hljs-keyword">void</span> __stdio_cleanup(<span class="hljs-keyword">void</span>) {
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">stdout</span>) fflush(<span class="hljs-built_in">stdout</span>);
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">stderr</span>) fflush(<span class="hljs-built_in">stderr</span>);
+	<span class="hljs-keyword">while</span> (_head) {
+		fclose(_head);
+	}
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">stream_id</span><span class="hljs-params">(FILE * stream)</span> </span>{
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> out[] = <span class="hljs-string">"stream\0\0\0\0\0\0"</span>;
+	<span class="hljs-keyword">if</span> (stream == &amp;__stdin) <span class="hljs-keyword">return</span> <span class="hljs-string">"stdin"</span>;
+	<span class="hljs-keyword">if</span> (stream == &amp;__stdout) <span class="hljs-keyword">return</span> <span class="hljs-string">"stdout"</span>;
+	<span class="hljs-keyword">if</span> (stream == &amp;__stderr) <span class="hljs-keyword">return</span> <span class="hljs-string">"stderr"</span>;
+	<span class="hljs-built_in">sprintf</span>(out, <span class="hljs-string">"stream %d"</span>, fileno(stream));
+	<span class="hljs-keyword">return</span> out;
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">int</span> __libc_debug;
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">char</span> ** __argv;
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">setvbuf</span><span class="hljs-params">(FILE * stream, <span class="hljs-keyword">char</span> * buf, <span class="hljs-keyword">int</span> mode, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (mode != _IOLBF) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>; <span class="hljs-comment">/* Unsupported */</span>
+	}
+	<span class="hljs-keyword">if</span> (buf) {
+		<span class="hljs-keyword">if</span> (stream-&gt;read_buf) {
+			<span class="hljs-keyword">if</span> (stream-&gt;bufflags &amp; STDIO_BUF_READ_FREE) {
+				<span class="hljs-built_in">free</span>(stream-&gt;read_buf);
+			} <span class="hljs-keyword">else</span> {
+				munmap(stream-&gt;read_buf, BUFSIZ);
+			}
+		}
+		stream-&gt;bufflags |= STDIO_BUF_READ_FREE;
+		stream-&gt;read_buf = buf;
+		stream-&gt;bufsiz = <span class="hljs-built_in">size</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">fflush</span><span class="hljs-params">(FILE * stream)</span> </span>{
+	<span class="hljs-keyword">if</span> (!stream-&gt;write_buf) <span class="hljs-keyword">return</span> EOF;
+	<span class="hljs-keyword">if</span> (stream-&gt;written) {
+		<span class="hljs-keyword">ssize_t</span> written = syscall_write(stream-&gt;fd, stream-&gt;write_buf, stream-&gt;written);
+		<span class="hljs-keyword">if</span> (written &lt; <span class="hljs-number">0</span>) {
+			stream-&gt;flags |= STDIO_ERROR;
+			<span class="hljs-keyword">return</span> EOF;
+		}
+		stream-&gt;written = <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> <span class="hljs-title">write_bytes</span><span class="hljs-params">(FILE * f, <span class="hljs-keyword">char</span> * buf, <span class="hljs-keyword">size_t</span> len)</span> </span>{
+	<span class="hljs-keyword">if</span> (!f-&gt;write_buf) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">size_t</span> newBytes = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (len &gt; <span class="hljs-number">0</span>) {
+		f-&gt;write_buf[f-&gt;written++] = *buf;
+		<span class="hljs-keyword">if</span> (f-&gt;written == (<span class="hljs-keyword">size_t</span>)f-&gt;wbufsiz || *buf == <span class="hljs-string">'\n'</span>) {
+			<span class="hljs-keyword">if</span> (fflush(f) == EOF) <span class="hljs-keyword">return</span> newBytes;
+		}
+		newBytes++;
+		buf++;
+		len--;
+	}
+
+	<span class="hljs-keyword">return</span> newBytes;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> <span class="hljs-title">read_bytes</span><span class="hljs-params">(FILE * f, <span class="hljs-keyword">char</span> * out, <span class="hljs-keyword">size_t</span> len)</span> </span>{
+	<span class="hljs-keyword">size_t</span> r_out = <span class="hljs-number">0</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<p>fprintf(stderr, &quot;%s: Read %d bytes from %s\n&quot;, __argv[0], len, stream_id(f));
+fprintf(stderr, &quot;%s: off[%d] avail[%d] read[%d]\n&quot;, __argv[0], f-&gt;offset, f-&gt;available, f-&gt;read_from);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+	<span class="hljs-keyword">while</span> (len &gt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">if</span> (f-&gt;ungetc &gt;= <span class="hljs-number">0</span>) {
+			*out = f-&gt;ungetc;
+			len--;
+			out++;
+			r_out++;
+			f-&gt;ungetc = <span class="hljs-number">-1</span>;
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (f-&gt;<span class="hljs-built_in">available</span> == <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">if</span> (f-&gt;offset == f-&gt;bufsiz) {
+				f-&gt;offset = <span class="hljs-number">0</span>;
+			}
+			<span class="hljs-keyword">if</span> (!(f-&gt;flags &amp; STDIO_UNSEEKABLE)) {
+				f-&gt;last_read_start = syscall_seek(f-&gt;fd, <span class="hljs-number">0</span>, SEEK_CUR);
+				<span class="hljs-keyword">if</span> (f-&gt;last_read_start == -ESPIPE) {
+					f-&gt;last_read_start = <span class="hljs-number">-1</span>;
+					f-&gt;flags |= STDIO_UNSEEKABLE;
+				}
+			}
+			<span class="hljs-keyword">ssize_t</span> r = <span class="hljs-built_in">read</span>(fileno(f), &amp;f-&gt;read_buf[f-&gt;offset], f-&gt;bufsiz - f-&gt;offset);
+			<span class="hljs-keyword">if</span> (r &lt; <span class="hljs-number">0</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<p>fprintf(stderr, &quot;error condition\n&quot;);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				f-&gt;flags |= STDIO_ERROR;
+				<span class="hljs-keyword">return</span> r_out;
+			} <span class="hljs-keyword">else</span> {
+				f-&gt;read_from = f-&gt;offset;
+				f-&gt;<span class="hljs-built_in">available</span> = r;
+				f-&gt;offset += f-&gt;<span class="hljs-built_in">available</span>;
+			}
+		}
+
+		<span class="hljs-keyword">if</span> (f-&gt;<span class="hljs-built_in">available</span> == <span class="hljs-number">0</span>) {
+			<span class="hljs-comment">/* EOF condition */</span>
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<p>fprintf(stderr, &quot;%s: no bytes available, returning read value of %d\n&quot;, __argv[0], r_out);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			f-&gt;flags |= STDIO_EOF;
+			<span class="hljs-keyword">return</span> r_out;
+		}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<p>fprintf(stderr, &quot;%s: reading until %d reaches %d or %d reaches 0\n&quot;, __argv[0], f-&gt;read_from, f-&gt;offset, len);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		<span class="hljs-keyword">while</span> (f-&gt;read_from &lt; f-&gt;offset &amp;&amp; len &gt; <span class="hljs-number">0</span> &amp;&amp; f-&gt;<span class="hljs-built_in">available</span> &gt; <span class="hljs-number">0</span>) {
+			*out = f-&gt;read_buf[f-&gt;read_from];
+			len--;
+			f-&gt;read_from++;
+			f-&gt;<span class="hljs-built_in">available</span>--;
+			out++;
+			r_out += <span class="hljs-number">1</span>;
+		}
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<p>fprintf(stderr, &quot;%s: read completed, returning read value of %d\n&quot;, __argv[0], r_out);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">return</span> r_out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">parse_mode</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * mode, <span class="hljs-keyword">int</span> * flags_, <span class="hljs-keyword">int</span> * mask_)</span> </span>{
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * x = mode;
+
+	<span class="hljs-keyword">int</span> flags = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> mask = <span class="hljs-number">0644</span>;
+
+	<span class="hljs-keyword">while</span> (*x) {
+		<span class="hljs-keyword">if</span> (*x == <span class="hljs-string">'a'</span>) {
+			flags |= O_WRONLY;
+			flags |= O_APPEND;
+			flags |= O_CREAT;
+		}
+		<span class="hljs-keyword">if</span> (*x == <span class="hljs-string">'w'</span>) {
+			flags |= O_WRONLY;
+			flags |= O_CREAT;
+			flags |= O_TRUNC;
+			mask = <span class="hljs-number">0666</span>;
+		}
+		<span class="hljs-keyword">if</span> (*x == <span class="hljs-string">'+'</span>) {
+			flags |= O_RDWR;
+			flags &amp;= ~(O_APPEND); <span class="hljs-comment">/* uh... */</span>
+		}
+		<span class="hljs-keyword">if</span> (*x == <span class="hljs-string">'x'</span>) {
+			flags |= O_EXCL;
+		}
+		<span class="hljs-keyword">if</span> (*x == <span class="hljs-string">'e'</span>) {
+			flags |= O_CLOEXEC;
+		}
+		++x;
+	}
+
+	*flags_  = flags;
+	*mask_ = mask;
+}
+
+
+<span class="hljs-function">FILE * <span class="hljs-title">fopen</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *path, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *mode)</span> </span>{
+
+	<span class="hljs-keyword">int</span> flags, mask;
+	parse_mode(mode, &amp;flags, &amp;mask);
+	<span class="hljs-keyword">int</span> fd = syscall_open(path, flags, mask);
+
+	<span class="hljs-keyword">if</span> (fd &lt; <span class="hljs-number">0</span>) {
+		errno = -fd;
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	FILE * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(FILE));
+	<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(struct _FILE));
+	out-&gt;fd = fd;
+	out-&gt;read_buf = mmap(<span class="hljs-literal">NULL</span>, BUFSIZ, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, <span class="hljs-number">-1</span>, <span class="hljs-number">0</span>);
+	out-&gt;bufsiz = BUFSIZ;
+	out-&gt;<span class="hljs-built_in">available</span> = <span class="hljs-number">0</span>;
+	out-&gt;read_from = <span class="hljs-number">0</span>;
+	out-&gt;offset = <span class="hljs-number">0</span>;
+	out-&gt;ungetc = <span class="hljs-number">-1</span>;
+	out-&gt;flags = <span class="hljs-number">0</span>;
+	out-&gt;_name = strdup(path);
+
+	out-&gt;write_buf = mmap(<span class="hljs-literal">NULL</span>, BUFSIZ, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, <span class="hljs-number">-1</span>, <span class="hljs-number">0</span>);
+	out-&gt;written = <span class="hljs-number">0</span>;
+	out-&gt;wbufsiz = BUFSIZ;
+
+	out-&gt;next = _head;
+	<span class="hljs-keyword">if</span> (_head) _head-&gt;prev = out;
+	_head = out;
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-comment">/* This is very wrong */</span>
+<span class="hljs-function">FILE * <span class="hljs-title">freopen</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *path, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *mode, FILE * stream)</span> </span>{
+
+	<span class="hljs-keyword">if</span> (path) {
+		fflush(stream);
+		<span class="hljs-built_in">free</span>(stream-&gt;_name);
+		<span class="hljs-keyword">int</span> ret = syscall_close(stream-&gt;fd);
+		<span class="hljs-keyword">if</span> (ret &lt; <span class="hljs-number">0</span>) {
+			errno = -ret;
+			<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+		}
+		<span class="hljs-keyword">int</span> flags, mask;
+		parse_mode(mode, &amp;flags, &amp;mask);
+		<span class="hljs-keyword">int</span> fd = syscall_open(path, flags, mask);
+		stream-&gt;fd = fd;
+		stream-&gt;<span class="hljs-built_in">available</span> = <span class="hljs-number">0</span>;
+		stream-&gt;read_from = <span class="hljs-number">0</span>;
+		stream-&gt;offset = <span class="hljs-number">0</span>;
+		stream-&gt;ungetc = <span class="hljs-number">-1</span>;
+		stream-&gt;flags = <span class="hljs-number">0</span>;
+		stream-&gt;_name = strdup(path);
+		stream-&gt;written = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (fd &lt; <span class="hljs-number">0</span>) {
+			errno = -fd;
+			<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> stream;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">ungetc</span><span class="hljs-params">(<span class="hljs-keyword">int</span> c, FILE * stream)</span> </span>{
+	<span class="hljs-keyword">if</span> (stream-&gt;ungetc &gt; <span class="hljs-number">0</span>)
+		<span class="hljs-keyword">return</span> EOF;
+
+	<span class="hljs-keyword">return</span> (stream-&gt;ungetc = c);
+}
+
+<span class="hljs-function">FILE * <span class="hljs-title">fdopen</span><span class="hljs-params">(<span class="hljs-keyword">int</span> fd, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *mode)</span></span>{
+	FILE * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(FILE));
+	<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(struct _FILE));
+	out-&gt;fd = fd;
+	out-&gt;read_buf = mmap(<span class="hljs-literal">NULL</span>, BUFSIZ, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, <span class="hljs-number">-1</span>, <span class="hljs-number">0</span>);
+	out-&gt;bufsiz = BUFSIZ;
+	out-&gt;<span class="hljs-built_in">available</span> = <span class="hljs-number">0</span>;
+	out-&gt;read_from = <span class="hljs-number">0</span>;
+	out-&gt;offset = <span class="hljs-number">0</span>;
+	out-&gt;ungetc = <span class="hljs-number">-1</span>;
+	out-&gt;flags = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">30</span>];
+	<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"fd[%d]"</span>, fd);
+	out-&gt;_name = strdup(tmp);
+
+	out-&gt;write_buf = mmap(<span class="hljs-literal">NULL</span>, BUFSIZ, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, <span class="hljs-number">-1</span>, <span class="hljs-number">0</span>);
+	out-&gt;written = <span class="hljs-number">0</span>;
+	out-&gt;wbufsiz = BUFSIZ;
+
+	out-&gt;next = _head;
+	<span class="hljs-keyword">if</span> (_head) _head-&gt;prev = out;
+	_head = out;
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-keyword">int</span> _fwouldblock(FILE * stream) {
+	<span class="hljs-keyword">return</span> !stream-&gt;<span class="hljs-built_in">available</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">fclose</span><span class="hljs-params">(FILE * stream)</span> </span>{
+	fflush(stream);
+	<span class="hljs-keyword">int</span> out = syscall_close(stream-&gt;fd);
+	<span class="hljs-built_in">free</span>(stream-&gt;_name);
+	<span class="hljs-keyword">if</span> (stream-&gt;bufflags &amp; STDIO_BUF_READ_FREE) {
+		<span class="hljs-built_in">free</span>(stream-&gt;read_buf);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (stream-&gt;read_buf) {
+		munmap(stream-&gt;read_buf, BUFSIZ);
+	}
+	stream-&gt;read_buf = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">if</span> (stream-&gt;bufflags &amp; STDIO_BUF_WRITE_FREE) {
+		<span class="hljs-built_in">free</span>(stream-&gt;write_buf);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (stream-&gt;write_buf) {
+		munmap(stream-&gt;write_buf, BUFSIZ);
+	}
+	stream-&gt;write_buf = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">if</span> (stream == &amp;__stdin || stream == &amp;__stdout || stream == &amp;__stderr) {
+		<span class="hljs-keyword">return</span> out;
+	} <span class="hljs-keyword">else</span> {
+
+		<span class="hljs-keyword">if</span> (stream-&gt;prev) stream-&gt;prev-&gt;next = stream-&gt;next;
+		<span class="hljs-keyword">if</span> (stream-&gt;next) stream-&gt;next-&gt;prev = stream-&gt;prev;
+		<span class="hljs-keyword">if</span> (stream == _head) _head = stream-&gt;next;
+
+		<span class="hljs-built_in">free</span>(stream);
+		<span class="hljs-keyword">return</span> out;
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * _whence_str(<span class="hljs-keyword">int</span> whence) {
+	<span class="hljs-keyword">if</span> (whence == SEEK_SET) <span class="hljs-keyword">return</span> <span class="hljs-string">"SEEK_SET"</span>;
+	<span class="hljs-keyword">if</span> (whence == SEEK_CUR) <span class="hljs-keyword">return</span> <span class="hljs-string">"SEEK_CUR"</span>;
+	<span class="hljs-keyword">if</span> (whence == SEEK_END) <span class="hljs-keyword">return</span> <span class="hljs-string">"SEEK_END"</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-string">"?"</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">fseek</span><span class="hljs-params">(FILE * stream, <span class="hljs-keyword">long</span> offset, <span class="hljs-keyword">int</span> whence)</span> </span>{
+	<span class="hljs-keyword">if</span> (stream-&gt;read_from &amp;&amp; whence == SEEK_CUR) {
+		<span class="hljs-keyword">if</span> (__argv[<span class="hljs-number">0</span>] &amp;&amp; <span class="hljs-built_in">strcmp</span>(__argv[<span class="hljs-number">0</span>], <span class="hljs-string">"ld.so"</span>)) {
+			<span class="hljs-keyword">if</span> (__libc_debug) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: fseek(%s, %ld, %s)\n"</span>, __argv[<span class="hljs-number">0</span>], stream-&gt;_name, offset, _whence_str(whence));
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"\033[33;3mWARNING\033[0m: seeking when offset is currently %d\n"</span>, stream-&gt;read_from);
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"\033[33;3mWARNING\033[0m: this may not be reflected in kernel\n"</span>);
+			}
+		}
+		offset = offset + stream-&gt;read_from + stream-&gt;last_read_start;
+		whence = SEEK_SET;
+	}
+	<span class="hljs-keyword">if</span> (stream-&gt;written) {
+		fflush(stream);
+	}
+	stream-&gt;offset = <span class="hljs-number">0</span>;
+	stream-&gt;read_from = <span class="hljs-number">0</span>;
+	stream-&gt;<span class="hljs-built_in">available</span> = <span class="hljs-number">0</span>;
+	stream-&gt;ungetc = <span class="hljs-number">-1</span>;
+	stream-&gt;flags = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">int</span> resp = syscall_seek(stream-&gt;fd,offset,whence);
+	<span class="hljs-keyword">if</span> (resp &lt; <span class="hljs-number">0</span>) {
+		errno = -resp;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">ftell</span><span class="hljs-params">(FILE * stream)</span> </span>{
+	<span class="hljs-keyword">if</span> (__argv[<span class="hljs-number">0</span>] &amp;&amp; <span class="hljs-built_in">strcmp</span>(__argv[<span class="hljs-number">0</span>], <span class="hljs-string">"ld.so"</span>) &amp;&amp; __libc_debug) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: ftell(%s)\n"</span>, __argv[<span class="hljs-number">0</span>], stream-&gt;_name);
+	}
+	<span class="hljs-keyword">if</span> (stream-&gt;written) {
+		fflush(stream);
+	}
+	<span class="hljs-keyword">if</span> (stream-&gt;read_from || stream-&gt;last_read_start) {
+		<span class="hljs-keyword">return</span> stream-&gt;last_read_start + stream-&gt;read_from;
+	}
+	stream-&gt;offset = <span class="hljs-number">0</span>;
+	stream-&gt;read_from = <span class="hljs-number">0</span>;
+	stream-&gt;<span class="hljs-built_in">available</span> = <span class="hljs-number">0</span>;
+	stream-&gt;ungetc = <span class="hljs-number">-1</span>;
+	stream-&gt;flags = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">long</span> resp = syscall_seek(stream-&gt;fd, <span class="hljs-number">0</span>, SEEK_CUR);
+	<span class="hljs-keyword">if</span> (resp &lt; <span class="hljs-number">0</span>) {
+		errno = -resp;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	}
+	<span class="hljs-keyword">return</span> resp;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">fgetpos</span><span class="hljs-params">(FILE *stream, <span class="hljs-keyword">fpos_t</span> *pos)</span> </span>{
+	<span class="hljs-keyword">long</span> ret = ftell(stream);
+	<span class="hljs-keyword">if</span> (ret == <span class="hljs-number">-1</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+
+	*pos = ret;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">fsetpos</span><span class="hljs-params">(FILE *stream, <span class="hljs-keyword">const</span> <span class="hljs-keyword">fpos_t</span> *pos)</span> </span>{
+	<span class="hljs-keyword">return</span> fseek(stream, *pos, SEEK_SET);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">size_t</span> <span class="hljs-title">fread</span><span class="hljs-params">(<span class="hljs-keyword">void</span> *ptr, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">size_t</span> nmemb, FILE * stream)</span> </span>{
+	<span class="hljs-keyword">char</span> * tracking = (<span class="hljs-keyword">char</span>*)ptr;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; nmemb; ++i) {
+		<span class="hljs-keyword">size_t</span> r = read_bytes(stream, tracking, <span class="hljs-built_in">size</span>);
+		tracking += r;
+		<span class="hljs-keyword">if</span> (r &lt; <span class="hljs-built_in">size</span>) {
+			<span class="hljs-keyword">return</span> i;
+		}
+	}
+	<span class="hljs-keyword">return</span> nmemb;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">size_t</span> <span class="hljs-title">fwrite</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> *ptr, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">size_t</span> nmemb, FILE * stream)</span> </span>{
+	<span class="hljs-keyword">char</span> * tracking = (<span class="hljs-keyword">char</span>*)ptr;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; nmemb; ++i) {
+		<span class="hljs-keyword">size_t</span> r = write_bytes(stream, tracking, <span class="hljs-built_in">size</span>);
+		tracking += r;
+		<span class="hljs-keyword">if</span> (r &lt; <span class="hljs-built_in">size</span>) {
+			<span class="hljs-keyword">return</span> i;
+		}
+	}
+	<span class="hljs-keyword">return</span> nmemb;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">fileno</span><span class="hljs-params">(FILE * stream)</span> </span>{
+	<span class="hljs-keyword">return</span> stream-&gt;fd;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">fputs</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *s, FILE *stream)</span> </span>{
+	<span class="hljs-keyword">while</span> (*s) {
+		fputc(*s++, stream);
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">fputc</span><span class="hljs-params">(<span class="hljs-keyword">int</span> c, FILE *stream)</span> </span>{
+	<span class="hljs-keyword">char</span> data[] = {c};
+	write_bytes(stream, data, <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">return</span> c;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">putc</span><span class="hljs-params">(<span class="hljs-keyword">int</span> c, FILE *stream)</span> __<span class="hljs-title">attribute__</span><span class="hljs-params">((weak, alias(<span class="hljs-string">"fputc"</span>)))</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">fgetc</span><span class="hljs-params">(FILE * stream)</span> </span>{
+	<span class="hljs-keyword">char</span> buf[<span class="hljs-number">1</span>];
+	<span class="hljs-keyword">size_t</span> r = read_bytes(stream, buf, <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (!r) {
+		stream-&gt;flags |= STDIO_EOF;
+		<span class="hljs-keyword">return</span> EOF;
+	}
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span>)buf[<span class="hljs-number">0</span>];
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">getc</span><span class="hljs-params">(FILE * stream)</span> __<span class="hljs-title">attribute__</span><span class="hljs-params">((weak, alias(<span class="hljs-string">"fgetc"</span>)))</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">getchar</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> fgetc(<span class="hljs-built_in">stdin</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">char</span> *<span class="hljs-title">fgets</span><span class="hljs-params">(<span class="hljs-keyword">char</span> *s, <span class="hljs-keyword">int</span> <span class="hljs-built_in">size</span>, FILE *stream)</span> </span>{
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> *s = <span class="hljs-string">'\0'</span>, s;
+	<span class="hljs-keyword">int</span> c;
+	<span class="hljs-keyword">char</span> * out = s;
+	<span class="hljs-keyword">while</span> ((c = fgetc(stream)) &gt;= <span class="hljs-number">0</span>) {
+		*s++ = c;
+		<span class="hljs-built_in">size</span>--;
+		*s = <span class="hljs-string">'\0'</span>;
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-number">1</span> || c == <span class="hljs-string">'\n'</span>) {
+			<span class="hljs-keyword">return</span> out;
+		}
+	}
+	<span class="hljs-keyword">if</span> (c == EOF) {
+		stream-&gt;flags |= STDIO_EOF;
+		<span class="hljs-keyword">if</span> (out == s) {
+			<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+		} <span class="hljs-keyword">else</span> {
+			*s = <span class="hljs-string">'\0'</span>;
+			<span class="hljs-keyword">return</span> out;
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">putchar</span><span class="hljs-params">(<span class="hljs-keyword">int</span> c)</span> </span>{
+	<span class="hljs-keyword">return</span> fputc(c, <span class="hljs-built_in">stdout</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">rewind</span><span class="hljs-params">(FILE *stream)</span> </span>{
+	fseek(stream, <span class="hljs-number">0</span>, SEEK_SET);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">setbuf</span><span class="hljs-params">(FILE * stream, <span class="hljs-keyword">char</span> * buf)</span> </span>{
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<p>...</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">feof</span><span class="hljs-params">(FILE * stream)</span> </span>{
+	<span class="hljs-keyword">return</span> !!(stream-&gt;flags &amp; STDIO_EOF);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">clearerr</span><span class="hljs-params">(FILE * stream)</span> </span>{
+	stream-&gt;flags = ~(STDIO_ERROR | STDIO_EOF);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">ferror</span><span class="hljs-params">(FILE * stream)</span> </span>{
+	<span class="hljs-keyword">return</span> !!(stream-&gt;flags &amp; STDIO_ERROR);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">ssize_t</span> <span class="hljs-title">getdelim</span><span class="hljs-params">(<span class="hljs-keyword">char</span> **<span class="hljs-keyword">restrict</span> lineptr, <span class="hljs-keyword">size_t</span> *<span class="hljs-keyword">restrict</span> n, <span class="hljs-keyword">int</span> delimiter, FILE *<span class="hljs-keyword">restrict</span> stream)</span> </span>{
+	<span class="hljs-keyword">if</span> (!lineptr || !n) {
+		errno = EINVAL;
+		<span class="hljs-comment">/* XXX Are we supposed to set the stream to failed for this case? Seems dubious. */</span>
+		<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	}
+
+	<span class="hljs-keyword">size_t</span> c = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">int</span> i = fgetc(stream);
+
+		<span class="hljs-keyword">if</span> (*n &lt;= c + <span class="hljs-number">1</span>) {
+			<span class="hljs-keyword">size_t</span> nn = *n &lt; <span class="hljs-number">120</span> ? <span class="hljs-number">120</span> : (*n * <span class="hljs-number">2</span>);
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>TODO: We don't define SSIZE_MAX? Anyway, ssize_t is typedefed to long on all both of our supported
+platforms, so use LONG_MAX here as a replacement. size_t should be able to hold SSIZE_MAX * 2, so
+the above calculation should not overflow and we can check here if *n has gotten too big.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			<span class="hljs-keyword">if</span> (nn &gt; LONG_MAX) nn = LONG_MAX;
+			<span class="hljs-keyword">if</span> (nn &lt;= c + <span class="hljs-number">1</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>... and this check should only trip if we've maxed up *n to SSIZE_MAX
+and it's still not big enought to fit our data.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				errno = EOVERFLOW;
+				<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+			}
+			<span class="hljs-keyword">char</span> * nlineptr = <span class="hljs-built_in">realloc</span>(*lineptr, nn);
+			<span class="hljs-keyword">if</span> (!nlineptr) <span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>; <span class="hljs-comment">/* malloc failure */</span>
+			*n = nn;
+			*lineptr = nlineptr;
+		}
+
+		<span class="hljs-keyword">if</span> (i == EOF) {
+			(*lineptr)[c] = <span class="hljs-string">'\0'</span>;
+			<span class="hljs-keyword">if</span> (c) <span class="hljs-keyword">return</span> c;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+		}
+
+		(*lineptr)[c++] = i;
+		<span class="hljs-keyword">if</span> (i == delimiter) <span class="hljs-keyword">break</span>;
+	}
+
+	(*lineptr)[c] = <span class="hljs-string">'\0'</span>;
+	<span class="hljs-keyword">return</span> c;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">ssize_t</span> <span class="hljs-title">getline</span><span class="hljs-params">(<span class="hljs-keyword">char</span> **<span class="hljs-keyword">restrict</span> lineptr, <span class="hljs-keyword">size_t</span> *<span class="hljs-keyword">restrict</span> n, FILE *<span class="hljs-keyword">restrict</span> stream)</span> </span>{
+	<span class="hljs-keyword">return</span> getdelim(lineptr, n, <span class="hljs-string">'\n'</span>, stream);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>pci.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\misc\\pci.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>pci.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pci.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __x86_64__</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/ports.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uintptr_t</span> <span class="hljs-title">pcie_addr</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> device, <span class="hljs-keyword">int</span> field)</span> </span>{
+	<span class="hljs-keyword">return</span> (pci_extract_bus(device) &lt;&lt; <span class="hljs-number">20</span>) | (pci_extract_slot(device) &lt;&lt; <span class="hljs-number">15</span>) | (pci_extract_func(device) &lt;&lt; <span class="hljs-number">12</span>) | (field);
+}
+
+<span class="hljs-keyword">uintptr_t</span> pcie_ecam_phys = <span class="hljs-number">0x3f000000</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">pci_write_field</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> device, <span class="hljs-keyword">int</span> field, <span class="hljs-keyword">int</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint32_t</span> value)</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __x86_64__</span>
+	outportl(PCI_ADDRESS_PORT, pci_get_addr(device, field));
+	outportl(PCI_VALUE_PORT, value);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+
+	<span class="hljs-comment">/* ECAM space */</span>
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-number">4</span>) {
+		*(<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span>*)mmu_map_from_physical(pcie_ecam_phys + pcie_addr(device,field)) = value;
+		<span class="hljs-keyword">return</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-number">2</span>) {
+		*(<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span>*)mmu_map_from_physical(pcie_ecam_phys + pcie_addr(device,field)) = value;
+		<span class="hljs-keyword">return</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-number">1</span>) {
+		*(<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span>*)mmu_map_from_physical(pcie_ecam_phys + pcie_addr(device,field)) = value;
+		<span class="hljs-keyword">return</span>;
+	}
+
+	dprintf(<span class="hljs-string">"rejected invalid field write\n"</span>);
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">pci_read_field</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> device, <span class="hljs-keyword">int</span> field, <span class="hljs-keyword">int</span> <span class="hljs-built_in">size</span>)</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __x86_64__</span>
+	outportl(PCI_ADDRESS_PORT, pci_get_addr(device, field));
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-number">4</span>) {
+		<span class="hljs-keyword">uint32_t</span> t = inportl(PCI_VALUE_PORT);
+		<span class="hljs-keyword">return</span> t;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-number">2</span>) {
+		<span class="hljs-keyword">uint16_t</span> t = inports(PCI_VALUE_PORT + (field &amp; <span class="hljs-number">2</span>));
+		<span class="hljs-keyword">return</span> t;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">uint8_t</span> t = inportb(PCI_VALUE_PORT + (field &amp; <span class="hljs-number">3</span>));
+		<span class="hljs-keyword">return</span> t;
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+	<span class="hljs-keyword">uintptr_t</span> field_addr = pcie_addr(device,field);
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-number">4</span>) {
+		<span class="hljs-keyword">return</span> *(<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span>*)mmu_map_from_physical(pcie_ecam_phys + field_addr);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-number">2</span>) {
+		<span class="hljs-keyword">return</span> *(<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span>*)mmu_map_from_physical(pcie_ecam_phys + field_addr);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> == <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">return</span> *(<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span>*)mmu_map_from_physical(pcie_ecam_phys + field_addr);
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0xFFFF</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">uint16_t</span> <span class="hljs-title">pci_find_type</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> dev)</span> </span>{
+	<span class="hljs-keyword">return</span> (pci_read_field(dev, PCI_CLASS, <span class="hljs-number">1</span>) &lt;&lt; <span class="hljs-number">8</span>) | pci_read_field(dev, PCI_SUBCLASS, <span class="hljs-number">1</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">pci_scan_hit</span><span class="hljs-params">(<span class="hljs-keyword">pci_func_t</span> f, <span class="hljs-keyword">uint32_t</span> dev, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-keyword">int</span> dev_vend = (<span class="hljs-keyword">int</span>)pci_read_field(dev, PCI_VENDOR_ID, <span class="hljs-number">2</span>);
+	<span class="hljs-keyword">int</span> dev_dvid = (<span class="hljs-keyword">int</span>)pci_read_field(dev, PCI_DEVICE_ID, <span class="hljs-number">2</span>);
+
+	f(dev, dev_vend, dev_dvid, extra);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">pci_scan_func</span><span class="hljs-params">(<span class="hljs-keyword">pci_func_t</span> f, <span class="hljs-keyword">int</span> type, <span class="hljs-keyword">int</span> bus, <span class="hljs-keyword">int</span> slot, <span class="hljs-keyword">int</span> func, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> dev = pci_box_device(bus, slot, func);
+	<span class="hljs-keyword">if</span> (type == <span class="hljs-number">-1</span> || type == pci_find_type(dev)) {
+		pci_scan_hit(f, dev, extra);
+	}
+	<span class="hljs-keyword">if</span> (pci_find_type(dev) == PCI_TYPE_BRIDGE) {
+		pci_scan_bus(f, type, pci_read_field(dev, PCI_SECONDARY_BUS, <span class="hljs-number">1</span>), extra);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">pci_scan_slot</span><span class="hljs-params">(<span class="hljs-keyword">pci_func_t</span> f, <span class="hljs-keyword">int</span> type, <span class="hljs-keyword">int</span> bus, <span class="hljs-keyword">int</span> slot, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> dev = pci_box_device(bus, slot, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">if</span> (pci_read_field(dev, PCI_VENDOR_ID, <span class="hljs-number">2</span>) == PCI_NONE) {
+		<span class="hljs-keyword">return</span>;
+	}
+	pci_scan_func(f, type, bus, slot, <span class="hljs-number">0</span>, extra);
+	<span class="hljs-keyword">if</span> (!pci_read_field(dev, PCI_HEADER_TYPE, <span class="hljs-number">1</span>)) {
+		<span class="hljs-keyword">return</span>;
+	}
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> func = <span class="hljs-number">1</span>; func &lt; <span class="hljs-number">8</span>; func++) {
+		<span class="hljs-keyword">uint32_t</span> dev = pci_box_device(bus, slot, func);
+		<span class="hljs-keyword">if</span> (pci_read_field(dev, PCI_VENDOR_ID, <span class="hljs-number">2</span>) != PCI_NONE) {
+			pci_scan_func(f, type, bus, slot, func, extra);
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">pci_scan_bus</span><span class="hljs-params">(<span class="hljs-keyword">pci_func_t</span> f, <span class="hljs-keyword">int</span> type, <span class="hljs-keyword">int</span> bus, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> slot = <span class="hljs-number">0</span>; slot &lt; <span class="hljs-number">32</span>; ++slot) {
+		pci_scan_slot(f, type, bus, slot, extra);
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">pci_scan</span><span class="hljs-params">(<span class="hljs-keyword">pci_func_t</span> f, <span class="hljs-keyword">int</span> type, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-keyword">if</span> ((pci_read_field(<span class="hljs-number">0</span>, PCI_HEADER_TYPE, <span class="hljs-number">1</span>) &amp; <span class="hljs-number">0x80</span>) == <span class="hljs-number">0</span>) {
+		pci_scan_bus(f,type,<span class="hljs-number">0</span>,extra);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-keyword">int</span> hit = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> func = <span class="hljs-number">0</span>; func &lt; <span class="hljs-number">8</span>; ++func) {
+		<span class="hljs-keyword">uint32_t</span> dev = pci_box_device(<span class="hljs-number">0</span>, <span class="hljs-number">0</span>, func);
+		<span class="hljs-keyword">if</span> (pci_read_field(dev, PCI_VENDOR_ID, <span class="hljs-number">2</span>) != PCI_NONE) {
+			hit = <span class="hljs-number">1</span>;
+			pci_scan_bus(f, type, func, extra);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!hit) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> bus = <span class="hljs-number">0</span>; bus &lt; <span class="hljs-number">256</span>; ++bus) {
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> slot = <span class="hljs-number">0</span>; slot &lt; <span class="hljs-number">32</span>; ++slot) {
+				pci_scan_slot(f,type,bus,slot,extra);
+			}
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">pci_get_interrupt</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> device)</span> </span>{
+	<span class="hljs-keyword">return</span> pci_read_field(device, PCI_INTERRUPT_LINE, <span class="hljs-number">1</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

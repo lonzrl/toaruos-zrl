@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>smp.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kernel\\arch\\aarch64\\smp.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>smp.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/time.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ptrace.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/aarch64/regs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/aarch64/dtb.h&gt;</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">process_t</span> * <span class="hljs-title">spawn_kidle</span><span class="hljs-params">(<span class="hljs-keyword">int</span>)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">timer_start</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">aarch64_processor_data</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span></span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> cpu_on = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> method = <span class="hljs-number">0</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> _smp_mutex = <span class="hljs-number">0</span>;
+
+<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uintptr_t</span> aarch64_jmp_target = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint64_t</span>  aarch64_sctlr      = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint64_t</span>  aarch64_tcr        = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint64_t</span>  aarch64_mair       = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint64_t</span>  aarch64_vbar       = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uintptr_t</span> aarch64_ttbr0      = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uintptr_t</span> aarch64_ttbr1      = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uintptr_t</span> aarch64_stack      = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">ap_start</span><span class="hljs-params">(<span class="hljs-keyword">uint64_t</span> core_id)</span> </span>{
+
+	dprintf(<span class="hljs-string">"smp: core %zu is online\n"</span>, core_id);
+
+	<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">arch_set_core_base</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> base)</span></span>;
+	arch_set_core_base((<span class="hljs-keyword">uintptr_t</span>)&amp;processor_local_data[core_id]);
+
+	this_core-&gt;cpu_id = core_id;
+
+	<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">fpu_enable</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span></span>;
+	fpu_enable();
+
+	aarch64_processor_data();
+
+	this_core-&gt;current_pml = mmu_get_kernel_directory();
+	this_core-&gt;kernel_idle_task = spawn_kidle(<span class="hljs-number">0</span>);
+	this_core-&gt;current_process = this_core-&gt;kernel_idle_task;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span>)</span></span>;
+
+	timer_start();
+
+	_smp_mutex = <span class="hljs-number">1</span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+	switch_next();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">smp_bootstrap</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-comment">/* Store x0, which is our core ID */</span>
+		<span class="hljs-string">"mov x3, x0\n"</span>
+		<span class="hljs-comment">/* Set up TTBR1 with high memory directory */</span>
+		<span class="hljs-string">"ldr x0, aarch64_ttbr1\n"</span>
+		<span class="hljs-string">"msr TTBR1_EL1, x0\n"</span>
+		<span class="hljs-comment">/* Load stack pointer */</span>
+		<span class="hljs-string">"ldr x0, aarch64_stack\n"</span>
+		<span class="hljs-string">"mov sp, x0\n"</span>
+		<span class="hljs-comment">/* Set up TTBR0 with our temporary directory */</span>
+		<span class="hljs-string">"ldr x0, aarch64_ttbr0\n"</span>
+		<span class="hljs-string">"msr TTBR0_EL1, x0\n"</span>
+		<span class="hljs-string">"dsb ishst\n"</span>
+		<span class="hljs-string">"tlbi vmalle1is\n"</span>
+		<span class="hljs-string">"dsb ish\n"</span>
+		<span class="hljs-string">"isb\n"</span>
+		<span class="hljs-comment">/* Load VBAR from first core */</span>
+		<span class="hljs-string">"ldr x0, aarch64_vbar\n"</span>
+		<span class="hljs-string">"msr VBAR_EL1, x0\n"</span>
+		<span class="hljs-comment">/* Load MAIR from first core */</span>
+		<span class="hljs-string">"ldr x0, aarch64_mair\n"</span>
+		<span class="hljs-string">"msr MAIR_EL1, x0\n"</span>
+		<span class="hljs-comment">/* Load TCR from first core */</span>
+		<span class="hljs-string">"ldr x0, aarch64_tcr\n"</span>
+		<span class="hljs-string">"msr TCR_EL1, x0\n"</span>
+		<span class="hljs-comment">/* Load SCTLR from first core, enable mmu */</span>
+		<span class="hljs-string">"ldr x0, aarch64_sctlr\n"</span>
+		<span class="hljs-string">"ldr x1, aarch64_jmp_target\n"</span>
+		<span class="hljs-string">"msr SCTLR_EL1, x0\n"</span>
+		<span class="hljs-string">"isb\n"</span>
+		<span class="hljs-comment">/* Restore core ID as argument */</span>
+		<span class="hljs-string">"mov x0, x3\n"</span>
+		<span class="hljs-comment">/* Jump to C entrypoint */</span>
+		<span class="hljs-string">"br x1\n"</span>)</span></span>;
+	__builtin_unreachable();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">start_cpu</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> * node)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> * cpuid = dtb_node_find_property(node, <span class="hljs-string">"reg"</span>);
+	<span class="hljs-keyword">if</span> (!cpuid) {
+		dprintf(<span class="hljs-string">"smp: skipping cpus node without 'reg' parameter\n"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+	<span class="hljs-keyword">uint32_t</span> num = swizzle(cpuid[<span class="hljs-number">2</span>]);
+	dprintf(<span class="hljs-string">"smp: cpu node %d %#zx '%s'\n"</span>, num, (<span class="hljs-keyword">uintptr_t</span>)node, (<span class="hljs-keyword">char</span> *)(node));
+	<span class="hljs-keyword">if</span> (num == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-keyword">if</span> (method == <span class="hljs-number">0x637668</span>) {
+		_smp_mutex = <span class="hljs-number">0</span>;
+		aarch64_stack = (<span class="hljs-keyword">uintptr_t</span>)sbrk(<span class="hljs-number">4096</span>) + <span class="hljs-number">4096</span>;
+		<span class="hljs-keyword">uint64_t</span> x0 = cpu_on;
+		<span class="hljs-keyword">uint64_t</span> x1 = num;
+		<span class="hljs-keyword">uint64_t</span> x2 = mmu_map_to_physical(<span class="hljs-literal">NULL</span>, (<span class="hljs-keyword">uintptr_t</span>)&amp;smp_bootstrap);
+		<span class="hljs-keyword">uint64_t</span> x3 = num;
+		<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc civac, %0\ndsb sy"</span> :: <span class="hljs-string">"r"</span>(&amp;aarch64_stack) : <span class="hljs-string">"memory"</span>)</span></span>;
+		<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+		<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+			<span class="hljs-string">"mov x0, %0\n"</span>
+			<span class="hljs-string">"mov x1, %1\n"</span>
+			<span class="hljs-string">"mov x2, %2\n"</span>
+			<span class="hljs-string">"mov x3, %3\n"</span>
+			<span class="hljs-string">"hvc 0"</span> :: <span class="hljs-string">"r"</span>(x0), <span class="hljs-string">"r"</span>(x1), <span class="hljs-string">"r"</span>(x2), <span class="hljs-string">"r"</span>(x3) : <span class="hljs-string">"x0"</span>,<span class="hljs-string">"x1"</span>,<span class="hljs-string">"x2"</span>,<span class="hljs-string">"x3"</span>)</span></span>;
+		<span class="hljs-keyword">while</span> (_smp_mutex == <span class="hljs-number">0</span>);
+
+		processor_count = num + <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> {
+		dprintf(<span class="hljs-string">"smp: Don't know how to turn on with '%#x'\n"</span>, method);
+		<span class="hljs-comment">/* smc? */</span>
+	}
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _pagemap __attribute__((aligned(4096))) = {0}</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">union</span> PML startup_ttbr0[<span class="hljs-number">2</span>][<span class="hljs-number">512</span>] _pagemap;
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">aarch64_smp_start</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+
+	<span class="hljs-keyword">uint32_t</span> * psci = dtb_find_node(<span class="hljs-string">"psci"</span>);
+
+	<span class="hljs-keyword">if</span> (!psci) {
+		dprintf(<span class="hljs-string">"smp: no 'psci' interface node\n"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-keyword">uint32_t</span> * psci_method = dtb_node_find_property(psci, <span class="hljs-string">"method"</span>);
+	<span class="hljs-keyword">uint32_t</span> * psci_cpu_on = dtb_node_find_property(psci, <span class="hljs-string">"cpu_on"</span>);
+
+	<span class="hljs-keyword">if</span> (!psci_method || !psci_cpu_on) {
+		dprintf(<span class="hljs-string">"smp: don't know how to turn on these cores\n"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	dprintf(<span class="hljs-string">"smp: startup method is '0x%x'\n"</span>, psci_method[<span class="hljs-number">2</span>]);
+	method = psci_method[<span class="hljs-number">2</span>];
+	cpu_on = swizzle(psci_cpu_on[<span class="hljs-number">2</span>]);
+
+	<span class="hljs-keyword">uint32_t</span> * cpus = dtb_find_node(<span class="hljs-string">"cpus"</span>);
+	<span class="hljs-keyword">if</span> (!cpus) {
+		dprintf(<span class="hljs-string">"smp: no 'cpus' node\n"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	aarch64_jmp_target = (<span class="hljs-keyword">uintptr_t</span>)ap_start;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"mrs %0, MAIR_EL1"</span>  : <span class="hljs-string">"=r"</span>(aarch64_mair))</span></span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"mrs %0, TCR_EL1"</span>   : <span class="hljs-string">"=r"</span>(aarch64_tcr))</span></span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"mrs %0, SCTLR_EL1"</span> : <span class="hljs-string">"=r"</span>(aarch64_sctlr))</span></span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"mrs %0, VBAR_EL1"</span>  : <span class="hljs-string">"=r"</span>(aarch64_vbar))</span></span>;
+
+	startup_ttbr0[<span class="hljs-number">0</span>][<span class="hljs-number">0</span>].raw = mmu_map_to_physical(<span class="hljs-literal">NULL</span>, (<span class="hljs-keyword">uintptr_t</span>)&amp;startup_ttbr0[<span class="hljs-number">1</span>]) | (<span class="hljs-number">0x3</span>) | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">10</span>);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">long</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">512</span>; ++i) {
+		startup_ttbr0[<span class="hljs-number">1</span>][i].raw = (i &lt;&lt; <span class="hljs-number">30</span>) | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">2</span>) | <span class="hljs-number">1</span> | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">10</span>);
+	}
+
+	aarch64_ttbr0 = mmu_map_to_physical(<span class="hljs-literal">NULL</span>, (<span class="hljs-keyword">uintptr_t</span>)&amp;startup_ttbr0[<span class="hljs-number">0</span>]);
+	aarch64_ttbr1 = mmu_map_to_physical(<span class="hljs-literal">NULL</span>, (<span class="hljs-keyword">uintptr_t</span>)mmu_get_kernel_directory());
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-string">"dsb ishst\n"</span>
+		<span class="hljs-string">"tlbi vmalle1is\n"</span>
+		<span class="hljs-string">"dsb ish\n"</span>
+		<span class="hljs-string">"isb\n"</span>
+	)</span></span>;
+
+	dtb_callback_direct_children(cpus, start_cpu);
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">rpi_smp_exit_el2</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-string">"ldr x0, =0x1004\n"</span>
+		<span class="hljs-string">"mrs x1, SCTLR_EL2\n"</span>
+		<span class="hljs-string">"orr x1, x1, x0\n"</span>
+		<span class="hljs-string">"msr SCTLR_EL2, x1\n"</span>
+		<span class="hljs-string">"ldr x0, =0x30d01804\n"</span>
+		<span class="hljs-string">"msr SCTLR_EL1, x0\n"</span>
+		<span class="hljs-string">"ldr x0, =0x80000000\n"</span>
+		<span class="hljs-string">"msr HCR_EL2, x0\n"</span>
+		<span class="hljs-string">"ldr x0, =0x3c5\n"</span>
+		<span class="hljs-string">"msr SPSR_EL2, x0\n"</span>
+		<span class="hljs-string">"adr x0, smp_bootstrap\n"</span>
+		<span class="hljs-string">"msr ELR_EL2, x0\n"</span>
+		<span class="hljs-string">"mov x0, x6\n"</span>
+		<span class="hljs-string">"eret\n"</span>
+		::: <span class="hljs-string">"x0"</span>, <span class="hljs-string">"x1"</span>)</span></span>;
+	__builtin_unreachable();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">rpi_smp_init</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	aarch64_jmp_target = (<span class="hljs-keyword">uintptr_t</span>)ap_start;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"mrs %0, MAIR_EL1"</span>  : <span class="hljs-string">"=r"</span>(aarch64_mair))</span></span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"mrs %0, TCR_EL1"</span>   : <span class="hljs-string">"=r"</span>(aarch64_tcr))</span></span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"mrs %0, SCTLR_EL1"</span> : <span class="hljs-string">"=r"</span>(aarch64_sctlr))</span></span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"mrs %0, VBAR_EL1"</span>  : <span class="hljs-string">"=r"</span>(aarch64_vbar))</span></span>;
+	startup_ttbr0[<span class="hljs-number">0</span>][<span class="hljs-number">0</span>].raw = mmu_map_to_physical(<span class="hljs-literal">NULL</span>, (<span class="hljs-keyword">uintptr_t</span>)&amp;startup_ttbr0[<span class="hljs-number">1</span>]) | (<span class="hljs-number">0x3</span>) | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">10</span>);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">long</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">512</span>; ++i) {
+		startup_ttbr0[<span class="hljs-number">1</span>][i].raw = (i &lt;&lt; <span class="hljs-number">30</span>) | (<span class="hljs-number">2</span> &lt;&lt; <span class="hljs-number">2</span>) | <span class="hljs-number">1</span> | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">10</span>);
+	}
+	aarch64_ttbr0 = mmu_map_to_physical(<span class="hljs-literal">NULL</span>, (<span class="hljs-keyword">uintptr_t</span>)&amp;startup_ttbr0[<span class="hljs-number">0</span>]);
+	aarch64_ttbr1 = mmu_map_to_physical(<span class="hljs-literal">NULL</span>, (<span class="hljs-keyword">uintptr_t</span>)mmu_get_kernel_directory());
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-string">"dsb ishst\n"</span>
+		<span class="hljs-string">"tlbi vmalle1is\n"</span>
+		<span class="hljs-string">"dsb ish\n"</span>
+		<span class="hljs-string">"isb\n"</span>
+	)</span></span>;
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc cvac, %0\n"</span> :: <span class="hljs-string">"r"</span>(&amp;aarch64_jmp_target))</span></span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc cvac, %0\n"</span> :: <span class="hljs-string">"r"</span>(&amp;aarch64_mair))</span></span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc cvac, %0\n"</span> :: <span class="hljs-string">"r"</span>(&amp;aarch64_tcr))</span></span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc cvac, %0\n"</span> :: <span class="hljs-string">"r"</span>(&amp;aarch64_sctlr))</span></span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc cvac, %0\n"</span> :: <span class="hljs-string">"r"</span>(&amp;aarch64_vbar))</span></span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc cvac, %0\n"</span> :: <span class="hljs-string">"r"</span>(&amp;aarch64_ttbr0))</span></span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc cvac, %0\n"</span> :: <span class="hljs-string">"r"</span>(&amp;aarch64_ttbr1))</span></span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc cvac, %0\n"</span> :: <span class="hljs-string">"r"</span>(&amp;startup_ttbr0[<span class="hljs-number">0</span>]))</span></span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc cvac, %0\n"</span> :: <span class="hljs-string">"r"</span>(&amp;startup_ttbr0[<span class="hljs-number">1</span>]))</span></span>;
+
+	<span class="hljs-keyword">uintptr_t</span> spinners[] = {<span class="hljs-number">0xd8</span>, <span class="hljs-number">0xe0</span>, <span class="hljs-number">0xe8</span>, <span class="hljs-number">0xf0</span>};
+	<span class="hljs-keyword">uintptr_t</span> low_mem = (<span class="hljs-keyword">uintptr_t</span>)mmu_map_mmio_region(<span class="hljs-number">0</span>, <span class="hljs-number">0x1000</span>);
+	<span class="hljs-keyword">union</span> PML * p = mmu_get_page(low_mem, <span class="hljs-number">0</span>);
+	p-&gt;bits.page = <span class="hljs-number">0</span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dsb ishst\ntlbi vmalle1is\ndsb ish\nisb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+	dprintf(<span class="hljs-string">"smp: zero page mapped at %#zx, page is %#zx\n"</span>,
+		low_mem, mmu_map_to_physical(mmu_get_kernel_directory(), low_mem));
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; i &lt; <span class="hljs-number">4</span>; ++i) {
+		_smp_mutex = <span class="hljs-number">0</span>;
+		aarch64_stack = (<span class="hljs-keyword">uintptr_t</span>)sbrk(<span class="hljs-number">4096</span>) + <span class="hljs-number">4096</span>;
+		<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dc cvac, %0\n"</span> :: <span class="hljs-string">"r"</span>(&amp;aarch64_stack))</span></span>;
+		<span class="hljs-keyword">uintptr_t</span> target = mmu_map_to_physical(<span class="hljs-literal">NULL</span>, (<span class="hljs-keyword">uintptr_t</span>)&amp;rpi_smp_exit_el2);
+		*(<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uintptr_t</span>*)(low_mem + spinners[i]) = target;
+		<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dmb sy\nisb\ndc cvac, %0\nisb\nsev"</span> :: <span class="hljs-string">"r"</span>(low_mem) : <span class="hljs-string">"memory"</span>)</span></span>;
+
+		<span class="hljs-keyword">while</span> (_smp_mutex == <span class="hljs-number">0</span>);
+
+		processor_count = i + <span class="hljs-number">1</span>;
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

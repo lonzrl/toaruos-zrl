@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>module_math.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kuroko\\src\\modules\\module_math.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>module_math.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>math module; thin wrapper around libc math functions.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;math.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/value.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/object.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ONE_ARGUMENT(name) <span class="hljs-meta-keyword">if</span> (argc != 1) { \
+	krk_runtimeError(vm.exceptions-&gt;argumentError, <span class="hljs-meta-string">"%s() expects one argument"</span>, #name); \
+	return NONE_VAL(); \
+}</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TWO_ARGUMENTS(name) <span class="hljs-meta-keyword">if</span> (argc != 2) { \
+	krk_runtimeError(vm.exceptions-&gt;argumentError, <span class="hljs-meta-string">"%s() expects two arguments"</span>, #name); \
+	return NONE_VAL(); \
+}</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> FORCE_FLOAT(src,arg) \
+	KrkValue arg = src; \
+	<span class="hljs-meta-keyword">if</span> (!IS_FLOATING(arg)) { switch (KRK_VAL_TYPE(arg)) { \
+		case KRK_VAL_INTEGER: arg = FLOATING_VAL(AS_INTEGER(arg)); break; \
+		case KRK_VAL_BOOLEAN: arg = FLOATING_VAL(AS_BOOLEAN(arg)); break; \
+		default: { \
+			KrkClass * type = krk_getType(arg); \
+			krk_push(arg); \
+			<span class="hljs-meta-keyword">if</span> (!krk_bindMethod(type, S(<span class="hljs-meta-string">"__float__"</span>))) { \
+				krk_pop(); \
+			} <span class="hljs-meta-keyword">else</span> { \
+				arg = krk_callStack(0); \
+			} \
+		} break; \
+	} }</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> REAL_NUMBER_NOT(name, garbage) { \
+	krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-meta-string">"%s() argument must be real number, not '%T'"</span>, #name, garbage); \
+	return NONE_VAL(); \
+}</span>
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> KrkValue <span class="hljs-title">krk_int_from_float</span><span class="hljs-params">(<span class="hljs-keyword">double</span> val)</span></span>;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MATH_DELEGATE(func) \
+static KrkValue _math_ ## func(int argc, const KrkValue argv[], int hasKw) { \
+	ONE_ARGUMENT(func) \
+	<span class="hljs-meta-keyword">if</span> (IS_FLOATING(argv[0])) { \
+		return krk_int_from_float(func(AS_FLOATING(argv[0]))); \
+	} <span class="hljs-meta-keyword">else</span> <span class="hljs-meta-keyword">if</span> (IS_INTEGER(argv[0])) { \
+		return argv[0]; <span class="hljs-comment">/* no op */</span> \
+	} <span class="hljs-meta-keyword">else</span> { \
+		KrkClass * type = krk_getType(argv[0]); \
+		krk_push(argv[0]); \
+		<span class="hljs-meta-keyword">if</span> (!krk_bindMethod(type, S(<span class="hljs-meta-string">"__"</span> #func <span class="hljs-meta-string">"__"</span>))) REAL_NUMBER_NOT(func,argv[0]) \
+		return krk_callStack(0); \
+	} \
+}</span>
+
+MATH_DELEGATE(<span class="hljs-built_in">ceil</span>)
+MATH_DELEGATE(<span class="hljs-built_in">floor</span>)
+MATH_DELEGATE(trunc)
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MATH_ONE_NAME(func,name) \
+static KrkValue _math_ ## name(int argc, const KrkValue argv[], int hasKw) { \
+	ONE_ARGUMENT(name) \
+	FORCE_FLOAT(argv[0],arg_0) \
+	<span class="hljs-meta-keyword">if</span> (IS_FLOATING(arg_0)) { \
+		return FLOATING_VAL(func(AS_FLOATING(arg_0))); \
+	} <span class="hljs-meta-keyword">else</span> REAL_NUMBER_NOT(name,arg_0) \
+}</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MATH_ONE(func) MATH_ONE_NAME(func,func)</span>
+
+MATH_ONE(<span class="hljs-built_in">exp</span>)
+MATH_ONE(expm1)
+MATH_ONE(log2)
+MATH_ONE(<span class="hljs-built_in">log10</span>)
+MATH_ONE(<span class="hljs-built_in">sqrt</span>)
+MATH_ONE(<span class="hljs-built_in">acos</span>)
+MATH_ONE(<span class="hljs-built_in">asin</span>)
+MATH_ONE(<span class="hljs-built_in">atan</span>)
+MATH_ONE(<span class="hljs-built_in">cos</span>)
+MATH_ONE(<span class="hljs-built_in">sin</span>)
+MATH_ONE(<span class="hljs-built_in">tan</span>)
+MATH_ONE(acosh)
+MATH_ONE(asinh)
+MATH_ONE(atanh)
+MATH_ONE(<span class="hljs-built_in">cosh</span>)
+MATH_ONE(<span class="hljs-built_in">sinh</span>)
+MATH_ONE(<span class="hljs-built_in">tanh</span>)
+MATH_ONE(erf)
+MATH_ONE(erfc)
+MATH_ONE(log1p)
+MATH_ONE(tgamma)
+MATH_ONE(lgamma)
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MATH_TWO(func) \
+static KrkValue _math_ ## func(int argc, const KrkValue argv[], int hasKw) { \
+	TWO_ARGUMENTS(func) \
+	FORCE_FLOAT(argv[0],arg_0) \
+	FORCE_FLOAT(argv[1],arg_1) \
+	<span class="hljs-meta-keyword">if</span> (!IS_FLOATING(arg_0)) REAL_NUMBER_NOT(func,arg_0) \
+	<span class="hljs-meta-keyword">if</span> (!IS_FLOATING(arg_1)) REAL_NUMBER_NOT(func,arg_1) \
+	return FLOATING_VAL(func(AS_FLOATING(arg_0),AS_FLOATING(arg_1))); \
+}</span>
+
+MATH_TWO(copysign)
+MATH_TWO(<span class="hljs-built_in">fmod</span>)
+MATH_TWO(remainder)
+MATH_TWO(<span class="hljs-built_in">pow</span>)
+MATH_TWO(<span class="hljs-built_in">atan2</span>)
+
+<span class="hljs-keyword">static</span> KrkValue _float_pow(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">const</span> KrkValue argv[], <span class="hljs-keyword">int</span> hasKw) {
+	TWO_ARGUMENTS(__pow__);
+	<span class="hljs-keyword">if</span> (unlikely(!IS_FLOATING(argv[<span class="hljs-number">0</span>]))) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"expected float"</span>);
+	<span class="hljs-keyword">if</span> (likely(IS_FLOATING(argv[<span class="hljs-number">1</span>]))) {
+		<span class="hljs-keyword">return</span> FLOATING_VAL(<span class="hljs-built_in">pow</span>(AS_FLOATING(argv[<span class="hljs-number">0</span>]),AS_FLOATING(argv[<span class="hljs-number">1</span>])));
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (likely(IS_INTEGER(argv[<span class="hljs-number">1</span>]))) {
+		<span class="hljs-keyword">return</span> FLOATING_VAL(<span class="hljs-built_in">pow</span>(AS_FLOATING(argv[<span class="hljs-number">0</span>]),(<span class="hljs-keyword">double</span>)AS_INTEGER(argv[<span class="hljs-number">1</span>])));
+	}
+	<span class="hljs-keyword">return</span> NOTIMPL_VAL();
+}
+
+
+<span class="hljs-keyword">static</span> KrkValue _math_frexp(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">const</span> KrkValue argv[], <span class="hljs-keyword">int</span> hasKw) {
+	ONE_ARGUMENT(<span class="hljs-built_in">frexp</span>)
+	FORCE_FLOAT(argv[<span class="hljs-number">0</span>],arg_0)
+	<span class="hljs-keyword">if</span> (!IS_FLOATING(arg_0)) {
+		REAL_NUMBER_NOT(<span class="hljs-built_in">frexp</span>,arg_0)
+	}
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">exp</span> = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">double</span> result = <span class="hljs-built_in">frexp</span>(AS_FLOATING(arg_0), &amp;<span class="hljs-built_in">exp</span>);
+	KrkTuple * outValue = krk_newTuple(<span class="hljs-number">2</span>);
+	outValue-&gt;values.values[<span class="hljs-number">0</span>] = FLOATING_VAL(result);
+	outValue-&gt;values.values[<span class="hljs-number">1</span>] = INTEGER_VAL(<span class="hljs-built_in">exp</span>);
+	outValue-&gt;values.count = <span class="hljs-number">2</span>;
+	<span class="hljs-keyword">return</span> OBJECT_VAL(outValue);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MATH_IS(func) \
+static KrkValue _math_ ## func(int argc, const KrkValue argv[], int hasKw) { \
+	ONE_ARGUMENT(func) \
+	<span class="hljs-meta-keyword">if</span> (!IS_FLOATING(argv[0])) REAL_NUMBER_NOT(func,argv[0]) \
+	return BOOLEAN_VAL(func(AS_FLOATING(argv[0]))); \
+}</span>
+
+MATH_IS(isfinite)
+MATH_IS(isinf)
+MATH_IS(isnan)
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> bind(name) krk_defineNative(&amp;module-&gt;fields, #name, _math_ ## name)</span>
+
+KRK_Module(math) {
+	KRK_DOC(<span class="hljs-keyword">module</span>, <span class="hljs-string">"@brief Provides access to floating-point mathematical functions from the system `libm`."</span>);
+	KRK_DOC(bind(<span class="hljs-built_in">ceil</span>),
+		<span class="hljs-string">"@brief Returns the smallest integer value not less than the input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(<span class="hljs-built_in">floor</span>),
+		<span class="hljs-string">"@brief Returns the largest integer value not greater than the input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(trunc),
+		<span class="hljs-string">"@brief Rounds the input towards zero to an integer.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(<span class="hljs-built_in">exp</span>),
+		<span class="hljs-string">"@brief Returns the base-e exponentiation of the input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(expm1),
+		<span class="hljs-string">"@brief Equivalent to `exp(x) - 1`.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(log2),
+		<span class="hljs-string">"@brief Calculates the base-2 logarithm of the input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(<span class="hljs-built_in">log10</span>),
+		<span class="hljs-string">"@brief Calculates the base-10 logarithm of the input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(<span class="hljs-built_in">sqrt</span>),
+		<span class="hljs-string">"@brief Calculates the square root of the input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(<span class="hljs-built_in">acos</span>),
+		<span class="hljs-string">"@brief Calculates the arc-cosine of the radian input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(<span class="hljs-built_in">asin</span>),
+		<span class="hljs-string">"@brief Calculates the arc-sine of the radian input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(<span class="hljs-built_in">atan</span>),
+		<span class="hljs-string">"@brief Calculates the arc-tangent of the radian input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(<span class="hljs-built_in">cos</span>),
+		<span class="hljs-string">"@brief Calculates the cosine of the radian input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(<span class="hljs-built_in">sin</span>),
+		<span class="hljs-string">"@brief Calculates the sine of the radian input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(<span class="hljs-built_in">tan</span>),
+		<span class="hljs-string">"@brief Calculates the tangent of the radian input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(acosh),
+		<span class="hljs-string">"@brief Calculates the inverse hyperbolic cosine of the input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(asinh),
+		<span class="hljs-string">"@brief Calculates the inverse hyperbolic sine of the input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(atanh),
+		<span class="hljs-string">"@brief Calculates the inverse hyperbolic tangent of the input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(<span class="hljs-built_in">cosh</span>),
+		<span class="hljs-string">"@brief Calculates the hyperbolic cosine of the input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(<span class="hljs-built_in">sinh</span>),
+		<span class="hljs-string">"@brief Calculates the hyperbolic sine of the input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(<span class="hljs-built_in">tanh</span>),
+		<span class="hljs-string">"@brief Calculates the hyperbolic tangent of the input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(erf),
+		<span class="hljs-string">"@brief Calculates the error function of the input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(erfc),
+		<span class="hljs-string">"@brief Calculates the complementary error function of the input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(tgamma),
+		<span class="hljs-string">"@brief Calculates the gamma of the input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(lgamma),
+		<span class="hljs-string">"@brief Calculates the log gamma of the input.\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(copysign),
+		<span class="hljs-string">"@brief Copies the sign from @p x to @p y\n"</span>
+		<span class="hljs-string">"@arguments x,y"</span>);
+	KRK_DOC(bind(<span class="hljs-built_in">fmod</span>),
+		<span class="hljs-string">"@brief Returns the floating point remainder of @p x over @p y\n"</span>
+		<span class="hljs-string">"@arguments x,y"</span>);
+	KRK_DOC(bind(remainder),
+		<span class="hljs-string">"@brief Somehow different from `fmod`."</span>);
+	KRK_DOC(bind(log1p),
+		<span class="hljs-string">"@brief Equivalent to `log(x + 1)`\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(expm1),
+		<span class="hljs-string">"@brief Equivalent to `exp(x) - 1`\n"</span>
+		<span class="hljs-string">"@arguments x"</span>);
+	KRK_DOC(bind(<span class="hljs-built_in">pow</span>),
+		<span class="hljs-string">"@brief Calculates `x^p`\n"</span>
+		<span class="hljs-string">"@arguments x,p"</span>);
+	KRK_DOC(bind(<span class="hljs-built_in">atan2</span>),
+		<span class="hljs-string">"@brief Calculates the arctangent of `x` and `y`\n"</span>
+		<span class="hljs-string">"@arguments x,y"</span>);
+	KRK_DOC(bind(<span class="hljs-built_in">frexp</span>),
+		<span class="hljs-string">"@brief Converts a floating point input to a fractional and integer component pair, returned as a tuple.\n"</span>
+		<span class="hljs-string">"@arguments x\n"</span>
+		<span class="hljs-string">"@returns @ref tuple of two @ref int"</span>);
+	KRK_DOC(bind(isfinite),
+		<span class="hljs-string">"@brief Determines if the input is finite.\n"</span>
+		<span class="hljs-string">"@arguments x\n"</span>);
+	KRK_DOC(bind(isinf),
+		<span class="hljs-string">"@brief Determines if the input is infinite.\n"</span>
+		<span class="hljs-string">"@arguments x\n"</span>);
+	KRK_DOC(bind(isnan),
+		<span class="hljs-string">"@brief Determines if the input is the floating point `NaN`.\n"</span>
+		<span class="hljs-string">"@arguments x\n"</span>);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Maybe the math library should be a core one, but I'm not sure if I want
+to have to depend on -lm in the main interpreter, so instead if we have
+imported math, we'll just quietly give floats a <strong>pow</strong> method...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	krk_defineNative(&amp;vm.baseClasses-&gt;floatClass-&gt;methods, <span class="hljs-string">"__pow__"</span>, _float_pow);
+	krk_finalizeClass(vm.baseClasses-&gt;floatClass);
+
+	krk_attachNamedValue(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"pi"</span>,  FLOATING_VAL(M_PI));
+	krk_attachNamedValue(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"e"</span>,   FLOATING_VAL(M_E));
+	krk_attachNamedValue(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"inf"</span>, FLOATING_VAL(INFINITY));
+	krk_attachNamedValue(&amp;<span class="hljs-keyword">module</span>-&gt;fields, <span class="hljs-string">"nan"</span>, FLOATING_VAL(NAN));
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

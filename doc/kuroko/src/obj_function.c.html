@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>obj_function.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\src\\obj_function.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>obj_function.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/value.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/memory.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/debug.h&gt;</span></span>
+
+<span class="hljs-comment">/* Check for and return the name of a native function as a string object */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> KrkValue <span class="hljs-title">nativeFunctionName</span><span class="hljs-params">(KrkValue func)</span> </span>{
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * <span class="hljs-built_in">string</span> = ((KrkNative*)AS_OBJECT(func))-&gt;name;
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">string</span>) <span class="hljs-keyword">return</span> OBJECT_VAL(S(<span class="hljs-string">"&lt;unnamed&gt;"</span>));
+	<span class="hljs-keyword">size_t</span> len = <span class="hljs-built_in">strlen</span>(<span class="hljs-built_in">string</span>);
+	<span class="hljs-keyword">return</span> OBJECT_VAL(krk_copyString(<span class="hljs-built_in">string</span>,len));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> KrkTuple * <span class="hljs-title">functionArgs</span><span class="hljs-params">(KrkCodeObject * _self)</span> </span>{
+	KrkTuple * tuple = krk_newTuple(_self-&gt;totalArguments);
+	krk_push(OBJECT_VAL(tuple));
+
+	<span class="hljs-keyword">for</span> (short i = <span class="hljs-number">0</span>; i &lt; _self-&gt;potentialPositionals; ++i) {
+		tuple-&gt;values.values[tuple-&gt;values.count++] = _self-&gt;positionalArgNames.values[i];
+	}
+
+	<span class="hljs-keyword">if</span> (_self-&gt;obj.flags &amp; KRK_OBJ_FLAGS_CODEOBJECT_COLLECTS_ARGS) {
+		tuple-&gt;values.values[tuple-&gt;values.count++] = krk_stringFromFormat(<span class="hljs-string">"*%S"</span>, AS_STRING(_self-&gt;positionalArgNames.values[_self-&gt;potentialPositionals]));
+	}
+
+	<span class="hljs-keyword">for</span> (short i = <span class="hljs-number">0</span>; i &lt; _self-&gt;keywordArgs; ++i) {
+		tuple-&gt;values.values[tuple-&gt;values.count++] = krk_stringFromFormat(<span class="hljs-string">"%S="</span>, AS_STRING(_self-&gt;keywordArgNames.values[i]));
+	}
+
+	<span class="hljs-keyword">if</span> (_self-&gt;obj.flags &amp; KRK_OBJ_FLAGS_CODEOBJECT_COLLECTS_KWS) {
+		tuple-&gt;values.values[tuple-&gt;values.count++] = krk_stringFromFormat(<span class="hljs-string">"**%S"</span>, AS_STRING(_self-&gt;keywordArgNames.values[_self-&gt;keywordArgs]));
+	}
+
+	krk_pop();
+	<span class="hljs-keyword">return</span> tuple;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> IS_method(o)     IS_BOUND_METHOD(o)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> IS_function(o)   (IS_CLOSURE(o)|IS_NATIVE(o))</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AS_method(o)     AS_BOUND_METHOD(o)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AS_function(o)   (o)</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_NAME  self</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE KrkValue</span>
+
+KRK_StaticMethod(function,__new__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">3</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,codeobject,KrkCodeObject*,code);
+
+	<span class="hljs-keyword">if</span> (!IS_INSTANCE(argv[<span class="hljs-number">3</span>]))
+		<span class="hljs-keyword">return</span> TYPE_ERROR(dict <span class="hljs-keyword">or</span> instance object,argv[<span class="hljs-number">3</span>]);
+
+	<span class="hljs-keyword">if</span> (IS_CLOSURE(argv[<span class="hljs-number">2</span>]) &amp;&amp; AS_CLOSURE(argv[<span class="hljs-number">2</span>])-&gt;upvalueCount == code-&gt;upvalueCount) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Option 1: A function with the same upvalue count. Copy the upvalues exactly.
+As an example, this can be a lambda with a bunch of unused upvalue
+references - like &quot;lambda: a, b, c&quot;. These variables will be captured
+using the relevant scope - and we don't have to care about whether
+they were properly marked, because the compiler took care of it
+when the lambda was compiled.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		krk_push(OBJECT_VAL(krk_newClosure(code, argv[<span class="hljs-number">3</span>])));
+		<span class="hljs-built_in">memcpy</span>(AS_CLOSURE(krk_peek(<span class="hljs-number">0</span>))-&gt;upvalues, AS_CLOSURE(argv[<span class="hljs-number">2</span>])-&gt;upvalues,
+			<span class="hljs-keyword">sizeof</span>(KrkUpvalue*) * code-&gt;upvalueCount);
+		<span class="hljs-keyword">return</span> krk_pop();
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_TUPLE(argv[<span class="hljs-number">2</span>]) &amp;&amp; AS_TUPLE(argv[<span class="hljs-number">2</span>])-&gt;values.count == code-&gt;upvalueCount) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Option 2: A tuple of values. New upvalue containers are built for each value,
+but they are immediately closed with the value in the tuple. They
+exist independently for this closure instance, and are not shared with
+any other closures.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		krk_push(OBJECT_VAL(krk_newClosure(code, argv[<span class="hljs-number">3</span>])));
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; code-&gt;upvalueCount; ++i) {
+			AS_CLOSURE(krk_peek(<span class="hljs-number">0</span>))-&gt;upvalues[i] = krk_newUpvalue(<span class="hljs-number">-1</span>);
+			AS_CLOSURE(krk_peek(<span class="hljs-number">0</span>))-&gt;upvalues[i]-&gt;closed = AS_TUPLE(argv[<span class="hljs-number">2</span>])-&gt;values.values[i];
+		}
+		<span class="hljs-keyword">return</span> krk_pop();
+	}
+
+	<span class="hljs-keyword">return</span> TYPE_ERROR(managed function with equal upvalue count <span class="hljs-keyword">or</span> tuple,argv[<span class="hljs-number">2</span>]);
+}
+
+KRK_Method(function,__doc__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+
+	<span class="hljs-keyword">if</span> (IS_NATIVE(self) &amp;&amp; AS_NATIVE(self)-&gt;doc) {
+		<span class="hljs-keyword">return</span> OBJECT_VAL(krk_copyString(AS_NATIVE(self)-&gt;doc, <span class="hljs-built_in">strlen</span>(AS_NATIVE(self)-&gt;doc)));
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_CLOSURE(self) &amp;&amp; AS_CLOSURE(self)-&gt;function-&gt;docstring) {
+		<span class="hljs-keyword">return</span> OBJECT_VAL(AS_CLOSURE(self)-&gt;function-&gt;docstring);
+	}
+
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(function,__name__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+
+	<span class="hljs-keyword">if</span> (IS_NATIVE(self)) {
+		<span class="hljs-keyword">return</span> nativeFunctionName(self);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_CLOSURE(self) &amp;&amp; AS_CLOSURE(self)-&gt;function-&gt;name) {
+		<span class="hljs-keyword">return</span> OBJECT_VAL(AS_CLOSURE(self)-&gt;function-&gt;name);
+	}
+
+	<span class="hljs-keyword">return</span> OBJECT_VAL(S(<span class="hljs-string">""</span>));
+}
+
+KRK_Method(function,__qualname__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+
+	<span class="hljs-keyword">if</span> (IS_CLOSURE(self) &amp;&amp; AS_CLOSURE(self)-&gt;function-&gt;qualname) {
+		<span class="hljs-keyword">return</span> OBJECT_VAL(AS_CLOSURE(self)-&gt;function-&gt;qualname);
+	}
+
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(function,__globals__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+
+	<span class="hljs-keyword">if</span> (IS_CLOSURE(self)) {
+		<span class="hljs-keyword">return</span> AS_CLOSURE(self)-&gt;globalsOwner;
+	}
+
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(function,_ip_to_line) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,<span class="hljs-keyword">int</span>,krk_integer_type,ip);
+
+	<span class="hljs-keyword">if</span> (!IS_CLOSURE(self)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">line</span> = krk_lineNumber(&amp;AS_CLOSURE(self)-&gt;function-&gt;chunk, ip);
+
+	<span class="hljs-keyword">return</span> INTEGER_VAL(<span class="hljs-built_in">line</span>);
+}
+
+KRK_Method(function,__repr__) {
+	METHOD_TAKES_NONE();
+
+	<span class="hljs-comment">/* Do we have a qualified name? */</span>
+	KrkValue name = FUNC_NAME(function,__qualname__)(<span class="hljs-number">1</span>,&amp;self,<span class="hljs-number">0</span>);
+	<span class="hljs-keyword">if</span> (IS_NONE(name)) {
+		name = FUNC_NAME(function,__name__)(<span class="hljs-number">1</span>,&amp;self,<span class="hljs-number">0</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (!IS_STRING(name)) name = OBJECT_VAL(S(<span class="hljs-string">"&lt;unnamed&gt;"</span>));
+
+	krk_push(name);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+	krk_pushStringBuilderFormat(&amp;sb, <span class="hljs-string">"&lt;function %S at %p&gt;"</span>, AS_STRING(name), (<span class="hljs-keyword">void</span>*)AS_OBJECT(self));
+
+	krk_pop();
+
+	<span class="hljs-keyword">return</span> krk_finishStringBuilder(&amp;sb);
+}
+
+KRK_Method(function,__file__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+
+	<span class="hljs-keyword">if</span> (IS_NATIVE(self)) <span class="hljs-keyword">return</span> OBJECT_VAL(S(<span class="hljs-string">"&lt;builtin&gt;"</span>));
+
+	<span class="hljs-keyword">return</span> AS_CLOSURE(self)-&gt;function-&gt;chunk.filename ?
+		OBJECT_VAL(AS_CLOSURE(self)-&gt;function-&gt;chunk.filename) :
+			OBJECT_VAL(S(<span class="hljs-string">""</span>));
+}
+
+KRK_Method(function,__args__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+	<span class="hljs-keyword">if</span> (!IS_CLOSURE(self)) <span class="hljs-keyword">return</span> OBJECT_VAL(krk_newTuple(<span class="hljs-number">0</span>));
+	KrkTuple * tuple = functionArgs(AS_CLOSURE(self)-&gt;function);
+	<span class="hljs-keyword">return</span> OBJECT_VAL(tuple);
+}
+
+KRK_Method(function,__annotations__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+	<span class="hljs-keyword">if</span> (!IS_CLOSURE(self)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">return</span> AS_CLOSURE(self)-&gt;annotations;
+}
+
+KRK_Method(function,__code__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+	<span class="hljs-keyword">if</span> (!IS_CLOSURE(self)) <span class="hljs-keyword">return</span> NONE_VAL();
+	<span class="hljs-keyword">return</span> OBJECT_VAL(AS_CLOSURE(self)-&gt;function);
+}
+
+KRK_Method(function,__closure__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+	<span class="hljs-keyword">if</span> (!IS_CLOSURE(self)) {
+		<span class="hljs-keyword">return</span> OBJECT_VAL(krk_newTuple(<span class="hljs-number">0</span>));
+	}
+
+	<span class="hljs-keyword">size_t</span> cnt = AS_CLOSURE(self)-&gt;upvalueCount;
+	KrkTuple * out = krk_newTuple(cnt);
+	krk_push(OBJECT_VAL(out));
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; cnt; ++i) {
+		out-&gt;values.values[out-&gt;values.count++] = OBJECT_VAL(AS_CLOSURE(self)-&gt;upvalues[i]);
+	}
+
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> CURRENT_CTYPE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE KrkCodeObject*</span>
+
+KRK_StaticMethod(codeobject,__new__) {
+	<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"codeobject object is not instantiable"</span>);
+}
+
+KRK_Method(codeobject,__name__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+	<span class="hljs-keyword">return</span> self-&gt;name ? OBJECT_VAL(self-&gt;name) : OBJECT_VAL(S(<span class="hljs-string">""</span>));
+}
+
+KRK_Method(codeobject,__repr__) {
+	METHOD_TAKES_NONE();
+	KrkValue s = FUNC_NAME(codeobject,__name__)(<span class="hljs-number">1</span>,argv,<span class="hljs-number">0</span>);
+	<span class="hljs-keyword">if</span> (!IS_STRING(s)) <span class="hljs-keyword">return</span> NONE_VAL();
+	krk_push(s);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+	krk_pushStringBuilderFormat(&amp;sb, <span class="hljs-string">"&lt;codeobject %S at %p&gt;"</span>, AS_STRING(s), (<span class="hljs-keyword">void</span>*)self);
+
+	krk_pop();
+
+	<span class="hljs-keyword">return</span> krk_finishStringBuilder(&amp;sb);
+}
+
+KRK_Method(codeobject,_ip_to_line) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,<span class="hljs-keyword">int</span>,krk_integer_type,ip);
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">line</span> = krk_lineNumber(&amp;self-&gt;chunk, ip);
+	<span class="hljs-keyword">return</span> INTEGER_VAL(<span class="hljs-built_in">line</span>);
+}
+
+KRK_Method(codeobject,__constants__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+	krk_push(OBJECT_VAL(krk_newTuple(self-&gt;chunk.constants.count)));
+	<span class="hljs-built_in">memcpy</span>(AS_TUPLE(krk_peek(<span class="hljs-number">0</span>))-&gt;values.values,
+		self-&gt;chunk.constants.values,
+		<span class="hljs-keyword">sizeof</span>(KrkValue) * self-&gt;chunk.constants.count);
+	AS_TUPLE(krk_peek(<span class="hljs-number">0</span>))-&gt;values.count = self-&gt;chunk.constants.count;
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+
+KRK_Method(codeobject,co_code) {
+	<span class="hljs-keyword">return</span> OBJECT_VAL(krk_newBytes(self-&gt;chunk.count, self-&gt;chunk.code));
+}
+
+KRK_Method(codeobject,co_argcount) {
+	<span class="hljs-keyword">return</span> INTEGER_VAL(self-&gt;potentialPositionals);
+}
+
+KRK_Method(codeobject,co_kwonlyargcount) {
+	<span class="hljs-keyword">return</span> INTEGER_VAL(self-&gt;keywordArgs);
+}
+
+KRK_Method(codeobject,co_posonlyargcount) {
+	<span class="hljs-comment">/* This is tricky because we don't store it anywhere */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; self-&gt;potentialPositionals; ++i) {
+		<span class="hljs-keyword">if</span> (!IS_NONE(self-&gt;positionalArgNames.values[i])) <span class="hljs-keyword">return</span> INTEGER_VAL(i);
+	}
+	<span class="hljs-keyword">return</span> INTEGER_VAL(<span class="hljs-number">0</span>);
+}
+
+KRK_Method(codeobject,__locals__) {
+	krk_push(OBJECT_VAL(krk_newTuple(self-&gt;localNameCount)));
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; self-&gt;localNameCount; ++i) {
+		krk_push(OBJECT_VAL(krk_newTuple(<span class="hljs-number">4</span>)));
+		AS_TUPLE(krk_peek(<span class="hljs-number">0</span>))-&gt;values.values[AS_TUPLE(krk_peek(<span class="hljs-number">0</span>))-&gt;values.count++] = INTEGER_VAL(self-&gt;localNames[i].id);
+		AS_TUPLE(krk_peek(<span class="hljs-number">0</span>))-&gt;values.values[AS_TUPLE(krk_peek(<span class="hljs-number">0</span>))-&gt;values.count++] = INTEGER_VAL(self-&gt;localNames[i].birthday);
+		AS_TUPLE(krk_peek(<span class="hljs-number">0</span>))-&gt;values.values[AS_TUPLE(krk_peek(<span class="hljs-number">0</span>))-&gt;values.count++] = INTEGER_VAL(self-&gt;localNames[i].deathday);
+		AS_TUPLE(krk_peek(<span class="hljs-number">0</span>))-&gt;values.values[AS_TUPLE(krk_peek(<span class="hljs-number">0</span>))-&gt;values.count++] = OBJECT_VAL(self-&gt;localNames[i].name);
+		AS_TUPLE(krk_peek(<span class="hljs-number">1</span>))-&gt;values.values[AS_TUPLE(krk_peek(<span class="hljs-number">1</span>))-&gt;values.count++] = krk_peek(<span class="hljs-number">0</span>);
+		krk_pop();
+	}
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+
+<span class="hljs-comment">/* Python-compatibility */</span>
+KRK_Method(codeobject,co_flags) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+
+	<span class="hljs-keyword">int</span> out = <span class="hljs-number">0</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>For compatibility with Python, mostly because these are specified
+in at least one doc page with their raw values, we convert
+our flags to the useful CPython flag values...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (self-&gt;obj.flags &amp; KRK_OBJ_FLAGS_CODEOBJECT_COLLECTS_ARGS) out |= <span class="hljs-number">0x04</span>;
+	<span class="hljs-keyword">if</span> (self-&gt;obj.flags &amp; KRK_OBJ_FLAGS_CODEOBJECT_COLLECTS_KWS)  out |= <span class="hljs-number">0x08</span>;
+	<span class="hljs-keyword">if</span> (self-&gt;obj.flags &amp; KRK_OBJ_FLAGS_CODEOBJECT_IS_GENERATOR)  out |= <span class="hljs-number">0x20</span>;
+	<span class="hljs-keyword">if</span> (self-&gt;obj.flags &amp; KRK_OBJ_FLAGS_CODEOBJECT_IS_COROUTINE)  out |= <span class="hljs-number">0x80</span>;
+
+	<span class="hljs-keyword">return</span> INTEGER_VAL(out);
+}
+
+KRK_Method(codeobject,__args__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+	KrkTuple * tuple = functionArgs(self);
+	<span class="hljs-keyword">return</span> OBJECT_VAL(tuple);
+}
+
+KRK_Method(codeobject,__file__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+	<span class="hljs-keyword">return</span> self-&gt;chunk.filename ? OBJECT_VAL(self-&gt;chunk.filename) : OBJECT_VAL(S(<span class="hljs-string">""</span>));
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> CURRENT_CTYPE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE KrkBoundMethod*</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p><strong>init</strong> here will be called with a dummy instance as argv[0]; avoid
+complications with method argument checking by not using KRK_METHOD.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">KRK_StaticMethod(method,__new__) {
+	FUNCTION_TAKES_EXACTLY(<span class="hljs-number">3</span>);
+	<span class="hljs-keyword">if</span> (!IS_OBJECT(argv[<span class="hljs-number">1</span>])) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"first argument must be a heap object"</span>);
+	<span class="hljs-keyword">return</span> OBJECT_VAL(krk_newBoundMethod(argv[<span class="hljs-number">2</span>],AS_OBJECT(argv[<span class="hljs-number">1</span>])));
+}
+
+KRK_Method(method,__name__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+	<span class="hljs-keyword">return</span> IS_function(OBJECT_VAL(self-&gt;method)) ? FUNC_NAME(function,__name__)(<span class="hljs-number">1</span>,(KrkValue[]){OBJECT_VAL(self-&gt;method)},<span class="hljs-number">0</span>) : OBJECT_VAL(S(<span class="hljs-string">"?"</span>));
+}
+
+KRK_Method(method,__qualname__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+	<span class="hljs-keyword">return</span> IS_function(OBJECT_VAL(self-&gt;method)) ? FUNC_NAME(function,__qualname__)(<span class="hljs-number">1</span>,(KrkValue[]){OBJECT_VAL(self-&gt;method)},<span class="hljs-number">0</span>) : OBJECT_VAL(S(<span class="hljs-string">"?"</span>));
+}
+
+KRK_Method(method,_ip_to_line) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">return</span> IS_function(OBJECT_VAL(self-&gt;method)) ? FUNC_NAME(function,_ip_to_line)(<span class="hljs-number">2</span>,(KrkValue[]){OBJECT_VAL(self-&gt;method),argv[<span class="hljs-number">1</span>]},<span class="hljs-number">0</span>) : OBJECT_VAL(S(<span class="hljs-string">"?"</span>));
+}
+
+KRK_Method(method,__repr__) {
+	METHOD_TAKES_NONE();
+	KrkValue s = FUNC_NAME(method,__qualname__)(<span class="hljs-number">1</span>,argv,<span class="hljs-number">0</span>);
+	<span class="hljs-keyword">if</span> (!IS_STRING(s)) s = FUNC_NAME(method,__name__)(<span class="hljs-number">1</span>,argv,<span class="hljs-number">0</span>);
+	<span class="hljs-keyword">if</span> (!IS_STRING(s)) <span class="hljs-keyword">return</span> NONE_VAL();
+	krk_push(s);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+	krk_pushStringBuilderFormat(&amp;sb, <span class="hljs-string">"&lt;bound method '%S' of %T object"</span>, AS_STRING(s), self-&gt;receiver);
+	<span class="hljs-keyword">if</span> (IS_OBJECT(self-&gt;receiver)) krk_pushStringBuilderFormat(&amp;sb, <span class="hljs-string">" at %p"</span>, (<span class="hljs-keyword">void</span>*)AS_OBJECT(self-&gt;receiver));
+	krk_pushStringBuilder(&amp;sb, <span class="hljs-string">'&gt;'</span>);
+
+	krk_pop();
+
+	<span class="hljs-keyword">return</span> krk_finishStringBuilder(&amp;sb);
+}
+
+KRK_Method(method,__file__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+	<span class="hljs-keyword">return</span> IS_function(OBJECT_VAL(self-&gt;method)) ? FUNC_NAME(function,__file__)(<span class="hljs-number">1</span>,(KrkValue[]){OBJECT_VAL(self-&gt;method)},<span class="hljs-number">0</span>) : OBJECT_VAL(S(<span class="hljs-string">"?"</span>));
+}
+
+KRK_Method(method,__args__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+	<span class="hljs-keyword">return</span> IS_function(OBJECT_VAL(self-&gt;method)) ? FUNC_NAME(function,__args__)(<span class="hljs-number">1</span>,(KrkValue[]){OBJECT_VAL(self-&gt;method)},<span class="hljs-number">0</span>) : OBJECT_VAL(S(<span class="hljs-string">"?"</span>));
+}
+
+KRK_Method(method,__doc__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+	<span class="hljs-keyword">return</span> IS_function(OBJECT_VAL(self-&gt;method)) ? FUNC_NAME(function,__doc__)(<span class="hljs-number">1</span>,(KrkValue[]){OBJECT_VAL(self-&gt;method)},<span class="hljs-number">0</span>) : OBJECT_VAL(S(<span class="hljs-string">"?"</span>));
+}
+
+KRK_Method(method,__annotations__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+	<span class="hljs-keyword">return</span> IS_function(OBJECT_VAL(self-&gt;method)) ? FUNC_NAME(function,__annotations__)(<span class="hljs-number">1</span>,(KrkValue[]){OBJECT_VAL(self-&gt;method)},<span class="hljs-number">0</span>) : OBJECT_VAL(S(<span class="hljs-string">"?"</span>));
+}
+
+KRK_Method(method,__code__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+	<span class="hljs-keyword">return</span> IS_function(OBJECT_VAL(self-&gt;method)) ? FUNC_NAME(function,__code__)(<span class="hljs-number">1</span>,(KrkValue[]){OBJECT_VAL(self-&gt;method)},<span class="hljs-number">0</span>) : OBJECT_VAL(S(<span class="hljs-string">"?"</span>));
+}
+
+KRK_Method(method,__func__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+	<span class="hljs-keyword">return</span> OBJECT_VAL(self-&gt;method);
+}
+
+KRK_Method(method,__self__) {
+	ATTRIBUTE_NOT_ASSIGNABLE();
+	<span class="hljs-keyword">return</span> self-&gt;receiver;
+}
+
+KRK_Function(staticmethod) {
+	KrkObj* method;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"O!"</span>, (<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"method"</span>}, KRK_BASE_CLASS(function), &amp;method)) <span class="hljs-keyword">return</span> NONE_VAL();
+	method-&gt;flags &amp;= ~(KRK_OBJ_FLAGS_FUNCTION_MASK);
+	method-&gt;flags |= KRK_OBJ_FLAGS_FUNCTION_IS_STATIC_METHOD;
+	<span class="hljs-keyword">return</span> OBJECT_VAL(method);
+}
+
+KRK_Function(classmethod) {
+	KrkObj* method;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"O!"</span>, (<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"method"</span>}, KRK_BASE_CLASS(function), &amp;method)) <span class="hljs-keyword">return</span> NONE_VAL();
+	method-&gt;flags &amp;= ~(KRK_OBJ_FLAGS_FUNCTION_MASK);
+	method-&gt;flags |= KRK_OBJ_FLAGS_FUNCTION_IS_CLASS_METHOD;
+	<span class="hljs-keyword">return</span> OBJECT_VAL(method);
+}
+
+_noexport
+<span class="hljs-keyword">void</span> _createAndBind_functionClass(<span class="hljs-keyword">void</span>) {
+	KrkClass * codeobject = ADD_BASE_CLASS(vm.baseClasses-&gt;codeobjectClass, <span class="hljs-string">"codeobject"</span>, vm.baseClasses-&gt;objectClass);
+	codeobject-&gt;obj.flags |= KRK_OBJ_FLAGS_NO_INHERIT;
+	codeobject-&gt;allocSize =  <span class="hljs-number">0</span>;
+	BIND_STATICMETHOD(codeobject,__new__);
+	BIND_METHOD(codeobject,__repr__);
+	BIND_METHOD(codeobject,_ip_to_line);
+	BIND_PROP(codeobject,__constants__);
+	BIND_PROP(codeobject,__name__);
+	BIND_PROP(codeobject,co_flags);
+	BIND_PROP(codeobject,co_code);
+	BIND_PROP(codeobject,co_argcount);
+	BIND_PROP(codeobject,co_kwonlyargcount);
+	BIND_PROP(codeobject,co_posonlyargcount);
+	BIND_PROP(codeobject,__locals__);
+	BIND_PROP(codeobject,__args__);
+	BIND_PROP(codeobject,__file__);
+	krk_finalizeClass(codeobject);
+
+	KrkClass * function = ADD_BASE_CLASS(vm.baseClasses-&gt;functionClass, <span class="hljs-string">"function"</span>, vm.baseClasses-&gt;objectClass);
+	function-&gt;obj.flags |= KRK_OBJ_FLAGS_NO_INHERIT;
+	function-&gt;allocSize =  <span class="hljs-number">0</span>;
+	BIND_STATICMETHOD(function,__new__);
+	BIND_METHOD(function,__repr__);
+	BIND_METHOD(function,_ip_to_line);
+	BIND_PROP(function,__doc__);
+	BIND_PROP(function,__name__);
+	BIND_PROP(function,__qualname__);
+	BIND_PROP(function,__file__);
+	BIND_PROP(function,__args__);
+	BIND_PROP(function,__annotations__);
+	BIND_PROP(function,__code__);
+	BIND_PROP(function,__globals__);
+	BIND_PROP(function,__closure__);
+	krk_defineNative(&amp;function-&gt;methods, <span class="hljs-string">"__class_getitem__"</span>, krk_GenericAlias)-&gt;obj.flags |= KRK_OBJ_FLAGS_FUNCTION_IS_CLASS_METHOD;
+	krk_finalizeClass(function);
+
+	KrkClass * method = ADD_BASE_CLASS(vm.baseClasses-&gt;methodClass, <span class="hljs-string">"method"</span>, vm.baseClasses-&gt;objectClass);
+	method-&gt;obj.flags |= KRK_OBJ_FLAGS_NO_INHERIT;
+	method-&gt;allocSize =  <span class="hljs-number">0</span>;
+	BIND_STATICMETHOD(method,__new__);
+	BIND_METHOD(method,__repr__);
+	BIND_METHOD(method,_ip_to_line);
+	BIND_PROP(method,__doc__);
+	BIND_PROP(method,__name__);
+	BIND_PROP(method,__qualname__);
+	BIND_PROP(method,__file__);
+	BIND_PROP(method,__args__);
+	BIND_PROP(method,__annotations__);
+	BIND_PROP(method,__self__);
+	BIND_PROP(method,__func__);
+	BIND_PROP(method,__code__);
+	krk_finalizeClass(method);
+
+	BUILTIN_FUNCTION(<span class="hljs-string">"staticmethod"</span>, FUNC_NAME(krk,staticmethod), <span class="hljs-string">"A static method does not take an implicit self or cls argument."</span>);
+	BUILTIN_FUNCTION(<span class="hljs-string">"classmethod"</span>, FUNC_NAME(krk,classmethod), <span class="hljs-string">"A class method takes an implicit cls argument, instead of self."</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

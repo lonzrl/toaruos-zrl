@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ps2hid.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kernel\\arch\\x86_64\\ps2hid.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>ps2hid.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stddef.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pipe.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mouse.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/misc.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/args.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/ports.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/regs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/irq.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PACKETS_IN_PIPE    1024</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DISCARD_POINT        32</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KEYBOARD_IRQ          1</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MOUSE_IRQ            12</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PS2_DATA           0x60</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PS2_STATUS         0x64</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PS2_COMMAND        0x64</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MOUSE_WRITE        0xD4</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MOUSE_V_BIT        0x08</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PS2_PORT1_IRQ      0x01</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PS2_PORT2_IRQ      0x02</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PS2_PORT1_TLATE    0x40</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PS2_READ_CONFIG    0x20</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PS2_WRITE_CONFIG   0x60</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PS2_DISABLE_PORT2  0xA7</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PS2_ENABLE_PORT2   0xA8</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PS2_DISABLE_PORT1  0xAD</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PS2_ENABLE_PORT1   0xAE</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MOUSE_SET_REMOTE   0xF0</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MOUSE_DEVICE_ID    0xF2</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MOUSE_SAMPLE_RATE  0xF3</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MOUSE_DATA_ON      0xF4</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MOUSE_DATA_OFF     0xF5</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MOUSE_SET_DEFAULTS 0xF6</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MOUSE_DEFAULT         0</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MOUSE_SCROLLWHEEL     1</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MOUSE_BUTTONS         2</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KBD_SET_SCANCODE   0xF0</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint8_t</span> mouse_cycle = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint8_t</span> mouse_byte[<span class="hljs-number">4</span>];
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int8_t</span> mouse_mode = MOUSE_DEFAULT;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * mouse_pipe;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * keyboard_pipe;
+
+<span class="hljs-keyword">void</span> (*ps2_mouse_alternate)(<span class="hljs-keyword">uint8_t</span>) = <span class="hljs-literal">NULL</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ps2_wait_input</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">uint64_t</span> timeout = <span class="hljs-number">100000U</span>L;
+	<span class="hljs-keyword">while</span> (--timeout) {
+		<span class="hljs-keyword">if</span> (!(inportb(PS2_STATUS) &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">1</span>))) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ps2_wait_output</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">uint64_t</span> timeout = <span class="hljs-number">100000U</span>L;
+	<span class="hljs-keyword">while</span> (--timeout) {
+		<span class="hljs-keyword">if</span> (inportb(PS2_STATUS) &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">0</span>)) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ps2_command</span><span class="hljs-params">(<span class="hljs-keyword">uint8_t</span> cmdbyte)</span> </span>{
+	ps2_wait_input();
+	outportb(PS2_COMMAND, cmdbyte);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint8_t</span> <span class="hljs-title">ps2_command_response</span><span class="hljs-params">(<span class="hljs-keyword">uint8_t</span> cmdbyte)</span> </span>{
+	ps2_wait_input();
+	outportb(PS2_COMMAND, cmdbyte);
+	ps2_wait_output();
+	<span class="hljs-keyword">return</span> inportb(PS2_DATA);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ps2_command_arg</span><span class="hljs-params">(<span class="hljs-keyword">uint8_t</span> cmdbyte, <span class="hljs-keyword">uint8_t</span> arg)</span> </span>{
+	ps2_wait_input();
+	outportb(PS2_COMMAND, cmdbyte);
+	ps2_wait_input();
+	outportb(PS2_DATA, arg);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint8_t</span> <span class="hljs-title">mouse_write</span><span class="hljs-params">(<span class="hljs-keyword">uint8_t</span> <span class="hljs-built_in">write</span>)</span> </span>{
+	ps2_command_arg(MOUSE_WRITE, <span class="hljs-built_in">write</span>);
+	ps2_wait_output();
+	<span class="hljs-keyword">return</span> inportb(PS2_DATA);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint8_t</span> <span class="hljs-title">ps2_read_byte</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	ps2_wait_output();
+	<span class="hljs-keyword">return</span> inportb(PS2_DATA);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint8_t</span> <span class="hljs-title">kbd_write</span><span class="hljs-params">(<span class="hljs-keyword">uint8_t</span> <span class="hljs-built_in">write</span>)</span> </span>{
+	ps2_wait_input();
+	outportb(PS2_DATA, <span class="hljs-built_in">write</span>);
+	ps2_wait_output();
+	<span class="hljs-keyword">return</span> inportb(PS2_DATA);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">finish_packet</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	mouse_cycle = <span class="hljs-number">0</span>;
+	<span class="hljs-comment">/* We now have a full mouse packet ready to use */</span>
+	<span class="hljs-keyword">mouse_device_packet_t</span> packet;
+	packet.magic = MOUSE_MAGIC;
+	<span class="hljs-keyword">int</span> x = mouse_byte[<span class="hljs-number">1</span>];
+	<span class="hljs-keyword">int</span> y = mouse_byte[<span class="hljs-number">2</span>];
+	<span class="hljs-keyword">if</span> (x &amp;&amp; mouse_byte[<span class="hljs-number">0</span>] &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">4</span>)) {
+		<span class="hljs-comment">/* Sign bit */</span>
+		x = x - <span class="hljs-number">0x100</span>;
+	}
+	<span class="hljs-keyword">if</span> (y &amp;&amp; mouse_byte[<span class="hljs-number">0</span>] &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">5</span>)) {
+		<span class="hljs-comment">/* Sign bit */</span>
+		y = y - <span class="hljs-number">0x100</span>;
+	}
+	<span class="hljs-keyword">if</span> (mouse_byte[<span class="hljs-number">0</span>] &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">6</span>) || mouse_byte[<span class="hljs-number">0</span>] &amp; (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">7</span>)) {
+		<span class="hljs-comment">/* Overflow */</span>
+		x = <span class="hljs-number">0</span>;
+		y = <span class="hljs-number">0</span>;
+	}
+	packet.x_difference = x;
+	packet.y_difference = y;
+	packet.buttons = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (mouse_byte[<span class="hljs-number">0</span>] &amp; <span class="hljs-number">0x01</span>) {
+		packet.buttons |= LEFT_CLICK;
+	}
+	<span class="hljs-keyword">if</span> (mouse_byte[<span class="hljs-number">0</span>] &amp; <span class="hljs-number">0x02</span>) {
+		packet.buttons |= RIGHT_CLICK;
+	}
+	<span class="hljs-keyword">if</span> (mouse_byte[<span class="hljs-number">0</span>] &amp; <span class="hljs-number">0x04</span>) {
+		packet.buttons |= MIDDLE_CLICK;
+	}
+
+	<span class="hljs-keyword">if</span> (mouse_mode == MOUSE_SCROLLWHEEL &amp;&amp; mouse_byte[<span class="hljs-number">3</span>]) {
+		<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">int8_t</span>)mouse_byte[<span class="hljs-number">3</span>] &gt; <span class="hljs-number">0</span>) {
+			packet.buttons |= MOUSE_SCROLL_DOWN;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> ((<span class="hljs-keyword">int8_t</span>)mouse_byte[<span class="hljs-number">3</span>] &lt; <span class="hljs-number">0</span>) {
+			packet.buttons |= MOUSE_SCROLL_UP;
+		}
+	}
+
+	<span class="hljs-keyword">mouse_device_packet_t</span> bitbucket;
+	<span class="hljs-keyword">while</span> (pipe_size(mouse_pipe) &gt; (<span class="hljs-keyword">int</span>)(DISCARD_POINT * <span class="hljs-keyword">sizeof</span>(packet))) {
+		read_fs(mouse_pipe, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(packet), (<span class="hljs-keyword">uint8_t</span> *)&amp;bitbucket);
+	}
+	write_fs(mouse_pipe, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(packet), (<span class="hljs-keyword">uint8_t</span> *)&amp;packet);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-11" id="section-11"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ps2_mouse_handle</span><span class="hljs-params">(<span class="hljs-keyword">uint8_t</span> data_byte)</span> </span>{
+	<span class="hljs-keyword">if</span> (ps2_mouse_alternate) {
+		ps2_mouse_alternate(data_byte);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">int8_t</span> mouse_in = data_byte;
+		<span class="hljs-keyword">switch</span> (mouse_cycle) {
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0</span>:
+				mouse_byte[<span class="hljs-number">0</span>] = mouse_in;
+				<span class="hljs-keyword">if</span> (!(mouse_in &amp; MOUSE_V_BIT)) <span class="hljs-keyword">break</span>;
+				++mouse_cycle;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">1</span>:
+				mouse_byte[<span class="hljs-number">1</span>] = mouse_in;
+				++mouse_cycle;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">2</span>:
+				mouse_byte[<span class="hljs-number">2</span>] = mouse_in;
+				<span class="hljs-keyword">if</span> (mouse_mode == MOUSE_SCROLLWHEEL || mouse_mode == MOUSE_BUTTONS) {
+					++mouse_cycle;
+					<span class="hljs-keyword">break</span>;
+				}
+				finish_packet();
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">3</span>:
+				mouse_byte[<span class="hljs-number">3</span>] = mouse_in;
+				finish_packet();
+				<span class="hljs-keyword">break</span>;
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ioctl_mouse</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> request, <span class="hljs-keyword">void</span> * argp)</span> </span>{
+	<span class="hljs-keyword">if</span> (request == <span class="hljs-number">1</span>) {
+		mouse_cycle = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">return</span> -ENOTTY;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-12" id="section-12"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ps2_kbd_handle</span><span class="hljs-params">(<span class="hljs-keyword">uint8_t</span> data_byte)</span> </span>{
+	write_fs(keyboard_pipe, <span class="hljs-number">0</span>, <span class="hljs-number">1</span>, (<span class="hljs-keyword">uint8_t</span> []){data_byte});
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-13" id="section-13"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">shared_handler</span><span class="hljs-params">(struct regs * r)</span> </span>{
+	<span class="hljs-comment">/* Disable both ports */</span>
+	ps2_command(PS2_DISABLE_PORT1);
+	ps2_command(PS2_DISABLE_PORT2);
+	<span class="hljs-comment">/* Read the status and data */</span>
+	<span class="hljs-keyword">uint8_t</span> status = inportb(PS2_STATUS);
+	<span class="hljs-keyword">uint8_t</span> data_byte = inportb(PS2_DATA);
+	<span class="hljs-comment">/* Re-enable both */</span>
+	ps2_command(PS2_ENABLE_PORT1);
+	ps2_command(PS2_ENABLE_PORT2);
+
+	irq_ack(r-&gt;int_no<span class="hljs-number">-32</span>);
+
+	<span class="hljs-keyword">if</span> (!(status &amp; <span class="hljs-number">0x01</span>)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">if</span> (!(status &amp; <span class="hljs-number">0x20</span>)) {
+		ps2_kbd_handle(data_byte);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (status &amp; <span class="hljs-number">0x21</span>) {
+		ps2_mouse_handle(data_byte);
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-14" id="section-14"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">keyboard_handler</span><span class="hljs-params">(struct regs *r)</span> </span>{
+	<span class="hljs-keyword">uint8_t</span> data_byte = inportb(PS2_DATA);
+	irq_ack(KEYBOARD_IRQ);
+	ps2_kbd_handle(data_byte);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-15" id="section-15"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">mouse_handler</span><span class="hljs-params">(struct regs *r)</span> </span>{
+	<span class="hljs-keyword">uint8_t</span> data_byte = inportb(PS2_DATA);
+	irq_ack(MOUSE_IRQ);
+	ps2_mouse_handle(data_byte);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-16" id="section-16"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">ps2hid_install</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">uint8_t</span> status, result;
+
+	mouse_pipe = make_pipe(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">mouse_device_packet_t</span>) * PACKETS_IN_PIPE);
+	mouse_pipe-&gt;flags = FS_CHARDEVICE;
+	mouse_pipe-&gt;ioctl = ioctl_mouse;
+	vfs_mount(<span class="hljs-string">"/dev/mouse"</span>, mouse_pipe, <span class="hljs-string">"ps2-mouse"</span>, <span class="hljs-string">""</span>);
+
+	keyboard_pipe = make_pipe(<span class="hljs-number">128</span>);
+	keyboard_pipe-&gt;flags = FS_CHARDEVICE;
+	vfs_mount(<span class="hljs-string">"/dev/kbd"</span>, keyboard_pipe, <span class="hljs-string">"ps2-kbd"</span>, <span class="hljs-string">""</span>);
+
+	<span class="hljs-comment">/* Disable both ports. */</span>
+	ps2_command(PS2_DISABLE_PORT1);
+	ps2_command(PS2_DISABLE_PORT2);
+
+	<span class="hljs-comment">/* Clear the input buffer. */</span>
+	<span class="hljs-keyword">size_t</span> timeout = <span class="hljs-number">1024</span>; <span class="hljs-comment">/* Can't imagine a buffer with more than that being full... */</span>
+	<span class="hljs-keyword">while</span> ((inportb(PS2_STATUS) &amp; <span class="hljs-number">1</span>) &amp;&amp; timeout &gt; <span class="hljs-number">0</span>) {
+		timeout--;
+		inportb(PS2_DATA);
+	}
+
+	<span class="hljs-keyword">if</span> (timeout == <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"ps2hid: probably don't actually have PS/2.\n"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-comment">/* Enable interrupt lines, enable translation. */</span>
+	status = ps2_command_response(PS2_READ_CONFIG);
+	status |= (PS2_PORT1_IRQ | PS2_PORT2_IRQ | PS2_PORT1_TLATE);
+	ps2_command_arg(PS2_WRITE_CONFIG, status);
+
+	<span class="hljs-comment">/* Re-enable ports */</span>
+	ps2_command(PS2_ENABLE_PORT1);
+	ps2_command(PS2_ENABLE_PORT2);
+
+	<span class="hljs-comment">/* Set scancode mode to 2... which then gives us 1 with translation... */</span>
+	kbd_write(KBD_SET_SCANCODE);
+	kbd_write(<span class="hljs-number">2</span>);
+
+	<span class="hljs-comment">/* Now we'll configure the mouse... */</span>
+	mouse_write(MOUSE_SET_DEFAULTS);
+	mouse_write(MOUSE_DATA_ON);
+
+	<span class="hljs-comment">/* Try to enable scroll wheel (but not buttons) */</span>
+	<span class="hljs-keyword">if</span> (!args_present(<span class="hljs-string">"nomousescroll"</span>)) {
+		mouse_write(MOUSE_DEVICE_ID);
+		ps2_read_byte(); <span class="hljs-comment">/* Ignore response */</span>
+		mouse_write(MOUSE_SAMPLE_RATE);
+		mouse_write(<span class="hljs-number">200</span>);
+		mouse_write(MOUSE_SAMPLE_RATE);
+		mouse_write(<span class="hljs-number">100</span>);
+		mouse_write(MOUSE_SAMPLE_RATE);
+		mouse_write(<span class="hljs-number">80</span>);
+		mouse_write(MOUSE_DEVICE_ID);
+		result = ps2_read_byte();
+		<span class="hljs-keyword">if</span> (result == <span class="hljs-number">3</span>) {
+			mouse_mode = MOUSE_SCROLLWHEEL;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (args_present(<span class="hljs-string">"sharedps2"</span>)) {
+		irq_install_handler(KEYBOARD_IRQ, shared_handler, <span class="hljs-string">"ps2hid"</span>);
+		irq_install_handler(MOUSE_IRQ,    shared_handler, <span class="hljs-string">"ps2hid"</span>);
+	} <span class="hljs-keyword">else</span> {
+		irq_install_handler(KEYBOARD_IRQ, keyboard_handler, <span class="hljs-string">"ps2hid"</span>);
+		irq_install_handler(MOUSE_IRQ,    mouse_handler,    <span class="hljs-string">"ps2hid"</span>);
+	}
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

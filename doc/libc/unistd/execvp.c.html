@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>execvp.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "libc\\unistd\\execvp.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>execvp.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;libc/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdarg.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+
+DEFN_SYSCALL3(execve, SYS_EXECVE, <span class="hljs-keyword">char</span> *, <span class="hljs-keyword">char</span> **, <span class="hljs-keyword">char</span> **);
+
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">char</span> ** environ;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DEFAULT_PATH <span class="hljs-meta-string">"/bin:/usr/bin"</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">execve</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *name, <span class="hljs-keyword">char</span> * <span class="hljs-keyword">const</span> argv[], <span class="hljs-keyword">char</span> * <span class="hljs-keyword">const</span> envp[])</span> </span>{
+	__sets_errno(syscall_execve((<span class="hljs-keyword">char</span>*)name,(<span class="hljs-keyword">char</span>**)argv,(<span class="hljs-keyword">char</span>**)envp));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">execvpe</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *file, <span class="hljs-keyword">char</span> *<span class="hljs-keyword">const</span> argv[], <span class="hljs-keyword">char</span> *<span class="hljs-keyword">const</span> envp[])</span> </span>{
+	<span class="hljs-keyword">if</span> (file &amp;&amp; (!<span class="hljs-built_in">strstr</span>(file, <span class="hljs-string">"/"</span>))) {
+		<span class="hljs-keyword">int</span> was_eacces = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">char</span> * path = getenv(<span class="hljs-string">"PATH"</span>) ?: DEFAULT_PATH;
+		<span class="hljs-keyword">char</span> * xpath = strdup(path);
+		<span class="hljs-keyword">char</span> * p, * last;
+		<span class="hljs-keyword">for</span> ((p = strtok_r(xpath, <span class="hljs-string">":"</span>, &amp;last)); p; p = strtok_r(<span class="hljs-literal">NULL</span>, <span class="hljs-string">":"</span>, &amp;last)) {
+			<span class="hljs-keyword">char</span> *exe;
+			<span class="hljs-keyword">if</span> (asprintf(&amp;exe, <span class="hljs-string">"%s/%s"</span>, p, file) == <span class="hljs-number">-1</span>) <span class="hljs-keyword">continue</span>;
+			execve(exe, argv, envp);
+			<span class="hljs-keyword">switch</span> (errno) {
+				<span class="hljs-keyword">case</span> EACCES:
+					was_eacces = <span class="hljs-number">1</span>;
+					<span class="hljs-comment">/* fallthrough */</span>
+				<span class="hljs-keyword">case</span> ENOENT:
+				<span class="hljs-keyword">case</span> ENOTDIR:
+					<span class="hljs-comment">/* Continue search */</span>
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">default</span>:
+					<span class="hljs-comment">/* Other error means stop. */</span>
+					<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+			}
+		}
+		<span class="hljs-built_in">free</span>(xpath);
+		errno = was_eacces ? EACCES : ENOENT;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (file) {
+		<span class="hljs-keyword">return</span> execve(file, argv, envp);
+	}
+	errno = ENOENT;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">execvp</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *file, <span class="hljs-keyword">char</span> *<span class="hljs-keyword">const</span> argv[])</span> </span>{
+	<span class="hljs-keyword">return</span> execvpe(file, argv, environ);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">execv</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * file, <span class="hljs-keyword">char</span> * <span class="hljs-keyword">const</span> argv[])</span> </span>{
+	<span class="hljs-keyword">return</span> execve(file, argv, environ);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">execl</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *path, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *arg, ...)</span> </span>{
+	<span class="hljs-keyword">int</span> argc = <span class="hljs-number">1</span>; <span class="hljs-comment">/* Count */</span>
+	va_list ap;
+
+	<span class="hljs-comment">/* Count */</span>
+	va_start(ap, arg);
+	<span class="hljs-keyword">while</span> (va_arg(ap, <span class="hljs-keyword">char</span> *)) argc++;
+	va_end(ap);
+
+	<span class="hljs-comment">/* Copy */</span>
+	<span class="hljs-keyword">char</span> * argv[argc+<span class="hljs-number">1</span>];
+	va_start(ap, arg);
+	argv[<span class="hljs-number">0</span>] = (<span class="hljs-keyword">char</span>*)arg;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; i &lt;= argc; ++i) argv[i] = va_arg(ap, <span class="hljs-keyword">char</span>*);
+	va_end(ap);
+
+	<span class="hljs-comment">/* Exec */</span>
+	<span class="hljs-keyword">return</span> execv(path, argv);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">execlp</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *path, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *arg, ...)</span> </span>{
+	<span class="hljs-keyword">int</span> argc = <span class="hljs-number">1</span>; <span class="hljs-comment">/* Count */</span>
+	va_list ap;
+
+	<span class="hljs-comment">/* Count */</span>
+	va_start(ap, arg);
+	<span class="hljs-keyword">while</span> (va_arg(ap, <span class="hljs-keyword">char</span> *)) argc++;
+	va_end(ap);
+
+	<span class="hljs-comment">/* Copy */</span>
+	<span class="hljs-keyword">char</span> * argv[argc+<span class="hljs-number">1</span>];
+	va_start(ap, arg);
+	argv[<span class="hljs-number">0</span>] = (<span class="hljs-keyword">char</span>*)arg;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; i &lt;= argc; ++i) argv[i] = va_arg(ap, <span class="hljs-keyword">char</span>*);
+	va_end(ap);
+
+	<span class="hljs-comment">/* Exec */</span>
+	<span class="hljs-keyword">return</span> execvp(path, argv);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">execle</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *path, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *arg, ...)</span> </span>{
+	<span class="hljs-keyword">int</span> argc = <span class="hljs-number">1</span>; <span class="hljs-comment">/* Count */</span>
+	va_list ap;
+
+	<span class="hljs-comment">/* Count */</span>
+	va_start(ap, arg);
+	<span class="hljs-keyword">while</span> (va_arg(ap, <span class="hljs-keyword">char</span> *)) argc++;
+	va_end(ap);
+
+	<span class="hljs-comment">/* Copy */</span>
+	<span class="hljs-keyword">char</span> * argv[argc+<span class="hljs-number">1</span>];
+	va_start(ap, arg);
+	argv[<span class="hljs-number">0</span>] = (<span class="hljs-keyword">char</span>*)arg;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; i &lt;= argc; ++i) argv[i] = va_arg(ap, <span class="hljs-keyword">char</span>*);
+
+	<span class="hljs-keyword">char</span> ** envp = va_arg(ap, <span class="hljs-keyword">char</span>**);
+	va_end(ap);
+
+	<span class="hljs-comment">/* Exec */</span>
+	<span class="hljs-keyword">return</span> execve(path, argv, envp);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

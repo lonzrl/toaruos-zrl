@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>fwcfg.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kernel\\arch\\aarch64\\fwcfg.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>fwcfg.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/gzip.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/aarch64/dtb.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">fwcfg_dma</span> {</span>
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> control;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> length;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint64_t</span> address;
+} dma __attribute__((aligned(<span class="hljs-number">4096</span>)));
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">fwcfg_load_initrd</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> * ramdisk_phys_base, <span class="hljs-keyword">size_t</span> * ramdisk_size)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> z = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> z_pages= <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uintptr_t</span> uz = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> uz_pages = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">extern</span> <span class="hljs-keyword">char</span> <span class="hljs-built_in">end</span>[];
+	<span class="hljs-keyword">uintptr_t</span> ramdisk_map_start = mmu_map_to_physical(<span class="hljs-literal">NULL</span>, (<span class="hljs-keyword">uintptr_t</span>)&amp;<span class="hljs-built_in">end</span>);
+
+	<span class="hljs-comment">/* See if we can find a qemu fw_cfg interface, we can use that for a ramdisk */</span>
+	<span class="hljs-keyword">uint32_t</span> * fw_cfg = dtb_find_node_prefix(<span class="hljs-string">"fw-cfg"</span>);
+	<span class="hljs-keyword">if</span> (fw_cfg) {
+		dprintf(<span class="hljs-string">"fw-cfg: found interface\n"</span>);
+		<span class="hljs-comment">/* best guess until we bother parsing these */</span>
+		<span class="hljs-keyword">uint32_t</span> * regs = dtb_node_find_property(fw_cfg, <span class="hljs-string">"reg"</span>);
+		<span class="hljs-keyword">if</span> (regs) {
+			<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span> * fw_cfg_addr = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span>*)(<span class="hljs-keyword">uintptr_t</span>)(mmu_map_from_physical(swizzle(regs[<span class="hljs-number">3</span>])));
+			<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint64_t</span> * fw_cfg_data = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint64_t</span> *)fw_cfg_addr;
+			<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> * fw_cfg_32   = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> *)fw_cfg_addr;
+			<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span> * fw_cfg_sel  = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span> *)(fw_cfg_addr + <span class="hljs-number">8</span>);
+
+			*fw_cfg_sel = <span class="hljs-number">0</span>;
+
+			<span class="hljs-keyword">uint64_t</span> response = fw_cfg_data[<span class="hljs-number">0</span>];
+			(<span class="hljs-keyword">void</span>)response;
+
+			<span class="hljs-comment">/* Needs to be big-endian */</span>
+			*fw_cfg_sel = swizzle16(<span class="hljs-number">0x19</span>);
+
+			<span class="hljs-comment">/* count response is 32-bit BE */</span>
+			<span class="hljs-keyword">uint32_t</span> count = swizzle(fw_cfg_32[<span class="hljs-number">0</span>]);
+
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">fw_cfg_file</span> {</span>
+				<span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">size</span>;
+				<span class="hljs-keyword">uint16_t</span> select;
+				<span class="hljs-keyword">uint16_t</span> reserved;
+				<span class="hljs-keyword">char</span> name[<span class="hljs-number">56</span>];
+			};
+
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">fw_cfg_file</span> <span class="hljs-title">file</span>;</span>
+			<span class="hljs-keyword">uint8_t</span> * tmp = (<span class="hljs-keyword">uint8_t</span> *)&amp;file;
+
+			<span class="hljs-comment">/* Read count entries */</span>
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-keyword">sizeof</span>(struct fw_cfg_file); ++j) {
+					tmp[j] = fw_cfg_addr[<span class="hljs-number">0</span>];
+				}
+
+				<span class="hljs-comment">/* endian swap to get file size and selector ID */</span>
+				file.<span class="hljs-built_in">size</span> = swizzle(file.<span class="hljs-built_in">size</span>);
+				file.select = swizzle16(file.select);
+
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(file.name,<span class="hljs-string">"opt/org.toaruos.initrd"</span>)) {
+					dprintf(<span class="hljs-string">"fw-cfg: initrd found\n"</span>);
+					z_pages = (file.<span class="hljs-built_in">size</span> + <span class="hljs-number">0xFFF</span>) / <span class="hljs-number">0x1000</span>;
+					z = ramdisk_map_start;
+					ramdisk_map_start += z_pages * <span class="hljs-number">0x1000</span>;
+					<span class="hljs-keyword">uint8_t</span> * x = mmu_map_from_physical(z);
+
+					dma.control = swizzle((file.select &lt;&lt; <span class="hljs-number">16</span>) | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">3</span>) | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">1</span>));
+					dma.length  = swizzle(file.<span class="hljs-built_in">size</span>);
+					dma.address = swizzle64(z);
+
+					<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+					fw_cfg_data[<span class="hljs-number">2</span>] = swizzle64(mmu_map_to_physical(<span class="hljs-literal">NULL</span>,(<span class="hljs-keyword">uint64_t</span>)&amp;dma));
+					<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+					<span class="hljs-keyword">if</span> (dma.control) {
+						dprintf(<span class="hljs-string">"fw-cfg: Error on DMA read (control: %#x)\n"</span>, dma.control);
+						<span class="hljs-keyword">return</span>;
+					}
+
+					dprintf(<span class="hljs-string">"fw-cfg: initrd loaded x=%#zx\n"</span>, (<span class="hljs-keyword">uintptr_t</span>)x);
+
+					<span class="hljs-keyword">if</span> (x[<span class="hljs-number">0</span>] == <span class="hljs-number">0x1F</span> &amp;&amp; x[<span class="hljs-number">1</span>] == <span class="hljs-number">0x8B</span>) {
+						dprintf(<span class="hljs-string">"fw-cfg: will attempt to read size from %#zx\n"</span>, (<span class="hljs-keyword">uintptr_t</span>)(x + file.<span class="hljs-built_in">size</span> - <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>)));
+						<span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">size</span>;
+						<span class="hljs-built_in">memcpy</span>(&amp;<span class="hljs-built_in">size</span>, (x + file.<span class="hljs-built_in">size</span> - <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>)), <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>));
+						dprintf(<span class="hljs-string">"fw-cfg: compressed ramdisk unpacks to %u bytes\n"</span>, <span class="hljs-built_in">size</span>);
+
+						uz_pages = (<span class="hljs-built_in">size</span> + <span class="hljs-number">0xFFF</span>) / <span class="hljs-number">0x1000</span>;
+						uz = ramdisk_map_start;
+						ramdisk_map_start += uz_pages * <span class="hljs-number">0x1000</span>;
+						<span class="hljs-keyword">uint8_t</span> * ramdisk = mmu_map_from_physical(uz);
+
+						gzip_inputPtr = x;
+						gzip_outputPtr = ramdisk;
+						<span class="hljs-keyword">if</span> (gzip_decompress()) {
+							dprintf(<span class="hljs-string">"fw-cfg: gzip failure, not mounting ramdisk\n"</span>);
+							<span class="hljs-keyword">return</span>;
+						}
+
+						memmove(x, ramdisk, <span class="hljs-built_in">size</span>);
+
+						dprintf(<span class="hljs-string">"fw-cfg: Unpacked ramdisk at %#zx\n"</span>, (<span class="hljs-keyword">uintptr_t</span>)ramdisk);
+						*ramdisk_phys_base = z;
+						*ramdisk_size = <span class="hljs-built_in">size</span>;
+					} <span class="hljs-keyword">else</span> {
+						dprintf(<span class="hljs-string">"fw-cfg: Ramdisk at %#zx\n"</span>, (<span class="hljs-keyword">uintptr_t</span>)x);
+						*ramdisk_phys_base = z;
+						*ramdisk_size = file.<span class="hljs-built_in">size</span>;
+					}
+
+					<span class="hljs-keyword">return</span>;
+				}
+			}
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">read_fwcfg</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> * <span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span> * addr;
+	<span class="hljs-keyword">if</span> (offset == <span class="hljs-number">0x510</span>) {
+		<span class="hljs-comment">/* Read selector. Must be 16 bit; selector will be byte swapped from big-endian. */</span>
+		addr = (<span class="hljs-keyword">uint8_t</span>*)node-&gt;device + <span class="hljs-number">8</span>;
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> != <span class="hljs-number">2</span>) <span class="hljs-keyword">return</span> -EINVAL;
+		<span class="hljs-keyword">uint16_t</span> b = *(<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span> *)addr;
+		b = (b &gt;&gt; <span class="hljs-number">8</span>) | ((b &amp; <span class="hljs-number">0xFF</span>) &lt;&lt; <span class="hljs-number">8</span>);
+		*(<span class="hljs-keyword">uint16_t</span>*)<span class="hljs-built_in">buffer</span> = b;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (offset == <span class="hljs-number">0x511</span>) {
+		<span class="hljs-comment">/* Read one data byte */</span>
+		addr = (<span class="hljs-keyword">uint8_t</span>*)node-&gt;device;
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> != <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> -EINVAL;
+		*<span class="hljs-built_in">buffer</span> = *addr;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">return</span> -EINVAL;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">size</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">write_fwcfg</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> * <span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint8_t</span> * addr;
+	<span class="hljs-keyword">if</span> (offset == <span class="hljs-number">0x510</span>) {
+		<span class="hljs-comment">/* Write selector. Must be 16 bit; selector will be byte swapped to big-endian. */</span>
+		addr = (<span class="hljs-keyword">uint8_t</span>*)node-&gt;device + <span class="hljs-number">8</span>;
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> != <span class="hljs-number">2</span>) <span class="hljs-keyword">return</span> -EINVAL;
+		<span class="hljs-keyword">uint16_t</span> b = *(<span class="hljs-keyword">uint16_t</span> *)<span class="hljs-built_in">buffer</span>;
+		b = (b &gt;&gt; <span class="hljs-number">8</span>) | ((b &amp; <span class="hljs-number">0xFF</span>) &lt;&lt; <span class="hljs-number">8</span>);
+		*(<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint16_t</span>*)addr = b;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (offset == <span class="hljs-number">0x511</span>) {
+		<span class="hljs-comment">/* Write one data byte. */</span>
+		addr = (<span class="hljs-keyword">uint8_t</span>*)node-&gt;device;
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> != <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> -EINVAL;
+		*addr = *<span class="hljs-built_in">buffer</span>;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">return</span> -EINVAL;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">size</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">fwcfg_device</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> * fw_cfg = dtb_find_node_prefix(<span class="hljs-string">"fw-cfg"</span>);
+	<span class="hljs-keyword">if</span> (!fw_cfg) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">uint32_t</span> * regs = dtb_node_find_property(fw_cfg, <span class="hljs-string">"reg"</span>);
+	<span class="hljs-keyword">if</span> (!regs) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-keyword">uint8_t</span> * fw_cfg_addr = (<span class="hljs-keyword">uint8_t</span>*)(<span class="hljs-keyword">uintptr_t</span>)(mmu_map_from_physical(swizzle(regs[<span class="hljs-number">3</span>])));
+	<span class="hljs-keyword">fs_node_t</span> * fnode = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">memset</span>(fnode, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">strcpy</span>(fnode-&gt;name, <span class="hljs-string">"fwcfg"</span>);
+	fnode-&gt;flags  = FS_BLOCKDEVICE;
+	fnode-&gt;mask   = <span class="hljs-number">0660</span>;
+	fnode-&gt;<span class="hljs-built_in">read</span>   = read_fwcfg;
+	fnode-&gt;<span class="hljs-built_in">write</span>  = write_fwcfg;
+	fnode-&gt;device = fw_cfg_addr;
+
+	<span class="hljs-keyword">char</span> addr[<span class="hljs-number">100</span>];
+	<span class="hljs-built_in">snprintf</span>(addr, <span class="hljs-number">99</span>, <span class="hljs-string">"%p"</span>, (<span class="hljs-keyword">void</span>*)fw_cfg_addr);
+	vfs_mount(<span class="hljs-string">"/dev/fwcfg"</span>, fnode, <span class="hljs-string">"qemu-fwcfg"</span>, addr);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,1657 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>graphics.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "lib\\graphics.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>graphics.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;math.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;dlfcn.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> !defined(NO_SSE) &amp;&amp; defined(__x86_64__)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;xmmintrin.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;emmintrin.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/video.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">int32_t</span> <span class="hljs-title">min</span><span class="hljs-params">(<span class="hljs-keyword">int32_t</span> a, <span class="hljs-keyword">int32_t</span> b)</span> </span>{
+	<span class="hljs-keyword">return</span> (a &lt; b) ? a : b;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">int32_t</span> <span class="hljs-title">max</span><span class="hljs-params">(<span class="hljs-keyword">int32_t</span> a, <span class="hljs-keyword">int32_t</span> b)</span> </span>{
+	<span class="hljs-keyword">return</span> (a &gt; b) ? a : b;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint16_t</span> <span class="hljs-title">min16</span><span class="hljs-params">(<span class="hljs-keyword">uint16_t</span> a, <span class="hljs-keyword">uint16_t</span> b)</span> </span>{
+	<span class="hljs-keyword">return</span> (a &lt; b) ? a : b;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint16_t</span> <span class="hljs-title">max16</span><span class="hljs-params">(<span class="hljs-keyword">uint16_t</span> a, <span class="hljs-keyword">uint16_t</span> b)</span> </span>{
+	<span class="hljs-keyword">return</span> (a &gt; b) ? a : b;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> fmax(a,b) ((a) &gt; (b) ? (a) : (b))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> fmin(a,b) ((a) &lt; (b) ? (a) : (b))</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">int</span> _is_in_clip(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">int32_t</span> y) {
+	<span class="hljs-keyword">if</span> (!ctx-&gt;clips) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (y &lt; <span class="hljs-number">0</span> || y &gt;= ctx-&gt;clips_size) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> ctx-&gt;clips[y];
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">gfx_add_clip</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">int32_t</span> x, <span class="hljs-keyword">int32_t</span> y, <span class="hljs-keyword">int32_t</span> w, <span class="hljs-keyword">int32_t</span> h)</span> </span>{
+	(<span class="hljs-keyword">void</span>)x;
+	(<span class="hljs-keyword">void</span>)w; <span class="hljs-comment">// TODO Horizontal clipping</span>
+	<span class="hljs-keyword">if</span> (!ctx-&gt;clips) {
+		ctx-&gt;clips = <span class="hljs-built_in">malloc</span>(ctx-&gt;<span class="hljs-built_in">height</span>);
+		<span class="hljs-built_in">memset</span>(ctx-&gt;clips, <span class="hljs-number">0</span>, ctx-&gt;<span class="hljs-built_in">height</span>);
+		ctx-&gt;clips_size = ctx-&gt;<span class="hljs-built_in">height</span>;
+	}
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-built_in">max</span>(y,<span class="hljs-number">0</span>); i &lt; <span class="hljs-built_in">min</span>(y+h,ctx-&gt;clips_size); ++i) {
+		ctx-&gt;clips[i] = <span class="hljs-number">1</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">gfx_clear_clip</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx)</span> </span>{
+	<span class="hljs-keyword">if</span> (ctx-&gt;clips) {
+		<span class="hljs-built_in">memset</span>(ctx-&gt;clips, <span class="hljs-number">0</span>, ctx-&gt;clips_size);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">gfx_no_clip</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx)</span> </span>{
+	<span class="hljs-keyword">void</span> * tmp = ctx-&gt;clips;
+	<span class="hljs-keyword">if</span> (!tmp) <span class="hljs-keyword">return</span>;
+	ctx-&gt;clips = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-built_in">free</span>(tmp);
+}
+
+<span class="hljs-comment">/* Pointer to graphics memory */</span>
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">flip</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx)</span> </span>{
+	<span class="hljs-keyword">if</span> (ctx-&gt;clips) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; ctx-&gt;<span class="hljs-built_in">height</span>; ++i) {
+			<span class="hljs-keyword">if</span> (_is_in_clip(ctx,i)) {
+				<span class="hljs-built_in">memcpy</span>(&amp;ctx-&gt;<span class="hljs-built_in">buffer</span>[i*GFX_S(ctx)], &amp;ctx-&gt;backbuffer[i*GFX_S(ctx)], <span class="hljs-number">4</span> * ctx-&gt;<span class="hljs-built_in">width</span>);
+			}
+		}
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">memcpy</span>(ctx-&gt;<span class="hljs-built_in">buffer</span>, ctx-&gt;backbuffer, ctx-&gt;<span class="hljs-built_in">size</span>);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">gfx_flip_24bit</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> y = <span class="hljs-number">0</span>; y &lt; ctx-&gt;<span class="hljs-built_in">height</span>; ++y) {
+		<span class="hljs-keyword">if</span> (_is_in_clip(ctx,y)) {
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> x = <span class="hljs-number">0</span>; x &lt; ctx-&gt;<span class="hljs-built_in">width</span>; ++x) {
+				((<span class="hljs-keyword">uint8_t</span>*)ctx-&gt;<span class="hljs-built_in">buffer</span>)[y * ctx-&gt;_true_stride + x * <span class="hljs-number">3</span>] = ((<span class="hljs-keyword">uint8_t</span>*)ctx-&gt;backbuffer)[y * ctx-&gt;stride + x * <span class="hljs-number">4</span>];
+				((<span class="hljs-keyword">uint8_t</span>*)ctx-&gt;<span class="hljs-built_in">buffer</span>)[y * ctx-&gt;_true_stride + x * <span class="hljs-number">3</span>+<span class="hljs-number">1</span>] = ((<span class="hljs-keyword">uint8_t</span>*)ctx-&gt;backbuffer)[y * ctx-&gt;stride + x * <span class="hljs-number">4</span>+<span class="hljs-number">1</span>];
+				((<span class="hljs-keyword">uint8_t</span>*)ctx-&gt;<span class="hljs-built_in">buffer</span>)[y * ctx-&gt;_true_stride + x * <span class="hljs-number">3</span>+<span class="hljs-number">2</span>] = ((<span class="hljs-keyword">uint8_t</span>*)ctx-&gt;backbuffer)[y * ctx-&gt;stride + x * <span class="hljs-number">4</span>+<span class="hljs-number">2</span>];
+			}
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">clearbuffer</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx)</span> </span>{
+	<span class="hljs-built_in">memset</span>(ctx-&gt;backbuffer, <span class="hljs-number">0</span>, ctx-&gt;<span class="hljs-built_in">size</span>);
+}
+
+<span class="hljs-comment">/* Deprecated */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> framebuffer_fd = <span class="hljs-number">0</span>;
+<span class="hljs-function"><span class="hljs-keyword">gfx_context_t</span> * <span class="hljs-title">init_graphics_fullscreen</span><span class="hljs-params">()</span> </span>{
+	<span class="hljs-keyword">gfx_context_t</span> * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">gfx_context_t</span>));
+	out-&gt;clips = <span class="hljs-literal">NULL</span>;
+	out-&gt;<span class="hljs-built_in">buffer</span> = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">if</span> (!framebuffer_fd) {
+		framebuffer_fd = <span class="hljs-built_in">open</span>(<span class="hljs-string">"/dev/fb0"</span>, O_CLOEXEC | O_RDWR);
+	}
+	<span class="hljs-keyword">if</span> (framebuffer_fd &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-comment">/* oh shit */</span>
+		<span class="hljs-built_in">free</span>(out);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	ioctl(framebuffer_fd, IO_VID_WIDTH,  &amp;out-&gt;<span class="hljs-built_in">width</span>);
+	ioctl(framebuffer_fd, IO_VID_HEIGHT, &amp;out-&gt;<span class="hljs-built_in">height</span>);
+	ioctl(framebuffer_fd, IO_VID_DEPTH,  &amp;out-&gt;depth);
+	ioctl(framebuffer_fd, IO_VID_STRIDE, &amp;out-&gt;stride);
+	ioctl(framebuffer_fd, IO_VID_ADDR,   &amp;out-&gt;<span class="hljs-built_in">buffer</span>);
+	ioctl(framebuffer_fd, IO_VID_SIGNAL, <span class="hljs-literal">NULL</span>);
+
+	out-&gt;<span class="hljs-built_in">size</span>   = GFX_H(out) * GFX_S(out);
+
+	<span class="hljs-keyword">if</span> (out-&gt;depth == <span class="hljs-number">24</span>) {
+		out-&gt;depth = <span class="hljs-number">32</span>;
+		out-&gt;_true_stride = out-&gt;stride;
+		out-&gt;stride = <span class="hljs-number">4</span> * GFX_W(out);
+		out-&gt;<span class="hljs-built_in">size</span> = <span class="hljs-number">0</span>;
+	}
+
+	out-&gt;backbuffer = out-&gt;<span class="hljs-built_in">buffer</span>;
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">framebuffer_stride</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> stride;
+	ioctl(framebuffer_fd, IO_VID_STRIDE, &amp;stride);
+	<span class="hljs-keyword">return</span> stride;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">gfx_context_t</span> * <span class="hljs-title">init_graphics_fullscreen_double_buffer</span><span class="hljs-params">()</span> </span>{
+	<span class="hljs-keyword">gfx_context_t</span> * out = init_graphics_fullscreen();
+	<span class="hljs-keyword">if</span> (!out) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	out-&gt;backbuffer = <span class="hljs-built_in">malloc</span>(GFX_S(out) * GFX_H(out));
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">gfx_context_t</span> * <span class="hljs-title">init_graphics_subregion</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * base, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y, <span class="hljs-keyword">int</span> <span class="hljs-built_in">width</span>, <span class="hljs-keyword">int</span> <span class="hljs-built_in">height</span>)</span> </span>{
+	<span class="hljs-keyword">gfx_context_t</span> * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">gfx_context_t</span>));
+
+	out-&gt;clips = <span class="hljs-literal">NULL</span>;
+	out-&gt;depth = <span class="hljs-number">32</span>;
+
+	out-&gt;<span class="hljs-built_in">width</span> = <span class="hljs-built_in">width</span>;
+	out-&gt;<span class="hljs-built_in">height</span> = <span class="hljs-built_in">height</span>;
+	out-&gt;stride = base-&gt;stride;
+	out-&gt;backbuffer = base-&gt;backbuffer + (base-&gt;stride * y) + x * <span class="hljs-number">4</span>;
+	out-&gt;<span class="hljs-built_in">buffer</span> = base-&gt;<span class="hljs-built_in">buffer</span> + (base-&gt;stride * y) + x * <span class="hljs-number">4</span>;
+
+	<span class="hljs-keyword">if</span> (base-&gt;clips) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> _y = <span class="hljs-number">0</span>; _y &lt; <span class="hljs-built_in">height</span>; ++_y) {
+			<span class="hljs-keyword">if</span> (_is_in_clip(base, y + _y)) {
+				gfx_add_clip(out,<span class="hljs-number">0</span>,_y,<span class="hljs-built_in">width</span>,<span class="hljs-number">1</span>);
+			}
+		}
+	}
+
+	out-&gt;<span class="hljs-built_in">size</span> = <span class="hljs-number">0</span>; <span class="hljs-comment">/* don't allow flip or clear operations */</span>
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">reinit_graphics_fullscreen</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * out)</span> </span>{
+
+	ioctl(framebuffer_fd, IO_VID_WIDTH,  &amp;out-&gt;<span class="hljs-built_in">width</span>);
+	ioctl(framebuffer_fd, IO_VID_HEIGHT, &amp;out-&gt;<span class="hljs-built_in">height</span>);
+	ioctl(framebuffer_fd, IO_VID_DEPTH,  &amp;out-&gt;depth);
+	ioctl(framebuffer_fd, IO_VID_STRIDE, &amp;out-&gt;stride);
+
+	out-&gt;<span class="hljs-built_in">size</span>   = GFX_H(out) * GFX_S(out);
+
+	<span class="hljs-keyword">if</span> (out-&gt;clips &amp;&amp; out-&gt;clips_size != out-&gt;<span class="hljs-built_in">height</span>) {
+		<span class="hljs-built_in">free</span>(out-&gt;clips);
+		out-&gt;clips = <span class="hljs-literal">NULL</span>;
+		out-&gt;clips_size = <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (out-&gt;<span class="hljs-built_in">buffer</span> != out-&gt;backbuffer) {
+		ioctl(framebuffer_fd, IO_VID_ADDR,   &amp;out-&gt;<span class="hljs-built_in">buffer</span>);
+		out-&gt;backbuffer = <span class="hljs-built_in">realloc</span>(out-&gt;backbuffer, GFX_S(out) * GFX_H(out));
+	} <span class="hljs-keyword">else</span> {
+		ioctl(framebuffer_fd, IO_VID_ADDR,   &amp;out-&gt;<span class="hljs-built_in">buffer</span>);
+		out-&gt;backbuffer = out-&gt;<span class="hljs-built_in">buffer</span>;
+	}
+
+}
+
+<span class="hljs-function"><span class="hljs-keyword">gfx_context_t</span> * <span class="hljs-title">init_graphics_sprite</span><span class="hljs-params">(<span class="hljs-keyword">sprite_t</span> * sprite)</span> </span>{
+	<span class="hljs-keyword">gfx_context_t</span> * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">gfx_context_t</span>));
+	out-&gt;clips = <span class="hljs-literal">NULL</span>;
+
+	out-&gt;<span class="hljs-built_in">width</span>  = sprite-&gt;<span class="hljs-built_in">width</span>;
+	out-&gt;stride = sprite-&gt;<span class="hljs-built_in">width</span> * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>);
+	out-&gt;<span class="hljs-built_in">height</span> = sprite-&gt;<span class="hljs-built_in">height</span>;
+	out-&gt;depth  = <span class="hljs-number">32</span>;
+	out-&gt;<span class="hljs-built_in">size</span>   = GFX_H(out) * GFX_W(out) * GFX_B(out);
+	out-&gt;<span class="hljs-built_in">buffer</span> = (<span class="hljs-keyword">char</span> *)sprite-&gt;bitmap;
+	out-&gt;backbuffer = out-&gt;<span class="hljs-built_in">buffer</span>;
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">sprite_t</span> * <span class="hljs-title">create_sprite</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">width</span>, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">height</span>, <span class="hljs-keyword">int</span> alpha)</span> </span>{
+	<span class="hljs-keyword">sprite_t</span> * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">sprite_t</span>));
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>uint16_t width;
+uint16_t height;
+uint32_t * bitmap;
+uint32_t * masks;
+uint32_t blank;
+uint8_t  alpha;</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+	out-&gt;<span class="hljs-built_in">width</span>  = <span class="hljs-built_in">width</span>;
+	out-&gt;<span class="hljs-built_in">height</span> = <span class="hljs-built_in">height</span>;
+	out-&gt;bitmap = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>) * out-&gt;<span class="hljs-built_in">width</span> * out-&gt;<span class="hljs-built_in">height</span>);
+	out-&gt;masks  = <span class="hljs-literal">NULL</span>;
+	out-&gt;blank  = <span class="hljs-number">0x00000000</span>;
+	out-&gt;alpha  = alpha;
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">sprite_free</span><span class="hljs-params">(<span class="hljs-keyword">sprite_t</span> * sprite)</span> </span>{
+	<span class="hljs-keyword">if</span> (sprite-&gt;masks) {
+		<span class="hljs-built_in">free</span>(sprite-&gt;masks);
+	}
+	<span class="hljs-built_in">free</span>(sprite-&gt;bitmap);
+	<span class="hljs-built_in">free</span>(sprite);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">rgb</span><span class="hljs-params">(<span class="hljs-keyword">uint8_t</span> r, <span class="hljs-keyword">uint8_t</span> g, <span class="hljs-keyword">uint8_t</span> b)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0xFF000000</span> | (r &lt;&lt; <span class="hljs-number">16</span>) | (g &lt;&lt; <span class="hljs-number">8</span>) | (b);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">rgba</span><span class="hljs-params">(<span class="hljs-keyword">uint8_t</span> r, <span class="hljs-keyword">uint8_t</span> g, <span class="hljs-keyword">uint8_t</span> b, <span class="hljs-keyword">uint8_t</span> a)</span> </span>{
+	<span class="hljs-keyword">return</span> (a &lt;&lt; <span class="hljs-number">24U</span>) | (r &lt;&lt; <span class="hljs-number">16</span>) | (g &lt;&lt; <span class="hljs-number">8</span>) | (b);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">alpha_blend</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> bottom, <span class="hljs-keyword">uint32_t</span> top, <span class="hljs-keyword">uint32_t</span> mask)</span> </span>{
+	<span class="hljs-keyword">uint8_t</span> a = _RED(mask);
+	<span class="hljs-keyword">uint8_t</span> red = (_RED(bottom) * (<span class="hljs-number">255</span> - a) + _RED(top) * a) / <span class="hljs-number">255</span>;
+	<span class="hljs-keyword">uint8_t</span> gre = (_GRE(bottom) * (<span class="hljs-number">255</span> - a) + _GRE(top) * a) / <span class="hljs-number">255</span>;
+	<span class="hljs-keyword">uint8_t</span> blu = (_BLU(bottom) * (<span class="hljs-number">255</span> - a) + _BLU(top) * a) / <span class="hljs-number">255</span>;
+	<span class="hljs-keyword">uint8_t</span> alp = (<span class="hljs-keyword">int</span>)a + (<span class="hljs-keyword">int</span>)_ALP(bottom) &gt; <span class="hljs-number">255</span> ? <span class="hljs-number">255</span> : a + _ALP(bottom);
+	<span class="hljs-keyword">return</span> rgba(red,gre,blu, alp);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">alpha_blend_rgba</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> bottom, <span class="hljs-keyword">uint32_t</span> top)</span> </span>{
+	<span class="hljs-keyword">if</span> (_ALP(bottom) == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> top;
+	<span class="hljs-keyword">if</span> (_ALP(top) == <span class="hljs-number">255</span>) <span class="hljs-keyword">return</span> top;
+	<span class="hljs-keyword">if</span> (_ALP(top) == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> bottom;
+	<span class="hljs-keyword">uint8_t</span> a = _ALP(top);
+	<span class="hljs-keyword">uint16_t</span> t = <span class="hljs-number">0xFF</span> ^ a;
+	<span class="hljs-keyword">uint8_t</span> d_r = _RED(top) + (((<span class="hljs-keyword">uint32_t</span>)(_RED(bottom) * t + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L);
+	<span class="hljs-keyword">uint8_t</span> d_g = _GRE(top) + (((<span class="hljs-keyword">uint32_t</span>)(_GRE(bottom) * t + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L);
+	<span class="hljs-keyword">uint8_t</span> d_b = _BLU(top) + (((<span class="hljs-keyword">uint32_t</span>)(_BLU(bottom) * t + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L);
+	<span class="hljs-keyword">uint8_t</span> d_a = _ALP(top) + (((<span class="hljs-keyword">uint32_t</span>)(_ALP(bottom) * t + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L);
+	<span class="hljs-keyword">return</span> rgba(d_r, d_g, d_b, d_a);
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">premultiply</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> color)</span> </span>{
+	<span class="hljs-keyword">uint16_t</span> a = _ALP(color);
+	<span class="hljs-keyword">uint16_t</span> r = _RED(color);
+	<span class="hljs-keyword">uint16_t</span> g = _GRE(color);
+	<span class="hljs-keyword">uint16_t</span> b = _BLU(color);
+
+	r = r * a / <span class="hljs-number">255</span>;
+	g = g * a / <span class="hljs-number">255</span>;
+	b = b * a / <span class="hljs-number">255</span>;
+	<span class="hljs-keyword">return</span> rgba(r,g,b,a);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">int</span> <span class="hljs-title">clamp</span><span class="hljs-params">(<span class="hljs-keyword">int</span> a, <span class="hljs-keyword">int</span> l, <span class="hljs-keyword">int</span> h)</span> </span>{
+	<span class="hljs-keyword">return</span> a &lt; l ? l : (a &gt; h ? h : a);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _box_blur_horizontal(<span class="hljs-keyword">gfx_context_t</span> * _src, <span class="hljs-keyword">int</span> radius) {
+	<span class="hljs-keyword">int</span> w = _src-&gt;<span class="hljs-built_in">width</span>;
+	<span class="hljs-keyword">int</span> h = _src-&gt;<span class="hljs-built_in">height</span>;
+	<span class="hljs-keyword">int</span> half_radius = radius / <span class="hljs-number">2</span>;
+	<span class="hljs-keyword">uint32_t</span> * out_color = <span class="hljs-built_in">calloc</span>(w, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>));
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> y = <span class="hljs-number">0</span>; y &lt; h; y++) {
+		<span class="hljs-keyword">int</span> hits = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">int</span> r = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">int</span> g = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">int</span> b = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">int</span> a = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = -half_radius; x &lt; w; x++) {
+			<span class="hljs-keyword">int</span> old_p = x - half_radius - <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">if</span> (old_p &gt;= <span class="hljs-number">0</span>)
+			{
+				<span class="hljs-keyword">uint32_t</span> col = GFX(_src, clamp(old_p,<span class="hljs-number">0</span>,w<span class="hljs-number">-1</span>), y);
+				<span class="hljs-keyword">if</span> (col) {
+					r -= _RED(col);
+					g -= _GRE(col);
+					b -= _BLU(col);
+					a -= _ALP(col);
+				}
+				hits--;
+			}
+
+			<span class="hljs-keyword">int</span> newPixel = x + half_radius;
+			<span class="hljs-keyword">if</span> (newPixel &lt; w) {
+				<span class="hljs-keyword">uint32_t</span> col = GFX(_src, clamp(newPixel,<span class="hljs-number">0</span>,w<span class="hljs-number">-1</span>), y);
+				<span class="hljs-keyword">if</span> (col != <span class="hljs-number">0</span>) {
+					r += _RED(col);
+					g += _GRE(col);
+					b += _BLU(col);
+					a += _ALP(col);
+				}
+				hits++;
+			}
+
+			<span class="hljs-keyword">if</span> (x &gt;= <span class="hljs-number">0</span> &amp;&amp; x &lt; w) {
+				out_color[x] = rgba(r / hits, g / hits, b / hits, a / hits);
+			}
+		}
+
+		<span class="hljs-keyword">if</span> (!_is_in_clip(_src, y)) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; w; x++) {
+			GFX(_src,x,y) = out_color[x];
+		}
+	}
+
+	<span class="hljs-built_in">free</span>(out_color);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _box_blur_vertical(<span class="hljs-keyword">gfx_context_t</span> * _src, <span class="hljs-keyword">int</span> radius) {
+	<span class="hljs-keyword">int</span> w = _src-&gt;<span class="hljs-built_in">width</span>;
+	<span class="hljs-keyword">int</span> h = _src-&gt;<span class="hljs-built_in">height</span>;
+	<span class="hljs-keyword">int</span> half_radius = radius / <span class="hljs-number">2</span>;
+
+	<span class="hljs-keyword">uint32_t</span> * out_color = <span class="hljs-built_in">calloc</span>(h, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>));
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; w; x++) {
+		<span class="hljs-keyword">int</span> hits = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">int</span> r = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">int</span> g = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">int</span> b = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">int</span> a = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> y = -half_radius; y &lt; h; y++) {
+			<span class="hljs-keyword">int</span> old_p = y - half_radius - <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">if</span> (old_p &gt;= <span class="hljs-number">0</span>) {
+				<span class="hljs-keyword">uint32_t</span> col = GFX(_src,x,clamp(old_p,<span class="hljs-number">0</span>,h<span class="hljs-number">-1</span>));
+				<span class="hljs-keyword">if</span> (col != <span class="hljs-number">0</span>) {
+					r -= _RED(col);
+					g -= _GRE(col);
+					b -= _BLU(col);
+					a -= _ALP(col);
+				}
+				hits--;
+			}
+
+			<span class="hljs-keyword">int</span> newPixel = y + half_radius;
+			<span class="hljs-keyword">if</span> (newPixel &lt; h) {
+				<span class="hljs-keyword">uint32_t</span> col = GFX(_src,x,clamp(newPixel,<span class="hljs-number">0</span>,h<span class="hljs-number">-1</span>));
+				<span class="hljs-keyword">if</span> (col != <span class="hljs-number">0</span>)
+				{
+					r += _RED(col);
+					g += _GRE(col);
+					b += _BLU(col);
+					a += _ALP(col);
+				}
+				hits++;
+			}
+
+			<span class="hljs-keyword">if</span> (y &gt;= <span class="hljs-number">0</span> &amp;&amp; y &lt; h) {
+				out_color[y] = rgba(r / hits, g / hits, b / hits, a / hits);
+			}
+		}
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> y = <span class="hljs-number">0</span>; y &lt; h; y++) {
+			<span class="hljs-keyword">if</span> (!_is_in_clip(_src, y)) <span class="hljs-keyword">continue</span>;
+			GFX(_src,x,y) = out_color[y];
+		}
+	}
+
+	<span class="hljs-built_in">free</span>(out_color);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">blur_context_box</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * _src, <span class="hljs-keyword">int</span> radius)</span> </span>{
+	_box_blur_horizontal(_src,radius);
+	_box_blur_vertical(_src,radius);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">blur_from_into</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * _src, <span class="hljs-keyword">gfx_context_t</span> * _dest, <span class="hljs-keyword">int</span> radius)</span> </span>{
+	draw_fill(_dest, rgb(<span class="hljs-number">255</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">SpriteHandler</span> {</span>
+	<span class="hljs-keyword">char</span> * name;
+	<span class="hljs-keyword">int</span> (*load_sprite)(<span class="hljs-keyword">sprite_t</span> *, FILE *);
+	<span class="hljs-keyword">int</span> (*check_sprite)(FILE *);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">SpriteHandler</span> * <span class="hljs-title">next</span>;</span>
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">SpriteHandler</span> *<span class="hljs-title">handlers</span> = <span class="hljs-title">NULL</span>;</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * libs[] = {<span class="hljs-string">"jpeg"</span>, <span class="hljs-string">"png"</span>, <span class="hljs-literal">NULL</span>};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">add_lib</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * name, <span class="hljs-keyword">int</span> (*load_sprite)(<span class="hljs-keyword">sprite_t</span>*,FILE*), <span class="hljs-keyword">int</span> (*check_sprite)(FILE*))</span> </span>{
+	<span class="hljs-keyword">if</span> (!load_sprite || !check_sprite) <span class="hljs-keyword">return</span>; <span class="hljs-comment">/* Invalid library... */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">SpriteHandler</span> * <span class="hljs-title">nhandler</span> = <span class="hljs-title">calloc</span>(1, <span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">SpriteHandler</span>));</span>
+	nhandler-&gt;name = name;
+	nhandler-&gt;load_sprite = load_sprite;
+	nhandler-&gt;check_sprite = check_sprite;
+	nhandler-&gt;next = handlers;
+	handlers = nhandler;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">load_sprite_bmp</span><span class="hljs-params">(<span class="hljs-keyword">sprite_t</span> *, FILE*)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">check_sprite_bmp</span><span class="hljs-params">(FILE*)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">load_sprite_tga</span><span class="hljs-params">(<span class="hljs-keyword">sprite_t</span> *, FILE*)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">check_sprite_tga</span><span class="hljs-params">(FILE*)</span></span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _load_format_libraries() {
+
+	<span class="hljs-comment">/* Load the integrated ones so they are checked last */</span>
+	add_lib(<span class="hljs-string">"tga"</span>, load_sprite_tga, check_sprite_tga);
+	add_lib(<span class="hljs-string">"bmp"</span>, load_sprite_bmp, check_sprite_bmp);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">char</span> ** l = libs; *l; ++l) {
+		<span class="hljs-keyword">char</span> * lib_name, *load_name, *check_name;
+		asprintf(&amp;lib_name, <span class="hljs-string">"libtoaru_%s.so"</span>, *l);
+		asprintf(&amp;load_name, <span class="hljs-string">"load_sprite_%s"</span>, *l);
+		asprintf(&amp;check_name, <span class="hljs-string">"check_sprite_%s"</span>, *l);
+
+		<span class="hljs-keyword">void</span> * dllib = dlopen(lib_name, <span class="hljs-number">0</span>);
+		<span class="hljs-keyword">if</span> (dllib) {
+			add_lib(*l, dlsym(dllib, load_name), dlsym(dllib, check_name));
+		}
+
+		<span class="hljs-built_in">free</span>(lib_name);
+		<span class="hljs-built_in">free</span>(load_name);
+		<span class="hljs-built_in">free</span>(check_name);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">load_sprite</span><span class="hljs-params">(<span class="hljs-keyword">sprite_t</span> * sprite, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * filename)</span> </span>{
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> librariesLoaded = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (!librariesLoaded) {
+		_load_format_libraries();
+		librariesLoaded = <span class="hljs-number">1</span>;
+	}
+
+	FILE * f = fopen(filename, <span class="hljs-string">"r"</span>);
+	<span class="hljs-keyword">if</span> (!f) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">SpriteHandler</span> * <span class="hljs-title">handler</span> = <span class="hljs-title">handlers</span>;</span>
+
+	<span class="hljs-keyword">int</span> ret = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">while</span> (handler) {
+		fseek(f, <span class="hljs-number">0</span>, SEEK_SET);
+		<span class="hljs-keyword">if</span> (handler-&gt;check_sprite(f)) {
+			fseek(f, <span class="hljs-number">0</span>, SEEK_SET);
+			ret = handler-&gt;load_sprite(sprite, f);
+			<span class="hljs-keyword">break</span>;
+		}
+		handler = handler-&gt;next;
+	}
+
+	fclose(f);
+	<span class="hljs-keyword">return</span> ret;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">check_sprite_bmp</span><span class="hljs-params">(FILE *f)</span> </span>{
+	<span class="hljs-keyword">if</span> (fgetc(f) != <span class="hljs-string">'B'</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (fgetc(f) != <span class="hljs-string">'M'</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">load_sprite_bmp</span><span class="hljs-params">(<span class="hljs-keyword">sprite_t</span> * sprite, FILE * <span class="hljs-built_in">image</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">sb</span>;</span>
+	fstat(fileno(<span class="hljs-built_in">image</span>), &amp;sb);
+	<span class="hljs-keyword">long</span> image_size = sb.st_size;
+
+	<span class="hljs-keyword">if</span> (image_size &lt; <span class="hljs-number">16</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* Alright, we have the length */</span>
+	<span class="hljs-keyword">char</span> * bufferb = <span class="hljs-built_in">malloc</span>(image_size);
+	fread(bufferb, image_size, <span class="hljs-number">1</span>, <span class="hljs-built_in">image</span>);
+
+	<span class="hljs-comment">/* Bitmaps */</span>
+	<span class="hljs-keyword">uint16_t</span> x = <span class="hljs-number">0</span>; <span class="hljs-comment">/* -&gt; 212 */</span>
+	<span class="hljs-keyword">uint16_t</span> y = <span class="hljs-number">0</span>; <span class="hljs-comment">/* -&gt; 68 */</span>
+	<span class="hljs-comment">/* Get the width / height of the image */</span>
+	<span class="hljs-keyword">signed</span> <span class="hljs-keyword">int</span> *bufferi = (<span class="hljs-keyword">signed</span> <span class="hljs-keyword">int</span> *)((<span class="hljs-keyword">uintptr_t</span>)bufferb + <span class="hljs-number">2</span>);
+	<span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">width</span>  = bufferi[<span class="hljs-number">4</span>];
+	<span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">height</span> = bufferi[<span class="hljs-number">5</span>];
+	<span class="hljs-keyword">uint16_t</span> bpp    = bufferi[<span class="hljs-number">6</span>] / <span class="hljs-number">0x10000</span>;
+	<span class="hljs-keyword">uint32_t</span> row_width = (bpp * <span class="hljs-built_in">width</span> + <span class="hljs-number">31</span>) / <span class="hljs-number">32</span> * <span class="hljs-number">4</span>;
+	<span class="hljs-comment">/* Skip right to the important part */</span>
+	<span class="hljs-keyword">size_t</span> i = bufferi[<span class="hljs-number">2</span>];
+
+	sprite-&gt;<span class="hljs-built_in">width</span> = <span class="hljs-built_in">width</span>;
+	sprite-&gt;<span class="hljs-built_in">height</span> = <span class="hljs-built_in">height</span>;
+	sprite-&gt;bitmap = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>) * <span class="hljs-built_in">width</span> * <span class="hljs-built_in">height</span>);
+	sprite-&gt;masks = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">int</span> alpha_after = ((<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> *)&amp;bufferi[<span class="hljs-number">13</span>])[<span class="hljs-number">2</span>] == <span class="hljs-number">0xFF</span>;
+
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _BMP_A 0x1000000</span>
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _BMP_R 0x1</span>
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _BMP_G 0x100</span>
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _BMP_B 0x10000</span>
+
+	<span class="hljs-keyword">if</span> (bpp == <span class="hljs-number">32</span>) {
+		sprite-&gt;alpha = ALPHA_EMBEDDED;
+	}
+
+	<span class="hljs-keyword">for</span> (y = <span class="hljs-number">0</span>; y &lt; <span class="hljs-built_in">height</span>; ++y) {
+		<span class="hljs-keyword">for</span> (x = <span class="hljs-number">0</span>; x &lt; <span class="hljs-built_in">width</span>; ++x) {
+			<span class="hljs-keyword">if</span> (i &gt; (<span class="hljs-keyword">size_t</span>)image_size) <span class="hljs-keyword">goto</span> _cleanup_sprite;
+			<span class="hljs-comment">/* Extract the color */</span>
+			<span class="hljs-keyword">uint32_t</span> color;
+			<span class="hljs-keyword">if</span> (bpp == <span class="hljs-number">24</span>) {
+				color =	(bufferb[i   + <span class="hljs-number">3</span> * x] &amp; <span class="hljs-number">0xFF</span>) +
+						(bufferb[i+<span class="hljs-number">1</span> + <span class="hljs-number">3</span> * x] &amp; <span class="hljs-number">0xFF</span>) * <span class="hljs-number">0x100</span> +
+						(bufferb[i+<span class="hljs-number">2</span> + <span class="hljs-number">3</span> * x] &amp; <span class="hljs-number">0xFF</span>) * <span class="hljs-number">0x10000</span> + <span class="hljs-number">0xFF000000</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (bpp == <span class="hljs-number">32</span> &amp;&amp; alpha_after == <span class="hljs-number">0</span>) {
+				color =	(bufferb[i   + <span class="hljs-number">4</span> * x] &amp; <span class="hljs-number">0xFF</span>) * _BMP_A +
+						(bufferb[i+<span class="hljs-number">1</span> + <span class="hljs-number">4</span> * x] &amp; <span class="hljs-number">0xFF</span>) * _BMP_R +
+						(bufferb[i+<span class="hljs-number">2</span> + <span class="hljs-number">4</span> * x] &amp; <span class="hljs-number">0xFF</span>) * _BMP_G +
+						(bufferb[i+<span class="hljs-number">3</span> + <span class="hljs-number">4</span> * x] &amp; <span class="hljs-number">0xFF</span>) * _BMP_B;
+				color = premultiply(color);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (bpp == <span class="hljs-number">32</span> &amp;&amp; alpha_after == <span class="hljs-number">1</span>) {
+				color =	(bufferb[i   + <span class="hljs-number">4</span> * x] &amp; <span class="hljs-number">0xFF</span>) * _BMP_R +
+						(bufferb[i+<span class="hljs-number">1</span> + <span class="hljs-number">4</span> * x] &amp; <span class="hljs-number">0xFF</span>) * _BMP_G +
+						(bufferb[i+<span class="hljs-number">2</span> + <span class="hljs-number">4</span> * x] &amp; <span class="hljs-number">0xFF</span>) * _BMP_B +
+						(bufferb[i+<span class="hljs-number">3</span> + <span class="hljs-number">4</span> * x] &amp; <span class="hljs-number">0xFF</span>) * _BMP_A;
+				color = premultiply(color);
+			} <span class="hljs-keyword">else</span> {
+				color = rgb(bufferb[i + x],bufferb[i + x],bufferb[i + x]); <span class="hljs-comment">/* Unsupported */</span>
+			}
+			<span class="hljs-comment">/* Set our point */</span>
+			sprite-&gt;bitmap[(<span class="hljs-built_in">height</span> - y - <span class="hljs-number">1</span>) * <span class="hljs-built_in">width</span> + x] = color;
+		}
+		i += row_width;
+	}
+
+_cleanup_sprite:
+	<span class="hljs-built_in">free</span>(bufferb);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TgaHeader</span> {</span>
+	<span class="hljs-keyword">uint8_t</span> id_length;
+	<span class="hljs-keyword">uint8_t</span> color_map_type;
+	<span class="hljs-keyword">uint8_t</span> image_type;
+
+	<span class="hljs-keyword">uint16_t</span> color_map_first_entry;
+	<span class="hljs-keyword">uint16_t</span> color_map_length;
+	<span class="hljs-keyword">uint8_t</span> color_map_entry_size;
+
+	<span class="hljs-keyword">uint16_t</span> x_origin;
+	<span class="hljs-keyword">uint16_t</span> y_origin;
+	<span class="hljs-keyword">uint16_t</span> <span class="hljs-built_in">width</span>;
+	<span class="hljs-keyword">uint16_t</span> <span class="hljs-built_in">height</span>;
+	<span class="hljs-keyword">uint8_t</span>  depth;
+	<span class="hljs-keyword">uint8_t</span>  descriptor;
+} __attribute__((packed));
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">check_sprite_tga</span><span class="hljs-params">(FILE * f)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TgaHeader</span> <span class="hljs-title">attempt</span>;</span>
+	<span class="hljs-keyword">if</span> (fread(&amp;attempt, <span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(struct TgaHeader), f) != <span class="hljs-keyword">sizeof</span>(struct TgaHeader)) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (attempt.id_length) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (attempt.color_map_type) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (attempt.image_type != <span class="hljs-number">2</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">load_sprite_tga</span><span class="hljs-params">(<span class="hljs-keyword">sprite_t</span> * sprite, FILE * <span class="hljs-built_in">image</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">sb</span>;</span>
+	fstat(fileno(<span class="hljs-built_in">image</span>), &amp;sb);
+	<span class="hljs-keyword">long</span> image_size = sb.st_size;
+
+	<span class="hljs-keyword">if</span> (image_size &lt; <span class="hljs-number">16</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* Alright, we have the length */</span>
+	<span class="hljs-keyword">char</span> * bufferb = <span class="hljs-built_in">malloc</span>(image_size);
+	fread(bufferb, image_size, <span class="hljs-number">1</span>, <span class="hljs-built_in">image</span>);
+
+	<span class="hljs-comment">/* Assume targa; limited support */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TgaHeader</span> * <span class="hljs-title">header</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">TgaHeader</span> *)<span class="hljs-title">bufferb</span>;</span>
+
+	<span class="hljs-keyword">if</span> (header-&gt;id_length || header-&gt;color_map_type || (header-&gt;image_type != <span class="hljs-number">2</span>)) {
+		<span class="hljs-comment">/* Possibly valid but unsupported Targa file */</span>
+		<span class="hljs-built_in">free</span>(bufferb);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	sprite-&gt;<span class="hljs-built_in">width</span> = header-&gt;<span class="hljs-built_in">width</span>;
+	sprite-&gt;<span class="hljs-built_in">height</span> = header-&gt;<span class="hljs-built_in">height</span>;
+
+	<span class="hljs-keyword">int</span> pixel_size = header-&gt;depth == <span class="hljs-number">24</span> ? <span class="hljs-number">3</span> : <span class="hljs-number">4</span>;
+
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = sprite-&gt;<span class="hljs-built_in">width</span> * sprite-&gt;<span class="hljs-built_in">height</span>;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> * pixel_size &gt; image_size - <span class="hljs-keyword">sizeof</span>(struct TgaHeader)) {
+		<span class="hljs-comment">/* sus */</span>
+		<span class="hljs-built_in">free</span>(bufferb);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	sprite-&gt;bitmap = <span class="hljs-built_in">malloc</span>(<span class="hljs-built_in">size</span> * <span class="hljs-number">4</span>);
+	sprite-&gt;masks = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">uint16_t</span> x = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint16_t</span> y = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">int</span> i = <span class="hljs-keyword">sizeof</span>(struct TgaHeader);
+	<span class="hljs-keyword">if</span> (header-&gt;depth == <span class="hljs-number">24</span>) {
+		<span class="hljs-keyword">for</span> (y = <span class="hljs-number">0</span>; y &lt; sprite-&gt;<span class="hljs-built_in">height</span>; ++y) {
+			<span class="hljs-keyword">for</span> (x = <span class="hljs-number">0</span>; x &lt; sprite-&gt;<span class="hljs-built_in">width</span>; ++x) {
+				<span class="hljs-keyword">uint32_t</span> color = rgb(
+							bufferb[i+<span class="hljs-number">2</span> + <span class="hljs-number">3</span> * x],
+							bufferb[i+<span class="hljs-number">1</span> + <span class="hljs-number">3</span> * x],
+							bufferb[i   + <span class="hljs-number">3</span> * x]);
+				sprite-&gt;bitmap[(sprite-&gt;<span class="hljs-built_in">height</span> - y - <span class="hljs-number">1</span>) * sprite-&gt;<span class="hljs-built_in">width</span> + x] = color;
+			}
+			i += sprite-&gt;<span class="hljs-built_in">width</span> * <span class="hljs-number">3</span>;
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (header-&gt;depth == <span class="hljs-number">32</span>) {
+		<span class="hljs-keyword">for</span> (y = <span class="hljs-number">0</span>; y &lt; sprite-&gt;<span class="hljs-built_in">height</span>; ++y) {
+			<span class="hljs-keyword">for</span> (x = <span class="hljs-number">0</span>; x &lt; sprite-&gt;<span class="hljs-built_in">width</span>; ++x) {
+				<span class="hljs-keyword">uint32_t</span> color = rgba(
+							bufferb[i+<span class="hljs-number">2</span> + <span class="hljs-number">4</span> * x],
+							bufferb[i+<span class="hljs-number">1</span> + <span class="hljs-number">4</span> * x],
+							bufferb[i   + <span class="hljs-number">4</span> * x],
+							bufferb[i+<span class="hljs-number">3</span> + <span class="hljs-number">4</span> * x]);
+				sprite-&gt;bitmap[(sprite-&gt;<span class="hljs-built_in">height</span> - y - <span class="hljs-number">1</span>) * sprite-&gt;<span class="hljs-built_in">width</span> + x] = color;
+			}
+			i += sprite-&gt;<span class="hljs-built_in">width</span> * <span class="hljs-number">4</span>;
+		}
+	}
+
+	<span class="hljs-built_in">free</span>(bufferb);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> !defined(NO_SSE) &amp;&amp; defined(__x86_64__)</span>
+<span class="hljs-keyword">static</span> __m128i mask00ff;
+<span class="hljs-keyword">static</span> __m128i mask0080;
+<span class="hljs-keyword">static</span> __m128i mask0101;
+
+__attribute__((constructor)) <span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _masks(<span class="hljs-keyword">void</span>) {
+	mask00ff = _mm_set1_epi16(<span class="hljs-number">0x00FF</span>);
+	mask0080 = _mm_set1_epi16(<span class="hljs-number">0x0080</span>);
+	mask0101 = _mm_set1_epi16(<span class="hljs-number">0x0101</span>);
+}
+
+__attribute__((__force_align_arg_pointer__))
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">draw_sprite</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">const</span> <span class="hljs-keyword">sprite_t</span> * sprite, <span class="hljs-keyword">int32_t</span> x, <span class="hljs-keyword">int32_t</span> y)</span> </span>{
+
+	<span class="hljs-keyword">int32_t</span> _left   = <span class="hljs-built_in">max</span>(x, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">int32_t</span> _top    = <span class="hljs-built_in">max</span>(y, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">int32_t</span> _right  = <span class="hljs-built_in">min</span>(x + sprite-&gt;<span class="hljs-built_in">width</span>,  ctx-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">int32_t</span> _bottom = <span class="hljs-built_in">min</span>(y + sprite-&gt;<span class="hljs-built_in">height</span>, ctx-&gt;<span class="hljs-built_in">height</span> - <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (sprite-&gt;alpha == ALPHA_EMBEDDED) {
+		<span class="hljs-comment">/* Alpha embedded is the most important step. */</span>
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint16_t</span> _y = <span class="hljs-number">0</span>; _y &lt; sprite-&gt;<span class="hljs-built_in">height</span>; ++_y) {
+			<span class="hljs-keyword">if</span> (y + _y &lt; _top) <span class="hljs-keyword">continue</span>;
+			<span class="hljs-keyword">if</span> (y + _y &gt; _bottom) <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">if</span> (!_is_in_clip(ctx, y + _y)) <span class="hljs-keyword">continue</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(NO_SSE) || !defined(__x86_64__)</span>
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint16_t</span> _x = <span class="hljs-number">0</span>; _x &lt; sprite-&gt;<span class="hljs-built_in">width</span>; ++_x) {
+				<span class="hljs-keyword">if</span> (x + _x &lt; _left || x + _x &gt; _right || y + _y &lt; _top || y + _y &gt; _bottom)
+					<span class="hljs-keyword">continue</span>;
+				GFX(ctx, x + _x, y + _y) = alpha_blend_rgba(GFX(ctx, x + _x, y + _y), SPRITE(sprite, _x, _y));
+			}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+			<span class="hljs-keyword">uint16_t</span> _x = (x &lt; _left) ? _left - x : <span class="hljs-number">0</span>;
+
+			<span class="hljs-comment">/* Ensure alignment */</span>
+			<span class="hljs-keyword">for</span> (; _x &lt; sprite-&gt;<span class="hljs-built_in">width</span> &amp;&amp; x + _x &lt;= _right; ++_x) {
+				<span class="hljs-keyword">if</span> (!((<span class="hljs-keyword">uintptr_t</span>)&amp;GFX(ctx, x + _x, y + _y) &amp; <span class="hljs-number">15</span>)) <span class="hljs-keyword">break</span>;
+				GFX(ctx, x + _x, y + _y) = alpha_blend_rgba(GFX(ctx, x + _x, y + _y), SPRITE(sprite, _x, _y));
+			}
+			<span class="hljs-keyword">for</span> (; _x &lt; sprite-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">3</span> &amp;&amp; x + _x + <span class="hljs-number">3</span> &lt;= _right; _x += <span class="hljs-number">4</span>) {
+				__m128i d = _mm_load_si128((<span class="hljs-keyword">void</span> *)&amp;GFX(ctx, x + _x, y + _y));
+				__m128i s = _mm_loadu_si128((<span class="hljs-keyword">void</span> *)&amp;SPRITE(sprite, _x, _y));
+
+				__m128i d_l, d_h;
+				__m128i s_l, s_h;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<p>unpack destination</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				d_l = _mm_unpacklo_epi8(d, _mm_setzero_si128());
+				d_h = _mm_unpackhi_epi8(d, _mm_setzero_si128());
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<p>unpack source</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				s_l = _mm_unpacklo_epi8(s, _mm_setzero_si128());
+				s_h = _mm_unpackhi_epi8(s, _mm_setzero_si128());
+
+				__m128i a_l, a_h;
+				__m128i t_l, t_h;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<p>extract source alpha RGBA → AAAA</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				a_l = _mm_shufflehi_epi16(_mm_shufflelo_epi16(s_l, _MM_SHUFFLE(<span class="hljs-number">3</span>,<span class="hljs-number">3</span>,<span class="hljs-number">3</span>,<span class="hljs-number">3</span>)), _MM_SHUFFLE(<span class="hljs-number">3</span>,<span class="hljs-number">3</span>,<span class="hljs-number">3</span>,<span class="hljs-number">3</span>));
+				a_h = _mm_shufflehi_epi16(_mm_shufflelo_epi16(s_h, _MM_SHUFFLE(<span class="hljs-number">3</span>,<span class="hljs-number">3</span>,<span class="hljs-number">3</span>,<span class="hljs-number">3</span>)), _MM_SHUFFLE(<span class="hljs-number">3</span>,<span class="hljs-number">3</span>,<span class="hljs-number">3</span>,<span class="hljs-number">3</span>));
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<p>negate source alpha</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				t_l = _mm_xor_si128(a_l, mask00ff);
+				t_h = _mm_xor_si128(a_h, mask00ff);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<p>apply source alpha to destination</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				d_l = _mm_mulhi_epu16(_mm_adds_epu16(_mm_mullo_epi16(d_l,t_l),mask0080),mask0101);
+				d_h = _mm_mulhi_epu16(_mm_adds_epu16(_mm_mullo_epi16(d_h,t_h),mask0080),mask0101);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<p>combine source and destination</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				d_l = _mm_adds_epu8(s_l,d_l);
+				d_h = _mm_adds_epu8(s_h,d_h);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<p>pack low + high and write back to memory</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				_mm_storeu_si128((<span class="hljs-keyword">void</span>*)&amp;GFX(ctx, x + _x, y + _y), _mm_packus_epi16(d_l,d_h));
+			}
+			<span class="hljs-keyword">for</span> (; _x &lt; sprite-&gt;<span class="hljs-built_in">width</span> &amp;&amp; x + _x &lt;= _right; ++_x) {
+				GFX(ctx, x + _x, y + _y) = alpha_blend_rgba(GFX(ctx, x + _x, y + _y), SPRITE(sprite, _x, _y));
+			}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (sprite-&gt;alpha == ALPHA_OPAQUE) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint16_t</span> _y = <span class="hljs-number">0</span>; _y &lt; sprite-&gt;<span class="hljs-built_in">height</span>; ++_y) {
+			<span class="hljs-keyword">if</span> (y + _y &lt; _top) <span class="hljs-keyword">continue</span>;
+			<span class="hljs-keyword">if</span> (y + _y &gt; _bottom) <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">if</span> (!_is_in_clip(ctx, y + _y)) <span class="hljs-keyword">continue</span>;
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint16_t</span> _x = (x &lt; _left) ? _left - x : <span class="hljs-number">0</span>; _x &lt; sprite-&gt;<span class="hljs-built_in">width</span> &amp;&amp; x + _x &lt;= _right; ++_x) {
+				GFX(ctx, x + _x, y + _y) = SPRITE(sprite, _x, _y) | <span class="hljs-number">0xFF000000</span>;
+			}
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">draw_line</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">int32_t</span> x0, <span class="hljs-keyword">int32_t</span> x1, <span class="hljs-keyword">int32_t</span> y0, <span class="hljs-keyword">int32_t</span> y1, <span class="hljs-keyword">uint32_t</span> color)</span> </span>{
+	<span class="hljs-keyword">int</span> deltax = <span class="hljs-built_in">abs</span>(x1 - x0);
+	<span class="hljs-keyword">int</span> deltay = <span class="hljs-built_in">abs</span>(y1 - y0);
+	<span class="hljs-keyword">int</span> sx = (x0 &lt; x1) ? <span class="hljs-number">1</span> : <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">int</span> sy = (y0 &lt; y1) ? <span class="hljs-number">1</span> : <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">int</span> error = deltax - deltay;
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">if</span> (x0 &gt;= <span class="hljs-number">0</span> &amp;&amp; y0 &gt;= <span class="hljs-number">0</span> &amp;&amp; x0 &lt; ctx-&gt;<span class="hljs-built_in">width</span> &amp;&amp; y0 &lt; ctx-&gt;<span class="hljs-built_in">height</span>) {
+			GFX(ctx, x0, y0) = color;
+		}
+		<span class="hljs-keyword">if</span> (x0 == x1 &amp;&amp; y0 == y1) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">int</span> e2 = <span class="hljs-number">2</span> * error;
+		<span class="hljs-keyword">if</span> (e2 &gt; -deltay) {
+			error -= deltay;
+			x0 += sx;
+		}
+		<span class="hljs-keyword">if</span> (e2 &lt; deltax) {
+			error += deltax;
+			y0 += sy;
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">draw_line_thick</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">int32_t</span> x0, <span class="hljs-keyword">int32_t</span> x1, <span class="hljs-keyword">int32_t</span> y0, <span class="hljs-keyword">int32_t</span> y1, <span class="hljs-keyword">uint32_t</span> color, <span class="hljs-keyword">char</span> thickness)</span> </span>{
+	<span class="hljs-keyword">int</span> deltax = <span class="hljs-built_in">abs</span>(x1 - x0);
+	<span class="hljs-keyword">int</span> deltay = <span class="hljs-built_in">abs</span>(y1 - y0);
+	<span class="hljs-keyword">int</span> sx = (x0 &lt; x1) ? <span class="hljs-number">1</span> : <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">int</span> sy = (y0 &lt; y1) ? <span class="hljs-number">1</span> : <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">int</span> error = deltax - deltay;
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">char</span> j = -thickness; j &lt;= thickness; ++j) {
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">char</span> i = -thickness; i &lt;= thickness; ++i) {
+				<span class="hljs-keyword">if</span> (x0 + i &gt;= <span class="hljs-number">0</span> &amp;&amp; x0 + i &lt; ctx-&gt;<span class="hljs-built_in">width</span> &amp;&amp; y0 + j &gt;= <span class="hljs-number">0</span> &amp;&amp; y0 + j &lt; ctx-&gt;<span class="hljs-built_in">height</span>) {
+					GFX(ctx, x0 + i, y0 + j) = color;
+				}
+			}
+		}
+		<span class="hljs-keyword">if</span> (x0 == x1 &amp;&amp; y0 == y1) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">int</span> e2 = <span class="hljs-number">2</span> * error;
+		<span class="hljs-keyword">if</span> (e2 &gt; -deltay) {
+			error -= deltay;
+			x0 += sx;
+		}
+		<span class="hljs-keyword">if</span> (e2 &lt; deltax) {
+			error += deltax;
+			y0 += sy;
+		}
+	}
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">draw_fill</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">uint32_t</span> color)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint16_t</span> y = <span class="hljs-number">0</span>; y &lt; ctx-&gt;<span class="hljs-built_in">height</span>; ++y) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint16_t</span> x = <span class="hljs-number">0</span>; x &lt; ctx-&gt;<span class="hljs-built_in">width</span>; ++x) {
+			GFX(ctx, x, y) = color;
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">int</span> <span class="hljs-title">out_of_bounds</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">sprite_t</span> * tex, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y)</span> </span>{
+	<span class="hljs-keyword">return</span> x &lt; <span class="hljs-number">0</span> || y &lt; <span class="hljs-number">0</span> || x &gt;= tex-&gt;<span class="hljs-built_in">width</span> || y &gt;= tex-&gt;<span class="hljs-built_in">height</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 1</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">linear_interp</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> left, <span class="hljs-keyword">uint32_t</span> right, <span class="hljs-keyword">uint16_t</span> pr)</span> </span>{
+	<span class="hljs-keyword">uint16_t</span> pl = <span class="hljs-number">0xFF</span> ^ pr;
+	<span class="hljs-keyword">uint8_t</span> d_r = (((<span class="hljs-keyword">uint32_t</span>)(_RED(right) * pr + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L) + (((<span class="hljs-keyword">uint32_t</span>)(_RED(left) * pl + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L);
+	<span class="hljs-keyword">uint8_t</span> d_g = (((<span class="hljs-keyword">uint32_t</span>)(_GRE(right) * pr + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L) + (((<span class="hljs-keyword">uint32_t</span>)(_GRE(left) * pl + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L);
+	<span class="hljs-keyword">uint8_t</span> d_b = (((<span class="hljs-keyword">uint32_t</span>)(_BLU(right) * pr + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L) + (((<span class="hljs-keyword">uint32_t</span>)(_BLU(left) * pl + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L);
+	<span class="hljs-keyword">uint8_t</span> d_a = (((<span class="hljs-keyword">uint32_t</span>)(_ALP(right) * pr + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L) + (((<span class="hljs-keyword">uint32_t</span>)(_ALP(left) * pl + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L);
+	<span class="hljs-keyword">return</span> rgba(d_r, d_g, d_b, d_a);
+}
+
+__attribute__((hot))
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">gfx_bilinear_interpolation</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">sprite_t</span> * tex, <span class="hljs-keyword">double</span> u, <span class="hljs-keyword">double</span> v)</span> </span>{
+	<span class="hljs-keyword">int</span> x = (<span class="hljs-keyword">int</span>)(u + <span class="hljs-number">2.0</span>) - <span class="hljs-number">2</span>;
+	<span class="hljs-keyword">int</span> y = (<span class="hljs-keyword">int</span>)(v + <span class="hljs-number">2.0</span>) - <span class="hljs-number">2</span>;
+	<span class="hljs-keyword">uint32_t</span> ul = out_of_bounds(tex,x,y)     ? <span class="hljs-number">0</span> : SPRITE(tex,x,y);
+	<span class="hljs-keyword">uint32_t</span> ur = out_of_bounds(tex,x+<span class="hljs-number">1</span>,y)   ? <span class="hljs-number">0</span> : SPRITE(tex,x+<span class="hljs-number">1</span>,y);
+	<span class="hljs-keyword">uint32_t</span> ll = out_of_bounds(tex,x,y+<span class="hljs-number">1</span>)   ? <span class="hljs-number">0</span> : SPRITE(tex,x,y+<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">uint32_t</span> lr = out_of_bounds(tex,x+<span class="hljs-number">1</span>,y+<span class="hljs-number">1</span>) ? <span class="hljs-number">0</span> : SPRITE(tex,x+<span class="hljs-number">1</span>,y+<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> ((ul | ur | ll | lr) == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint8_t</span> u_ratio = (u - x) * <span class="hljs-number">0xFF</span>;
+	<span class="hljs-keyword">uint8_t</span> v_ratio = (v - y) * <span class="hljs-number">0xFF</span>;
+	<span class="hljs-keyword">uint32_t</span> top = linear_interp(ul,ur,u_ratio);
+	<span class="hljs-keyword">uint32_t</span> bot = linear_interp(ll,lr,u_ratio);
+	<span class="hljs-keyword">return</span> linear_interp(top,bot,v_ratio);
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">gfx_bilinear_interpolation</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">sprite_t</span> * tex, <span class="hljs-keyword">double</span> u, <span class="hljs-keyword">double</span> v)</span> </span>{
+	<span class="hljs-keyword">return</span> out_of_bounds(tex,u,v) ? <span class="hljs-number">0</span> : SPRITE(tex,(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)u,(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)v);
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">void</span> <span class="hljs-title">apply_alpha_vector</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> * pixels, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">width</span>, <span class="hljs-keyword">uint8_t</span> alpha)</span> </span>{
+	<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> !defined(NO_SSE) &amp;&amp; defined(__x86_64__)</span>
+	__m128i alp = _mm_set_epi16(alpha,alpha,alpha,alpha,alpha,alpha,alpha,alpha);
+	<span class="hljs-keyword">while</span> (i + <span class="hljs-number">3</span> &lt; <span class="hljs-built_in">width</span>) {
+		__m128i p = _mm_load_si128((<span class="hljs-keyword">void</span>*)&amp;pixels[i]);
+		__m128i d_l, d_h;
+
+		d_l = _mm_mulhi_epu16(_mm_adds_epu16(_mm_mullo_epi16(_mm_unpacklo_epi8(p, _mm_setzero_si128()),alp),mask0080),mask0101);
+		d_h = _mm_mulhi_epu16(_mm_adds_epu16(_mm_mullo_epi16(_mm_unpackhi_epi8(p, _mm_setzero_si128()),alp),mask0080),mask0101);
+
+		_mm_storeu_si128((<span class="hljs-keyword">void</span>*)&amp;pixels[i], _mm_packus_epi16(d_l,d_h));
+
+		i += <span class="hljs-number">4</span>;
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	<span class="hljs-keyword">while</span> (i &lt; <span class="hljs-built_in">width</span>) {
+		<span class="hljs-keyword">uint8_t</span> r = _RED(pixels[i]);
+		<span class="hljs-keyword">uint8_t</span> g = _GRE(pixels[i]);
+		<span class="hljs-keyword">uint8_t</span> b = _BLU(pixels[i]);
+		<span class="hljs-keyword">uint8_t</span> a = _ALP(pixels[i]);
+
+		r = (((<span class="hljs-keyword">uint16_t</span>)r * alpha + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L;
+		g = (((<span class="hljs-keyword">uint16_t</span>)g * alpha + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L;
+		b = (((<span class="hljs-keyword">uint16_t</span>)b * alpha + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L;
+		a = (((<span class="hljs-keyword">uint16_t</span>)a * alpha + <span class="hljs-number">0x80</span>) * <span class="hljs-number">0x101</span>) &gt;&gt; <span class="hljs-number">16U</span>L;
+
+		pixels[i] = rgba(r,g,b,a);
+		i++;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">draw_sprite_alpha</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">const</span> <span class="hljs-keyword">sprite_t</span> * sprite, <span class="hljs-keyword">int32_t</span> x, <span class="hljs-keyword">int32_t</span> y, <span class="hljs-keyword">float</span> alpha)</span> </span>{
+	<span class="hljs-keyword">int32_t</span> _left   = <span class="hljs-built_in">max</span>(x, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">int32_t</span> _top    = <span class="hljs-built_in">max</span>(y, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">int32_t</span> _right  = <span class="hljs-built_in">min</span>(x + sprite-&gt;<span class="hljs-built_in">width</span>,  ctx-&gt;<span class="hljs-built_in">width</span>);
+	<span class="hljs-keyword">int32_t</span> _bottom = <span class="hljs-built_in">min</span>(y + sprite-&gt;<span class="hljs-built_in">height</span>, ctx-&gt;<span class="hljs-built_in">height</span>);
+	<span class="hljs-keyword">sprite_t</span> * scanline = create_sprite(_right - _left, <span class="hljs-number">1</span>, ALPHA_EMBEDDED);
+	<span class="hljs-keyword">uint8_t</span> alp = alpha * <span class="hljs-number">255</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint16_t</span> _y = <span class="hljs-number">0</span>; _y &lt; sprite-&gt;<span class="hljs-built_in">height</span>; ++_y) {
+		<span class="hljs-keyword">if</span> (y + _y &lt; _top) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">if</span> (y + _y &gt;= _bottom) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">if</span> (!_is_in_clip(ctx, y + _y)) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint16_t</span> _x = (x &lt; _left) ? _left - x : <span class="hljs-number">0</span>; _x &lt; sprite-&gt;<span class="hljs-built_in">width</span> &amp;&amp; x + _x &lt; _right; ++_x) {
+			SPRITE(scanline,_x + x - _left,<span class="hljs-number">0</span>) = SPRITE(sprite, _x, _y);
+		}
+		apply_alpha_vector(scanline-&gt;bitmap, scanline-&gt;<span class="hljs-built_in">width</span>, alp);
+		draw_sprite(ctx,scanline,_left,y + _y);
+	}
+
+	sprite_free(scanline);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">draw_sprite_alpha_paint</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">const</span> <span class="hljs-keyword">sprite_t</span> * sprite, <span class="hljs-keyword">int32_t</span> x, <span class="hljs-keyword">int32_t</span> y, <span class="hljs-keyword">float</span> alpha, <span class="hljs-keyword">uint32_t</span> c)</span> </span>{
+	<span class="hljs-keyword">int32_t</span> _left   = <span class="hljs-built_in">max</span>(x, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">int32_t</span> _top    = <span class="hljs-built_in">max</span>(y, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">int32_t</span> _right  = <span class="hljs-built_in">min</span>(x + sprite-&gt;<span class="hljs-built_in">width</span>,  ctx-&gt;<span class="hljs-built_in">width</span>);
+	<span class="hljs-keyword">int32_t</span> _bottom = <span class="hljs-built_in">min</span>(y + sprite-&gt;<span class="hljs-built_in">height</span>, ctx-&gt;<span class="hljs-built_in">height</span>);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint16_t</span> _y = <span class="hljs-number">0</span>; _y &lt; sprite-&gt;<span class="hljs-built_in">height</span>; ++_y) {
+		<span class="hljs-keyword">if</span> (y + _y &lt; _top) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">if</span> (y + _y &gt;= _bottom) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">if</span> (!_is_in_clip(ctx, y + _y)) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint16_t</span> _x = (x &lt; _left) ? _left - x : <span class="hljs-number">0</span>; _x &lt; sprite-&gt;<span class="hljs-built_in">width</span> &amp;&amp; x + _x &lt; _right; ++_x) {
+			<span class="hljs-comment">/* Get the alpha from the sprite at this pixel */</span>
+			<span class="hljs-keyword">float</span> n_alpha = alpha * ((<span class="hljs-keyword">float</span>)_ALP(SPRITE(sprite, _x, _y)) / <span class="hljs-number">255.0</span>);
+			<span class="hljs-keyword">uint32_t</span> f_color = premultiply((c &amp; <span class="hljs-number">0xFFFFFF</span>) | ((<span class="hljs-keyword">uint32_t</span>)(<span class="hljs-number">255</span> * n_alpha) &lt;&lt; <span class="hljs-number">24</span>));
+			f_color = (f_color &amp; <span class="hljs-number">0xFFFFFF</span>) | ((<span class="hljs-keyword">uint32_t</span>)(n_alpha * _ALP(c)) &lt;&lt; <span class="hljs-number">24</span>);
+			GFX(ctx, x + _x, y + _y) = alpha_blend_rgba(GFX(ctx, x + _x, y + _y), f_color);
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">apply_matrix</span><span class="hljs-params">(<span class="hljs-keyword">double</span> x, <span class="hljs-keyword">double</span> y, <span class="hljs-keyword">gfx_matrix_t</span> matrix, <span class="hljs-keyword">double</span> *out_x, <span class="hljs-keyword">double</span> *out_y)</span> </span>{
+	*out_x = matrix[<span class="hljs-number">0</span>][<span class="hljs-number">0</span>] * x + matrix[<span class="hljs-number">0</span>][<span class="hljs-number">1</span>] * y + matrix[<span class="hljs-number">0</span>][<span class="hljs-number">2</span>];
+	*out_y = matrix[<span class="hljs-number">1</span>][<span class="hljs-number">0</span>] * x + matrix[<span class="hljs-number">1</span>][<span class="hljs-number">1</span>] * y + matrix[<span class="hljs-number">1</span>][<span class="hljs-number">2</span>];
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">gfx_apply_matrix</span><span class="hljs-params">(<span class="hljs-keyword">double</span> x, <span class="hljs-keyword">double</span> y, <span class="hljs-keyword">gfx_matrix_t</span> matrix, <span class="hljs-keyword">double</span> *out_x, <span class="hljs-keyword">double</span> *out_y)</span> </span>{
+	apply_matrix(x,y,matrix,out_x,out_y);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">multiply_matrix</span><span class="hljs-params">(<span class="hljs-keyword">gfx_matrix_t</span> x, <span class="hljs-keyword">gfx_matrix_t</span> y)</span> </span>{
+	<span class="hljs-keyword">double</span> a = x[<span class="hljs-number">0</span>][<span class="hljs-number">0</span>];
+	<span class="hljs-keyword">double</span> b = x[<span class="hljs-number">0</span>][<span class="hljs-number">1</span>];
+	<span class="hljs-keyword">double</span> c = x[<span class="hljs-number">0</span>][<span class="hljs-number">2</span>];
+	<span class="hljs-keyword">double</span> d = x[<span class="hljs-number">1</span>][<span class="hljs-number">0</span>];
+	<span class="hljs-keyword">double</span> e = x[<span class="hljs-number">1</span>][<span class="hljs-number">1</span>];
+	<span class="hljs-keyword">double</span> f = x[<span class="hljs-number">1</span>][<span class="hljs-number">2</span>];
+
+	<span class="hljs-keyword">double</span> g = y[<span class="hljs-number">0</span>][<span class="hljs-number">0</span>];
+	<span class="hljs-keyword">double</span> h = y[<span class="hljs-number">0</span>][<span class="hljs-number">1</span>];
+	<span class="hljs-keyword">double</span> i = y[<span class="hljs-number">0</span>][<span class="hljs-number">2</span>];
+	<span class="hljs-keyword">double</span> j = y[<span class="hljs-number">1</span>][<span class="hljs-number">0</span>];
+	<span class="hljs-keyword">double</span> k = y[<span class="hljs-number">1</span>][<span class="hljs-number">1</span>];
+	<span class="hljs-keyword">double</span> l = y[<span class="hljs-number">1</span>][<span class="hljs-number">2</span>];
+
+	x[<span class="hljs-number">0</span>][<span class="hljs-number">0</span>] = a * g + b * j;
+	x[<span class="hljs-number">0</span>][<span class="hljs-number">1</span>] = a * h + b * k;
+	x[<span class="hljs-number">0</span>][<span class="hljs-number">2</span>] = a * i + b * l + c;
+
+	x[<span class="hljs-number">1</span>][<span class="hljs-number">0</span>] = d * g + e * j;
+	x[<span class="hljs-number">1</span>][<span class="hljs-number">1</span>] = d * h + e * k;
+	x[<span class="hljs-number">1</span>][<span class="hljs-number">2</span>] = d * i + e * l + f;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">gfx_matrix_identity</span><span class="hljs-params">(<span class="hljs-keyword">gfx_matrix_t</span> matrix)</span> </span>{
+	matrix[<span class="hljs-number">0</span>][<span class="hljs-number">0</span>] = <span class="hljs-number">1</span>;
+	matrix[<span class="hljs-number">0</span>][<span class="hljs-number">1</span>] = <span class="hljs-number">0</span>;
+	matrix[<span class="hljs-number">0</span>][<span class="hljs-number">2</span>] = <span class="hljs-number">0</span>;
+	matrix[<span class="hljs-number">1</span>][<span class="hljs-number">0</span>] = <span class="hljs-number">0</span>;
+	matrix[<span class="hljs-number">1</span>][<span class="hljs-number">1</span>] = <span class="hljs-number">1</span>;
+	matrix[<span class="hljs-number">1</span>][<span class="hljs-number">2</span>] = <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">gfx_matrix_scale</span><span class="hljs-params">(<span class="hljs-keyword">gfx_matrix_t</span> matrix, <span class="hljs-keyword">double</span> x, <span class="hljs-keyword">double</span> y)</span> </span>{
+	multiply_matrix(matrix, (<span class="hljs-keyword">gfx_matrix_t</span>){
+		{x, <span class="hljs-number">0.0</span>, <span class="hljs-number">0.0</span>},
+		{<span class="hljs-number">0.0</span>, y, <span class="hljs-number">0.0</span>},
+	});
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">gfx_matrix_shear</span><span class="hljs-params">(<span class="hljs-keyword">gfx_matrix_t</span> matrix, <span class="hljs-keyword">double</span> x, <span class="hljs-keyword">double</span> y)</span> </span>{
+	multiply_matrix(matrix, (<span class="hljs-keyword">gfx_matrix_t</span>){
+		{<span class="hljs-number">1.0</span>, x, <span class="hljs-number">0.0</span>},
+		{y, <span class="hljs-number">1.0</span>, <span class="hljs-number">0.0</span>},
+	});
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">gfx_matrix_rotate</span><span class="hljs-params">(<span class="hljs-keyword">gfx_matrix_t</span> matrix, <span class="hljs-keyword">double</span> r)</span> </span>{
+	multiply_matrix(matrix, (<span class="hljs-keyword">gfx_matrix_t</span>){
+		{ <span class="hljs-built_in">cos</span>(r), -<span class="hljs-built_in">sin</span>(r), <span class="hljs-number">0.0</span>},
+		{ <span class="hljs-built_in">sin</span>(r),  <span class="hljs-built_in">cos</span>(r), <span class="hljs-number">0.0</span>},
+	});
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">gfx_matrix_translate</span><span class="hljs-params">(<span class="hljs-keyword">gfx_matrix_t</span> matrix, <span class="hljs-keyword">double</span> x, <span class="hljs-keyword">double</span> y)</span> </span>{
+	multiply_matrix(matrix, (<span class="hljs-keyword">gfx_matrix_t</span>){
+		{ <span class="hljs-number">1.0</span>, <span class="hljs-number">0.0</span>, x },
+		{ <span class="hljs-number">0.0</span>, <span class="hljs-number">1.0</span>, y },
+	});
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">double</span> <span class="hljs-title">matrix_det</span><span class="hljs-params">(<span class="hljs-keyword">gfx_matrix_t</span> matrix)</span> </span>{
+	<span class="hljs-keyword">double</span> a = matrix[<span class="hljs-number">0</span>][<span class="hljs-number">0</span>];
+	<span class="hljs-keyword">double</span> b = matrix[<span class="hljs-number">0</span>][<span class="hljs-number">1</span>];
+	<span class="hljs-keyword">double</span> d = matrix[<span class="hljs-number">1</span>][<span class="hljs-number">0</span>];
+	<span class="hljs-keyword">double</span> e = matrix[<span class="hljs-number">1</span>][<span class="hljs-number">1</span>];
+	<span class="hljs-keyword">return</span> a * e - b * d;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">gfx_matrix_invert</span><span class="hljs-params">(<span class="hljs-keyword">gfx_matrix_t</span> m, <span class="hljs-keyword">gfx_matrix_t</span> inverse)</span> </span>{
+
+	<span class="hljs-keyword">double</span> det = matrix_det(m);
+	<span class="hljs-keyword">if</span> (det == <span class="hljs-number">0.0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">double</span> a = m[<span class="hljs-number">0</span>][<span class="hljs-number">0</span>];
+	<span class="hljs-keyword">double</span> b = m[<span class="hljs-number">0</span>][<span class="hljs-number">1</span>];
+	<span class="hljs-keyword">double</span> c = m[<span class="hljs-number">1</span>][<span class="hljs-number">0</span>];
+	<span class="hljs-keyword">double</span> d = m[<span class="hljs-number">1</span>][<span class="hljs-number">1</span>];
+
+	<span class="hljs-keyword">double</span> tx = m[<span class="hljs-number">0</span>][<span class="hljs-number">2</span>];
+	<span class="hljs-keyword">double</span> ty = m[<span class="hljs-number">1</span>][<span class="hljs-number">2</span>];
+
+	inverse[<span class="hljs-number">0</span>][<span class="hljs-number">0</span>] = d * (<span class="hljs-number">1.0</span> / det);
+	inverse[<span class="hljs-number">0</span>][<span class="hljs-number">1</span>] = -b * (<span class="hljs-number">1.0</span> / det);
+	inverse[<span class="hljs-number">1</span>][<span class="hljs-number">0</span>] = -c * (<span class="hljs-number">1.0</span> / det);
+	inverse[<span class="hljs-number">1</span>][<span class="hljs-number">1</span>] = a * (<span class="hljs-number">1.0</span> / det);
+
+	inverse[<span class="hljs-number">0</span>][<span class="hljs-number">2</span>] = (b * ty - d * tx) / det;
+	inverse[<span class="hljs-number">1</span>][<span class="hljs-number">2</span>] = (c * tx - a * ty) / det;
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-11" id="section-11"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">draw_sprite_transform</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">const</span> <span class="hljs-keyword">sprite_t</span> * sprite, <span class="hljs-keyword">gfx_matrix_t</span> matrix, <span class="hljs-keyword">float</span> alpha)</span> </span>{
+	<span class="hljs-keyword">double</span> inverse[<span class="hljs-number">2</span>][<span class="hljs-number">3</span>];
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-12" id="section-12"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Calculate the inverse matrix for use in calculating sprite
+coordinate from screen coordinate.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	gfx_matrix_invert(matrix, inverse);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-13" id="section-13"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Use primary matrix to obtain corners of the transformed
+sprite in screen coordinates.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">double</span> ul_x, ul_y;
+	<span class="hljs-keyword">double</span> ll_x, ll_y;
+	<span class="hljs-keyword">double</span> ur_x, ur_y;
+	<span class="hljs-keyword">double</span> lr_x, lr_y;
+
+	apply_matrix(<span class="hljs-number">0</span>, <span class="hljs-number">0</span>, matrix, &amp;ul_x, &amp;ul_y);
+	apply_matrix(<span class="hljs-number">0</span>, sprite-&gt;<span class="hljs-built_in">height</span>,  matrix, &amp;ll_x, &amp;ll_y);
+	apply_matrix(sprite-&gt;<span class="hljs-built_in">width</span>, <span class="hljs-number">0</span>,  matrix, &amp;ur_x, &amp;ur_y);
+	apply_matrix(sprite-&gt;<span class="hljs-built_in">width</span>, sprite-&gt;<span class="hljs-built_in">height</span>,   matrix, &amp;lr_x, &amp;lr_y);
+
+	<span class="hljs-comment">/* Use the corners to calculate bounds within the target context. */</span>
+	<span class="hljs-keyword">int32_t</span> _left   = clamp(fmin(fmin(ul_x, ll_x), fmin(ur_x, lr_x)), <span class="hljs-number">0</span>, ctx-&gt;<span class="hljs-built_in">width</span>);
+	<span class="hljs-keyword">int32_t</span> _top    = clamp(fmin(fmin(ul_y, ll_y), fmin(ur_y, lr_y)), <span class="hljs-number">0</span>, ctx-&gt;<span class="hljs-built_in">height</span>);
+	<span class="hljs-keyword">int32_t</span> _right  = clamp(fmax(fmax(ul_x+<span class="hljs-number">2</span>, ll_x+<span class="hljs-number">2</span>), fmax(ur_x+<span class="hljs-number">2</span>, lr_x+<span class="hljs-number">2</span>)), <span class="hljs-number">0</span>, ctx-&gt;<span class="hljs-built_in">width</span>);
+	<span class="hljs-keyword">int32_t</span> _bottom = clamp(fmax(fmax(ul_y+<span class="hljs-number">2</span>, ll_y+<span class="hljs-number">2</span>), fmax(ur_y+<span class="hljs-number">2</span>, lr_y+<span class="hljs-number">2</span>)), <span class="hljs-number">0</span>, ctx-&gt;<span class="hljs-built_in">height</span>);
+
+	<span class="hljs-keyword">sprite_t</span> * scanline = create_sprite(_right - _left, <span class="hljs-number">1</span>, ALPHA_EMBEDDED);
+	<span class="hljs-keyword">uint8_t</span> alp = alpha * <span class="hljs-number">255</span>;
+
+	<span class="hljs-keyword">double</span> filter_x, filter_y, filter_dxx, filter_dxy, filter_dyx, filter_dyy;
+	gfx_apply_matrix(_left, _top, inverse, &amp;filter_x, &amp;filter_y);
+	gfx_apply_matrix(_left+<span class="hljs-number">1</span>, _top, inverse, &amp;filter_dxx, &amp;filter_dxy);
+	filter_dxx -= filter_x;
+	filter_dxy -= filter_y;
+	gfx_apply_matrix(_left, _top+<span class="hljs-number">1</span>, inverse, &amp;filter_dyx, &amp;filter_dyy);
+	filter_dyx -= filter_x;
+	filter_dyy -= filter_y;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int32_t</span> _y = _top; _y &lt; _bottom; ++_y) {
+		<span class="hljs-keyword">float</span> u = filter_x;
+		<span class="hljs-keyword">float</span> v = filter_y;
+		filter_x += filter_dyx;
+		filter_y += filter_dyy;
+		<span class="hljs-keyword">if</span> (!_is_in_clip(ctx, _y)) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int32_t</span> _x = _left; _x &lt; _right; ++_x) {
+			SPRITE(scanline,_x - _left,<span class="hljs-number">0</span>) = gfx_bilinear_interpolation(sprite, u, v);
+			u += filter_dxx;
+			v += filter_dxy;
+		}
+		apply_alpha_vector(scanline-&gt;bitmap, scanline-&gt;<span class="hljs-built_in">width</span>, alp);
+		draw_sprite(ctx,scanline,_left,_y);
+	}
+
+	sprite_free(scanline);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">draw_sprite_transform_blur</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">gfx_context_t</span> * blur_ctx, <span class="hljs-keyword">const</span> <span class="hljs-keyword">sprite_t</span> * sprite, <span class="hljs-keyword">gfx_matrix_t</span> matrix, <span class="hljs-keyword">float</span> alpha, <span class="hljs-keyword">uint8_t</span> threshold)</span> </span>{
+	<span class="hljs-keyword">double</span> inverse[<span class="hljs-number">2</span>][<span class="hljs-number">3</span>];
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-14" id="section-14"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Calculate the inverse matrix for use in calculating sprite
+coordinate from screen coordinate.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	gfx_matrix_invert(matrix, inverse);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-15" id="section-15"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Use primary matrix to obtain corners of the transformed
+sprite in screen coordinates.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">double</span> ul_x, ul_y;
+	<span class="hljs-keyword">double</span> ll_x, ll_y;
+	<span class="hljs-keyword">double</span> ur_x, ur_y;
+	<span class="hljs-keyword">double</span> lr_x, lr_y;
+
+	apply_matrix(<span class="hljs-number">0</span>, <span class="hljs-number">0</span>, matrix, &amp;ul_x, &amp;ul_y);
+	apply_matrix(<span class="hljs-number">0</span>, sprite-&gt;<span class="hljs-built_in">height</span>,  matrix, &amp;ll_x, &amp;ll_y);
+	apply_matrix(sprite-&gt;<span class="hljs-built_in">width</span>, <span class="hljs-number">0</span>,  matrix, &amp;ur_x, &amp;ur_y);
+	apply_matrix(sprite-&gt;<span class="hljs-built_in">width</span>, sprite-&gt;<span class="hljs-built_in">height</span>,   matrix, &amp;lr_x, &amp;lr_y);
+
+	<span class="hljs-comment">/* Use the corners to calculate bounds within the target context. */</span>
+	<span class="hljs-keyword">int32_t</span> _left   = clamp(fmin(fmin(ul_x, ll_x), fmin(ur_x, lr_x)), <span class="hljs-number">0</span>, ctx-&gt;<span class="hljs-built_in">width</span>);
+	<span class="hljs-keyword">int32_t</span> _top    = clamp(fmin(fmin(ul_y, ll_y), fmin(ur_y, lr_y)), <span class="hljs-number">0</span>, ctx-&gt;<span class="hljs-built_in">height</span>);
+	<span class="hljs-keyword">int32_t</span> _right  = clamp(fmax(fmax(ul_x+<span class="hljs-number">2</span>, ll_x+<span class="hljs-number">2</span>), fmax(ur_x+<span class="hljs-number">2</span>, lr_x+<span class="hljs-number">2</span>)), <span class="hljs-number">0</span>, ctx-&gt;<span class="hljs-built_in">width</span>);
+	<span class="hljs-keyword">int32_t</span> _bottom = clamp(fmax(fmax(ul_y+<span class="hljs-number">2</span>, ll_y+<span class="hljs-number">2</span>), fmax(ur_y+<span class="hljs-number">2</span>, lr_y+<span class="hljs-number">2</span>)), <span class="hljs-number">0</span>, ctx-&gt;<span class="hljs-built_in">height</span>);
+
+	blur_ctx-&gt;clips_size = ctx-&gt;clips_size;
+	blur_ctx-&gt;clips = ctx-&gt;clips;
+	blur_ctx-&gt;backbuffer = ctx-&gt;backbuffer;
+	<span class="hljs-keyword">gfx_context_t</span> * f = init_graphics_subregion(blur_ctx, _left, _top, _right - _left, _bottom - _top);
+	flip(f);
+	f-&gt;backbuffer = f-&gt;<span class="hljs-built_in">buffer</span>;
+	blur_context_box(f, <span class="hljs-number">10</span>);
+	<span class="hljs-built_in">free</span>(f);
+	blur_ctx-&gt;backbuffer = blur_ctx-&gt;<span class="hljs-built_in">buffer</span>;
+	blur_ctx-&gt;clips_size = <span class="hljs-number">0</span>;
+	blur_ctx-&gt;clips = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">sprite_t</span> * scanline = create_sprite(_right - _left, <span class="hljs-number">1</span>, ALPHA_EMBEDDED);
+	<span class="hljs-keyword">sprite_t</span> * blurline = create_sprite(_right - _left, <span class="hljs-number">1</span>, ALPHA_EMBEDDED);
+	<span class="hljs-keyword">uint8_t</span> alp = alpha * <span class="hljs-number">255</span>;
+
+	<span class="hljs-keyword">double</span> filter_x, filter_y, filter_dxx, filter_dxy, filter_dyx, filter_dyy;
+	gfx_apply_matrix(_left, _top, inverse, &amp;filter_x, &amp;filter_y);
+	gfx_apply_matrix(_left+<span class="hljs-number">1</span>, _top, inverse, &amp;filter_dxx, &amp;filter_dxy);
+	filter_dxx -= filter_x;
+	filter_dxy -= filter_y;
+	gfx_apply_matrix(_left, _top+<span class="hljs-number">1</span>, inverse, &amp;filter_dyx, &amp;filter_dyy);
+	filter_dyx -= filter_x;
+	filter_dyy -= filter_y;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int32_t</span> _y = _top; _y &lt; _bottom; ++_y) {
+		<span class="hljs-keyword">float</span> u = filter_x;
+		<span class="hljs-keyword">float</span> v = filter_y;
+		filter_x += filter_dyx;
+		filter_y += filter_dyy;
+		<span class="hljs-keyword">if</span> (!_is_in_clip(ctx, _y)) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int32_t</span> _x = _left; _x &lt; _right; ++_x) {
+			SPRITE(scanline,_x - _left,<span class="hljs-number">0</span>) = gfx_bilinear_interpolation(sprite, u, v);
+			SPRITE(blurline,_x - _left,<span class="hljs-number">0</span>) = (_ALP(SPRITE(scanline,_x - _left,<span class="hljs-number">0</span>)) &gt; threshold) ? GFX(blur_ctx,_x,_y) : <span class="hljs-number">0</span>;
+			u += filter_dxx;
+			v += filter_dxy;
+		}
+		apply_alpha_vector(blurline-&gt;bitmap, blurline-&gt;<span class="hljs-built_in">width</span>, alp);
+		apply_alpha_vector(scanline-&gt;bitmap, scanline-&gt;<span class="hljs-built_in">width</span>, alp);
+		draw_sprite(ctx,blurline,_left,_y);
+		draw_sprite(ctx,scanline,_left,_y);
+	}
+
+	sprite_free(scanline);
+	sprite_free(blurline);
+
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">draw_sprite_rotate</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">const</span> <span class="hljs-keyword">sprite_t</span> * sprite, <span class="hljs-keyword">int32_t</span> x, <span class="hljs-keyword">int32_t</span> y, <span class="hljs-keyword">float</span> rotation, <span class="hljs-keyword">float</span> alpha)</span> </span>{
+	<span class="hljs-keyword">gfx_matrix_t</span> m;
+	gfx_matrix_identity(m);
+	gfx_matrix_translate(m, x + sprite-&gt;<span class="hljs-built_in">width</span> / <span class="hljs-number">2</span>, y + sprite-&gt;<span class="hljs-built_in">height</span> / <span class="hljs-number">2</span>);
+	gfx_matrix_rotate(m, rotation);
+	gfx_matrix_translate(m, -sprite-&gt;<span class="hljs-built_in">width</span> / <span class="hljs-number">2</span>, -sprite-&gt;<span class="hljs-built_in">height</span> / <span class="hljs-number">2</span>);
+	draw_sprite_transform(ctx,sprite,m,alpha);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">draw_sprite_scaled</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">const</span> <span class="hljs-keyword">sprite_t</span> * sprite, <span class="hljs-keyword">int32_t</span> x, <span class="hljs-keyword">int32_t</span> y, <span class="hljs-keyword">uint16_t</span> <span class="hljs-built_in">width</span>, <span class="hljs-keyword">uint16_t</span> <span class="hljs-built_in">height</span>)</span> </span>{
+	<span class="hljs-keyword">gfx_matrix_t</span> m;
+	gfx_matrix_identity(m);
+	gfx_matrix_translate(m, x, y);
+	gfx_matrix_scale(m, (<span class="hljs-keyword">double</span>)<span class="hljs-built_in">width</span> / (<span class="hljs-keyword">double</span>)sprite-&gt;<span class="hljs-built_in">width</span>, (<span class="hljs-keyword">double</span>)<span class="hljs-built_in">height</span> / (<span class="hljs-keyword">double</span>)sprite-&gt;<span class="hljs-built_in">height</span>);
+	draw_sprite_transform(ctx,sprite,m,<span class="hljs-number">1.0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">draw_sprite_scaled_alpha</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">const</span> <span class="hljs-keyword">sprite_t</span> * sprite, <span class="hljs-keyword">int32_t</span> x, <span class="hljs-keyword">int32_t</span> y, <span class="hljs-keyword">uint16_t</span> <span class="hljs-built_in">width</span>, <span class="hljs-keyword">uint16_t</span> <span class="hljs-built_in">height</span>, <span class="hljs-keyword">float</span> alpha)</span> </span>{
+	<span class="hljs-keyword">gfx_matrix_t</span> m;
+	gfx_matrix_identity(m);
+	gfx_matrix_translate(m, x, y);
+	gfx_matrix_scale(m, (<span class="hljs-keyword">double</span>)<span class="hljs-built_in">width</span> / (<span class="hljs-keyword">double</span>)sprite-&gt;<span class="hljs-built_in">width</span>, (<span class="hljs-keyword">double</span>)<span class="hljs-built_in">height</span> / (<span class="hljs-keyword">double</span>)sprite-&gt;<span class="hljs-built_in">height</span>);
+	draw_sprite_transform(ctx,sprite,m,alpha);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">interp_colors</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> bottom, <span class="hljs-keyword">uint32_t</span> top, <span class="hljs-keyword">uint8_t</span> interp)</span> </span>{
+	<span class="hljs-keyword">uint8_t</span> red = (_RED(bottom) * (<span class="hljs-number">255</span> - interp) + _RED(top) * interp) / <span class="hljs-number">255</span>;
+	<span class="hljs-keyword">uint8_t</span> gre = (_GRE(bottom) * (<span class="hljs-number">255</span> - interp) + _GRE(top) * interp) / <span class="hljs-number">255</span>;
+	<span class="hljs-keyword">uint8_t</span> blu = (_BLU(bottom) * (<span class="hljs-number">255</span> - interp) + _BLU(top) * interp) / <span class="hljs-number">255</span>;
+	<span class="hljs-keyword">uint8_t</span> alp = (_ALP(bottom) * (<span class="hljs-number">255</span> - interp) + _ALP(top) * interp) / <span class="hljs-number">255</span>;
+	<span class="hljs-keyword">return</span> rgba(red,gre,blu, alp);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">draw_rectangle</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">int32_t</span> x, <span class="hljs-keyword">int32_t</span> y, <span class="hljs-keyword">uint16_t</span> <span class="hljs-built_in">width</span>, <span class="hljs-keyword">uint16_t</span> <span class="hljs-built_in">height</span>, <span class="hljs-keyword">uint32_t</span> color)</span> </span>{
+	<span class="hljs-keyword">int32_t</span> _left   = <span class="hljs-built_in">max</span>(x, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">int32_t</span> _top    = <span class="hljs-built_in">max</span>(y, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">int32_t</span> _right  = <span class="hljs-built_in">min</span>(x + <span class="hljs-built_in">width</span>,  ctx-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">int32_t</span> _bottom = <span class="hljs-built_in">min</span>(y + <span class="hljs-built_in">height</span>, ctx-&gt;<span class="hljs-built_in">height</span> - <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint16_t</span> _y = <span class="hljs-number">0</span>; _y &lt; <span class="hljs-built_in">height</span>; ++_y) {
+		<span class="hljs-keyword">if</span> (!_is_in_clip(ctx, y + _y)) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint16_t</span> _x = <span class="hljs-number">0</span>; _x &lt; <span class="hljs-built_in">width</span>; ++_x) {
+			<span class="hljs-keyword">if</span> (x + _x &lt; _left || x + _x &gt; _right || y + _y &lt; _top || y + _y &gt; _bottom)
+				<span class="hljs-keyword">continue</span>;
+			GFX(ctx, x + _x, y + _y) = alpha_blend_rgba(GFX(ctx, x + _x, y + _y), color);
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">draw_rectangle_solid</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">int32_t</span> x, <span class="hljs-keyword">int32_t</span> y, <span class="hljs-keyword">uint16_t</span> <span class="hljs-built_in">width</span>, <span class="hljs-keyword">uint16_t</span> <span class="hljs-built_in">height</span>, <span class="hljs-keyword">uint32_t</span> color)</span> </span>{
+	<span class="hljs-keyword">int32_t</span> _left   = <span class="hljs-built_in">max</span>(x, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">int32_t</span> _top    = <span class="hljs-built_in">max</span>(y, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">int32_t</span> _right  = <span class="hljs-built_in">min</span>(x + <span class="hljs-built_in">width</span>,  ctx-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">int32_t</span> _bottom = <span class="hljs-built_in">min</span>(y + <span class="hljs-built_in">height</span>, ctx-&gt;<span class="hljs-built_in">height</span> - <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint16_t</span> _y = <span class="hljs-number">0</span>; _y &lt; <span class="hljs-built_in">height</span>; ++_y) {
+		<span class="hljs-keyword">if</span> (!_is_in_clip(ctx, y + _y)) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint16_t</span> _x = <span class="hljs-number">0</span>; _x &lt; <span class="hljs-built_in">width</span>; ++_x) {
+			<span class="hljs-keyword">if</span> (x + _x &lt; _left || x + _x &gt; _right || y + _y &lt; _top || y + _y &gt; _bottom)
+				<span class="hljs-keyword">continue</span>;
+			GFX(ctx, x + _x, y + _y) = color;
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">gfx_vertical_gradient_pattern</span><span class="hljs-params">(<span class="hljs-keyword">int32_t</span> x, <span class="hljs-keyword">int32_t</span> y, <span class="hljs-keyword">double</span> alpha, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">gradient_definition</span> * <span class="hljs-title">gradient</span> = <span class="hljs-title">extra</span>;</span>
+	<span class="hljs-keyword">int</span> base_r = _RED(gradient-&gt;top), base_g = _GRE(gradient-&gt;top), base_b = _BLU(gradient-&gt;top);
+	<span class="hljs-keyword">int</span> last_r = _RED(gradient-&gt;bottom), last_g = _GRE(gradient-&gt;bottom), last_b = _BLU(gradient-&gt;bottom);
+	<span class="hljs-keyword">double</span> gradpoint = (<span class="hljs-keyword">double</span>)(y - (gradient-&gt;y)) / (<span class="hljs-keyword">double</span>)gradient-&gt;<span class="hljs-built_in">height</span>;
+
+	<span class="hljs-keyword">if</span> (alpha &gt; <span class="hljs-number">1.0</span>) alpha = <span class="hljs-number">1.0</span>;
+	<span class="hljs-keyword">if</span> (alpha &lt; <span class="hljs-number">0.0</span>) alpha = <span class="hljs-number">0.0</span>;
+
+	<span class="hljs-keyword">return</span> premultiply(rgba(
+		base_r * (<span class="hljs-number">1.0</span> - gradpoint) + last_r * (gradpoint),
+		base_g * (<span class="hljs-number">1.0</span> - gradpoint) + last_g * (gradpoint),
+		base_b * (<span class="hljs-number">1.0</span> - gradpoint) + last_b * (gradpoint),
+		alpha * <span class="hljs-number">255</span>));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">float</span> <span class="hljs-title">gfx_point_distance</span><span class="hljs-params">(<span class="hljs-keyword">const</span> struct gfx_point * a, <span class="hljs-keyword">const</span> struct gfx_point * b)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">sqrt</span>((a-&gt;x - b-&gt;x) * (a-&gt;x - b-&gt;x) + (a-&gt;y - b-&gt;y) * (a-&gt;y - b-&gt;y));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">draw_rounded_rectangle_pattern</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">int32_t</span> x, <span class="hljs-keyword">int32_t</span> y, <span class="hljs-keyword">uint16_t</span> <span class="hljs-built_in">width</span>, <span class="hljs-keyword">uint16_t</span> <span class="hljs-built_in">height</span>, <span class="hljs-keyword">int</span> radius, <span class="hljs-keyword">uint32_t</span> (*pattern)(<span class="hljs-keyword">int32_t</span> x, <span class="hljs-keyword">int32_t</span> y, <span class="hljs-keyword">double</span> alpha, <span class="hljs-keyword">void</span> * extra), <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-comment">/* Draw a rounded rectangle */</span>
+
+	<span class="hljs-keyword">if</span> (radius &gt; <span class="hljs-built_in">width</span> / <span class="hljs-number">2</span>) {
+		radius = <span class="hljs-built_in">width</span> / <span class="hljs-number">2</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (radius &gt; <span class="hljs-built_in">height</span> / <span class="hljs-number">2</span>) {
+		radius = <span class="hljs-built_in">height</span> / <span class="hljs-number">2</span>;
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> row = y; row &lt; y + <span class="hljs-built_in">height</span>; row++){
+		<span class="hljs-keyword">if</span> (row &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">if</span> (row &gt;= ctx-&gt;<span class="hljs-built_in">height</span>) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> col = x; col &lt; x + <span class="hljs-built_in">width</span>; col++) {
+			<span class="hljs-keyword">if</span> (col &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">continue</span>;
+			<span class="hljs-keyword">if</span> (col &gt;= ctx-&gt;<span class="hljs-built_in">width</span>) <span class="hljs-keyword">break</span>;
+
+			<span class="hljs-keyword">if</span> ((col &lt; x + radius || col &gt; x + <span class="hljs-built_in">width</span> - radius - <span class="hljs-number">1</span>) &amp;&amp;
+				(row &lt; y + radius || row &gt; y + <span class="hljs-built_in">height</span> - radius - <span class="hljs-number">1</span>)) {
+				<span class="hljs-keyword">continue</span>;
+			}
+			GFX(ctx, col, row) = alpha_blend_rgba(GFX(ctx, col, row), pattern(col,row,<span class="hljs-number">1.0</span>,extra));
+		}
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">gfx_point</span> <span class="hljs-title">origin</span> = {</span><span class="hljs-number">0.0</span>,<span class="hljs-number">0.0</span>};
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> py = <span class="hljs-number">0</span>; py &lt; radius + <span class="hljs-number">1</span>; ++py) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> px = <span class="hljs-number">0</span>; px &lt; radius + <span class="hljs-number">1</span>; ++px) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">gfx_point</span> <span class="hljs-title">this</span> = {</span>px,py};
+			<span class="hljs-keyword">float</span> dist = gfx_point_distance(&amp;origin,&amp;<span class="hljs-keyword">this</span>);
+			<span class="hljs-keyword">if</span> (dist &gt; (<span class="hljs-keyword">double</span>)radius) <span class="hljs-keyword">continue</span>;
+			<span class="hljs-keyword">float</span> alpha = <span class="hljs-number">1.0</span>;
+			<span class="hljs-keyword">if</span> (dist &gt; (<span class="hljs-keyword">double</span>)(radius<span class="hljs-number">-1</span>)) {
+				alpha = <span class="hljs-number">1.0</span> - (dist - (<span class="hljs-keyword">double</span>)(radius<span class="hljs-number">-1</span>));
+			}
+			<span class="hljs-keyword">int</span> _x = clamp(x + <span class="hljs-built_in">width</span> - radius + px, <span class="hljs-number">0</span>, ctx-&gt;<span class="hljs-built_in">width</span><span class="hljs-number">-1</span>);
+			<span class="hljs-keyword">int</span> _y = clamp(y + <span class="hljs-built_in">height</span> - radius + py, <span class="hljs-number">0</span>, ctx-&gt;<span class="hljs-built_in">height</span><span class="hljs-number">-1</span>);
+			<span class="hljs-keyword">int</span> _z = clamp(y + radius - py - <span class="hljs-number">1</span>, <span class="hljs-number">0</span>, ctx-&gt;<span class="hljs-built_in">height</span><span class="hljs-number">-1</span>);
+			GFX(ctx, _x, _y) = alpha_blend_rgba(GFX(ctx, _x, _y), pattern(_x,_y,alpha,extra));
+			GFX(ctx, _x, _z) = alpha_blend_rgba(GFX(ctx, _x, _z), pattern(_x,_z,alpha,extra));
+			_x = clamp(x + radius - px - <span class="hljs-number">1</span>, <span class="hljs-number">0</span>, ctx-&gt;<span class="hljs-built_in">width</span><span class="hljs-number">-1</span>);
+			GFX(ctx, _x, _y) = alpha_blend_rgba(GFX(ctx, _x, _y), pattern(_x,_y,alpha,extra));
+			GFX(ctx, _x, _z) = alpha_blend_rgba(GFX(ctx, _x, _z), pattern(_x,_z,alpha,extra));
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">gfx_fill_pattern</span><span class="hljs-params">(<span class="hljs-keyword">int32_t</span> x, <span class="hljs-keyword">int32_t</span> y, <span class="hljs-keyword">double</span> alpha, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-keyword">if</span> (alpha &gt; <span class="hljs-number">1.0</span>) alpha = <span class="hljs-number">1.0</span>;
+	<span class="hljs-keyword">if</span> (alpha &lt; <span class="hljs-number">0.0</span>) alpha = <span class="hljs-number">0.0</span>;
+	<span class="hljs-keyword">uint32_t</span> c = *(<span class="hljs-keyword">uint32_t</span>*)extra;
+	<span class="hljs-keyword">return</span> premultiply(rgba(_RED(c),_GRE(c),_BLU(c),(<span class="hljs-keyword">int</span>)((<span class="hljs-keyword">double</span>)_ALP(c) * alpha)));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">draw_rounded_rectangle</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">int32_t</span> x, <span class="hljs-keyword">int32_t</span> y, <span class="hljs-keyword">uint16_t</span> <span class="hljs-built_in">width</span>, <span class="hljs-keyword">uint16_t</span> <span class="hljs-built_in">height</span>, <span class="hljs-keyword">int</span> radius, <span class="hljs-keyword">uint32_t</span> color)</span> </span>{
+	draw_rounded_rectangle_pattern(ctx,x,y,<span class="hljs-built_in">width</span>,<span class="hljs-built_in">height</span>,radius,gfx_fill_pattern,&amp;color);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">float</span> <span class="hljs-title">gfx_point_distance_squared</span><span class="hljs-params">(<span class="hljs-keyword">const</span> struct gfx_point * a, <span class="hljs-keyword">const</span> struct gfx_point * b)</span> </span>{
+	<span class="hljs-keyword">return</span> (a-&gt;x - b-&gt;x) * (a-&gt;x - b-&gt;x) + (a-&gt;y - b-&gt;y) * (a-&gt;y - b-&gt;y);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">float</span> <span class="hljs-title">gfx_point_dot</span><span class="hljs-params">(<span class="hljs-keyword">const</span> struct gfx_point * a, <span class="hljs-keyword">const</span> struct gfx_point * b)</span> </span>{
+	<span class="hljs-keyword">return</span> (a-&gt;x * b-&gt;x) + (a-&gt;y * b-&gt;y);
+}
+
+<span class="hljs-function">struct gfx_point <span class="hljs-title">gfx_point_sub</span><span class="hljs-params">(<span class="hljs-keyword">const</span> struct gfx_point * a, <span class="hljs-keyword">const</span> struct gfx_point * b)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">gfx_point</span> <span class="hljs-title">p</span> = {</span>a-&gt;x - b-&gt;x, a-&gt;y - b-&gt;y};
+	<span class="hljs-keyword">return</span> p;
+}
+
+<span class="hljs-function">struct gfx_point <span class="hljs-title">gfx_point_add</span><span class="hljs-params">(<span class="hljs-keyword">const</span> struct gfx_point * a, <span class="hljs-keyword">const</span> struct gfx_point * b)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">gfx_point</span> <span class="hljs-title">p</span> = {</span>a-&gt;x + b-&gt;x, a-&gt;y + b-&gt;y};
+	<span class="hljs-keyword">return</span> p;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">float</span> <span class="hljs-title">gfx_line_distance</span><span class="hljs-params">(<span class="hljs-keyword">const</span> struct gfx_point * p, <span class="hljs-keyword">const</span> struct gfx_point * v, <span class="hljs-keyword">const</span> struct gfx_point * w)</span> </span>{
+	<span class="hljs-keyword">float</span> lengthlength = gfx_point_distance_squared(v,w);
+
+	<span class="hljs-keyword">if</span> (lengthlength == <span class="hljs-number">0.0</span>) <span class="hljs-keyword">return</span> gfx_point_distance(p, v); <span class="hljs-comment">/* point */</span>
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">gfx_point</span> <span class="hljs-title">p_v</span> = <span class="hljs-title">gfx_point_sub</span>(<span class="hljs-title">p</span>,<span class="hljs-title">v</span>);</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">gfx_point</span> <span class="hljs-title">w_v</span> = <span class="hljs-title">gfx_point_sub</span>(<span class="hljs-title">w</span>,<span class="hljs-title">v</span>);</span>
+	<span class="hljs-keyword">float</span> tmp = gfx_point_dot(&amp;p_v,&amp;w_v) / lengthlength;
+	tmp = fmin(<span class="hljs-number">1.0</span>,tmp);
+	<span class="hljs-keyword">float</span> t = fmax(<span class="hljs-number">0.0</span>, tmp);
+
+	w_v.x *= t;
+	w_v.y *= t;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">gfx_point</span> <span class="hljs-title">v_t</span> = <span class="hljs-title">gfx_point_add</span>(<span class="hljs-title">v</span>, &amp;<span class="hljs-title">w_v</span>);</span>
+	<span class="hljs-keyword">return</span> gfx_point_distance(p, &amp;<span class="hljs-keyword">v_t</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-16" id="section-16"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>This is slow, but it works...</p>
+</div>
+<div class="body">
+<p>Maybe acceptable for baked UI elements?</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">draw_line_aa_points</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, struct gfx_point *v, struct gfx_point *w, <span class="hljs-keyword">uint32_t</span> color, <span class="hljs-keyword">float</span> thickness)</span> </span>{
+
+	<span class="hljs-comment">/* Calculate viable bounds */</span>
+	<span class="hljs-keyword">int</span> x_0 = <span class="hljs-built_in">max</span>(<span class="hljs-built_in">min</span>(v-&gt;x - thickness - <span class="hljs-number">1</span>, w-&gt;x - thickness - <span class="hljs-number">1</span>), <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">int</span> x_1 = <span class="hljs-built_in">min</span>(<span class="hljs-built_in">max</span>(v-&gt;x + thickness + <span class="hljs-number">1</span>, w-&gt;x + thickness + <span class="hljs-number">1</span>), ctx-&gt;<span class="hljs-built_in">width</span>);
+	<span class="hljs-keyword">int</span> y_0 = <span class="hljs-built_in">max</span>(<span class="hljs-built_in">min</span>(v-&gt;y - thickness - <span class="hljs-number">1</span>, w-&gt;y - thickness - <span class="hljs-number">1</span>), <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">int</span> y_1 = <span class="hljs-built_in">min</span>(<span class="hljs-built_in">max</span>(v-&gt;y + thickness + <span class="hljs-number">1</span>, w-&gt;y + thickness + <span class="hljs-number">1</span>), ctx-&gt;<span class="hljs-built_in">height</span>);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> y = y_0; y &lt; y_1; ++y) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = x_0; x &lt; x_1; ++x) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">gfx_point</span> <span class="hljs-title">p</span> = {</span>x,y};
+			<span class="hljs-keyword">float</span> d = gfx_line_distance(&amp;p,v,w);
+			<span class="hljs-keyword">if</span> (d &lt; thickness + <span class="hljs-number">0.5</span>) {
+				<span class="hljs-keyword">if</span> (d &lt; thickness - <span class="hljs-number">0.5</span>) {
+					GFX(ctx,x,y) = alpha_blend_rgba(GFX(ctx,x,y), color);
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-keyword">float</span> alpha = <span class="hljs-number">1.0</span> - (d - thickness + <span class="hljs-number">0.5</span>);
+					GFX(ctx,x,y) = alpha_blend_rgba(GFX(ctx,x,y), premultiply(rgba(_RED(color),_GRE(color),_BLU(color),(<span class="hljs-keyword">int</span>)((<span class="hljs-keyword">double</span>)_ALP(color) * alpha))));
+				}
+			}
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">draw_line_aa</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">int</span> x_1, <span class="hljs-keyword">int</span> x_2, <span class="hljs-keyword">int</span> y_1, <span class="hljs-keyword">int</span> y_2, <span class="hljs-keyword">uint32_t</span> color, <span class="hljs-keyword">float</span> thickness)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">gfx_point</span> <span class="hljs-title">v</span> = {</span>(<span class="hljs-keyword">float</span>)x_1, (<span class="hljs-keyword">float</span>)y_1};
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">gfx_point</span> <span class="hljs-title">w</span> = {</span>(<span class="hljs-keyword">float</span>)x_2, (<span class="hljs-keyword">float</span>)y_2};
+	draw_line_aa_points(ctx,&amp;v,&amp;w,color,thickness);
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

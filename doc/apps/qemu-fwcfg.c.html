@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>qemu-fwcfg.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\qemu-fwcfg.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>qemu-fwcfg.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stddef.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;getopt.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> FW_CFG_PORT_OUT 0x510</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> FW_CFG_PORT_IN  0x511</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> FW_CFG_SELECT_QEMU 0x0000</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> FW_CFG_SELECT_LIST 0x0019</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> port_fd = <span class="hljs-number">-1</span>;
+
+<span class="hljs-comment">/* outw / inb helper functions */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">outports</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> short _port, <span class="hljs-keyword">unsigned</span> short _data)</span> </span>{
+	pwrite(port_fd, &amp;_data, <span class="hljs-number">2</span>, _port);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> <span class="hljs-title">inportb</span><span class="hljs-params">(<span class="hljs-keyword">unsigned</span> short _port)</span> </span>{
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> out;
+	pread(port_fd, &amp;out, <span class="hljs-number">1</span>, _port);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-comment">/* Despite primarily emulating x86, these are all big-endian */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">swap_bytes</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * in, <span class="hljs-keyword">int</span> count)</span> </span>{
+	<span class="hljs-keyword">char</span> * bytes = in;
+	<span class="hljs-keyword">if</span> (count == <span class="hljs-number">4</span>) {
+		<span class="hljs-keyword">uint32_t</span> * t = in;
+		*t = (bytes[<span class="hljs-number">0</span>] &lt;&lt; <span class="hljs-number">24</span>) | (bytes[<span class="hljs-number">1</span>] &lt;&lt; <span class="hljs-number">12</span>) | (bytes[<span class="hljs-number">2</span>] &lt;&lt; <span class="hljs-number">8</span>) | bytes[<span class="hljs-number">3</span>];
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (count == <span class="hljs-number">2</span>) {
+		<span class="hljs-keyword">uint16_t</span> * t = in;
+		*t = (bytes[<span class="hljs-number">0</span>] &lt;&lt; <span class="hljs-number">8</span>) | bytes[<span class="hljs-number">1</span>];
+	}
+}
+
+<span class="hljs-comment">/* Layout of the information returned from the fw_cfg port */</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">fw_cfg_file</span> {</span>
+	<span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">size</span>;
+	<span class="hljs-keyword">uint16_t</span> select;
+	<span class="hljs-keyword">uint16_t</span> reserved;
+	<span class="hljs-keyword">char</span> name[<span class="hljs-number">56</span>];
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_S <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_E <span class="hljs-meta-string">"\033[0m"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+			<span class="hljs-string">"Obtain QEMU fw_cfg values\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"usage: %s [-?ln] ["</span> X_S <span class="hljs-string">"NAME"</span> X_E <span class="hljs-string">"]\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -l     "</span> X_S <span class="hljs-string">"list available config entries"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -n     "</span> X_S <span class="hljs-string">"don't print a new line after data"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -q     "</span> X_S <span class="hljs-string">"query quietly, returning only an exit status"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -?     "</span> X_S <span class="hljs-string">"show this help text"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"\n"</span>, argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sig_pass</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sig)</span> </span>{
+	<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+
+	<span class="hljs-keyword">uint32_t</span> count = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint8_t</span> * bytes = (<span class="hljs-keyword">uint8_t</span> *)&amp;count;
+	<span class="hljs-keyword">int</span> found = <span class="hljs-number">0</span>;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">fw_cfg_file</span> <span class="hljs-title">file</span>;</span>
+	<span class="hljs-keyword">uint8_t</span> * tmp = (<span class="hljs-keyword">uint8_t</span> *)&amp;file;
+
+	<span class="hljs-keyword">int</span> opt = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">list</span> = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> no_newline = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> query_quietly = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"?lnq"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> usage(argv);
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'n'</span>:
+				no_newline = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'q'</span>:
+				query_quietly = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'l'</span>:
+				<span class="hljs-built_in">list</span> = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (optind &gt;= argc &amp;&amp; !<span class="hljs-built_in">list</span>) {
+		<span class="hljs-keyword">return</span> usage(argv);
+	}
+
+	port_fd = <span class="hljs-built_in">open</span>(<span class="hljs-string">"/dev/port"</span>, O_RDWR);
+
+	<span class="hljs-keyword">if</span> (port_fd &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-comment">/* Try the special aarch64 interface. */</span>
+		port_fd = <span class="hljs-built_in">open</span>(<span class="hljs-string">"/dev/fwcfg"</span>, O_RDWR);
+	}
+
+	<span class="hljs-keyword">if</span> (port_fd &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: could not open port IO device\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	signal(SIGILL, sig_pass);
+
+	<span class="hljs-comment">/* First check for QEMU */</span>
+	outports(FW_CFG_PORT_OUT, FW_CFG_SELECT_QEMU);
+	<span class="hljs-keyword">if</span> (inportb(FW_CFG_PORT_IN) != <span class="hljs-string">'Q'</span> ||
+		inportb(FW_CFG_PORT_IN) != <span class="hljs-string">'E'</span> ||
+		inportb(FW_CFG_PORT_IN) != <span class="hljs-string">'M'</span> ||
+		inportb(FW_CFG_PORT_IN) != <span class="hljs-string">'U'</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: this doesn't seem to be qemu\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* Then get the list of "files" so we can look at names */</span>
+	outports(FW_CFG_PORT_OUT, FW_CFG_SELECT_LIST);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">4</span>; ++i) {
+		bytes[i] = inportb(FW_CFG_PORT_IN);
+	}
+	swap_bytes(&amp;count, <span class="hljs-keyword">sizeof</span>(count));
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+
+		<span class="hljs-comment">/* read one file entry */</span>
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-keyword">sizeof</span>(struct fw_cfg_file); ++j) {
+			tmp[j] = inportb(FW_CFG_PORT_IN);
+		}
+
+		<span class="hljs-comment">/* endian swap to get file size and selector ID */</span>
+		swap_bytes(&amp;file.<span class="hljs-built_in">size</span>, <span class="hljs-keyword">sizeof</span>(file.<span class="hljs-built_in">size</span>));
+		swap_bytes(&amp;file.select, <span class="hljs-keyword">sizeof</span>(file.select));
+
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">list</span>) {
+			<span class="hljs-comment">/* 0x0020 org/whatever (1234 bytes) */</span>
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"0x%04x %s (%d byte%s)\n"</span>, file.select, file.name, (<span class="hljs-keyword">int</span>)file.<span class="hljs-built_in">size</span>, file.<span class="hljs-built_in">size</span> == <span class="hljs-number">1</span> ? <span class="hljs-string">""</span> : <span class="hljs-string">"s"</span>);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(file.name, argv[optind])) {
+				<span class="hljs-comment">/* found the requested file */</span>
+				found = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			}
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (query_quietly) {
+		<span class="hljs-keyword">return</span> !found;
+	}
+
+	<span class="hljs-keyword">if</span> (found) {
+		<span class="hljs-comment">/* if we found the requested file, read it from the port */</span>
+		outports(FW_CFG_PORT_OUT, file.select);
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; file.<span class="hljs-built_in">size</span>; ++i) {
+			fputc(inportb(FW_CFG_PORT_IN), <span class="hljs-built_in">stdout</span>);
+		}
+
+		<span class="hljs-keyword">if</span> (!no_newline) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"\n"</span>);
+		} <span class="hljs-keyword">else</span> {
+			fflush(<span class="hljs-built_in">stdout</span>);
+		}
+
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">list</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: config option not found\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

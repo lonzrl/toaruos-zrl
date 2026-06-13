@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>terminal-vga.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\terminal-vga.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>terminal-vga.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdbool.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;pthread.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/wait.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;getopt.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;pty.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/fswait.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/video.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/kbd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/termemu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/mouse.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/spinlock.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"vga-palette.h"</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> vga_text_fd = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">volatile</span> <span class="hljs-keyword">int</span> exit_application = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">bool</span> terminal_login_shell_restricted = <span class="hljs-number">0</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * selection_text = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> _selection_count = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> _selection_i = <span class="hljs-number">0</span>;
+
+<span class="hljs-comment">/* Actual mouse cursor */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> mouse_x = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> mouse_y = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> rel_mouse_x = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> rel_mouse_y = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> last_mouse_buttons = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> button_state = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> mouse_is_dragging = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> mouse_r[<span class="hljs-number">2</span>] = {<span class="hljs-number">820</span>, <span class="hljs-number">2621</span>};
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> old_x = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> old_y = <span class="hljs-number">0</span>;
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">input_data</span> {</span>
+	<span class="hljs-keyword">size_t</span> len;
+	<span class="hljs-keyword">char</span> data[];
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Terminal_Private</span> {</span>
+	<span class="hljs-keyword">int</span> fd_master, fd_slave;
+	<span class="hljs-keyword">pid_t</span> child_pid;
+	<span class="hljs-keyword">pthread_t</span> input_buffer_thread;
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">int</span> input_buffer_lock;
+	<span class="hljs-keyword">int</span> input_buffer_semaphore[<span class="hljs-number">2</span>];
+	<span class="hljs-keyword">list_t</span> * input_buffer_queue;
+	<span class="hljs-keyword">int</span> thread_done;
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">list_t</span> * terminals = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">list_t</span> * dead_terminals = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">term_state_t</span> * active_terminal = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">term_state_t</span> * <span class="hljs-title">current_terminal</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> active_terminal;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">term_state_t</span> * <span class="hljs-title">terminal_create</span><span class="hljs-params">(<span class="hljs-keyword">int</span> term_width, <span class="hljs-keyword">int</span> term_height, <span class="hljs-keyword">int</span> max_scrollback, <span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">color_distance</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> a, <span class="hljs-keyword">uint32_t</span> b)</span> </span>{
+	<span class="hljs-keyword">int</span> a_r = (a &amp; <span class="hljs-number">0xFF0000</span>) &gt;&gt; <span class="hljs-number">16</span>;
+	<span class="hljs-keyword">int</span> a_g = (a &amp; <span class="hljs-number">0xFF00</span>) &gt;&gt; <span class="hljs-number">8</span>;
+	<span class="hljs-keyword">int</span> a_b = (a &amp; <span class="hljs-number">0xFF</span>);
+
+	<span class="hljs-keyword">int</span> b_r = (b &amp; <span class="hljs-number">0xFF0000</span>) &gt;&gt; <span class="hljs-number">16</span>;
+	<span class="hljs-keyword">int</span> b_g = (b &amp; <span class="hljs-number">0xFF00</span>) &gt;&gt; <span class="hljs-number">8</span>;
+	<span class="hljs-keyword">int</span> b_b = (b &amp; <span class="hljs-number">0xFF</span>);
+
+	<span class="hljs-keyword">int</span> distance = <span class="hljs-number">0</span>;
+	distance += <span class="hljs-built_in">abs</span>(a_r - b_r) * <span class="hljs-number">3</span>;
+	distance += <span class="hljs-built_in">abs</span>(a_g - b_g) * <span class="hljs-number">6</span>;
+	distance += <span class="hljs-built_in">abs</span>(a_b - b_b) * <span class="hljs-number">10</span>;
+
+	<span class="hljs-keyword">return</span> distance;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> vga_base_colors[] = {
+	<span class="hljs-number">0x000000</span>,
+	<span class="hljs-number">0xAA0000</span>,
+	<span class="hljs-number">0x00AA00</span>,
+	<span class="hljs-number">0xAA5500</span>,
+	<span class="hljs-number">0x0000AA</span>,
+	<span class="hljs-number">0xAA00AA</span>,
+	<span class="hljs-number">0x00AAAA</span>,
+	<span class="hljs-number">0xAAAAAA</span>,
+	<span class="hljs-number">0x555555</span>,
+	<span class="hljs-number">0xFF5555</span>,
+	<span class="hljs-number">0x55AA55</span>,
+	<span class="hljs-number">0xFFFF55</span>,
+	<span class="hljs-number">0x5555FF</span>,
+	<span class="hljs-number">0xFF55FF</span>,
+	<span class="hljs-number">0x55FFFF</span>,
+	<span class="hljs-number">0xFFFFFF</span>,
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">best_match</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> a)</span> </span>{
+	<span class="hljs-keyword">int</span> best_distance = INT32_MAX;
+	<span class="hljs-keyword">int</span> best_index = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-number">16</span>; ++j) {
+		<span class="hljs-keyword">int</span> distance = color_distance(a, vga_base_colors[j]);
+		<span class="hljs-keyword">if</span> (distance &lt; best_distance) {
+			best_index = j;
+			best_distance = distance;
+		}
+	}
+	<span class="hljs-keyword">return</span> best_index;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">count_selection</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y)</span> </span>{
+	<span class="hljs-keyword">term_cell_t</span> * cell = termemu_cell_at(state,x,y);
+	<span class="hljs-keyword">if</span> (((<span class="hljs-keyword">uint32_t</span> *)cell)[<span class="hljs-number">0</span>] != <span class="hljs-number">0x00000000</span>) {
+		<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">7</span>];
+		_selection_count += termemu_to_eight(cell-&gt;c, tmp);
+	}
+	<span class="hljs-keyword">if</span> (x == current_terminal()-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">1</span>) {
+		_selection_count++;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">write_selection</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y)</span> </span>{
+	<span class="hljs-keyword">term_cell_t</span> * cell = termemu_cell_at(state,x,y);
+	<span class="hljs-keyword">if</span> (((<span class="hljs-keyword">uint32_t</span> *)cell)[<span class="hljs-number">0</span>] != <span class="hljs-number">0x00000000</span>) {
+		<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">7</span>];
+		<span class="hljs-keyword">int</span> count = termemu_to_eight(cell-&gt;c, tmp);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+			selection_text[_selection_i] = tmp[i];
+			_selection_i++;
+		}
+	}
+	<span class="hljs-keyword">if</span> (x == current_terminal()-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">1</span>) {
+		selection_text[_selection_i] = <span class="hljs-string">'\n'</span>;;
+		_selection_i++;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">copy_selection</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	_selection_count = <span class="hljs-number">0</span>;
+	termemu_iterate_selection(current_terminal(), count_selection);
+	<span class="hljs-keyword">if</span> (selection_text) <span class="hljs-built_in">free</span>(selection_text);
+	<span class="hljs-keyword">if</span> (!_selection_count) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+
+	selection_text = <span class="hljs-built_in">calloc</span>(_selection_count + <span class="hljs-number">1</span>, <span class="hljs-number">1</span>);
+	_selection_i = <span class="hljs-number">0</span>;
+	termemu_iterate_selection(current_terminal(), write_selection);
+
+	<span class="hljs-keyword">if</span> (selection_text[_selection_count<span class="hljs-number">-1</span>] == <span class="hljs-string">'\n'</span>) {
+		<span class="hljs-comment">/* Don't end on a line feed */</span>
+		selection_text[_selection_count<span class="hljs-number">-1</span>] = <span class="hljs-string">'\0'</span>;
+	}
+
+	<span class="hljs-keyword">return</span> selection_text;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> * <span class="hljs-title">handle_input_writing</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * _state)</span> </span>{
+	<span class="hljs-keyword">term_state_t</span> * my_state = _state;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Terminal_Private</span> * <span class="hljs-title">my_term</span> = <span class="hljs-title">my_state</span>-&gt;<span class="hljs-title">priv</span>;</span>
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Read one byte from semaphore; as long as semaphore has data,
+there is another input blob to write to the TTY</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">1</span>];
+		<span class="hljs-keyword">int</span> c = <span class="hljs-built_in">read</span>(my_term-&gt;input_buffer_semaphore[<span class="hljs-number">0</span>],tmp,<span class="hljs-number">1</span>);
+		<span class="hljs-keyword">if</span> (c &gt; <span class="hljs-number">0</span>) {
+			<span class="hljs-comment">/* Retrieve blob */</span>
+			spin_lock(&amp;my_term-&gt;input_buffer_lock);
+			<span class="hljs-keyword">node_t</span> * blob = list_dequeue(my_term-&gt;input_buffer_queue);
+			spin_unlock(&amp;my_term-&gt;input_buffer_lock);
+			<span class="hljs-comment">/* No blobs? This shouldn't happen, but just in case, just continue */</span>
+			<span class="hljs-keyword">if</span> (!blob) {
+				<span class="hljs-keyword">continue</span>;
+			}
+			<span class="hljs-comment">/* Write blob data to the tty */</span>
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">input_data</span> * <span class="hljs-title">value</span> = <span class="hljs-title">blob</span>-&gt;<span class="hljs-title">value</span>;</span>
+			<span class="hljs-built_in">write</span>(my_term-&gt;fd_master, value-&gt;data, value-&gt;len);
+			<span class="hljs-built_in">free</span>(blob-&gt;value);
+			<span class="hljs-built_in">free</span>(blob);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-comment">/* The pipe has closed, terminal is exiting */</span>
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	my_term-&gt;thread_done = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">write_input_buffer</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">char</span> * data, <span class="hljs-keyword">size_t</span> len)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Terminal_Private</span> * <span class="hljs-title">priv</span> = <span class="hljs-title">state</span>-&gt;<span class="hljs-title">priv</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">input_data</span> * <span class="hljs-title">d</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">input_data</span>) + <span class="hljs-title">len</span>);</span>
+	d-&gt;len = len;
+	<span class="hljs-built_in">memcpy</span>(&amp;d-&gt;data, data, len);
+	spin_lock(&amp;priv-&gt;input_buffer_lock);
+	list_insert(priv-&gt;input_buffer_queue, d);
+	spin_unlock(&amp;priv-&gt;input_buffer_lock);
+	<span class="hljs-built_in">write</span>(priv-&gt;input_buffer_semaphore[<span class="hljs-number">1</span>], d, <span class="hljs-number">1</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">handle_input</span><span class="hljs-params">(<span class="hljs-keyword">char</span> c)</span> </span>{
+	write_input_buffer(current_terminal(), &amp;c, <span class="hljs-number">1</span>);
+	termemu_unscroll(current_terminal());
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">handle_input_s</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * c)</span> </span>{
+	<span class="hljs-keyword">size_t</span> len = <span class="hljs-built_in">strlen</span>(c);
+	write_input_buffer(current_terminal(), c, len);
+	termemu_unscroll(current_terminal());
+}
+
+<span class="hljs-comment">/* ANSI-to-VGA */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> vga_to_ansi[] = {
+	<span class="hljs-number">0</span>, <span class="hljs-number">4</span>, <span class="hljs-number">2</span>, <span class="hljs-number">6</span>, <span class="hljs-number">1</span>, <span class="hljs-number">5</span>, <span class="hljs-number">3</span>, <span class="hljs-number">7</span>,
+	<span class="hljs-number">8</span>,<span class="hljs-number">12</span>,<span class="hljs-number">10</span>,<span class="hljs-number">14</span>, <span class="hljs-number">9</span>,<span class="hljs-number">13</span>,<span class="hljs-number">11</span>,<span class="hljs-number">15</span>
+};
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"ununicode.h"</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">term_write_char</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> val, <span class="hljs-keyword">uint16_t</span> x, <span class="hljs-keyword">uint16_t</span> y, <span class="hljs-keyword">uint32_t</span> fg, <span class="hljs-keyword">uint32_t</span> bg, <span class="hljs-keyword">uint32_t</span> flags)</span> </span>{
+	<span class="hljs-keyword">if</span> (flags &amp; ANSI_INVERT) {
+		<span class="hljs-keyword">uint32_t</span> tmp = fg;
+		fg = bg;
+		bg = tmp;
+	}
+
+	<span class="hljs-keyword">if</span> (val == <span class="hljs-string">L'▏'</span>) val = <span class="hljs-number">179</span>;
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (val &gt; <span class="hljs-number">128</span>) val = ununicode(val);
+	<span class="hljs-keyword">if</span> (fg &gt; <span class="hljs-number">256</span>) {
+		fg = best_match(fg);
+	}
+	<span class="hljs-keyword">if</span> (bg &gt; <span class="hljs-number">256</span>) {
+		bg = best_match(bg);
+	}
+	<span class="hljs-keyword">if</span> (fg &gt; <span class="hljs-number">16</span>) {
+		fg = vga_colors[fg];
+	}
+	<span class="hljs-keyword">if</span> (bg &gt; <span class="hljs-number">16</span>) {
+		bg = vga_colors[bg];
+	}
+	<span class="hljs-keyword">if</span> (fg == <span class="hljs-number">16</span>) fg = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (bg == <span class="hljs-number">16</span>) bg = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">unsigned</span> short attr = (vga_to_ansi[fg] &amp; <span class="hljs-number">0xF</span>) | (vga_to_ansi[bg] &lt;&lt; <span class="hljs-number">4</span>);
+	<span class="hljs-keyword">unsigned</span> short cell = (val | (attr &lt;&lt; <span class="hljs-number">8</span>));
+	pwrite(vga_text_fd, &amp;cell, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">unsigned</span> short), (current_terminal()-&gt;<span class="hljs-built_in">width</span> * y + x) * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">unsigned</span> short));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">flip_display</span><span class="hljs-params">()</span> </span>{
+	<span class="hljs-keyword">term_state_t</span> * state = current_terminal();
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> y = <span class="hljs-number">0</span>; y &lt; state-&gt;<span class="hljs-built_in">height</span>; ++y) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; state-&gt;<span class="hljs-built_in">width</span>; ++x) {
+			<span class="hljs-keyword">term_cell_t</span> * cell_m = &amp;state-&gt;term_mirror[y * state-&gt;<span class="hljs-built_in">width</span> + x];
+			<span class="hljs-keyword">term_cell_t</span> * cell_d = &amp;state-&gt;term_display[y * state-&gt;<span class="hljs-built_in">width</span> + x];
+			<span class="hljs-keyword">if</span> (<span class="hljs-built_in">memcmp</span>(cell_m, cell_d, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_cell_t</span>))) {
+				*cell_d = *cell_m;
+				term_write_char(cell_m-&gt;c, x, y, cell_m-&gt;fg, cell_m-&gt;bg, cell_m-&gt;flags);
+			}
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">refresh_display</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state)</span> </span>{
+	<span class="hljs-built_in">memset</span>(state-&gt;term_display, <span class="hljs-number">0xFF</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_cell_t</span>) * state-&gt;<span class="hljs-built_in">width</span> * state-&gt;<span class="hljs-built_in">height</span>);
+	flip_display();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">write_tab_notification</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">int</span> i)</span> </span>{
+	<span class="hljs-keyword">term_cell_t</span> * cell = &amp;state-&gt;term_mirror[state-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">3</span>];
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-number">3</span>; ++j) {
+		cell[j].c = (j == <span class="hljs-number">1</span>) ? (<span class="hljs-string">'0'</span> + i) : <span class="hljs-string">' '</span>;
+		cell[j].fg = <span class="hljs-number">7</span>;
+		cell[j].bg = <span class="hljs-number">0</span>;
+		cell[j].flags = ANSI_INVERT;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">new_tab</span><span class="hljs-params">()</span> </span>{
+	<span class="hljs-keyword">if</span> (terminals-&gt;length == <span class="hljs-number">9</span>) <span class="hljs-keyword">return</span>;
+	active_terminal = terminal_create(
+		active_terminal-&gt;<span class="hljs-built_in">width</span>,
+		active_terminal-&gt;<span class="hljs-built_in">height</span>,
+		active_terminal-&gt;max_scrollback,
+		<span class="hljs-number">0</span>, <span class="hljs-literal">NULL</span>);
+	write_tab_notification(active_terminal, terminals-&gt;length);
+	refresh_display(active_terminal);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> mod_Shift (event-&gt;modifiers &amp; KEY_MOD_LEFT_SHIFT || event-&gt;modifiers &amp; KEY_MOD_RIGHT_SHIFT)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> mod_Ctrl  (event-&gt;modifiers &amp; KEY_MOD_LEFT_CTRL  || event-&gt;modifiers &amp; KEY_MOD_RIGHT_CTRL)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> mod_Alt   (event-&gt;modifiers &amp; KEY_MOD_LEFT_ALT   || event-&gt;modifiers &amp; KEY_MOD_RIGHT_ALT)</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">key_event</span><span class="hljs-params">(<span class="hljs-keyword">int</span> ret, <span class="hljs-keyword">key_event_t</span> * event)</span> </span>{
+	<span class="hljs-keyword">if</span> (ret) {
+
+		<span class="hljs-comment">/* Ctrl-Shift-T: Open a new tab */</span>
+		<span class="hljs-keyword">if</span> (mod_Shift &amp;&amp; mod_Ctrl &amp;&amp; !mod_Alt &amp;&amp; (event-&gt;keycode == <span class="hljs-string">'t'</span>)) {
+			new_tab();
+			<span class="hljs-keyword">return</span>;
+		}
+
+		<span class="hljs-comment">/* Alt-n: Switch to tab. */</span>
+		<span class="hljs-keyword">if</span> (mod_Alt &amp;&amp; !mod_Ctrl &amp;&amp; !mod_Shift &amp;&amp; (event-&gt;keycode &gt;= <span class="hljs-string">'1'</span>) &amp;&amp; (event-&gt;keycode &lt;= <span class="hljs-string">'9'</span>) &amp;&amp; terminals-&gt;length &gt; <span class="hljs-number">1</span>) {
+			<span class="hljs-keyword">int</span> term = event-&gt;keycode - <span class="hljs-string">'1'</span>;
+			<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+
+			foreach (node, terminals) {
+				<span class="hljs-keyword">if</span> (i == term) {
+					active_terminal = node-&gt;value;
+					write_tab_notification(active_terminal, i + <span class="hljs-number">1</span>);
+					refresh_display(active_terminal);
+					<span class="hljs-keyword">return</span>;
+				}
+				i++;
+			}
+		}
+
+		<span class="hljs-comment">/* Ctrl-Shift-C: Copy selection */</span>
+		<span class="hljs-keyword">if</span> (mod_Shift &amp;&amp; mod_Ctrl &amp;&amp; !mod_Alt &amp;&amp; (event-&gt;keycode == <span class="hljs-string">'c'</span>)) {
+			<span class="hljs-keyword">if</span> (current_terminal()-&gt;selection) {
+				<span class="hljs-comment">/* Copy selection */</span>
+				copy_selection();
+			}
+			<span class="hljs-keyword">return</span>;
+		}
+
+		<span class="hljs-comment">/* Ctrl-Shift-V: Paste clipboard */</span>
+		<span class="hljs-keyword">if</span> (mod_Shift &amp;&amp; mod_Ctrl &amp;&amp; !mod_Alt &amp;&amp; (event-&gt;keycode == <span class="hljs-string">'v'</span>)) {
+			<span class="hljs-comment">/* Paste selection */</span>
+			<span class="hljs-keyword">if</span> (selection_text) {
+				<span class="hljs-keyword">if</span> (current_terminal()-&gt;paste_mode) {
+					handle_input_s(<span class="hljs-string">"\033[200~"</span>);
+					handle_input_s(selection_text);
+					handle_input_s(<span class="hljs-string">"\033[201~"</span>);
+				} <span class="hljs-keyword">else</span> {
+					handle_input_s(selection_text);
+				}
+			}
+			<span class="hljs-keyword">return</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_ALT || event-&gt;modifiers &amp; KEY_MOD_RIGHT_ALT) {
+			handle_input(<span class="hljs-string">'\033'</span>);
+		}
+		<span class="hljs-keyword">if</span> ((event-&gt;modifiers &amp; KEY_MOD_LEFT_SHIFT || event-&gt;modifiers &amp; KEY_MOD_RIGHT_SHIFT) &amp;&amp;
+		    event-&gt;key == <span class="hljs-string">'\t'</span>) {
+			handle_input_s(<span class="hljs-string">"\033[Z"</span>);
+			<span class="hljs-keyword">return</span>;
+		}
+
+		<span class="hljs-comment">/* ENTER = reads as linefeed, should be carriage return */</span>
+		<span class="hljs-keyword">if</span> (event-&gt;keycode == <span class="hljs-number">10</span>) {
+			handle_input(<span class="hljs-string">'\r'</span>);
+			<span class="hljs-keyword">return</span>;
+		}
+
+		<span class="hljs-comment">/* BACKSPACE = reads as ^H, should be ^? */</span>
+		<span class="hljs-keyword">if</span> (event-&gt;keycode == <span class="hljs-number">8</span>) {
+			handle_input(<span class="hljs-number">0x7F</span>);
+			<span class="hljs-keyword">return</span>;
+		}
+
+		handle_input(event-&gt;key);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">if</span> (event-&gt;action == KEY_ACTION_UP) <span class="hljs-keyword">return</span>;
+		<span class="hljs-keyword">switch</span> (event-&gt;keycode) {
+			<span class="hljs-keyword">case</span> KEY_F1:
+				handle_input_s(<span class="hljs-string">"\033OP"</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KEY_F2:
+				handle_input_s(<span class="hljs-string">"\033OQ"</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KEY_F3:
+				handle_input_s(<span class="hljs-string">"\033OR"</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KEY_F4:
+				handle_input_s(<span class="hljs-string">"\033OS"</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KEY_F5:
+				handle_input_s(<span class="hljs-string">"\033[15~"</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KEY_F6:
+				handle_input_s(<span class="hljs-string">"\033[17~"</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KEY_F7:
+				handle_input_s(<span class="hljs-string">"\033[18~"</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KEY_F8:
+				handle_input_s(<span class="hljs-string">"\033[19~"</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KEY_F9:
+				handle_input_s(<span class="hljs-string">"\033[20~"</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KEY_F10:
+				handle_input_s(<span class="hljs-string">"\033[21~"</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KEY_F11:
+				handle_input_s(<span class="hljs-string">"\033[23~"</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KEY_F12:
+				handle_input_s(<span class="hljs-string">"\033[24~"</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KEY_ARROW_UP:
+				<span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_SHIFT &amp;&amp; event-&gt;modifiers &amp; KEY_MOD_LEFT_CTRL) {
+					handle_input_s(<span class="hljs-string">"\033[6A"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_CTRL) {
+					handle_input_s(<span class="hljs-string">"\033[5A"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_SHIFT &amp;&amp; event-&gt;modifiers &amp; KEY_MOD_LEFT_ALT) {
+					handle_input_s(<span class="hljs-string">"\033[4A"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_ALT) {
+					handle_input_s(<span class="hljs-string">"\033[3A"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_SHIFT) {
+					handle_input_s(<span class="hljs-string">"\033[2A"</span>);
+				} <span class="hljs-keyword">else</span> {
+					handle_input_s(<span class="hljs-string">"\033[A"</span>);
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KEY_ARROW_DOWN:
+				<span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_SHIFT &amp;&amp; event-&gt;modifiers &amp; KEY_MOD_LEFT_CTRL) {
+					handle_input_s(<span class="hljs-string">"\033[6B"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_CTRL) {
+					handle_input_s(<span class="hljs-string">"\033[5B"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_SHIFT &amp;&amp; event-&gt;modifiers &amp; KEY_MOD_LEFT_ALT) {
+					handle_input_s(<span class="hljs-string">"\033[4B"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_ALT) {
+					handle_input_s(<span class="hljs-string">"\033[3B"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_SHIFT) {
+					handle_input_s(<span class="hljs-string">"\033[2B"</span>);
+				} <span class="hljs-keyword">else</span> {
+					handle_input_s(<span class="hljs-string">"\033[B"</span>);
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KEY_ARROW_RIGHT:
+				<span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_SHIFT &amp;&amp; event-&gt;modifiers &amp; KEY_MOD_LEFT_CTRL) {
+					handle_input_s(<span class="hljs-string">"\033[6C"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_CTRL) {
+					handle_input_s(<span class="hljs-string">"\033[5C"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_SHIFT &amp;&amp; event-&gt;modifiers &amp; KEY_MOD_LEFT_ALT) {
+					handle_input_s(<span class="hljs-string">"\033[4C"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_ALT) {
+					handle_input_s(<span class="hljs-string">"\033[3C"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_SHIFT) {
+					handle_input_s(<span class="hljs-string">"\033[2C"</span>);
+				} <span class="hljs-keyword">else</span> {
+					handle_input_s(<span class="hljs-string">"\033[C"</span>);
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KEY_ARROW_LEFT:
+				<span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_SHIFT &amp;&amp; event-&gt;modifiers &amp; KEY_MOD_LEFT_CTRL) {
+					handle_input_s(<span class="hljs-string">"\033[6D"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_CTRL) {
+					handle_input_s(<span class="hljs-string">"\033[5D"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_SHIFT &amp;&amp; event-&gt;modifiers &amp; KEY_MOD_LEFT_ALT) {
+					handle_input_s(<span class="hljs-string">"\033[4D"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_ALT) {
+					handle_input_s(<span class="hljs-string">"\033[3D"</span>);
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_SHIFT) {
+					handle_input_s(<span class="hljs-string">"\033[2D"</span>);
+				} <span class="hljs-keyword">else</span> {
+					handle_input_s(<span class="hljs-string">"\033[D"</span>);
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KEY_PAGE_UP:
+				<span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_SHIFT) {
+					<span class="hljs-keyword">if</span> (current_terminal()-&gt;active_buffer != <span class="hljs-number">1</span>) termemu_scroll_up(current_terminal(), current_terminal()-&gt;<span class="hljs-built_in">height</span>/<span class="hljs-number">2</span>);
+				} <span class="hljs-keyword">else</span> {
+					handle_input_s(<span class="hljs-string">"\033[5~"</span>);
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KEY_PAGE_DOWN:
+				<span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_SHIFT) {
+					<span class="hljs-keyword">if</span> (current_terminal()-&gt;active_buffer != <span class="hljs-number">1</span>) termemu_scroll_down(current_terminal(), current_terminal()-&gt;<span class="hljs-built_in">height</span>/<span class="hljs-number">2</span>);
+				} <span class="hljs-keyword">else</span> {
+					handle_input_s(<span class="hljs-string">"\033[6~"</span>);
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KEY_HOME:
+				<span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_SHIFT) {
+					termemu_scroll_top(current_terminal());
+				} <span class="hljs-keyword">else</span> {
+					handle_input_s(<span class="hljs-string">"\033[H"</span>);
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KEY_END:
+				<span class="hljs-keyword">if</span> (event-&gt;modifiers &amp; KEY_MOD_LEFT_SHIFT) {
+					termemu_unscroll(current_terminal());
+				} <span class="hljs-keyword">else</span> {
+					handle_input_s(<span class="hljs-string">"\033[F"</span>);
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> KEY_DEL:
+				handle_input_s(<span class="hljs-string">"\033[3~"</span>);
+				<span class="hljs-keyword">break</span>;
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_S <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_E <span class="hljs-meta-string">"\033[0m"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+			<span class="hljs-string">"VGA Terminal Emulator\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"usage: %s [-l] ["</span> X_S <span class="hljs-string">"command..."</span> X_E <span class="hljs-string">"]\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" You probably don't want to run this directly.\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -l --login  "</span> X_S <span class="hljs-string">"Start a login shell."</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -h --help   "</span> X_S <span class="hljs-string">"Show this help message."</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"\n"</span>,
+			argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">term_char_size</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * s)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">input_buffer_stuff</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state, <span class="hljs-keyword">char</span> * str)</span> </span>{
+	<span class="hljs-keyword">size_t</span> len = <span class="hljs-built_in">strlen</span>(str);
+	write_input_buffer(state, str, len);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">term_callbacks_t</span> term_callbacks = {
+	<span class="hljs-literal">NULL</span>,
+	<span class="hljs-literal">NULL</span>,
+	input_buffer_stuff,
+	<span class="hljs-literal">NULL</span>,
+	<span class="hljs-literal">NULL</span>,
+	term_char_size,
+	term_char_size,
+	<span class="hljs-literal">NULL</span>,
+	<span class="hljs-literal">NULL</span>,
+	<span class="hljs-literal">NULL</span>,
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">check_for_exit</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+
+	<span class="hljs-comment">/* If something has set exit_application, we should exit. */</span>
+	<span class="hljs-keyword">if</span> (exit_application) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+
+	<span class="hljs-comment">/* See if any dead terminals can be cleaned up */</span>
+	<span class="hljs-keyword">while</span> (dead_terminals-&gt;length) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Terminal_Private</span> * <span class="hljs-title">term</span> = <span class="hljs-title">dead_terminals</span>-&gt;<span class="hljs-title">head</span>-&gt;<span class="hljs-title">value</span>;</span>
+		<span class="hljs-keyword">if</span> (!term-&gt;thread_done) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">node_t</span> * head = list_dequeue(dead_terminals);
+		<span class="hljs-built_in">free</span>(head);
+		list_free(term-&gt;input_buffer_queue);
+		<span class="hljs-built_in">free</span>(term-&gt;input_buffer_queue);
+		<span class="hljs-comment">/* TODO we don't actually have a good way to clean up pthreads */</span>
+		<span class="hljs-built_in">free</span>(term);
+	}
+
+	<span class="hljs-keyword">pid_t</span> pid = waitpid(<span class="hljs-number">-1</span>, <span class="hljs-literal">NULL</span>, WNOHANG);
+
+	<span class="hljs-comment">/* If the child has exited, we should exit. */</span>
+	<span class="hljs-keyword">term_state_t</span> * matched = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">node_t</span> * matched_node = <span class="hljs-literal">NULL</span>;
+	foreach (node, terminals) {
+		<span class="hljs-keyword">term_state_t</span> * term = node-&gt;value;
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Terminal_Private</span> * <span class="hljs-title">priv</span> = <span class="hljs-title">term</span>-&gt;<span class="hljs-title">priv</span>;</span>
+		<span class="hljs-keyword">if</span> (pid == priv-&gt;child_pid) {
+			matched = term;
+			matched_node = node;
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!matched) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (current_terminal() == matched) {
+		<span class="hljs-keyword">if</span> (matched_node-&gt;prev) {
+			active_terminal = matched_node-&gt;prev-&gt;value;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (matched_node-&gt;next) {
+			active_terminal = matched_node-&gt;next-&gt;value;
+		}
+	}
+
+	refresh_display(active_terminal);
+
+	list_delete(terminals, matched_node);
+	<span class="hljs-built_in">free</span>(matched_node);
+
+	<span class="hljs-keyword">if</span> (terminals-&gt;length == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> (exit_application = <span class="hljs-number">1</span>);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Terminal_Private</span> * <span class="hljs-title">priv</span> = <span class="hljs-title">matched</span>-&gt;<span class="hljs-title">priv</span>;</span>
+	<span class="hljs-built_in">close</span>(priv-&gt;input_buffer_semaphore[<span class="hljs-number">1</span>]); <span class="hljs-comment">/* Kills the input processing thread */</span>
+	<span class="hljs-built_in">close</span>(priv-&gt;fd_master); <span class="hljs-comment">/* Hangs up the TTY */</span>
+	<span class="hljs-built_in">close</span>(priv-&gt;fd_slave);
+
+	list_insert(dead_terminals, priv);
+	termemu_free(matched);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">mouse_event</span><span class="hljs-params">(<span class="hljs-keyword">int</span> button, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y)</span> </span>{
+	<span class="hljs-keyword">if</span> (current_terminal()-&gt;mouse_on &amp; TERMEMU_MOUSE_SGR) {
+		<span class="hljs-keyword">char</span> buf[<span class="hljs-number">100</span>];
+		<span class="hljs-built_in">sprintf</span>(buf,<span class="hljs-string">"\033[&lt;%d;%d;%d%c"</span>, button == <span class="hljs-number">3</span> ? <span class="hljs-number">0</span> : button, x+<span class="hljs-number">1</span>, y+<span class="hljs-number">1</span>, button == <span class="hljs-number">3</span> ? <span class="hljs-string">'m'</span> : <span class="hljs-string">'M'</span>);
+		handle_input_s(buf);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">char</span> buf[<span class="hljs-number">7</span>];
+		<span class="hljs-built_in">sprintf</span>(buf, <span class="hljs-string">"\033[M%c%c%c"</span>, button + <span class="hljs-number">32</span>, x + <span class="hljs-number">33</span>, y + <span class="hljs-number">33</span>);
+		handle_input_s(buf);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">redraw_mouse</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-comment">/* Redraw previous cursor position */</span>
+	<span class="hljs-keyword">if</span> (old_x != mouse_x || old_y != mouse_y) {
+		<span class="hljs-keyword">term_cell_t</span> * cell_d = &amp;current_terminal()-&gt;term_display[old_y * current_terminal()-&gt;<span class="hljs-built_in">width</span> + old_x];
+		cell_d-&gt;c = <span class="hljs-number">0xFF</span>;
+		termemu_redraw_scrollback(current_terminal());
+		termemu_redraw_selection(current_terminal());
+	}
+	<span class="hljs-keyword">term_cell_t</span> * cell = &amp;current_terminal()-&gt;term_mirror[old_y * current_terminal()-&gt;<span class="hljs-built_in">width</span> + old_x];
+	<span class="hljs-keyword">int</span> current_background = cell-&gt;bg;
+	<span class="hljs-comment">/* Get new cursor position character */</span>
+	<span class="hljs-keyword">int</span> cursor_color = (current_background == <span class="hljs-number">12</span>) ? <span class="hljs-number">15</span> : <span class="hljs-number">12</span>;
+	term_write_char(<span class="hljs-string">L'▲'</span>, mouse_x, mouse_y, cursor_color, current_background, <span class="hljs-number">0</span>);
+	old_x = mouse_x;
+	old_y = mouse_y;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">handle_mouse_event</span><span class="hljs-params">(<span class="hljs-keyword">mouse_device_packet_t</span> * packet)</span> </span>{
+	<span class="hljs-keyword">if</span> (mouse_x &lt; <span class="hljs-number">0</span>) mouse_x = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (mouse_y &lt; <span class="hljs-number">0</span>) mouse_y = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (mouse_x &gt;= current_terminal()-&gt;<span class="hljs-built_in">width</span>)  mouse_x = current_terminal()-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (mouse_y &gt;= current_terminal()-&gt;<span class="hljs-built_in">height</span>) mouse_y = current_terminal()-&gt;<span class="hljs-built_in">height</span> - <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">if</span> (current_terminal()-&gt;mouse_on &amp; TERMEMU_MOUSE_ENABLE) {
+		<span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> Handle shift */</span>
+		<span class="hljs-keyword">if</span> (packet-&gt;buttons &amp; MOUSE_SCROLL_UP) {
+			mouse_event(<span class="hljs-number">32</span>+<span class="hljs-number">32</span>, mouse_x, mouse_y);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (packet-&gt;buttons &amp; MOUSE_SCROLL_DOWN) {
+			mouse_event(<span class="hljs-number">32</span>+<span class="hljs-number">32</span>+<span class="hljs-number">1</span>, mouse_x, mouse_y);
+		}
+
+		<span class="hljs-keyword">if</span> (packet-&gt;buttons != button_state) {
+			<span class="hljs-keyword">if</span> (packet-&gt;buttons &amp; LEFT_CLICK &amp;&amp; !(button_state &amp; LEFT_CLICK)) mouse_event(<span class="hljs-number">0</span>, mouse_x, mouse_y);
+			<span class="hljs-keyword">if</span> (packet-&gt;buttons &amp; MIDDLE_CLICK &amp;&amp; !(button_state &amp; MIDDLE_CLICK)) mouse_event(<span class="hljs-number">1</span>, mouse_x, mouse_y);
+			<span class="hljs-keyword">if</span> (packet-&gt;buttons &amp; RIGHT_CLICK &amp;&amp; !(button_state &amp; MIDDLE_CLICK)) mouse_event(<span class="hljs-number">2</span>, mouse_x, mouse_y);
+			<span class="hljs-keyword">if</span> (!(packet-&gt;buttons &amp; LEFT_CLICK) &amp;&amp; (button_state &amp; LEFT_CLICK)) mouse_event(<span class="hljs-number">3</span>, mouse_x, mouse_y);
+			<span class="hljs-keyword">if</span> (!(packet-&gt;buttons &amp; MIDDLE_CLICK) &amp;&amp; (button_state &amp; MIDDLE_CLICK)) mouse_event(<span class="hljs-number">3</span>, mouse_x, mouse_y);
+			<span class="hljs-keyword">if</span> (!(packet-&gt;buttons &amp; RIGHT_CLICK) &amp;&amp; (button_state &amp; MIDDLE_CLICK)) mouse_event(<span class="hljs-number">3</span>, mouse_x, mouse_y);
+			button_state = packet-&gt;buttons;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (current_terminal()-&gt;mouse_on &amp; TERMEMU_MOUSE_DRAG) {
+			<span class="hljs-keyword">if</span> (old_x != mouse_x || old_y != mouse_y) {
+				<span class="hljs-keyword">if</span> (button_state &amp; LEFT_CLICK) mouse_event(<span class="hljs-number">32</span>, mouse_x, mouse_y);
+				<span class="hljs-keyword">if</span> (button_state &amp; MIDDLE_CLICK) mouse_event(<span class="hljs-number">33</span>, mouse_x, mouse_y);
+				<span class="hljs-keyword">if</span> (button_state &amp; RIGHT_CLICK) mouse_event(<span class="hljs-number">34</span>, mouse_x, mouse_y);
+			}
+		}
+
+		redraw_mouse();
+		<span class="hljs-keyword">return</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (packet-&gt;buttons &amp; MOUSE_SCROLL_UP) {
+		<span class="hljs-keyword">if</span> (current_terminal()-&gt;active_buffer == <span class="hljs-number">0</span>) {
+			termemu_scroll_up(current_terminal(), <span class="hljs-number">5</span>);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (current_terminal()-&gt;mouse_on &amp; TERMEMU_MOUSE_ALTSCRL) {
+			handle_input_s(<span class="hljs-string">"\033[A"</span>);
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (packet-&gt;buttons &amp; MOUSE_SCROLL_DOWN) {
+		<span class="hljs-keyword">if</span> (current_terminal()-&gt;active_buffer == <span class="hljs-number">0</span>) {
+			termemu_scroll_down(current_terminal(), <span class="hljs-number">5</span>);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (current_terminal()-&gt;mouse_on &amp; TERMEMU_MOUSE_ALTSCRL) {
+			handle_input_s(<span class="hljs-string">"\033[B"</span>);
+		}
+	}
+	<span class="hljs-keyword">if</span> (mouse_is_dragging) {
+		<span class="hljs-keyword">if</span> (packet-&gt;buttons &amp; LEFT_CLICK) {
+			termemu_selection_drag(current_terminal(), mouse_x, mouse_y);
+		} <span class="hljs-keyword">else</span> {
+			mouse_is_dragging = <span class="hljs-number">0</span>;
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (packet-&gt;buttons &amp; LEFT_CLICK) {
+		termemu_selection_click(current_terminal(), mouse_x, mouse_y);
+		mouse_is_dragging = <span class="hljs-number">1</span>;
+	}
+	redraw_mouse();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">handle_mouse</span><span class="hljs-params">(<span class="hljs-keyword">mouse_device_packet_t</span> * packet)</span> </span>{
+	rel_mouse_x += packet-&gt;x_difference;
+	rel_mouse_y -= packet-&gt;y_difference;
+
+	mouse_x = rel_mouse_x / <span class="hljs-number">20</span>;
+	mouse_y = rel_mouse_y / <span class="hljs-number">40</span>;
+
+	handle_mouse_event(packet);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">handle_mouse_abs</span><span class="hljs-params">(<span class="hljs-keyword">mouse_device_packet_t</span> * packet)</span> </span>{
+	mouse_x = packet-&gt;x_difference / mouse_r[<span class="hljs-number">0</span>];
+	mouse_y = packet-&gt;y_difference / mouse_r[<span class="hljs-number">1</span>];
+
+	rel_mouse_x = mouse_x * <span class="hljs-number">20</span>;
+	rel_mouse_y = mouse_y * <span class="hljs-number">40</span>;
+
+	handle_mouse_event(packet);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">terminal_set_size</span><span class="hljs-params">(<span class="hljs-keyword">term_state_t</span> * state)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Terminal_Private</span> * <span class="hljs-title">term</span> = <span class="hljs-title">state</span>-&gt;<span class="hljs-title">priv</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">winsize</span> <span class="hljs-title">w</span>;</span>
+	w.ws_row = state-&gt;<span class="hljs-built_in">height</span>;
+	w.ws_col = state-&gt;<span class="hljs-built_in">width</span>;
+	w.ws_xpixel = <span class="hljs-number">0</span>;
+	w.ws_ypixel = <span class="hljs-number">0</span>;
+	ioctl(term-&gt;fd_master, TIOCSWINSZ, &amp;w);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">term_state_t</span> * <span class="hljs-title">terminal_create</span><span class="hljs-params">(<span class="hljs-keyword">int</span> term_width, <span class="hljs-keyword">int</span> term_height, <span class="hljs-keyword">int</span> max_scrollback, <span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Terminal_Private</span> * <span class="hljs-title">priv</span> = <span class="hljs-title">calloc</span>(1, <span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">Terminal_Private</span>));</span>
+	<span class="hljs-keyword">term_state_t</span> * out = termemu_init(term_width, term_height, max_scrollback, &amp;term_callbacks);
+	out-&gt;priv = priv;
+
+	list_insert(terminals, out);
+
+	pipe2(priv-&gt;input_buffer_semaphore, O_CLOEXEC);
+	priv-&gt;input_buffer_queue = list_create();
+	pthread_create(&amp;priv-&gt;input_buffer_thread, <span class="hljs-literal">NULL</span>, handle_input_writing, out);
+
+	<span class="hljs-comment">/* Open a PTY */</span>
+	openpty(&amp;priv-&gt;fd_master, &amp;priv-&gt;fd_slave, <span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>);
+	terminal_set_size(out);
+
+	priv-&gt;child_pid = fork();
+
+	<span class="hljs-keyword">if</span> (!priv-&gt;child_pid) {
+		setsid();
+		<span class="hljs-comment">/* Prepare stdin/out/err */</span>
+		dup2(priv-&gt;fd_slave, <span class="hljs-number">0</span>);
+		dup2(priv-&gt;fd_slave, <span class="hljs-number">1</span>);
+		dup2(priv-&gt;fd_slave, <span class="hljs-number">2</span>);
+
+		ioctl(STDIN_FILENO, TIOCSCTTY, &amp;(<span class="hljs-keyword">int</span>){<span class="hljs-number">1</span>});
+		tcsetpgrp(STDIN_FILENO, getpid());
+
+		signal(SIGHUP, SIG_DFL);
+
+		<span class="hljs-comment">/* Set the TERM environment variable. */</span>
+		putenv(<span class="hljs-string">"TERM=toaru-vga"</span>);
+
+		<span class="hljs-comment">/* Execute requested initial process */</span>
+		<span class="hljs-keyword">if</span> (terminal_login_shell_restricted) {
+			<span class="hljs-keyword">char</span> * tokens[] = {<span class="hljs-string">"/bin/login-loop"</span>,<span class="hljs-literal">NULL</span>};
+			execvp(tokens[<span class="hljs-number">0</span>], tokens);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (argc) {
+			<span class="hljs-comment">/* Run something specified by the terminal startup */</span>
+			execvp(argv[<span class="hljs-number">0</span>], argv);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-comment">/* Run the user's shell */</span>
+			<span class="hljs-keyword">char</span> * shell = getenv(<span class="hljs-string">"SHELL"</span>);
+			<span class="hljs-keyword">if</span> (!shell) shell = <span class="hljs-string">"/bin/sh"</span>; <span class="hljs-comment">/* fallback */</span>
+			<span class="hljs-keyword">char</span> * tokens[] = {shell,<span class="hljs-literal">NULL</span>};
+			execvp(tokens[<span class="hljs-number">0</span>], tokens);
+			<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+		}
+
+		<span class="hljs-built_in">exit</span>(<span class="hljs-number">127</span>);
+	}
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> ** argv)</span> </span>{
+	<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">option</span> <span class="hljs-title">long_opts</span>[] = {</span>
+		{<span class="hljs-string">"login"</span>,      no_argument,       <span class="hljs-number">0</span>, <span class="hljs-string">'l'</span>},
+		{<span class="hljs-string">"help"</span>,       no_argument,       <span class="hljs-number">0</span>, <span class="hljs-string">'h'</span>},
+		{<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>}
+	};
+
+	<span class="hljs-comment">/* Read some arguments */</span>
+	<span class="hljs-keyword">int</span> index, c;
+	<span class="hljs-keyword">while</span> ((c = getopt_long(argc, argv, <span class="hljs-string">"hl"</span>, long_opts, &amp;index)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (c) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'l'</span>:
+				terminal_login_shell_restricted = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'h'</span>:
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> usage(argv);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (terminal_login_shell_restricted &amp;&amp; optind != argc) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: arguments may not be provided with '--login'\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TEXT_MODE_DEVICE <span class="hljs-meta-string">"/dev/vga0"</span></span>
+	vga_text_fd = <span class="hljs-built_in">open</span>(TEXT_MODE_DEVICE, O_RDWR);
+	<span class="hljs-keyword">if</span> (vga_text_fd &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], TEXT_MODE_DEVICE, strerror(errno));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">int</span> term_width, term_height;
+
+	ioctl(vga_text_fd, IO_VID_WIDTH,  &amp;term_width);
+	ioctl(vga_text_fd, IO_VID_HEIGHT, &amp;term_height);
+	ioctl(vga_text_fd, IO_VGA_MOUSE_ADJ, &amp;mouse_r);
+
+	fflush(<span class="hljs-built_in">stdin</span>);
+	system(<span class="hljs-string">"cursor-off"</span>);
+
+	terminals = list_create();
+	dead_terminals = list_create();
+
+	active_terminal = terminal_create(term_width, term_height, <span class="hljs-number">10000</span>, argc-optind, &amp;argv[optind]);
+
+	<span class="hljs-keyword">int</span> kfd = <span class="hljs-built_in">open</span>(<span class="hljs-string">"/dev/kbd"</span>, O_RDONLY);
+	<span class="hljs-keyword">key_event_t</span> event;
+	<span class="hljs-keyword">int</span> vmmouse = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">mouse_device_packet_t</span> packet;
+
+	<span class="hljs-keyword">int</span> mfd = <span class="hljs-built_in">open</span>(<span class="hljs-string">"/dev/mouse"</span>, O_RDONLY);
+	<span class="hljs-keyword">int</span> amfd = <span class="hljs-built_in">open</span>(<span class="hljs-string">"/dev/absmouse"</span>, O_RDONLY);
+	<span class="hljs-keyword">if</span> (amfd == <span class="hljs-number">-1</span>) {
+		amfd = <span class="hljs-built_in">open</span>(<span class="hljs-string">"/dev/vmmouse"</span>, O_RDONLY);
+		vmmouse = <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">key_event_state_t</span> kbd_state = {<span class="hljs-number">0</span>};
+
+	<span class="hljs-comment">/* Prune any keyboard input we got before the terminal started. */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">s</span>;</span>
+	fstat(kfd, &amp;s);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; s.st_size; i++) {
+		<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">1</span>];
+		<span class="hljs-built_in">read</span>(kfd, tmp, <span class="hljs-number">1</span>);
+	}
+
+	<span class="hljs-keyword">size_t</span> fds_size = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">int</span> * fds = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>));
+	<span class="hljs-keyword">int</span> * res = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>));
+	<span class="hljs-keyword">term_state_t</span> ** term = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_state_t</span>*));
+	<span class="hljs-keyword">int</span> _kfd_offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> _mfd_offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> _amfd_offset = <span class="hljs-number">0</span>;
+
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BUF_SIZE 4096</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> buf[<span class="hljs-number">4096</span>];
+	<span class="hljs-keyword">while</span> (!exit_application) {
+		<span class="hljs-keyword">if</span> (check_for_exit()) <span class="hljs-keyword">break</span>;
+
+
+		<span class="hljs-keyword">if</span> (fds_size != <span class="hljs-number">3</span> + terminals-&gt;length) {
+			fds_size = <span class="hljs-number">3</span> + terminals-&gt;length;
+			fds = <span class="hljs-built_in">realloc</span>(fds, fds_size * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>));
+			term = <span class="hljs-built_in">realloc</span>(term, fds_size * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">term_state_t</span> *));
+			<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>;
+			foreach(node, terminals) {
+				term[i] = node-&gt;value;
+				<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Terminal_Private</span> * <span class="hljs-title">priv</span> = <span class="hljs-title">term</span>[<span class="hljs-title">i</span>]-&gt;<span class="hljs-title">priv</span>;</span>
+				fds[i] = priv-&gt;fd_master;
+				i++;
+			}
+			fds[(_kfd_offset = (i++))] = kfd;
+			fds[(_mfd_offset = (i++))] = mfd;
+			fds[(_amfd_offset = (i++))] = amfd;
+			res = <span class="hljs-built_in">realloc</span>(res, fds_size * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>));
+		}
+
+		fswait3(fds_size + (amfd == <span class="hljs-number">-1</span> ? <span class="hljs-number">-1</span> : <span class="hljs-number">0</span>), fds, <span class="hljs-number">200</span>, res);
+
+		termemu_maybe_flip_cursor(current_terminal());
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; terminals-&gt;length; ++i) {
+			<span class="hljs-keyword">if</span> (res[i]) {
+				<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Terminal_Private</span> * <span class="hljs-title">priv</span> = <span class="hljs-title">term</span>[<span class="hljs-title">i</span>]-&gt;<span class="hljs-title">priv</span>;</span>
+				<span class="hljs-keyword">ssize_t</span> r = <span class="hljs-built_in">read</span>(priv-&gt;fd_master, buf, BUF_SIZE);
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">ssize_t</span> j = <span class="hljs-number">0</span>; j &lt; r; ++j) {
+					termemu_put(term[i], buf[j]);
+				}
+			}
+		}
+
+		<span class="hljs-keyword">if</span> (res[_kfd_offset]) {
+			<span class="hljs-keyword">int</span> r = <span class="hljs-built_in">read</span>(kfd, buf, <span class="hljs-number">1</span>);
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; r; ++i) {
+				<span class="hljs-keyword">if</span> (kbd_scancode(&amp;kbd_state, buf[i], &amp;event)) {
+					key_event(event.action == KEY_ACTION_DOWN &amp;&amp; event.key, &amp;event);
+				}
+			}
+		}
+
+		<span class="hljs-keyword">if</span> (res[_mfd_offset]) {
+			<span class="hljs-comment">/* mouse event */</span>
+			<span class="hljs-keyword">int</span> r = <span class="hljs-built_in">read</span>(mfd, (<span class="hljs-keyword">char</span> *)&amp;packet, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">mouse_device_packet_t</span>));
+			<span class="hljs-keyword">if</span> (r &gt; <span class="hljs-number">0</span>) {
+				last_mouse_buttons = packet.buttons;
+				handle_mouse(&amp;packet);
+			}
+		}
+
+		<span class="hljs-keyword">if</span> (amfd != <span class="hljs-number">-1</span> &amp;&amp; res[_amfd_offset]) {
+			<span class="hljs-keyword">int</span> r = <span class="hljs-built_in">read</span>(amfd, (<span class="hljs-keyword">char</span> *)&amp;packet, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">mouse_device_packet_t</span>));
+			<span class="hljs-keyword">if</span> (r &gt; <span class="hljs-number">0</span>) {
+				<span class="hljs-keyword">if</span> (!vmmouse) {
+					packet.buttons = last_mouse_buttons &amp; <span class="hljs-number">0xF</span>;
+				} <span class="hljs-keyword">else</span> {
+					last_mouse_buttons = packet.buttons;
+				}
+				handle_mouse_abs(&amp;packet);
+			}
+		}
+
+		flip_display();
+	}
+
+	foreach(node, terminals) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Terminal_Private</span> * <span class="hljs-title">priv</span> = ((<span class="hljs-title">term_state_t</span>*)<span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>)-&gt;<span class="hljs-title">priv</span>;</span>
+		<span class="hljs-built_in">close</span>(priv-&gt;input_buffer_semaphore[<span class="hljs-number">1</span>]);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

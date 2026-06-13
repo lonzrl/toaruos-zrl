@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>toastd.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\toastd.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>toastd.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sched.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/fswait.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/pex.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/yutani.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/markup_text.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/json.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/list.h&gt;</span></span>
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">JSON_Value</span> <span class="hljs-title">JSON_Value</span>;</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_t</span> * yctx;
+<span class="hljs-keyword">static</span> FILE * pex_endpoint = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">sprite_t</span> background_sprite;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">list_t</span> * windows = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">list_t</span> * garbage = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ToastNotification</span> {</span>
+	<span class="hljs-keyword">yutani_window_t</span> * window;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timespec</span> <span class="hljs-title">created</span>;</span>
+	<span class="hljs-keyword">int</span> duration;
+};
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PAD_RIGHT 10</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PAD_TOP   48</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">handle_msg</span><span class="hljs-params">(JSON_Value * msg)</span> </span>{
+	<span class="hljs-keyword">if</span> (msg-&gt;type != JSON_TYPE_OBJECT) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"expected an object, but json value was of type %d\n"</span>, msg-&gt;type);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	JSON_Value * msg_body = JSON_KEY(msg, <span class="hljs-string">"body"</span>);
+
+	<span class="hljs-keyword">if</span> (!msg_body) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"missing 'body'\n"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+	<span class="hljs-keyword">if</span> (msg_body-&gt;type != JSON_TYPE_STRING) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"'body' should have been a string, but got type %d instead\n"</span>, msg_body-&gt;type);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-comment">/* At this point, we're going to show something, at least... */</span>
+	<span class="hljs-keyword">yutani_window_t</span> * win = yutani_window_create_flags(yctx,
+		background_sprite.<span class="hljs-built_in">width</span>,
+		background_sprite.<span class="hljs-built_in">height</span>,
+		YUTANI_WINDOW_FLAG_NO_STEAL_FOCUS | YUTANI_WINDOW_FLAG_ALT_ANIMATION);
+
+	yutani_set_stack(yctx, win, YUTANI_ZORDER_OVERLAY);
+
+	<span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> We need to figure out how to place this... */</span>
+	yutani_window_move(yctx, win, yctx-&gt;display_width - background_sprite.<span class="hljs-built_in">width</span> - PAD_RIGHT, PAD_TOP + background_sprite.<span class="hljs-built_in">height</span> * windows-&gt;length);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ToastNotification</span> * <span class="hljs-title">notification</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">ToastNotification</span>));</span>
+	notification-&gt;window = win;
+	clock_gettime(CLOCK_MONOTONIC, &amp;notification-&gt;created);
+	list_insert(windows, notification);
+
+	JSON_Value * msg_duration = JSON_KEY(msg,<span class="hljs-string">"duration"</span>);
+	<span class="hljs-keyword">if</span> (msg_duration &amp;&amp; msg_duration-&gt;type == JSON_TYPE_NUMBER) {
+		notification-&gt;duration = msg_duration-&gt;number;
+	} <span class="hljs-keyword">else</span> {
+		notification-&gt;duration = <span class="hljs-number">5</span>;
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Establish the rendering context for this window, we'll only need it for a bit.
+We won't even both double buffering...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">gfx_context_t</span> * ctx = init_graphics_yutani(win);
+	draw_fill(ctx, rgba(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+	draw_sprite(ctx, &amp;background_sprite, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">int</span> textOffset = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Does it have an icon? */</span>
+	JSON_Value * msg_icon = JSON_KEY(msg, <span class="hljs-string">"icon"</span>);
+	<span class="hljs-keyword">if</span> (msg_icon &amp;&amp; msg_icon-&gt;type == JSON_TYPE_STRING) {
+		<span class="hljs-comment">/* Just ignore the icon if it's not a string... */</span>
+		<span class="hljs-keyword">sprite_t</span> myIcon;
+		<span class="hljs-keyword">if</span> (!load_sprite(&amp;myIcon, msg_icon-&gt;<span class="hljs-built_in">string</span>)) {
+			<span class="hljs-comment">/* Is this a reasonable icon to display? */</span>
+			<span class="hljs-keyword">if</span> (myIcon.<span class="hljs-built_in">width</span> &lt; <span class="hljs-number">100</span>) {
+				textOffset = myIcon.<span class="hljs-built_in">width</span> + <span class="hljs-number">8</span>; <span class="hljs-comment">/* Sounds like a fine padding... */</span>
+				draw_sprite(ctx, &amp;myIcon, <span class="hljs-number">10</span>, (background_sprite.<span class="hljs-built_in">height</span> - myIcon.<span class="hljs-built_in">height</span>) / <span class="hljs-number">2</span>);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">int</span> h = myIcon.<span class="hljs-built_in">height</span> * <span class="hljs-number">100</span> / myIcon.<span class="hljs-built_in">width</span>;
+				textOffset = <span class="hljs-number">100</span> + <span class="hljs-number">8</span>;
+				draw_sprite_scaled(ctx, &amp;myIcon, <span class="hljs-number">10</span>, (background_sprite.<span class="hljs-built_in">height</span> - h) / <span class="hljs-number">2</span>, <span class="hljs-number">100</span>, h);
+			}
+			<span class="hljs-built_in">free</span>(myIcon.bitmap);
+		}
+	}
+
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">height</span> = markup_string_height(msg_body-&gt;<span class="hljs-built_in">string</span>);
+
+	markup_draw_string(ctx, <span class="hljs-number">10</span> + textOffset, (ctx-&gt;<span class="hljs-built_in">height</span> - <span class="hljs-built_in">height</span>) / <span class="hljs-number">2</span>, msg_body-&gt;<span class="hljs-built_in">string</span>, rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>));
+	yutani_flip(yctx, win);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-comment">/* Make sure we were actually expecting to be run... */</span>
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">2</span> || <span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">1</span>],<span class="hljs-string">"--really"</span>)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+				<span class="hljs-string">"%s: Toast notification daemon\n"</span>
+				<span class="hljs-string">"\n"</span>
+				<span class="hljs-string">" Displays popup notifications from other\n"</span>
+				<span class="hljs-string">" applications in the corner of the screen.\n"</span>
+				<span class="hljs-string">" You probably don't want to run this directly - it is\n"</span>
+				<span class="hljs-string">" started automatically by the session manager.\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-comment">/* Daemonize... */</span>
+	<span class="hljs-keyword">if</span> (!fork()) {
+		<span class="hljs-comment">/* Connect to display server... */</span>
+		yctx = yutani_init();
+		<span class="hljs-keyword">if</span> (!yctx) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: Failed to connect to compositor.\n"</span>, argv[<span class="hljs-number">0</span>]);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		<span class="hljs-comment">/* Open pex endpoint to receive notifications... */</span>
+		pex_endpoint = pex_bind(<span class="hljs-string">"toast"</span>);
+		<span class="hljs-keyword">if</span> (!pex_endpoint) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: Failed to establish socket.\n"</span>, argv[<span class="hljs-number">0</span>]);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		<span class="hljs-comment">/* Set up our text rendering and sprite contexts... */</span>
+		markup_text_init();
+		load_sprite(&amp;background_sprite, <span class="hljs-string">"/usr/share/ttk/toast/default.png"</span>);
+		windows = list_create();
+		garbage = list_create();
+
+		<span class="hljs-keyword">int</span> should_exit = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">while</span> (!should_exit) {
+			<span class="hljs-keyword">int</span> fds[<span class="hljs-number">2</span>] = {fileno(yctx-&gt;sock),fileno(pex_endpoint)};
+			<span class="hljs-keyword">int</span> index = fswait2(<span class="hljs-number">2</span>,fds,windows-&gt;length ? <span class="hljs-number">20</span> : <span class="hljs-number">-1</span>);
+			<span class="hljs-keyword">if</span> (index == <span class="hljs-number">0</span>) {
+				<span class="hljs-keyword">yutani_msg_t</span> * m = yutani_poll(yctx);
+				<span class="hljs-keyword">while</span> (m) {
+					<span class="hljs-keyword">switch</span> (m-&gt;type) {
+						<span class="hljs-keyword">case</span> YUTANI_MSG_SESSION_END:
+							should_exit = <span class="hljs-number">1</span>;
+							<span class="hljs-keyword">break</span>;
+						<span class="hljs-keyword">default</span>:
+							<span class="hljs-keyword">break</span>;
+					}
+					<span class="hljs-built_in">free</span>(m);
+					m = yutani_poll_async(yctx);
+				}
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (index == <span class="hljs-number">1</span>) {
+				<span class="hljs-keyword">pex_packet_t</span> * p = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>, PACKET_SIZE);
+				pex_listen(pex_endpoint, p);
+
+				JSON_Value * msg = json_parse((<span class="hljs-keyword">char</span>*)p-&gt;data);
+
+				<span class="hljs-keyword">if</span> (msg) {
+					handle_msg(msg);
+					json_free(msg);
+				}
+
+				<span class="hljs-built_in">free</span>(p);
+			}
+
+			<span class="hljs-keyword">if</span> (windows-&gt;length) {
+				<span class="hljs-comment">/* Check all the existing toasts for expired ones... */</span>
+				<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timespec</span> <span class="hljs-title">now</span>;</span>
+				clock_gettime(CLOCK_MONOTONIC, &amp;now);
+
+				foreach(node, windows) {
+					<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ToastNotification</span> * <span class="hljs-title">notification</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+
+					<span class="hljs-comment">/* How long has it been since this notification was created? */</span>
+					<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timespec</span> <span class="hljs-title">diff</span>;</span>
+					diff.tv_sec  = now.tv_sec  - notification-&gt;created.tv_sec;
+					diff.tv_nsec = now.tv_nsec - notification-&gt;created.tv_nsec;
+					<span class="hljs-keyword">if</span> (diff.tv_nsec &lt; <span class="hljs-number">0</span>) { diff.tv_sec--; diff.tv_nsec += <span class="hljs-number">1000000000L</span>; }
+
+					<span class="hljs-keyword">if</span> (diff.tv_sec &gt;= notification-&gt;duration) {
+						<span class="hljs-keyword">if</span> (notification-&gt;window) {
+							yutani_close(yctx, notification-&gt;window);
+							notification-&gt;window = <span class="hljs-literal">NULL</span>;
+						}
+						<span class="hljs-keyword">if</span> (diff.tv_sec &gt;= notification-&gt;duration + <span class="hljs-number">1</span>) {
+							list_insert(garbage, node);
+						}
+					}
+				}
+
+				<span class="hljs-comment">/* Expunge garbage */</span>
+				<span class="hljs-keyword">if</span> (garbage-&gt;length) {
+					<span class="hljs-keyword">while</span> (garbage-&gt;length) {
+						<span class="hljs-keyword">node_t</span> * n = list_pop(garbage);
+						<span class="hljs-keyword">node_t</span> * node = n-&gt;value;
+						<span class="hljs-built_in">free</span>(n);
+						list_delete(windows, node);
+						<span class="hljs-built_in">free</span>(node-&gt;value);
+						<span class="hljs-built_in">free</span>(node);
+					}
+				}
+
+				<span class="hljs-comment">/* Figure out if we need to move anything */</span>
+				<span class="hljs-keyword">if</span> (index == <span class="hljs-number">2</span>) {
+					<span class="hljs-keyword">int</span> index = <span class="hljs-number">0</span>;
+					foreach(node, windows) {
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ToastNotification</span> * <span class="hljs-title">notification</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+						<span class="hljs-keyword">if</span> (notification-&gt;window &amp;&amp; notification-&gt;window-&gt;y &gt; PAD_TOP + background_sprite.<span class="hljs-built_in">height</span> * index) {
+							yutani_window_move(yctx, notification-&gt;window, notification-&gt;window-&gt;x, notification-&gt;window-&gt;y - <span class="hljs-number">4</span>);
+						}
+
+						index++;
+					}
+
+					sched_yield();
+				}
+			}
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

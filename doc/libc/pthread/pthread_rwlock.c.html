@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>pthread_rwlock.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "libc\\pthread\\pthread_rwlock.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>pthread_rwlock.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;libc/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;pthread.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/wait.h&gt;</span></span>
+
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">int</span> __libc_is_multicore;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">void</span> _yield(<span class="hljs-keyword">void</span>) {
+	<span class="hljs-keyword">if</span> (!__libc_is_multicore) syscall_yield();
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ACQUIRE_LOCK() do { while (__sync_lock_test_and_set(&amp;lock-&gt;atomic_lock, 0x01)) { _yield(); } } while (0)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> RELEASE_LOCK() do { __sync_lock_release(&amp;lock-&gt;atomic_lock); } while (0)</span>
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">pthread_rwlock_init</span><span class="hljs-params">(<span class="hljs-keyword">pthread_rwlock_t</span> * lock, <span class="hljs-keyword">void</span> * args)</span> </span>{
+	lock-&gt;readers = <span class="hljs-number">0</span>;
+	lock-&gt;atomic_lock = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (args != <span class="hljs-literal">NULL</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"pthread: pthread_rwlock_init arg unsupported\n"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">pthread_rwlock_wrlock</span><span class="hljs-params">(<span class="hljs-keyword">pthread_rwlock_t</span> * lock)</span> </span>{
+	ACQUIRE_LOCK();
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">if</span> (lock-&gt;readers == <span class="hljs-number">0</span>) {
+			lock-&gt;readers = <span class="hljs-number">-1</span>;
+			lock-&gt;writerPid = syscall_getpid();
+			RELEASE_LOCK();
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+		_yield();
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">pthread_rwlock_rdlock</span><span class="hljs-params">(<span class="hljs-keyword">pthread_rwlock_t</span> * lock)</span> </span>{
+	ACQUIRE_LOCK();
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">if</span> (lock-&gt;readers &gt;= <span class="hljs-number">0</span>) {
+			lock-&gt;readers++;
+			RELEASE_LOCK();
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+		_yield();
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">pthread_rwlock_unlock</span><span class="hljs-params">(<span class="hljs-keyword">pthread_rwlock_t</span> * lock)</span> </span>{
+	ACQUIRE_LOCK();
+	<span class="hljs-keyword">if</span> (lock-&gt;readers &gt; <span class="hljs-number">0</span>) lock-&gt;readers--;
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (lock-&gt;readers &lt; <span class="hljs-number">0</span>) lock-&gt;readers = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">else</span> <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"pthread: bad lock state detected\n"</span>);
+	RELEASE_LOCK();
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">pthread_rwlock_destroy</span><span class="hljs-params">(<span class="hljs-keyword">pthread_rwlock_t</span> * lock)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

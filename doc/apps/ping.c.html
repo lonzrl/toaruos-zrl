@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ping.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\ping.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>ping.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;getopt.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;termios.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;poll.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/socket.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;netinet/in.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;netdb.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;arpa/inet.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BYTES_TO_SEND 64</span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ICMP_Header</span> {</span>
+	<span class="hljs-keyword">uint8_t</span> type, code;
+	<span class="hljs-keyword">uint16_t</span> checksum;
+	<span class="hljs-keyword">uint16_t</span> identifier;
+	<span class="hljs-keyword">uint16_t</span> sequence_number;
+	<span class="hljs-keyword">uint8_t</span> payload[];
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> <span class="hljs-title">clocktime</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timeval</span> <span class="hljs-title">tv</span>;</span>
+	gettimeofday(&amp;tv,<span class="hljs-literal">NULL</span>);
+	<span class="hljs-keyword">return</span> tv.tv_sec * <span class="hljs-number">1000000</span> + tv.tv_usec;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint16_t</span> <span class="hljs-title">icmp_checksum</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * payload, <span class="hljs-keyword">size_t</span> len)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> sum = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint16_t</span> * s = (<span class="hljs-keyword">uint16_t</span> *)payload;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; (len) / <span class="hljs-number">2</span>; ++i) {
+		sum += ntohs(s[i]);
+	}
+	<span class="hljs-keyword">if</span> (sum &gt; <span class="hljs-number">0xFFFF</span>) {
+		sum = (sum &gt;&gt; <span class="hljs-number">16</span>) + (sum &amp; <span class="hljs-number">0xFFFF</span>);
+	}
+	<span class="hljs-keyword">return</span> ~(sum &amp; <span class="hljs-number">0xFFFF</span>) &amp; <span class="hljs-number">0xFFFF</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> break_from_loop = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sig_break_loop</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sig)</span> </span>{
+	(<span class="hljs-keyword">void</span>)sig;
+	break_from_loop = <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"usage: %s [-4|-6] [-c count] target\n"</span>, argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">int</span> count = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> opt;
+
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc,argv,<span class="hljs-string">"46c:"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'4'</span>:
+				<span class="hljs-comment">/* accepted and ignored for compatibility */</span>
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'6'</span>:
+				<span class="hljs-comment">/* rejected for compatibility */</span>
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: no ipv6 support\n"</span>, argv[<span class="hljs-number">0</span>]);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'c'</span>:
+				count = strtol(optarg,<span class="hljs-literal">NULL</span>,<span class="hljs-number">10</span>);
+				<span class="hljs-keyword">if</span> (count &lt; <span class="hljs-number">1</span>) {
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: count of '%s' rejected\n"</span>, argv[<span class="hljs-number">0</span>], optarg);
+					<span class="hljs-keyword">return</span> usage(argv);
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> usage(argv);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (optind == argc) <span class="hljs-keyword">return</span> usage(argv);
+
+	<span class="hljs-keyword">char</span> * target = argv[optind];
+	<span class="hljs-keyword">int</span> pings_sent = <span class="hljs-number">0</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">hostent</span> * <span class="hljs-title">host</span> = <span class="hljs-title">gethostbyname</span>(<span class="hljs-title">target</span>);</span>
+
+	<span class="hljs-keyword">if</span> (!host) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: not found\n"</span>, target);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">char</span> * addr = inet_ntoa(*(struct in_addr*)host-&gt;h_addr_list[<span class="hljs-number">0</span>]);
+
+	<span class="hljs-keyword">int</span> sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
+
+	<span class="hljs-keyword">if</span> (sock &lt; <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: No socket: %s\n"</span>, target, strerror(errno));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">int</span> yes = <span class="hljs-number">1</span>;
+	setsockopt(sock, IPPROTO_IP, IP_RECVTTL, &amp;yes, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>));
+
+	signal(SIGINT, sig_break_loop);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_in</span> <span class="hljs-title">dest</span>;</span>
+	dest.sin_family = AF_INET;
+	<span class="hljs-built_in">memcpy</span>(&amp;dest.sin_addr.s_addr, host-&gt;h_addr, host-&gt;h_length);
+
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"PING %s (%s) %d data bytes\n"</span>, target, addr, BYTES_TO_SEND - <span class="hljs-number">8</span>);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ICMP_Header</span> * <span class="hljs-title">ping</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">BYTES_TO_SEND</span>);</span>
+	ping-&gt;type = <span class="hljs-number">8</span>; <span class="hljs-comment">/* request */</span>
+	ping-&gt;code = <span class="hljs-number">0</span>;
+	ping-&gt;identifier = <span class="hljs-number">0</span>;
+	ping-&gt;sequence_number = <span class="hljs-number">0</span>;
+	<span class="hljs-comment">/* Fill in data */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; BYTES_TO_SEND - <span class="hljs-number">8</span>; ++i) {
+		ping-&gt;payload[i] = i;
+	}
+
+	<span class="hljs-keyword">int</span> responses_received = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">while</span> (!break_from_loop) {
+		ping-&gt;sequence_number = htons(pings_sent+<span class="hljs-number">1</span>);
+		ping-&gt;checksum = <span class="hljs-number">0</span>;
+		ping-&gt;checksum = htons(icmp_checksum((<span class="hljs-keyword">void</span>*)ping, BYTES_TO_SEND));
+
+		<span class="hljs-comment">/* Send it and wait */</span>
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> sent_at = clocktime();
+		<span class="hljs-keyword">if</span> (sendto(sock, (<span class="hljs-keyword">void</span>*)ping, BYTES_TO_SEND, <span class="hljs-number">0</span>, (struct sockaddr*)&amp;dest, <span class="hljs-keyword">sizeof</span>(struct sockaddr_in)) &lt; <span class="hljs-number">0</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"sendto: %s\n"</span>, strerror(errno));
+		}
+
+		pings_sent++;
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">pollfd</span> <span class="hljs-title">fds</span>[1];</span>
+		fds[<span class="hljs-number">0</span>].fd = sock;
+		fds[<span class="hljs-number">0</span>].events = POLLIN;
+		<span class="hljs-keyword">int</span> ret = poll(fds,<span class="hljs-number">1</span>,<span class="hljs-number">1000</span>);
+
+		<span class="hljs-keyword">if</span> (ret &gt; <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">char</span> data[<span class="hljs-number">4096</span>];
+			<span class="hljs-keyword">char</span> control[<span class="hljs-number">4096</span>];
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_in</span> <span class="hljs-title">source</span>;</span>
+			<span class="hljs-keyword">socklen_t</span> source_size = <span class="hljs-keyword">sizeof</span>(struct sockaddr_in);
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">iovec</span> _<span class="hljs-title">iovec</span> = {</span>
+				data, <span class="hljs-number">4096</span>
+			};
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">msghdr</span> <span class="hljs-title">msg</span> = {</span>
+				&amp;source,
+				source_size,
+				&amp;_iovec,
+				<span class="hljs-number">1</span>,
+				control,
+				<span class="hljs-number">4096</span>,
+				<span class="hljs-number">0</span>
+			};
+			<span class="hljs-keyword">ssize_t</span> len = recvmsg(sock, &amp;msg, <span class="hljs-number">0</span>);
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> rcvd_at = clocktime();
+			<span class="hljs-keyword">if</span> (len &gt; <span class="hljs-number">0</span>) {
+				<span class="hljs-comment">/* Is it actually a PING response ? */</span>
+
+				<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ICMP_Header</span> * <span class="hljs-title">icmp</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">data</span>;</span>
+				<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> ttl = <span class="hljs-number">0</span>;
+
+				<span class="hljs-keyword">if</span> (msg.msg_controllen) {
+					<span class="hljs-keyword">char</span> * control_msg = control;
+					<span class="hljs-keyword">while</span> (control_msg - control + <span class="hljs-keyword">sizeof</span>(struct cmsghdr) &lt;= msg.msg_controllen) {
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">cmsghdr</span> * <span class="hljs-title">cmsg</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">control_msg</span>;</span>
+						<span class="hljs-keyword">if</span> (cmsg-&gt;cmsg_level == IPPROTO_IP &amp;&amp; (cmsg-&gt;cmsg_type == IP_RECVTTL || cmsg-&gt;cmsg_type == IP_TTL)) {
+							<span class="hljs-built_in">memcpy</span>(&amp;ttl, CMSG_DATA(cmsg), <span class="hljs-number">1</span>);
+							<span class="hljs-keyword">break</span>;
+						}
+						control_msg += cmsg-&gt;cmsg_len;
+					}
+				}
+
+				<span class="hljs-keyword">if</span> (icmp-&gt;type == <span class="hljs-number">0</span>) {
+					<span class="hljs-comment">/* How much data, minus the header? */</span>
+					<span class="hljs-comment">/* Get the address */</span>
+					<span class="hljs-keyword">char</span> * from = inet_ntoa(source.sin_addr);
+					<span class="hljs-keyword">int</span> time_taken = (rcvd_at - sent_at);
+					<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%zd bytes from %s: icmp_seq=%d ttl=%d time=%d"</span>,
+						len, from, ntohs(icmp-&gt;sequence_number), (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span>)ttl,
+						time_taken / <span class="hljs-number">1000</span>);
+					<span class="hljs-keyword">if</span> (time_taken &lt; <span class="hljs-number">1000</span>) {
+						<span class="hljs-built_in">printf</span>(<span class="hljs-string">".%03d"</span>, time_taken % <span class="hljs-number">1000</span>);
+					} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (time_taken &lt; <span class="hljs-number">10000</span>) {
+						<span class="hljs-built_in">printf</span>(<span class="hljs-string">".%02d"</span>, (time_taken / <span class="hljs-number">10</span>) % <span class="hljs-number">100</span>);
+					} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (time_taken &lt; <span class="hljs-number">100000</span>) {
+						<span class="hljs-built_in">printf</span>(<span class="hljs-string">".%01d"</span>, (time_taken / <span class="hljs-number">100</span>) % <span class="hljs-number">10</span>);
+					}
+					<span class="hljs-built_in">printf</span>(<span class="hljs-string">" ms\n"</span>);
+					responses_received++;
+				}
+
+			}
+		}
+
+		<span class="hljs-keyword">if</span> (count &amp;&amp; pings_sent == count) break_from_loop = <span class="hljs-number">1</span>;
+
+		<span class="hljs-keyword">if</span> (!break_from_loop) {
+			sleep(<span class="hljs-number">1</span>);
+		}
+	}
+
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"--- %s statistics ---\n"</span>, target);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%d packets transmitted, %d received, %d%% packet loss\n"</span>,
+		pings_sent, responses_received, <span class="hljs-number">100</span>*(pings_sent-responses_received)/pings_sent);
+
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>socket.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\net\\socket.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>socket.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/net/netif.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/socket.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> MISAKA_DEBUG_NET</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> printf(...)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>TODO: Should we have an interface for modules to install protocol handlers?
+Thinking this should work like the VFS, with method tables for different
+protocol handlers, but a lot of this stuff is also just generic...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">long</span> <span class="hljs-title">net_ipv4_socket</span><span class="hljs-params">(<span class="hljs-keyword">int</span>,<span class="hljs-keyword">int</span>,<span class="hljs-keyword">int</span>,<span class="hljs-keyword">int</span>)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">net_sock_alert</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock)</span> </span>{
+	spin_lock(sock-&gt;alert_lock);
+	<span class="hljs-keyword">while</span> (sock-&gt;alert_wait-&gt;head) {
+		<span class="hljs-keyword">node_t</span> * node = list_dequeue(sock-&gt;alert_wait);
+		<span class="hljs-keyword">process_t</span> * p = node-&gt;value;
+		<span class="hljs-built_in">free</span>(node);
+		spin_unlock(sock-&gt;alert_lock);
+		process_alert_node(p, (<span class="hljs-keyword">fs_node_t</span>*)sock);
+		spin_lock(sock-&gt;alert_lock);
+	}
+	spin_unlock(sock-&gt;alert_lock);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">net_sock_add</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock, <span class="hljs-keyword">void</span> * frame, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	spin_lock(sock-&gt;rx_lock);
+	<span class="hljs-keyword">char</span> * bleh = <span class="hljs-built_in">malloc</span>(<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">size_t</span>));
+	*(<span class="hljs-keyword">size_t</span>*)bleh = <span class="hljs-built_in">size</span>;
+	<span class="hljs-built_in">memcpy</span>(bleh + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">size_t</span>), frame, <span class="hljs-built_in">size</span>);
+	list_insert(sock-&gt;rx_queue, bleh);
+	wakeup_queue(sock-&gt;rx_wait);
+	net_sock_alert(sock);
+	spin_unlock(sock-&gt;rx_lock);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> * <span class="hljs-title">net_sock_get</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock)</span> </span>{
+	<span class="hljs-keyword">while</span> (!sock-&gt;rx_queue-&gt;length) {
+		<span class="hljs-keyword">if</span> (sleep_on(sock-&gt;rx_wait)) {
+			<span class="hljs-keyword">if</span> (!sock-&gt;rx_queue-&gt;length)
+				<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+		}
+	}
+
+	spin_lock(sock-&gt;rx_lock);
+	<span class="hljs-keyword">node_t</span> * n = list_dequeue(sock-&gt;rx_queue);
+	<span class="hljs-keyword">void</span>* value = n-&gt;value;
+	<span class="hljs-built_in">free</span>(n);
+	spin_unlock(sock-&gt;rx_lock);
+
+	<span class="hljs-keyword">return</span> value;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">sock_generic_check</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+	<span class="hljs-keyword">sock_t</span> * sock = (<span class="hljs-keyword">sock_t</span>*)node;
+	<span class="hljs-keyword">if</span> (sock-&gt;rx_queue-&gt;length) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (sock-&gt;unread) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">sock_generic_wait</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">void</span> * <span class="hljs-built_in">process</span>)</span> </span>{
+	<span class="hljs-keyword">sock_t</span> * sock = (<span class="hljs-keyword">sock_t</span>*)node;
+
+	spin_lock(sock-&gt;alert_lock);
+	<span class="hljs-keyword">if</span> (!list_find(sock-&gt;alert_wait, <span class="hljs-built_in">process</span>)) {
+		list_insert(sock-&gt;alert_wait, <span class="hljs-built_in">process</span>);
+	}
+	list_insert(((<span class="hljs-keyword">process_t</span> *)<span class="hljs-built_in">process</span>)-&gt;node_waits, sock);
+	spin_unlock(sock-&gt;alert_lock);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">sock_generic_close</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+	<span class="hljs-keyword">sock_t</span> * sock = (<span class="hljs-keyword">sock_t</span>*)node;
+	sock-&gt;sock_close(sock);
+	<span class="hljs-keyword">while</span> (sock-&gt;rx_queue-&gt;length) {
+		<span class="hljs-keyword">node_t</span> * n = list_dequeue(sock-&gt;rx_queue);
+		<span class="hljs-built_in">free</span>(n-&gt;value);
+		<span class="hljs-built_in">free</span>(n);
+	}
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"net: socket closed\n"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">sock_generic_ioctl</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> request, <span class="hljs-keyword">void</span> * argp)</span> </span>{
+	<span class="hljs-keyword">sock_t</span> * sock = (<span class="hljs-keyword">sock_t</span>*)node;
+	<span class="hljs-keyword">switch</span> (request) {
+		<span class="hljs-keyword">case</span> FIONBIO: {
+			<span class="hljs-keyword">if</span> (!mmu_validate_user_pointer(argp, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>), <span class="hljs-number">0</span>)) <span class="hljs-keyword">return</span> -EFAULT;
+			sock-&gt;nonblocking = (!!*(<span class="hljs-keyword">int</span>*)argp);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+	}
+	<span class="hljs-keyword">return</span> -EINVAL;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">sock_t</span> * <span class="hljs-title">net_sock_create</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">sock_t</span> * sock = <span class="hljs-built_in">calloc</span>(<span class="hljs-keyword">sizeof</span>(struct SockData),<span class="hljs-number">1</span>);
+	sock-&gt;_fnode.flags = FS_SOCKET; <span class="hljs-comment">/* uh, FS_SOCKET? */</span>
+	sock-&gt;_fnode.mask = <span class="hljs-number">0600</span>;
+	sock-&gt;_fnode.device = <span class="hljs-literal">NULL</span>;
+	sock-&gt;_fnode.selectcheck = sock_generic_check;
+	sock-&gt;_fnode.selectwait = sock_generic_wait;
+	sock-&gt;_fnode.<span class="hljs-built_in">close</span> = sock_generic_close;
+	sock-&gt;_fnode.ioctl = sock_generic_ioctl;
+	sock-&gt;alert_wait = list_create(<span class="hljs-string">"socket alert wait"</span>, sock);
+	sock-&gt;rx_wait    = list_create(<span class="hljs-string">"socket rx wait"</span>, sock);
+	sock-&gt;rx_queue   = list_create(<span class="hljs-string">"socket rx queue"</span>, sock);
+	open_fs((<span class="hljs-keyword">fs_node_t</span>*)sock,<span class="hljs-number">0</span>);
+	<span class="hljs-keyword">return</span> sock;
+}
+
+<span class="hljs-keyword">spin_lock_t</span> net_raw_sockets_lock = {<span class="hljs-number">0</span>};
+<span class="hljs-keyword">list_t</span> * net_raw_sockets_list = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> <span class="hljs-title">sock_raw_recv</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock, struct msghdr * msg, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">if</span> (!sock-&gt;_fnode.device) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_iovlen &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"net: todo: can't recv multiple iovs\n"</span>);
+		<span class="hljs-keyword">return</span> -ENOTSUP;
+	}
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_iovlen == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> * data = net_sock_get(sock);
+	<span class="hljs-keyword">if</span> (!data) <span class="hljs-keyword">return</span> -EINTR;
+	<span class="hljs-keyword">size_t</span> packet_size = *(<span class="hljs-keyword">size_t</span>*)data;
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_len &lt; packet_size) {
+		<span class="hljs-built_in">free</span>(data);
+		<span class="hljs-keyword">return</span> -EINVAL;
+	}
+	<span class="hljs-built_in">memcpy</span>(msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_base, data + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">size_t</span>), packet_size);
+	<span class="hljs-built_in">free</span>(data);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">4096</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> <span class="hljs-title">sock_raw_send</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock, <span class="hljs-keyword">const</span> struct msghdr *msg, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">if</span> (!sock-&gt;_fnode.device) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_iovlen &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"net: todo: can't send multiple iovs\n"</span>);
+		<span class="hljs-keyword">return</span> -ENOTSUP;
+	}
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_iovlen == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> write_fs(sock-&gt;_fnode.device, <span class="hljs-number">0</span>, msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_len, msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_base);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sock_raw_close</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock)</span> </span>{
+	spin_lock(net_raw_sockets_lock);
+	list_delete(net_raw_sockets_list, list_find(net_raw_sockets_list, sock));
+	spin_unlock(net_raw_sockets_lock);
+
+	<span class="hljs-comment">/* free stuff ? */</span>
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Raw sockets</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">net_raw_socket</span><span class="hljs-params">(<span class="hljs-keyword">int</span> type, <span class="hljs-keyword">int</span> protocol, <span class="hljs-keyword">int</span> flags, <span class="hljs-keyword">int</span> nb)</span> </span>{
+	<span class="hljs-keyword">if</span> (type != SOCK_RAW) <span class="hljs-keyword">return</span> -ESOCKTNOSUPPORT;
+	<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;user != <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -EACCES;
+
+	<span class="hljs-comment">/* Make a new raw socket? */</span>
+	<span class="hljs-keyword">sock_t</span> * sock = net_sock_create();
+	sock-&gt;sock_recv = sock_raw_recv;
+	sock-&gt;sock_send = sock_raw_send;
+	sock-&gt;sock_close = sock_raw_close;
+
+	spin_lock(net_raw_sockets_lock);
+	list_insert(net_raw_sockets_list, sock);
+	spin_unlock(net_raw_sockets_lock);
+
+	<span class="hljs-keyword">if</span> (nb) sock-&gt;nonblocking = <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">return</span> process_append_fd((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, (<span class="hljs-keyword">fs_node_t</span> *)sock, flags | PROC_FD_MODE__RW);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">net_socket</span><span class="hljs-params">(<span class="hljs-keyword">int</span> domain, <span class="hljs-keyword">int</span> type, <span class="hljs-keyword">int</span> protocol)</span> </span>{
+	<span class="hljs-keyword">int</span> flags = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> nonblocking = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (type &amp; SOCK_NONBLOCK) nonblocking = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (type &amp; SOCK_CLOEXEC)  flags |= PROC_FD_MODE_CLOEXEC;
+	<span class="hljs-keyword">if</span> (type &amp; SOCK_CLOFORK)  flags |= PROC_FD_MODE_CLOFORK;
+
+	type &amp;= ~(SOCK_NONBLOCK | SOCK_CLOEXEC | SOCK_CLOFORK);
+
+	<span class="hljs-keyword">switch</span> (domain) {
+		<span class="hljs-keyword">case</span> AF_INET:
+			<span class="hljs-keyword">return</span> net_ipv4_socket(type, protocol, flags, nonblocking);
+		<span class="hljs-keyword">case</span> AF_RAW:
+			<span class="hljs-keyword">return</span> net_raw_socket(type, protocol, flags, nonblocking);
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> -EAFNOSUPPORT;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">net_so_socket</span><span class="hljs-params">(struct SockData * sock, <span class="hljs-keyword">int</span> optname, <span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> *optval, <span class="hljs-keyword">socklen_t</span> optlen)</span> </span>{
+	<span class="hljs-keyword">switch</span> (optname) {
+		<span class="hljs-keyword">case</span> SO_BINDTODEVICE: {
+			<span class="hljs-keyword">if</span> (optlen &lt; <span class="hljs-number">1</span> || optlen &gt; <span class="hljs-number">32</span> || ((<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*)optval)[optlen<span class="hljs-number">-1</span>] != <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -EINVAL;
+			<span class="hljs-keyword">fs_node_t</span> * netif = net_if_lookup((<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*)optval);
+			<span class="hljs-keyword">if</span> (!netif) <span class="hljs-keyword">return</span> -ENOENT;
+			sock-&gt;_fnode.device = netif;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+		<span class="hljs-keyword">case</span> SO_RCVTIMEO: {
+			<span class="hljs-keyword">if</span> (optlen != <span class="hljs-keyword">sizeof</span>(struct timeval)) <span class="hljs-keyword">return</span> -EINVAL;
+			<span class="hljs-keyword">if</span> (!mmu_validate_user_pointer(optval, <span class="hljs-keyword">sizeof</span>(struct timeval), <span class="hljs-number">0</span>)) <span class="hljs-keyword">return</span> -EFAULT;
+			sock-&gt;timeout_s = ((struct timeval *)optval)-&gt;tv_sec;
+			sock-&gt;timeout_us = ((struct timeval *)optval)-&gt;tv_usec;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+		<span class="hljs-keyword">case</span> SO_REUSEADDR: {
+			<span class="hljs-keyword">if</span> (optlen != <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>)) <span class="hljs-keyword">return</span> -EINVAL;
+			<span class="hljs-keyword">if</span> (!mmu_validate_user_pointer(optval, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>), <span class="hljs-number">0</span>)) <span class="hljs-keyword">return</span> -EFAULT;
+			<span class="hljs-comment">/* TODO actually do something */</span>
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> -ENOPROTOOPT;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">long</span> <span class="hljs-title">net_so_ipv4_socket</span><span class="hljs-params">(struct SockData * sock, <span class="hljs-keyword">int</span> optname, <span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> *optval, <span class="hljs-keyword">socklen_t</span> optlen)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">int</span> <span class="hljs-title">is_socket</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sockfd)</span> </span>{
+	<span class="hljs-keyword">if</span> (!FD_CHECK(sockfd)) <span class="hljs-keyword">return</span> -EBADF;
+	<span class="hljs-keyword">fs_node_t</span> * node = FD_ENTRY(sockfd);
+	<span class="hljs-keyword">if</span> (!(node-&gt;flags &amp; FS_SOCKET)) <span class="hljs-keyword">return</span> -ENOTSOCK;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CHECK_SOCK(sockfd) do { int x = is_socket(sockfd); <span class="hljs-meta-keyword">if</span> (x) return x; } while (0)</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ADDR_WR_ADDR 1</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ADDR_WR_LEN  2</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">int</span> <span class="hljs-title">validate_addr_ptr</span><span class="hljs-params">(<span class="hljs-keyword">const</span> struct sockaddr *addr, <span class="hljs-keyword">socklen_t</span> * addrlen, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">if</span> (!mmu_validate_user_pointer(addrlen, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">socklen_t</span>), (flags &amp; ADDR_WR_LEN) ? MMU_PTR_WRITE : <span class="hljs-number">0</span>)) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">if</span> (!mmu_validate_user_pointer((<span class="hljs-keyword">void</span>*)addr, *addrlen, (flags &amp; ADDR_WR_ADDR) ? MMU_PTR_WRITE : <span class="hljs-number">0</span>)) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CHECK_ADDR_ADDRLEN(addr,addrlen,flags) do { int x = validate_addr_ptr(addr,addrlen,flags); <span class="hljs-meta-keyword">if</span> (x) return x; } while (0)</span>
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">net_setsockopt</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sockfd, <span class="hljs-keyword">int</span> level, <span class="hljs-keyword">int</span> optname, <span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> *optval, <span class="hljs-keyword">socklen_t</span> optlen)</span> </span>{
+	CHECK_SOCK(sockfd);
+	PTR_VALIDATE(optval);
+	<span class="hljs-keyword">sock_t</span> * node = (<span class="hljs-keyword">sock_t</span>*)FD_ENTRY(sockfd);
+	<span class="hljs-keyword">switch</span> (level) {
+		<span class="hljs-keyword">case</span> SOL_SOCKET:
+			<span class="hljs-keyword">return</span> net_so_socket(node,optname,optval,optlen);
+		<span class="hljs-keyword">case</span> IPPROTO_IP:
+			<span class="hljs-keyword">return</span> net_so_ipv4_socket(node,optname,optval,optlen);
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> -ENOPROTOOPT;
+	}
+	<span class="hljs-keyword">return</span> -EINVAL;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">net_getsockopt</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sockfd, <span class="hljs-keyword">int</span> level, <span class="hljs-keyword">int</span> optname, <span class="hljs-keyword">void</span> *optval, <span class="hljs-keyword">socklen_t</span> *optlen)</span> </span>{
+	CHECK_SOCK(sockfd);
+	<span class="hljs-keyword">return</span> -EINVAL;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">net_bind</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sockfd, <span class="hljs-keyword">const</span> struct sockaddr *addr, <span class="hljs-keyword">socklen_t</span> addrlen)</span> </span>{
+	CHECK_SOCK(sockfd);
+	<span class="hljs-keyword">sock_t</span> * node = (<span class="hljs-keyword">sock_t</span>*)FD_ENTRY(sockfd);
+	<span class="hljs-keyword">if</span> (!node-&gt;sock_bind) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">return</span> node-&gt;sock_bind(node, addr, addrlen);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">net_accept</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sockfd, struct sockaddr * addr, <span class="hljs-keyword">socklen_t</span> * addrlen)</span> </span>{
+	CHECK_SOCK(sockfd);
+	<span class="hljs-keyword">return</span> -EINVAL;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">net_listen</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sockfd, <span class="hljs-keyword">int</span> backlog)</span> </span>{
+	CHECK_SOCK(sockfd);
+	<span class="hljs-keyword">return</span> -EINVAL;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">net_connect</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sockfd, <span class="hljs-keyword">const</span> struct sockaddr *addr, <span class="hljs-keyword">socklen_t</span> addrlen)</span> </span>{
+	CHECK_SOCK(sockfd);
+	<span class="hljs-keyword">sock_t</span> * node = (<span class="hljs-keyword">sock_t</span>*)FD_ENTRY(sockfd);
+	<span class="hljs-keyword">if</span> (!node-&gt;sock_connect) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">return</span> node-&gt;sock_connect(node,addr,addrlen);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">validate_msg</span><span class="hljs-params">(<span class="hljs-keyword">const</span> struct msghdr * msg, <span class="hljs-keyword">int</span> readonly)</span> </span>{
+	<span class="hljs-keyword">int</span> flags = readonly ? <span class="hljs-number">0</span> : MMU_PTR_WRITE;
+	<span class="hljs-keyword">if</span> (!mmu_validate_user_pointer(msg,<span class="hljs-keyword">sizeof</span>(struct msghdr),flags)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_iovlen) {
+		<span class="hljs-comment">/* Check msg_name pointer */</span>
+		<span class="hljs-keyword">if</span> (msg-&gt;msg_name &amp;&amp; !mmu_validate_user_pointer(msg-&gt;msg_name, (<span class="hljs-keyword">size_t</span>)(msg-&gt;msg_namelen), flags)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		<span class="hljs-comment">/* Check iovec structures */</span>
+		<span class="hljs-keyword">if</span> (!mmu_validate_user_pointer(msg-&gt;msg_iov, (<span class="hljs-keyword">size_t</span>)(msg-&gt;msg_iovlen * <span class="hljs-keyword">sizeof</span>(struct iovec)),flags)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		<span class="hljs-comment">/* Check all the buffers in there */</span>
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; msg-&gt;msg_iovlen; ++i) {
+			<span class="hljs-keyword">if</span> (!mmu_validate_user_pointer(msg-&gt;msg_iov[i].iov_base, (<span class="hljs-keyword">size_t</span>)(msg-&gt;msg_iov[i].iov_len), flags)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+
+	<span class="hljs-comment">/* Check control message space */</span>
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_controllen &amp;&amp; !mmu_validate_user_pointer(msg-&gt;msg_control, (<span class="hljs-keyword">size_t</span>)(msg-&gt;msg_controllen), flags)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">net_recv</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sockfd, struct msghdr * msg, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	CHECK_SOCK(sockfd);
+	PTR_VALIDATE(msg);
+	<span class="hljs-keyword">if</span> (validate_msg(msg,<span class="hljs-number">0</span>)) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">sock_t</span> * node = (<span class="hljs-keyword">sock_t</span>*)FD_ENTRY(sockfd);
+	<span class="hljs-keyword">return</span> node-&gt;sock_recv(node,msg,flags);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">net_send</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sockfd, <span class="hljs-keyword">const</span> struct msghdr * msg, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	CHECK_SOCK(sockfd);
+	PTR_VALIDATE(msg);
+	<span class="hljs-keyword">if</span> (validate_msg(msg,<span class="hljs-number">1</span>)) <span class="hljs-keyword">return</span> -EFAULT;
+	<span class="hljs-keyword">sock_t</span> * node = (<span class="hljs-keyword">sock_t</span>*)FD_ENTRY(sockfd);
+	<span class="hljs-keyword">return</span> node-&gt;sock_send(node,msg,flags);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">net_shutdown</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sockfd, <span class="hljs-keyword">int</span> how)</span> </span>{
+	<span class="hljs-keyword">return</span> -EINVAL;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">net_getsockname</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sockfd, struct sockaddr *addr, <span class="hljs-keyword">socklen_t</span> * addrlen)</span> </span>{
+	CHECK_SOCK(sockfd);
+	CHECK_ADDR_ADDRLEN(addr,addrlen,ADDR_WR_ADDR|ADDR_WR_LEN);
+	<span class="hljs-keyword">sock_t</span> * node = (<span class="hljs-keyword">sock_t</span>*)FD_ENTRY(sockfd);
+	<span class="hljs-keyword">if</span> (!node-&gt;sock_getsockname) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">return</span> node-&gt;sock_getsockname(node, addr, addrlen);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">net_getpeername</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sockfd, struct sockaddr *addr, <span class="hljs-keyword">socklen_t</span> * addrlen)</span> </span>{
+	CHECK_SOCK(sockfd);
+	CHECK_ADDR_ADDRLEN(addr,addrlen,ADDR_WR_ADDR|ADDR_WR_LEN);
+	<span class="hljs-keyword">sock_t</span> * node = (<span class="hljs-keyword">sock_t</span>*)FD_ENTRY(sockfd);
+	<span class="hljs-keyword">if</span> (!node-&gt;sock_getpeername) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">return</span> node-&gt;sock_getpeername(node, addr, addrlen);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

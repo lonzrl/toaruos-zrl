@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>packetfs.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\vfs\\packetfs.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>packetfs.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stddef.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/assert.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pipe.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/spinlock.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">pipe_destroy</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node)</span></span>;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MAX_PACKET_SIZE 1024</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> debug_print(x, ...) do { <span class="hljs-meta-keyword">if</span> (0) {printf(<span class="hljs-meta-string">"packetfs.c [%s] "</span>, #x); printf(__VA_ARGS__); printf(<span class="hljs-meta-string">"\n"</span>); } } while (0)</span>
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">packet_manager</span> {</span>
+	<span class="hljs-comment">/* uh, nothing, lol */</span>
+	<span class="hljs-keyword">list_t</span> * exchanges;
+	<span class="hljs-keyword">spin_lock_t</span> lock;
+} <span class="hljs-keyword">pex_t</span>;
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">packet_exchange</span> {</span>
+	<span class="hljs-keyword">char</span> * name;
+	<span class="hljs-keyword">char</span> fresh;
+	<span class="hljs-keyword">spin_lock_t</span> lock;
+	<span class="hljs-keyword">fs_node_t</span> * server_pipe;
+	<span class="hljs-keyword">list_t</span> * clients;
+	<span class="hljs-keyword">pex_t</span> * parent;
+} <span class="hljs-keyword">pex_ex_t</span>;
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">packet_client</span> {</span>
+	<span class="hljs-keyword">pex_ex_t</span> * parent;
+	<span class="hljs-keyword">fs_node_t</span> * pipe;
+} <span class="hljs-keyword">pex_client_t</span>;
+
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">packet</span> {</span>
+	<span class="hljs-keyword">pex_client_t</span> * source;
+	<span class="hljs-keyword">size_t</span>      <span class="hljs-built_in">size</span>;
+	<span class="hljs-keyword">uint8_t</span>     data[];
+} <span class="hljs-keyword">packet_t</span>;
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">server_write_header</span> {</span>
+	<span class="hljs-keyword">pex_client_t</span> * target;
+	<span class="hljs-keyword">uint8_t</span> data[];
+} <span class="hljs-keyword">header_t</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">receive_packet</span><span class="hljs-params">(<span class="hljs-keyword">pex_ex_t</span> * exchange, <span class="hljs-keyword">fs_node_t</span> * socket, <span class="hljs-keyword">packet_t</span> ** out)</span> </span>{
+	<span class="hljs-keyword">ssize_t</span> r;
+	<span class="hljs-keyword">do</span> {
+		r = read_fs(socket, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(struct packet *), (<span class="hljs-keyword">uint8_t</span>*)out);
+	} <span class="hljs-keyword">while</span> (r == <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">if</span> (r &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> r;
+	assert(r == <span class="hljs-keyword">sizeof</span>(struct packet*));
+	assert((<span class="hljs-keyword">uintptr_t</span>)*out &gt;= <span class="hljs-number">0xFFFFff0000000000</span>UL &amp;&amp; (<span class="hljs-keyword">uintptr_t</span>)*out &lt; <span class="hljs-number">0xffffff1fc0000000</span>UL);
+	<span class="hljs-keyword">return</span> r;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">send_to_server</span><span class="hljs-params">(<span class="hljs-keyword">pex_ex_t</span> * p, <span class="hljs-keyword">pex_client_t</span> * c, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">void</span> * data)</span> </span>{
+	<span class="hljs-keyword">size_t</span> p_size = <span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(struct packet);
+	<span class="hljs-keyword">packet_t</span> * packet = <span class="hljs-built_in">malloc</span>(p_size);
+	<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">uintptr_t</span>)c &lt; <span class="hljs-number">0x800000000</span>) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"suspicious pex client received: %p\n"</span>, (<span class="hljs-keyword">char</span>*)c);
+	}
+
+	packet-&gt;source = c;
+	packet-&gt;<span class="hljs-built_in">size</span> = <span class="hljs-built_in">size</span>;
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span>) {
+		<span class="hljs-built_in">memcpy</span>(packet-&gt;data, data, <span class="hljs-built_in">size</span>);
+	}
+
+	write_fs(p-&gt;server_pipe, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(struct packet*), (<span class="hljs-keyword">uint8_t</span>*)&amp;packet);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">send_to_client</span><span class="hljs-params">(<span class="hljs-keyword">pex_ex_t</span> * p, <span class="hljs-keyword">pex_client_t</span> * c, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">void</span> * data)</span> </span>{
+	<span class="hljs-keyword">size_t</span> p_size = <span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(struct packet);
+
+	<span class="hljs-comment">/* Verify there is space on the client */</span>
+	<span class="hljs-keyword">if</span> (pipe_unsize(c-&gt;pipe) &lt; (<span class="hljs-keyword">int</span>)<span class="hljs-keyword">sizeof</span>(struct packet*)) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">uintptr_t</span>)c &lt; <span class="hljs-number">0x800000000</span>) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"suspicious pex client received: %p\n"</span>, (<span class="hljs-keyword">char</span>*)c);
+	}
+
+	<span class="hljs-keyword">packet_t</span> * packet = <span class="hljs-built_in">malloc</span>(p_size);
+
+	<span class="hljs-built_in">memcpy</span>(packet-&gt;data, data, <span class="hljs-built_in">size</span>);
+	packet-&gt;source = <span class="hljs-literal">NULL</span>;
+	packet-&gt;<span class="hljs-built_in">size</span> = <span class="hljs-built_in">size</span>;
+
+	write_fs(c-&gt;pipe, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(struct packet*), (<span class="hljs-keyword">uint8_t</span>*)&amp;packet);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">size</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">pex_client_t</span> * <span class="hljs-title">create_client</span><span class="hljs-params">(<span class="hljs-keyword">pex_ex_t</span> * p)</span> </span>{
+	<span class="hljs-keyword">pex_client_t</span> * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">pex_client_t</span>));
+	out-&gt;parent = p;
+	out-&gt;pipe = make_pipe(<span class="hljs-number">4096</span>);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">read_server</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> * <span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">pex_ex_t</span> * p = (<span class="hljs-keyword">pex_ex_t</span> *)node-&gt;device;
+	debug_print(INFO, <span class="hljs-string">"[pex] server read(...)"</span>);
+
+	<span class="hljs-keyword">packet_t</span> * packet = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">ssize_t</span> response_size = receive_packet(p, p-&gt;server_pipe, &amp;packet);
+
+	<span class="hljs-keyword">if</span> (response_size &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> response_size;
+	<span class="hljs-keyword">if</span> (!packet) <span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+
+	debug_print(INFO, <span class="hljs-string">"Server recevied packet of size %zu, was waiting for at most %lu"</span>, packet-&gt;<span class="hljs-built_in">size</span>, <span class="hljs-built_in">size</span>);
+
+	<span class="hljs-keyword">if</span> (packet-&gt;<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">packet_t</span>) &gt; <span class="hljs-built_in">size</span>) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"pex: read in server would be incomplete\n"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	}
+
+	<span class="hljs-built_in">memcpy</span>(<span class="hljs-built_in">buffer</span>, packet, packet-&gt;<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">packet_t</span>));
+	<span class="hljs-keyword">ssize_t</span> out = packet-&gt;<span class="hljs-built_in">size</span> + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">packet_t</span>);
+
+	<span class="hljs-built_in">free</span>(packet);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">write_server</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> * <span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">pex_ex_t</span> * p = (<span class="hljs-keyword">pex_ex_t</span> *)node-&gt;device;
+	debug_print(INFO, <span class="hljs-string">"[pex] server write(...)"</span>);
+
+	<span class="hljs-keyword">header_t</span> * head = (<span class="hljs-keyword">header_t</span> *)<span class="hljs-built_in">buffer</span>;
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> - <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">header_t</span>) &gt; MAX_PACKET_SIZE) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"pex: server write is too big\n"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (head-&gt;target == <span class="hljs-literal">NULL</span>) {
+		<span class="hljs-comment">/* Brodcast packet */</span>
+		spin_lock(p-&gt;lock);
+		foreach(f, p-&gt;clients) {
+			debug_print(INFO, <span class="hljs-string">"Sending to client %p"</span>, f-&gt;value);
+			send_to_client(p, (<span class="hljs-keyword">pex_client_t</span> *)f-&gt;value, <span class="hljs-built_in">size</span> - <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">header_t</span>), head-&gt;data);
+		}
+		spin_unlock(p-&gt;lock);
+		debug_print(INFO, <span class="hljs-string">"Done broadcasting to clients."</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-built_in">size</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (head-&gt;target-&gt;parent != p) {
+		debug_print(WARNING, <span class="hljs-string">"[pex] Invalid packet from server? (pid=%d)"</span>, this_core-&gt;current_process-&gt;id);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+	}
+
+	<span class="hljs-keyword">return</span> send_to_client(p, head-&gt;target, <span class="hljs-built_in">size</span> - <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">header_t</span>), head-&gt;data) + <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">header_t</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ioctl_server</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> request, <span class="hljs-keyword">void</span> * argp)</span> </span>{
+	<span class="hljs-keyword">pex_ex_t</span> * p = (<span class="hljs-keyword">pex_ex_t</span> *)node-&gt;device;
+
+	<span class="hljs-keyword">switch</span> (request) {
+		<span class="hljs-keyword">case</span> IOCTL_PACKETFS_QUEUED:
+			<span class="hljs-keyword">return</span> pipe_size(p-&gt;server_pipe);
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> -ENOTTY;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">read_client</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> * <span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">pex_client_t</span> * c = (<span class="hljs-keyword">pex_client_t</span> *)node-&gt;inode;
+	<span class="hljs-keyword">if</span> (c-&gt;parent != node-&gt;device) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"pex: Invalid device endpoint on client read?\n"</span>);
+		<span class="hljs-keyword">return</span> -EINVAL;
+	}
+
+	debug_print(INFO, <span class="hljs-string">"[pex] client read(...)"</span>);
+
+	<span class="hljs-keyword">packet_t</span> * packet = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">ssize_t</span> response_size = receive_packet(c-&gt;parent, c-&gt;pipe, &amp;packet);
+
+	<span class="hljs-keyword">if</span> (response_size &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> response_size;
+	<span class="hljs-keyword">if</span> (!packet) <span class="hljs-keyword">return</span> -EIO;
+
+	<span class="hljs-keyword">if</span> (packet-&gt;<span class="hljs-built_in">size</span> &gt; <span class="hljs-built_in">size</span>) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"pex: Client is not reading enough bytes to hold packet of size %zu\n"</span>, packet-&gt;<span class="hljs-built_in">size</span>);
+		<span class="hljs-keyword">return</span> -EINVAL;
+	}
+
+	<span class="hljs-built_in">memcpy</span>(<span class="hljs-built_in">buffer</span>, &amp;packet-&gt;data, packet-&gt;<span class="hljs-built_in">size</span>);
+	<span class="hljs-keyword">ssize_t</span> out = packet-&gt;<span class="hljs-built_in">size</span>;
+
+	debug_print(INFO, <span class="hljs-string">"[pex] Client received packet of size %zu"</span>, packet-&gt;<span class="hljs-built_in">size</span>);
+	<span class="hljs-keyword">if</span> (out == <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"pex: packet is empty?\n"</span>);
+	}
+
+	<span class="hljs-built_in">free</span>(packet);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">write_client</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> * <span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">pex_client_t</span> * c = (<span class="hljs-keyword">pex_client_t</span> *)node-&gt;inode;
+	<span class="hljs-keyword">if</span> (c-&gt;parent != node-&gt;device) {
+		debug_print(WARNING, <span class="hljs-string">"[pex] Invalid device endpoint on client write?"</span>);
+		<span class="hljs-keyword">return</span> -EINVAL;
+	}
+
+	debug_print(INFO, <span class="hljs-string">"[pex] client write(...)"</span>);
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &gt; MAX_PACKET_SIZE) {
+		debug_print(WARNING, <span class="hljs-string">"Size of %lu is too big."</span>, <span class="hljs-built_in">size</span>);
+		<span class="hljs-keyword">return</span> -EINVAL;
+	}
+
+	debug_print(INFO, <span class="hljs-string">"Sending packet of size %lu to parent"</span>, <span class="hljs-built_in">size</span>);
+	send_to_server(c-&gt;parent, c, <span class="hljs-built_in">size</span>, <span class="hljs-built_in">buffer</span>);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">size</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">ioctl_client</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> request, <span class="hljs-keyword">void</span> * argp)</span> </span>{
+	<span class="hljs-keyword">pex_client_t</span> * c = (<span class="hljs-keyword">pex_client_t</span> *)node-&gt;inode;
+
+	<span class="hljs-keyword">switch</span> (request) {
+		<span class="hljs-keyword">case</span> IOCTL_PACKETFS_QUEUED:
+			<span class="hljs-keyword">return</span> pipe_size(c-&gt;pipe);
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> -ENOTTY;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">close_client</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node)</span> </span>{
+	<span class="hljs-keyword">pex_client_t</span> * c = (<span class="hljs-keyword">pex_client_t</span> *)node-&gt;inode;
+	<span class="hljs-keyword">pex_ex_t</span> * p = c-&gt;parent;
+
+	<span class="hljs-keyword">if</span> (p) {
+		debug_print(WARNING, <span class="hljs-string">"Closing packetfs client: %p:%p"</span>, (<span class="hljs-keyword">void</span>*)p, (<span class="hljs-keyword">void</span>*)c);
+		spin_lock(p-&gt;lock);
+		<span class="hljs-keyword">node_t</span> * n = list_find(p-&gt;clients, c);
+		<span class="hljs-keyword">if</span> (n &amp;&amp; n-&gt;owner == p-&gt;clients) {
+			list_delete(p-&gt;clients, n);
+			<span class="hljs-built_in">free</span>(n);
+		}
+		spin_unlock(p-&gt;lock);
+		<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">1</span>];
+		send_to_server(p, c, <span class="hljs-number">0</span>, tmp);
+	}
+
+	pipe_destroy(c-&gt;pipe);
+	<span class="hljs-built_in">free</span>(c-&gt;pipe);
+	<span class="hljs-built_in">free</span>(c);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">wait_server</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">void</span> * <span class="hljs-built_in">process</span>)</span> </span>{
+	<span class="hljs-keyword">pex_ex_t</span> * p = (<span class="hljs-keyword">pex_ex_t</span> *)node-&gt;device;
+	<span class="hljs-keyword">return</span> selectwait_fs(p-&gt;server_pipe, <span class="hljs-built_in">process</span>);
+}
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">check_server</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node)</span> </span>{
+	<span class="hljs-keyword">pex_ex_t</span> * p = (<span class="hljs-keyword">pex_ex_t</span> *)node-&gt;device;
+	<span class="hljs-keyword">return</span> selectcheck_fs(p-&gt;server_pipe);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">wait_client</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">void</span> * <span class="hljs-built_in">process</span>)</span> </span>{
+	<span class="hljs-keyword">pex_client_t</span> * c = (<span class="hljs-keyword">pex_client_t</span> *)node-&gt;inode;
+	<span class="hljs-keyword">return</span> selectwait_fs(c-&gt;pipe, <span class="hljs-built_in">process</span>);
+}
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">check_client</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node)</span> </span>{
+	<span class="hljs-keyword">pex_client_t</span> * c = (<span class="hljs-keyword">pex_client_t</span> *)node-&gt;inode;
+	<span class="hljs-keyword">return</span> selectcheck_fs(c-&gt;pipe);
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">close_server</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node)</span> </span>{
+	<span class="hljs-keyword">pex_ex_t</span> * ex = (<span class="hljs-keyword">pex_ex_t</span> *)node-&gt;device;
+	<span class="hljs-keyword">pex_t</span> * p = ex-&gt;parent;
+
+	spin_lock(p-&gt;lock);
+
+	<span class="hljs-keyword">node_t</span> * lnode = list_find(p-&gt;exchanges, ex);
+
+	<span class="hljs-comment">/* Remove from exchange list */</span>
+	<span class="hljs-keyword">if</span> (lnode) {
+		list_delete(p-&gt;exchanges, lnode);
+		<span class="hljs-built_in">free</span>(lnode);
+	}
+
+	<span class="hljs-comment">/* Tell all clients we have disconnected */</span>
+	spin_lock(ex-&gt;lock);
+	<span class="hljs-keyword">while</span> (ex-&gt;clients-&gt;length) {
+		<span class="hljs-keyword">node_t</span> * f = list_pop(ex-&gt;clients);
+		<span class="hljs-keyword">pex_client_t</span> * client = (<span class="hljs-keyword">pex_client_t</span>*)f-&gt;value;
+		send_to_client(ex, client, <span class="hljs-number">0</span>, <span class="hljs-literal">NULL</span>);
+		client-&gt;parent = <span class="hljs-literal">NULL</span>;
+		<span class="hljs-built_in">free</span>(f);
+	}
+	spin_unlock(ex-&gt;lock);
+
+	<span class="hljs-built_in">free</span>(ex-&gt;clients);
+	pipe_destroy(ex-&gt;server_pipe);
+	<span class="hljs-built_in">free</span>(ex-&gt;server_pipe);
+	node-&gt;device = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-built_in">free</span>(ex);
+
+	spin_unlock(p-&gt;lock);
+
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">open_pex</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">pex_ex_t</span> * t = (<span class="hljs-keyword">pex_ex_t</span> *)(node-&gt;device);
+
+	debug_print(NOTICE, <span class="hljs-string">"Opening packet exchange %s with flags 0x%x"</span>, t-&gt;name, flags);
+
+	<span class="hljs-keyword">if</span> ((flags &amp; O_CREAT) &amp;&amp; (flags &amp; O_EXCL)) {
+		<span class="hljs-keyword">if</span> (!t-&gt;fresh) {
+			<span class="hljs-keyword">return</span>; <span class="hljs-comment">/* Address in use; this should be handled by kopen... */</span>
+		}
+		t-&gt;fresh = <span class="hljs-number">0</span>;
+		node-&gt;inode = <span class="hljs-number">0</span>;
+		<span class="hljs-comment">/* Set up the server side */</span>
+		node-&gt;<span class="hljs-built_in">read</span>   = read_server;
+		node-&gt;<span class="hljs-built_in">write</span>  = write_server;
+		node-&gt;ioctl  = ioctl_server;
+		node-&gt;<span class="hljs-built_in">close</span>  = close_server;
+		node-&gt;selectcheck = check_server;
+		node-&gt;selectwait  = wait_server;
+		debug_print(INFO, <span class="hljs-string">"[pex] Server launched: %s"</span>, t-&gt;name);
+		debug_print(INFO, <span class="hljs-string">"fs_node = %p"</span>, (<span class="hljs-keyword">void</span>*)node);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">pex_client_t</span> * client = create_client(t);
+		node-&gt;inode = (<span class="hljs-keyword">uintptr_t</span>)client;
+
+		node-&gt;<span class="hljs-built_in">read</span>  = read_client;
+		node-&gt;<span class="hljs-built_in">write</span> = write_client;
+		node-&gt;ioctl = ioctl_client;
+		node-&gt;<span class="hljs-built_in">close</span> = close_client;
+
+		node-&gt;selectcheck = check_client;
+		node-&gt;selectwait  = wait_client;
+
+		list_insert(t-&gt;clients, client);
+
+		<span class="hljs-comment">/* <span class="hljs-doctag">XXX:</span> Send plumbing message to server for new client connection */</span>
+		debug_print(INFO, <span class="hljs-string">"[pex] Client connected: %s:%lx"</span>, t-&gt;name, node-&gt;inode);
+	}
+
+	<span class="hljs-keyword">return</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">readdir_packetfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">uint64_t</span> index, struct dirent * out)</span> </span>{
+	<span class="hljs-keyword">pex_t</span> * p = (<span class="hljs-keyword">pex_t</span> *)node-&gt;device;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+
+	debug_print(INFO, <span class="hljs-string">"[pex] readdir(%lu)"</span>, index);
+
+	<span class="hljs-keyword">if</span> (index == <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+		out-&gt;d_ino = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">strcpy</span>(out-&gt;d_name, <span class="hljs-string">"."</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (index == <span class="hljs-number">1</span>) {
+		<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+		out-&gt;d_ino = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">strcpy</span>(out-&gt;d_name, <span class="hljs-string">".."</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	index -= <span class="hljs-number">2</span>;
+
+	<span class="hljs-keyword">if</span> (index &gt;= p-&gt;exchanges-&gt;length) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	spin_lock(p-&gt;lock);
+
+	foreach(f, p-&gt;exchanges) {
+		<span class="hljs-keyword">if</span> (i == index) {
+			spin_unlock(p-&gt;lock);
+			<span class="hljs-keyword">pex_ex_t</span> * t = (<span class="hljs-keyword">pex_ex_t</span> *)f-&gt;value;
+			<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+			out-&gt;d_ino = (<span class="hljs-keyword">uint64_t</span>)t;
+			<span class="hljs-built_in">strcpy</span>(out-&gt;d_name, t-&gt;name);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		} <span class="hljs-keyword">else</span> {
+			++i;
+		}
+	}
+
+	spin_unlock(p-&gt;lock);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">file_from_pex</span><span class="hljs-params">(<span class="hljs-keyword">pex_ex_t</span> * pex)</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> * fnode = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">memset</span>(fnode, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	fnode-&gt;inode = <span class="hljs-number">0</span>;
+	<span class="hljs-built_in">strcpy</span>(fnode-&gt;name, pex-&gt;name);
+	fnode-&gt;device  = pex;
+	fnode-&gt;mask    = <span class="hljs-number">0666</span>;
+	fnode-&gt;flags   = FS_CHARDEVICE;
+	fnode-&gt;<span class="hljs-built_in">open</span>    = open_pex;
+	<span class="hljs-keyword">return</span> fnode;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">finddir_packetfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-keyword">if</span> (!name) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">pex_t</span> * p = (<span class="hljs-keyword">pex_t</span> *)node-&gt;device;
+
+	debug_print(INFO, <span class="hljs-string">"[pex] finddir(%s)"</span>, name);
+
+	spin_lock(p-&gt;lock);
+
+	foreach(f, p-&gt;exchanges) {
+		<span class="hljs-keyword">pex_ex_t</span> * t = (<span class="hljs-keyword">pex_ex_t</span> *)f-&gt;value;
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(name, t-&gt;name)) {
+			spin_unlock(p-&gt;lock);
+			<span class="hljs-keyword">return</span> file_from_pex(t);
+		}
+	}
+
+	spin_unlock(p-&gt;lock);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">create_packetfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *parent, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *name, <span class="hljs-keyword">mode_t</span> permission, <span class="hljs-keyword">fs_node_t</span> **out)</span> </span>{
+	<span class="hljs-keyword">if</span> (!name) <span class="hljs-keyword">return</span> -EINVAL;
+
+	<span class="hljs-keyword">pex_t</span> * p = (<span class="hljs-keyword">pex_t</span> *)parent-&gt;device;
+
+	debug_print(NOTICE, <span class="hljs-string">"[pex] create(%s)"</span>, name);
+
+	spin_lock(p-&gt;lock);
+
+	foreach(f, p-&gt;exchanges) {
+		<span class="hljs-keyword">pex_ex_t</span> * t = (<span class="hljs-keyword">pex_ex_t</span> *)f-&gt;value;
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(name, t-&gt;name)) {
+			spin_unlock(p-&gt;lock);
+			<span class="hljs-comment">/* Already exists */</span>
+			<span class="hljs-keyword">return</span> -EEXIST;
+		}
+	}
+
+	<span class="hljs-comment">/* Make it */</span>
+	<span class="hljs-keyword">pex_ex_t</span> * new_exchange = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">pex_ex_t</span>));
+
+	new_exchange-&gt;name = strdup(name);
+	new_exchange-&gt;fresh = <span class="hljs-number">1</span>;
+	new_exchange-&gt;clients = list_create(<span class="hljs-string">"pex clients"</span>,new_exchange);
+	new_exchange-&gt;server_pipe = make_pipe(<span class="hljs-number">4096</span>);
+	new_exchange-&gt;parent = p;
+
+	spin_init(new_exchange-&gt;lock);
+	<span class="hljs-comment">/* XXX Create exchange server pipe */</span>
+
+	list_insert(p-&gt;exchanges, new_exchange);
+
+	spin_unlock(p-&gt;lock);
+
+	*out = file_from_pex(new_exchange);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">destroy_pex</span><span class="hljs-params">(<span class="hljs-keyword">pex_ex_t</span> * p)</span> </span>{
+	<span class="hljs-comment">/* XXX */</span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">unlink_packetfs</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *parent, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *name)</span> </span>{
+	<span class="hljs-keyword">if</span> (!name) <span class="hljs-keyword">return</span> -EINVAL;
+
+	<span class="hljs-keyword">pex_t</span> * p = (<span class="hljs-keyword">pex_t</span> *)parent-&gt;device;
+
+	debug_print(NOTICE, <span class="hljs-string">"[pex] unlink(%s)"</span>, name);
+
+	<span class="hljs-keyword">int</span> i = <span class="hljs-number">-1</span>, j = <span class="hljs-number">0</span>;
+
+	spin_lock(p-&gt;lock);
+
+	foreach(f, p-&gt;exchanges) {
+		<span class="hljs-keyword">pex_ex_t</span> * t = (<span class="hljs-keyword">pex_ex_t</span> *)f-&gt;value;
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(name, t-&gt;name)) {
+			destroy_pex(t);
+			i = j;
+			<span class="hljs-keyword">break</span>;
+		}
+		j++;
+	}
+
+	<span class="hljs-keyword">if</span> (i &gt;= <span class="hljs-number">0</span>) {
+		list_remove(p-&gt;exchanges, i);
+	} <span class="hljs-keyword">else</span> {
+		spin_unlock(p-&gt;lock);
+		<span class="hljs-keyword">return</span> -ENOENT;
+	}
+
+	spin_unlock(p-&gt;lock);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">packetfs_manager</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">pex_t</span> * pex = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">pex_t</span>));
+	pex-&gt;exchanges = list_create(<span class="hljs-string">"pex exchanges"</span>,pex);
+
+	spin_init(pex-&gt;lock);
+
+	<span class="hljs-keyword">fs_node_t</span> * fnode = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">memset</span>(fnode, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	fnode-&gt;inode = <span class="hljs-number">0</span>;
+	<span class="hljs-built_in">strcpy</span>(fnode-&gt;name, <span class="hljs-string">"pex"</span>);
+	fnode-&gt;device  = pex;
+	fnode-&gt;mask    = <span class="hljs-number">0777</span>;
+	fnode-&gt;flags   = FS_DIRECTORY;
+	fnode-&gt;readdir = readdir_packetfs;
+	fnode-&gt;finddir = finddir_packetfs;
+	fnode-&gt;create  = create_packetfs;
+	fnode-&gt;unlink  = unlink_packetfs;
+
+	<span class="hljs-keyword">return</span> fnode;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">packetfs_initialize</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> * packet_mgr = packetfs_manager();
+	vfs_mount(<span class="hljs-string">"/dev/pex"</span>, packet_mgr, <span class="hljs-string">"pex"</span>, <span class="hljs-string">""</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

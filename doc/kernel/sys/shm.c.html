@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>shm.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\sys\\shm.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>shm.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/shm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/spinlock.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/tree.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/list.h&gt;</span></span>
+
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<p>static volatile uint8_t bsl; // big shm lock</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> bsl; <span class="hljs-comment">// big shm lock</span>
+<span class="hljs-keyword">tree_t</span> * shm_tree = <span class="hljs-literal">NULL</span>;
+
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">shm_install</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	shm_tree = tree_create();
+	tree_set_root(shm_tree, <span class="hljs-literal">NULL</span>);
+}
+
+
+<span class="hljs-comment">/* Accessors */</span>
+
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">shm_node_t</span> * _get_node(<span class="hljs-keyword">char</span> * shm_path, <span class="hljs-keyword">int</span> create, <span class="hljs-keyword">tree_node_t</span> * from) {
+
+	<span class="hljs-keyword">char</span> *pch, *save;
+	pch = strtok_r(shm_path, SHM_PATH_SEPARATOR, &amp;save);
+
+	<span class="hljs-keyword">tree_node_t</span> * tnode = from;
+	foreach(node, tnode-&gt;children) {
+		<span class="hljs-keyword">tree_node_t</span> * _node = (<span class="hljs-keyword">tree_node_t</span> *)node-&gt;value;
+		<span class="hljs-keyword">shm_node_t</span> *  snode = (<span class="hljs-keyword">shm_node_t</span> *)_node-&gt;value;
+
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(snode-&gt;name, pch)) {
+			<span class="hljs-keyword">if</span> (*save == <span class="hljs-string">'\0'</span>) {
+				<span class="hljs-keyword">return</span> snode;
+			}
+			<span class="hljs-keyword">return</span> _get_node(save, create, _node);
+		}
+	}
+
+	<span class="hljs-comment">/* The next node in sequence was not found */</span>
+	<span class="hljs-keyword">if</span> (create) {
+		<span class="hljs-keyword">shm_node_t</span> * nsnode = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">shm_node_t</span>));
+		<span class="hljs-built_in">memcpy</span>(nsnode-&gt;name, pch, <span class="hljs-built_in">strlen</span>(pch) + <span class="hljs-number">1</span>);
+		nsnode-&gt;chunk = <span class="hljs-literal">NULL</span>;
+
+		<span class="hljs-keyword">tree_node_t</span> * nnode = tree_node_insert_child(shm_tree, from, nsnode);
+
+		<span class="hljs-keyword">if</span> (*save == <span class="hljs-string">'\0'</span>) {
+			<span class="hljs-keyword">return</span> nsnode;
+		}
+
+		<span class="hljs-keyword">return</span> _get_node(save, create, nnode);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">shm_node_t</span> * <span class="hljs-title">get_node</span> <span class="hljs-params">(<span class="hljs-keyword">char</span> * shm_path, <span class="hljs-keyword">int</span> create)</span> </span>{
+	<span class="hljs-keyword">char</span> * _path = <span class="hljs-built_in">malloc</span>(<span class="hljs-built_in">strlen</span>(shm_path)+<span class="hljs-number">1</span>);
+	<span class="hljs-built_in">memcpy</span>(_path, shm_path, <span class="hljs-built_in">strlen</span>(shm_path)+<span class="hljs-number">1</span>);
+
+	<span class="hljs-keyword">shm_node_t</span> * node = _get_node(_path, create, shm_tree-&gt;root);
+
+	<span class="hljs-built_in">free</span>(_path);
+	<span class="hljs-keyword">return</span> node;
+}
+
+
+<span class="hljs-comment">/* Create and Release */</span>
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">shm_chunk_t</span> * <span class="hljs-title">create_chunk</span> <span class="hljs-params">(<span class="hljs-keyword">shm_node_t</span> * parent, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">size</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">shm_chunk_t</span> *chunk = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">shm_chunk_t</span>));
+	<span class="hljs-keyword">if</span> (chunk == <span class="hljs-literal">NULL</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	chunk-&gt;parent = parent;
+	chunk-&gt;lock = <span class="hljs-number">0</span>;
+	chunk-&gt;ref_count = <span class="hljs-number">1</span>;
+
+	chunk-&gt;num_frames = (<span class="hljs-built_in">size</span> / <span class="hljs-number">0x1000</span>) + ((<span class="hljs-built_in">size</span> % <span class="hljs-number">0x1000</span>) ? <span class="hljs-number">1</span> : <span class="hljs-number">0</span>);
+	chunk-&gt;frames = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uintptr_t</span>) * chunk-&gt;num_frames);
+	<span class="hljs-keyword">if</span> (chunk-&gt;frames == <span class="hljs-literal">NULL</span>) {
+		<span class="hljs-built_in">free</span>(chunk);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-comment">/* Now grab some frames for this guy. */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint32_t</span> i = <span class="hljs-number">0</span>; i &lt; chunk-&gt;num_frames; i++) {
+		<span class="hljs-comment">/* Allocate frame */</span>
+		<span class="hljs-keyword">uintptr_t</span> index = mmu_allocate_a_frame();
+		chunk-&gt;frames[i] = index;
+	}
+
+	<span class="hljs-keyword">return</span> chunk;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">release_chunk</span> <span class="hljs-params">(<span class="hljs-keyword">shm_chunk_t</span> * chunk)</span> </span>{
+	<span class="hljs-keyword">if</span> (chunk) {
+		chunk-&gt;ref_count--;
+
+		<span class="hljs-comment">/* Does the chunk need to be freed? */</span>
+		<span class="hljs-keyword">if</span> (chunk-&gt;ref_count &lt; <span class="hljs-number">1</span>) {
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+			debug_print(INFO, <span class="hljs-string">"Freeing chunk with name %s"</span>, chunk-&gt;parent-&gt;name);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+			<span class="hljs-comment">/* First, free the frames used by this chunk */</span>
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint32_t</span> i = <span class="hljs-number">0</span>; i &lt; chunk-&gt;num_frames; i++) {
+				mmu_frame_release(chunk-&gt;frames[i] &lt;&lt; <span class="hljs-number">12</span>);
+			}
+
+			<span class="hljs-comment">/* Then, get rid of the damn thing */</span>
+			chunk-&gt;parent-&gt;chunk = <span class="hljs-literal">NULL</span>;
+			<span class="hljs-built_in">free</span>(chunk-&gt;frames);
+			<span class="hljs-built_in">free</span>(chunk);
+		}
+
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+}
+
+
+<span class="hljs-comment">/* Mapping and Unmapping */</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uintptr_t</span> <span class="hljs-title">proc_sbrk</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> num_pages, <span class="hljs-keyword">volatile</span> <span class="hljs-keyword">process_t</span> * <span class="hljs-keyword">volatile</span> proc)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> initial = proc-&gt;<span class="hljs-built_in">image</span>.shm_heap;
+
+	<span class="hljs-keyword">if</span> (initial &amp; <span class="hljs-number">0xFFF</span>) {
+		initial += <span class="hljs-number">0x1000</span> - (initial &amp; <span class="hljs-number">0xFFF</span>);
+		proc-&gt;<span class="hljs-built_in">image</span>.shm_heap = initial;
+	}
+	proc-&gt;<span class="hljs-built_in">image</span>.shm_heap += num_pages &lt;&lt; <span class="hljs-number">12</span>;
+
+	<span class="hljs-keyword">return</span> initial;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> * <span class="hljs-title">map_in</span> <span class="hljs-params">(<span class="hljs-keyword">shm_chunk_t</span> * chunk, <span class="hljs-keyword">volatile</span> <span class="hljs-keyword">process_t</span> * <span class="hljs-keyword">volatile</span> proc)</span> </span>{
+	<span class="hljs-keyword">if</span> (!chunk) {
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">shm_mapping_t</span> * mapping = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">shm_mapping_t</span>));
+	mapping-&gt;chunk = chunk;
+	mapping-&gt;num_vaddrs = chunk-&gt;num_frames;
+	mapping-&gt;vaddrs = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uintptr_t</span>) * mapping-&gt;num_vaddrs);
+
+	<span class="hljs-keyword">uintptr_t</span> last_address = USER_SHM_LOW;
+	foreach(node, proc-&gt;shm_mappings) {
+		<span class="hljs-keyword">shm_mapping_t</span> * m = node-&gt;value;
+		<span class="hljs-keyword">if</span> (m-&gt;vaddrs[<span class="hljs-number">0</span>] &gt; last_address) {
+			<span class="hljs-keyword">size_t</span> gap = (<span class="hljs-keyword">uintptr_t</span>)m-&gt;vaddrs[<span class="hljs-number">0</span>] - last_address;
+			<span class="hljs-keyword">if</span> (gap &gt;= mapping-&gt;num_vaddrs * <span class="hljs-number">0x1000</span>) {
+				<span class="hljs-comment">/* Map the gap */</span>
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; chunk-&gt;num_frames; ++i) {
+					<span class="hljs-keyword">union</span> PML * page = mmu_get_page(last_address + (i &lt;&lt; <span class="hljs-number">12</span>), MMU_GET_MAKE);
+					page-&gt;bits.page = chunk-&gt;frames[i];
+					mmu_frame_allocate(page, MMU_FLAG_WRITABLE);
+					mapping-&gt;vaddrs[i] = last_address + (i &lt;&lt; <span class="hljs-number">12</span>);
+				}
+
+				<span class="hljs-comment">/* Insert us before this node */</span>
+				list_insert_before(proc-&gt;shm_mappings, node, mapping);
+
+				<span class="hljs-keyword">return</span> (<span class="hljs-keyword">void</span> *)mapping-&gt;vaddrs[<span class="hljs-number">0</span>];
+			}
+		}
+		last_address = m-&gt;vaddrs[<span class="hljs-number">0</span>] + m-&gt;num_vaddrs * <span class="hljs-number">0x1000</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (proc-&gt;<span class="hljs-built_in">image</span>.shm_heap &gt; last_address) {
+		<span class="hljs-keyword">size_t</span> gap = proc-&gt;<span class="hljs-built_in">image</span>.shm_heap - last_address;
+		<span class="hljs-keyword">if</span> (gap &gt;= mapping-&gt;num_vaddrs * <span class="hljs-number">0x1000</span>) {
+
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; chunk-&gt;num_frames; ++i) {
+				<span class="hljs-keyword">union</span> PML * page = mmu_get_page(last_address + (i &lt;&lt; <span class="hljs-number">12</span>), MMU_GET_MAKE);
+				page-&gt;bits.page = chunk-&gt;frames[i];
+				mmu_frame_allocate(page, MMU_FLAG_WRITABLE);
+				mapping-&gt;vaddrs[i] = last_address + (i &lt;&lt; <span class="hljs-number">12</span>);
+			}
+
+			list_insert(proc-&gt;shm_mappings, mapping);
+			<span class="hljs-keyword">return</span> (<span class="hljs-keyword">void</span> *)mapping-&gt;vaddrs[<span class="hljs-number">0</span>];
+		}
+	}
+
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint32_t</span> i = <span class="hljs-number">0</span>; i &lt; chunk-&gt;num_frames; i++) {
+		<span class="hljs-keyword">uintptr_t</span> new_vpage = proc_sbrk(<span class="hljs-number">1</span>, proc);
+
+		<span class="hljs-keyword">union</span> PML * page = mmu_get_page(new_vpage, MMU_GET_MAKE);
+		page-&gt;bits.page = chunk-&gt;frames[i];
+		mmu_frame_allocate(page, MMU_FLAG_WRITABLE);
+		mapping-&gt;vaddrs[i] = new_vpage;
+	}
+
+	list_insert(proc-&gt;shm_mappings, mapping);
+
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">void</span> *)mapping-&gt;vaddrs[<span class="hljs-number">0</span>];
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> <span class="hljs-title">chunk_size</span> <span class="hljs-params">(<span class="hljs-keyword">shm_chunk_t</span> * chunk)</span> </span>{
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">size_t</span>)(chunk-&gt;num_frames * <span class="hljs-number">0x1000</span>);
+}
+
+
+<span class="hljs-comment">/* Kernel-Facing Functions and Syscalls */</span>
+
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> * <span class="hljs-title">shm_obtain</span> <span class="hljs-params">(<span class="hljs-keyword">char</span> * path, <span class="hljs-keyword">size_t</span> * <span class="hljs-built_in">size</span>)</span> </span>{
+	spin_lock(bsl);
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">process_t</span> * <span class="hljs-keyword">volatile</span> proc = this_core-&gt;current_process-&gt;<span class="hljs-built_in">process</span>;
+
+	<span class="hljs-keyword">shm_node_t</span> * node = get_node(path, <span class="hljs-number">1</span>); <span class="hljs-comment">// (if it exists, just get it)</span>
+	<span class="hljs-keyword">shm_chunk_t</span> * chunk = node-&gt;chunk;
+
+	<span class="hljs-keyword">if</span> (chunk == <span class="hljs-literal">NULL</span>) {
+		<span class="hljs-comment">/* There's no chunk for that key -- we need to allocate it! */</span>
+
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">size</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<p>The process doesn't want a chunk...?</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			spin_unlock(bsl);
+			<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+		}
+
+		chunk = create_chunk(node, *<span class="hljs-built_in">size</span>);
+		<span class="hljs-keyword">if</span> (chunk == <span class="hljs-literal">NULL</span>) {
+			spin_unlock(bsl);
+			<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+		}
+
+		node-&gt;chunk = chunk;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-comment">/* New accessor! */</span>
+		chunk-&gt;ref_count++;
+	}
+
+	<span class="hljs-keyword">void</span> * vshm_start = map_in(chunk, proc);
+	*<span class="hljs-built_in">size</span> = chunk_size(chunk);
+
+	spin_unlock(bsl);
+
+	<span class="hljs-keyword">return</span> vshm_start;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">shm_release</span> <span class="hljs-params">(<span class="hljs-keyword">char</span> * path)</span> </span>{
+	spin_lock(bsl);
+	<span class="hljs-keyword">process_t</span> * proc = (<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process-&gt;<span class="hljs-built_in">process</span>;
+
+	<span class="hljs-comment">/* First, find the right chunk */</span>
+	<span class="hljs-keyword">shm_node_t</span> * _node = get_node(path, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">if</span> (!_node) {
+		spin_unlock(bsl);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">shm_chunk_t</span> * chunk = _node-&gt;chunk;
+
+	<span class="hljs-comment">/* Next, find the proc's mapping for that chunk */</span>
+	<span class="hljs-keyword">node_t</span> * node = <span class="hljs-literal">NULL</span>;
+	foreach (n, proc-&gt;shm_mappings) {
+		<span class="hljs-keyword">shm_mapping_t</span> * m = (<span class="hljs-keyword">shm_mapping_t</span> *)n-&gt;value;
+		<span class="hljs-keyword">if</span> (m-&gt;chunk == chunk) {
+			node = n;
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+	<span class="hljs-keyword">if</span> (node == <span class="hljs-literal">NULL</span>) {
+		spin_unlock(bsl);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">shm_mapping_t</span> * mapping = (<span class="hljs-keyword">shm_mapping_t</span> *)node-&gt;value;
+
+	<span class="hljs-comment">/* Clear the mappings from the process's address space */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint32_t</span> i = <span class="hljs-number">0</span>; i &lt; mapping-&gt;num_vaddrs; i++) {
+		<span class="hljs-keyword">union</span> PML * page = mmu_get_page(mapping-&gt;vaddrs[i], <span class="hljs-number">0</span>);
+		page-&gt;bits.present = <span class="hljs-number">0</span>;
+		mmu_invalidate(mapping-&gt;vaddrs[i]);
+	}
+
+	<span class="hljs-comment">/* Clean up */</span>
+	release_chunk(chunk);
+	list_delete(proc-&gt;shm_mappings, node);
+	<span class="hljs-built_in">free</span>(node);
+	<span class="hljs-built_in">free</span>(mapping);
+
+	spin_unlock(bsl);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>This function should only be called if the process's address space
+is about to be destroyed -- chunks will not be unmounted therefrom !</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">shm_release_all</span> <span class="hljs-params">(<span class="hljs-keyword">process_t</span> * proc)</span> </span>{
+	spin_lock(bsl);
+
+	<span class="hljs-keyword">node_t</span> * node;
+	<span class="hljs-keyword">while</span> ((node = list_pop(proc-&gt;shm_mappings)) != <span class="hljs-literal">NULL</span>) {
+		<span class="hljs-keyword">shm_mapping_t</span> * mapping = node-&gt;value;
+		release_chunk(mapping-&gt;chunk);
+		<span class="hljs-built_in">free</span>(mapping);
+		<span class="hljs-built_in">free</span>(node);
+	}
+
+	<span class="hljs-comment">/* Empty, but don't free, the mappings list */</span>
+	list_free(proc-&gt;shm_mappings);
+	proc-&gt;shm_mappings-&gt;head = proc-&gt;shm_mappings-&gt;tail = <span class="hljs-literal">NULL</span>;
+	proc-&gt;shm_mappings-&gt;length = <span class="hljs-number">0</span>;
+
+	spin_unlock(bsl);
+}
+
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

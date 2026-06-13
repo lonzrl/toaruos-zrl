@@ -1,0 +1,1278 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>top.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\top.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>top.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;dirent.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;pwd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;termios.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;poll.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/signal.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/hashmap.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/procfs.h&gt;</span></span>
+
+<span class="hljs-keyword">enum</span> header_columns {
+	COLUMN_NONE,
+	COLUMN_PID,
+	COLUMN_TID,
+	COLUMN_USER,
+	COLUMN_VSZ,
+	COLUMN_SHM,
+	COLUMN_MEM,
+	COLUMN_CPUA,
+	COLUMN_CPU,
+	COLUMN_S
+};
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> T_T <span class="hljs-meta-string">"\033[94m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> T_G <span class="hljs-meta-string">"\033[92m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> T_C <span class="hljs-meta-string">"\033[0;1m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> T_B <span class="hljs-meta-string">"\033[1m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> T_E <span class="hljs-meta-string">"\033[0m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> T_K <span class="hljs-meta-string">"\033[K"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> T_S <span class="hljs-meta-string">"\033[97m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> T_R <span class="hljs-meta-string">"\033[30m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> T_H <span class="hljs-meta-string">"\033[44;30m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> T_CR <span class="hljs-meta-string">"\033[H"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> T_FC <span class="hljs-meta-string">"\033[0;9%dm"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> T_BR <span class="hljs-meta-string">"\033[90m"</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">hashmap_t</span> * process_ents = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">list_t</span> * ents_list = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> cpu_count = <span class="hljs-number">1</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> sort_column = COLUMN_CPU;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> show_help = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> combine_threads = <span class="hljs-number">1</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * help_text[] = {
+	<span class="hljs-string">"q: quit"</span>,
+	<span class="hljs-string">"w: switch sort column (forward)"</span>,
+	<span class="hljs-string">"W: switch sort column (backword)"</span>,
+	<span class="hljs-string">"T: toggle the separate display of threads"</span>,
+	<span class="hljs-string">"h: show this help text"</span>,
+};
+
+<span class="hljs-keyword">enum</span> {
+	FORMATTER_DECIMAL,
+	FORMATTER_PERCENT,
+	FORMATTER_STRING,
+	FORMATTER_MEM,
+};
+
+<span class="hljs-keyword">enum</span> {
+	SORT_ASC,
+	SORT_DEC
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">columns</span> {</span>
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * title;
+	<span class="hljs-keyword">intptr_t</span>     member;
+	<span class="hljs-keyword">int</span>          formatter;
+	<span class="hljs-keyword">int</span>          <span class="hljs-built_in">width</span>;
+	<span class="hljs-keyword">int</span>          sort_order;
+} ColumnDescriptions[] = {
+	[COLUMN_NONE] = {<span class="hljs-string">""</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>},
+	[COLUMN_PID]  = {<span class="hljs-string">"PID"</span>,  offsetof(struct <span class="hljs-built_in">process</span>, tgid),  FORMATTER_DECIMAL, <span class="hljs-number">0</span>, SORT_ASC},
+	[COLUMN_TID]  = {<span class="hljs-string">"TID"</span>,  offsetof(struct <span class="hljs-built_in">process</span>, pid),   FORMATTER_DECIMAL, <span class="hljs-number">0</span>, SORT_ASC},
+	[COLUMN_VSZ]  = {<span class="hljs-string">"VSZ"</span>,  offsetof(struct <span class="hljs-built_in">process</span>, vsz),   FORMATTER_MEM, <span class="hljs-number">0</span>, SORT_DEC},
+	[COLUMN_SHM]  = {<span class="hljs-string">"SHM"</span>,  offsetof(struct <span class="hljs-built_in">process</span>, shm),   FORMATTER_MEM, <span class="hljs-number">0</span>, SORT_DEC},
+	[COLUMN_MEM]  = {<span class="hljs-string">"%MEM"</span>, offsetof(struct <span class="hljs-built_in">process</span>, mem),   FORMATTER_PERCENT, <span class="hljs-number">0</span>, SORT_DEC},
+	[COLUMN_CPU]  = {<span class="hljs-string">"%CPU"</span>, offsetof(struct <span class="hljs-built_in">process</span>, cpu),   FORMATTER_PERCENT, <span class="hljs-number">0</span>, SORT_DEC},
+	[COLUMN_CPUA] = {<span class="hljs-string">"CPUA"</span>, offsetof(struct <span class="hljs-built_in">process</span>, user_data), FORMATTER_PERCENT, <span class="hljs-number">0</span>, SORT_DEC},
+	[COLUMN_USER] = {<span class="hljs-string">"USER"</span>, offsetof(struct <span class="hljs-built_in">process</span>, user_pdata), FORMATTER_STRING,    <span class="hljs-number">0</span>, SORT_ASC},
+	[COLUMN_S]    = {<span class="hljs-string">"S"</span>,    offsetof(struct <span class="hljs-built_in">process</span>, state),FORMATTER_STRING,  <span class="hljs-number">0</span>, SORT_ASC},
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> columns_default[] = { COLUMN_PID, COLUMN_USER, COLUMN_VSZ, COLUMN_SHM, COLUMN_S, COLUMN_CPU, COLUMN_CPUA, COLUMN_MEM, COLUMN_NONE };
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> columns_threads[] = { COLUMN_PID, COLUMN_TID, COLUMN_USER, COLUMN_VSZ, COLUMN_SHM, COLUMN_S, COLUMN_CPU, COLUMN_CPUA, COLUMN_MEM, COLUMN_NONE };
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> * columns = <span class="hljs-literal">NULL</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">print_column</span><span class="hljs-params">(struct <span class="hljs-built_in">process</span> * proc, <span class="hljs-keyword">int</span> column_id, <span class="hljs-keyword">int</span> color)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">columns</span> * <span class="hljs-title">column</span> = &amp;<span class="hljs-title">ColumnDescriptions</span>[<span class="hljs-title">column_id</span>];</span>
+	<span class="hljs-keyword">switch</span> (column-&gt;formatter) {
+		<span class="hljs-keyword">case</span> FORMATTER_DECIMAL: {
+			<span class="hljs-keyword">int</span> value = *(<span class="hljs-keyword">int</span>*)((<span class="hljs-keyword">char</span> *)proc + column-&gt;member);
+			<span class="hljs-keyword">return</span> <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*d "</span>, column-&gt;<span class="hljs-built_in">width</span>, value);
+		}
+		<span class="hljs-keyword">case</span> FORMATTER_MEM: {
+			<span class="hljs-keyword">int</span> value = *(<span class="hljs-keyword">int</span>*)((<span class="hljs-keyword">char</span> *)proc + column-&gt;member);
+			<span class="hljs-keyword">if</span> (value &gt;= <span class="hljs-number">10240</span>) {
+				value /= <span class="hljs-number">1024</span>;
+				<span class="hljs-keyword">if</span> (color) <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s"</span>, T_T);
+				<span class="hljs-keyword">int</span> out = <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*dM "</span>, column-&gt;<span class="hljs-built_in">width</span><span class="hljs-number">-1</span>, value);
+				<span class="hljs-keyword">if</span> (color) <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s"</span>, T_E);
+				<span class="hljs-keyword">return</span> out;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">return</span> <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*d "</span>, column-&gt;<span class="hljs-built_in">width</span>, value);
+			}
+		}
+		<span class="hljs-keyword">case</span> FORMATTER_PERCENT: {
+			<span class="hljs-keyword">int</span> value = *(<span class="hljs-keyword">int</span>*)((<span class="hljs-keyword">char</span> *)proc + column-&gt;member);
+			<span class="hljs-keyword">if</span> (value &gt;= <span class="hljs-number">1000</span>) {
+				<span class="hljs-keyword">return</span> <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*d "</span>, column-&gt;<span class="hljs-built_in">width</span>, value / <span class="hljs-number">10</span>);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">return</span> <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*d.%01d "</span>, column-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">2</span>, value / <span class="hljs-number">10</span>, value % <span class="hljs-number">10</span>);
+			}
+		}
+		<span class="hljs-keyword">case</span> FORMATTER_STRING: {
+			<span class="hljs-keyword">char</span> * value = *(<span class="hljs-keyword">char</span>**)((<span class="hljs-keyword">char</span> *)proc + column-&gt;member);
+			<span class="hljs-keyword">return</span> <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%-*s "</span>, column-&gt;<span class="hljs-built_in">width</span>, value);
+		}
+		<span class="hljs-keyword">default</span>: <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">size_column</span><span class="hljs-params">(struct <span class="hljs-built_in">process</span> * proc, <span class="hljs-keyword">int</span> column_id)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">columns</span> * <span class="hljs-title">column</span> = &amp;<span class="hljs-title">ColumnDescriptions</span>[<span class="hljs-title">column_id</span>];</span>
+	<span class="hljs-keyword">switch</span> (column-&gt;formatter) {
+		<span class="hljs-keyword">case</span> FORMATTER_DECIMAL: {
+			<span class="hljs-keyword">int</span> value = *(<span class="hljs-keyword">int</span>*)((<span class="hljs-keyword">char</span> *)proc + column-&gt;member);
+			<span class="hljs-keyword">return</span> <span class="hljs-built_in">snprintf</span>(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, <span class="hljs-string">"%d"</span>, value);
+		}
+		<span class="hljs-keyword">case</span> FORMATTER_MEM: {
+			<span class="hljs-keyword">int</span> value = *(<span class="hljs-keyword">int</span>*)((<span class="hljs-keyword">char</span> *)proc + column-&gt;member);
+			<span class="hljs-keyword">if</span> (value &gt;= <span class="hljs-number">10240</span>) {
+				value /= <span class="hljs-number">1024</span>;
+				<span class="hljs-keyword">return</span> <span class="hljs-built_in">snprintf</span>(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, <span class="hljs-string">"%dM"</span>, value);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">return</span> <span class="hljs-built_in">snprintf</span>(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, <span class="hljs-string">"%d"</span>, value);
+			}
+		}
+		<span class="hljs-keyword">case</span> FORMATTER_PERCENT: {
+			<span class="hljs-keyword">int</span> value = *(<span class="hljs-keyword">int</span>*)((<span class="hljs-keyword">char</span> *)proc + column-&gt;member);
+			<span class="hljs-keyword">if</span> (value &gt;= <span class="hljs-number">1000</span>) {
+				<span class="hljs-keyword">return</span> <span class="hljs-number">3</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">return</span> <span class="hljs-built_in">snprintf</span>(<span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>, <span class="hljs-string">"%d.%01d"</span>, value / <span class="hljs-number">10</span>, value % <span class="hljs-number">10</span>);
+			}
+		}
+		<span class="hljs-keyword">case</span> FORMATTER_STRING: {
+			<span class="hljs-keyword">char</span> * value = *(<span class="hljs-keyword">char</span>**)((<span class="hljs-keyword">char</span> *)proc + column-&gt;member);
+			<span class="hljs-keyword">return</span> <span class="hljs-built_in">strlen</span>(value);
+		}
+		<span class="hljs-keyword">default</span>: <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">print_header</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-built_in">printf</span>(T_H);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> * c = columns; *c; ++c) {
+		<span class="hljs-keyword">if</span> (*c == sort_column) <span class="hljs-built_in">printf</span>(T_S);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, ColumnDescriptions[*c].<span class="hljs-built_in">width</span>, ColumnDescriptions[*c].title);
+		<span class="hljs-keyword">if</span> (*c == sort_column) <span class="hljs-built_in">printf</span>(T_R);
+	}
+	<span class="hljs-keyword">if</span> (sort_column == COLUMN_NONE) {
+		<span class="hljs-built_in">printf</span>(T_B T_S <span class="hljs-string">"CMD"</span> T_R);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"CMD"</span>);
+	}
+	<span class="hljs-built_in">printf</span>(T_K T_E <span class="hljs-string">"\n"</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">reset_column_widths</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-keyword">sizeof</span>(ColumnDescriptions) / <span class="hljs-keyword">sizeof</span>(*ColumnDescriptions); ++i) {
+		ColumnDescriptions[i].<span class="hljs-built_in">width</span> = <span class="hljs-built_in">strlen</span>(ColumnDescriptions[i].title);
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">print_entry</span><span class="hljs-params">(struct <span class="hljs-built_in">process</span> * out, <span class="hljs-keyword">int</span> <span class="hljs-built_in">width</span>)</span> </span>{
+	<span class="hljs-keyword">int</span> used = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> * c = columns; *c; ++c) {
+		<span class="hljs-keyword">if</span> (*c == sort_column) <span class="hljs-built_in">printf</span>(T_C);
+		used += print_column(out, *c, <span class="hljs-number">1</span>);
+		<span class="hljs-keyword">if</span> (*c == sort_column) <span class="hljs-built_in">printf</span>(T_E);
+	}
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * color = T_T;
+	<span class="hljs-keyword">if</span> (out-&gt;pid != out-&gt;tgid) color = T_G;
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">width</span> &gt; used) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s"</span>, color);
+		used += <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%.*s"</span>, <span class="hljs-built_in">width</span> - used, out-&gt;name);
+		<span class="hljs-built_in">printf</span>(T_E);
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">width</span> &gt; used &amp;&amp; out-&gt;cmdline) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%.*s"</span>, <span class="hljs-built_in">width</span> - used, out-&gt;cmdline);
+		}
+	}
+	<span class="hljs-built_in">printf</span>(T_K <span class="hljs-string">"\n"</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">update_column_widths</span><span class="hljs-params">(struct <span class="hljs-built_in">process</span> * out)</span> </span>{
+	<span class="hljs-keyword">int</span> len;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> * c = columns; *c; ++c) {
+		<span class="hljs-keyword">if</span> ((len = size_column(out, *c)) &gt; ColumnDescriptions[*c].<span class="hljs-built_in">width</span>) ColumnDescriptions[*c].<span class="hljs-built_in">width</span> = len;
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">free_entry</span><span class="hljs-params">(struct <span class="hljs-built_in">process</span> * out)</span> </span>{
+	<span class="hljs-keyword">if</span> (out-&gt;user_pdata) <span class="hljs-built_in">free</span>(out-&gt;user_pdata);
+	procfs_free(out);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">char</span> * <span class="hljs-title">format_username</span><span class="hljs-params">(<span class="hljs-keyword">int</span> uid)</span> </span>{
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> *tmp;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">passwd</span> * <span class="hljs-title">p</span> = <span class="hljs-title">getpwuid</span>(<span class="hljs-title">uid</span>);</span>
+	<span class="hljs-keyword">if</span> (p) {
+		asprintf(&amp;tmp, <span class="hljs-string">"%-8s"</span>, p-&gt;pw_name);
+	} <span class="hljs-keyword">else</span> {
+		asprintf(&amp;tmp, <span class="hljs-string">"%-8d"</span>, uid);
+	}
+	endpwent();
+	<span class="hljs-keyword">return</span> tmp;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function">struct <span class="hljs-built_in">process</span> * <span class="hljs-title">process_from_pid</span><span class="hljs-params">(<span class="hljs-keyword">pid_t</span> pid)</span> </span>{
+	<span class="hljs-keyword">return</span> hashmap_get(process_ents, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)pid);
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">top_callback</span><span class="hljs-params">(struct <span class="hljs-built_in">process</span> * out, <span class="hljs-keyword">void</span> * ctx)</span> </span>{
+	<span class="hljs-keyword">if</span> (out-&gt;tgid != out-&gt;pid &amp;&amp; combine_threads) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">process</span> * <span class="hljs-title">parent</span> = <span class="hljs-title">process_from_pid</span>(<span class="hljs-title">out</span>-&gt;<span class="hljs-title">tgid</span>);</span>
+		<span class="hljs-keyword">if</span> (parent) {
+			<span class="hljs-keyword">int</span> t = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">4</span>; ++i) {
+				parent-&gt;cpu[i] += out-&gt;cpu[i];
+				t += out-&gt;cpu[i];
+			}
+			parent-&gt;user_data = t / <span class="hljs-number">4</span>;
+		}
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	hashmap_set(process_ents, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)out-&gt;pid, out);
+	list_insert(ents_list, (<span class="hljs-keyword">void</span> *)out);
+
+	out-&gt;user_data = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">4</span>; ++i) {
+		out-&gt;user_data += out-&gt;cpu[i];
+	}
+	out-&gt;user_data /= <span class="hljs-number">4</span>;
+
+	out-&gt;user_pdata = format_username(out-&gt;uid);
+
+	<span class="hljs-keyword">if</span> (out-&gt;cmdline) {
+		<span class="hljs-keyword">char</span> * args = out-&gt;cmdline;
+		<span class="hljs-keyword">while</span> (*args &amp;&amp; *args != <span class="hljs-number">30</span>) args++;
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = args - out-&gt;cmdline; i &lt; out-&gt;cmdline_len; ++i) {
+			<span class="hljs-keyword">if</span> (out-&gt;cmdline[i] == <span class="hljs-number">30</span>) out-&gt;cmdline[i] = <span class="hljs-string">' '</span>;
+		}
+
+		args = strdup(args);
+		<span class="hljs-built_in">free</span>(out-&gt;cmdline);
+		out-&gt;cmdline = args;
+	}
+
+	update_column_widths(out);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-11" id="section-11"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">sort_processes</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> * a, <span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> * b)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">process</span> * <span class="hljs-title">left</span>  = *(<span class="hljs-title">struct</span> <span class="hljs-title">process</span> **)<span class="hljs-title">a</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">process</span> * <span class="hljs-title">right</span> = *(<span class="hljs-title">struct</span> <span class="hljs-title">process</span> **)<span class="hljs-title">b</span>;</span>
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">columns</span> * <span class="hljs-title">column</span> = &amp;<span class="hljs-title">ColumnDescriptions</span>[<span class="hljs-title">sort_column</span>];</span>
+
+	<span class="hljs-keyword">if</span> (sort_column == COLUMN_NONE) {
+		<span class="hljs-keyword">return</span> <span class="hljs-built_in">strcmp</span>(left-&gt;name, right-&gt;name);
+	}
+
+	<span class="hljs-keyword">switch</span> (column-&gt;formatter) {
+		<span class="hljs-keyword">case</span> FORMATTER_MEM:
+		<span class="hljs-keyword">case</span> FORMATTER_DECIMAL:
+		<span class="hljs-keyword">case</span> FORMATTER_PERCENT: {
+			<span class="hljs-keyword">int</span> a = *(<span class="hljs-keyword">int</span>*)((<span class="hljs-keyword">char</span> *)left + column-&gt;member);
+			<span class="hljs-keyword">int</span> b = *(<span class="hljs-keyword">int</span>*)((<span class="hljs-keyword">char</span> *)right + column-&gt;member);
+			<span class="hljs-keyword">return</span> (column-&gt;sort_order == SORT_ASC) ? (a - b) : (b - a);
+		}
+		<span class="hljs-keyword">case</span> FORMATTER_STRING: {
+			<span class="hljs-keyword">char</span> * a = *(<span class="hljs-keyword">char</span> **)((<span class="hljs-keyword">char</span> *)left + column-&gt;member);
+			<span class="hljs-keyword">char</span> * b = *(<span class="hljs-keyword">char</span> **)((<span class="hljs-keyword">char</span> *)right + column-&gt;member);
+			<span class="hljs-keyword">return</span> (column-&gt;sort_order == SORT_ASC) ? <span class="hljs-built_in">strcmp</span>(a,b) : <span class="hljs-built_in">strcmp</span>(b,a);
+		}
+		<span class="hljs-keyword">default</span>: <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-12" id="section-12"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">get_mem_info</span><span class="hljs-params">(<span class="hljs-keyword">ssize_t</span> * total, <span class="hljs-keyword">ssize_t</span> * used)</span> </span>{
+	FILE * f = fopen(<span class="hljs-string">"/proc/meminfo"</span>, <span class="hljs-string">"r"</span>);
+	<span class="hljs-keyword">if</span> (!f) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">ssize_t</span> <span class="hljs-built_in">free</span>;
+	<span class="hljs-keyword">char</span> buf[<span class="hljs-number">1024</span>] = {<span class="hljs-number">0</span>};
+	fgets(buf, <span class="hljs-number">1024</span>, f);
+
+	<span class="hljs-keyword">char</span> * a, * b;
+	a = <span class="hljs-built_in">strchr</span>(buf, <span class="hljs-string">' '</span>);
+	a++;
+	b = <span class="hljs-built_in">strchr</span>(a, <span class="hljs-string">'\n'</span>);
+	*b = <span class="hljs-string">'\0'</span>;
+	*total = strtol(a, <span class="hljs-literal">NULL</span>, <span class="hljs-number">10</span>);
+	fgets(buf, <span class="hljs-number">1024</span>, f);
+	a = <span class="hljs-built_in">strchr</span>(buf, <span class="hljs-string">' '</span>);
+	a++;
+	b = <span class="hljs-built_in">strchr</span>(a, <span class="hljs-string">'\n'</span>);
+	*b = <span class="hljs-string">'\0'</span>;
+	<span class="hljs-built_in">free</span> = strtol(a, <span class="hljs-literal">NULL</span>, <span class="hljs-number">10</span>);
+	*used = *total - <span class="hljs-built_in">free</span>;
+
+	fclose(f);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-13" id="section-13"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">get_cpu_info</span><span class="hljs-params">(<span class="hljs-keyword">int</span> cpus[])</span> </span>{
+	FILE * f = fopen(<span class="hljs-string">"/proc/idle"</span>,<span class="hljs-string">"r"</span>);
+	<span class="hljs-keyword">char</span> buf[<span class="hljs-number">4096</span>];
+	fread(buf, <span class="hljs-number">4096</span>, <span class="hljs-number">1</span>, f);
+
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">buffer</span> = buf;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; cpu_count; ++i) {
+		<span class="hljs-keyword">char</span> * b = <span class="hljs-built_in">strchr</span>(<span class="hljs-built_in">buffer</span>, <span class="hljs-string">':'</span>);
+		b++;
+		cpus[i] = <span class="hljs-number">1000</span> - atoi(b);
+		<span class="hljs-keyword">if</span> (cpus[i] &lt; <span class="hljs-number">0</span>) cpus[i] = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">buffer</span> = <span class="hljs-built_in">strchr</span>(b, <span class="hljs-string">'\n'</span>);
+	}
+
+	fclose(f);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-14" id="section-14"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">get_tmpfs_info</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> * <span class="hljs-built_in">size</span>)</span> </span>{
+	FILE * f = fopen(<span class="hljs-string">"/proc/tmpfs"</span>, <span class="hljs-string">"r"</span>);
+	<span class="hljs-keyword">if</span> (!f) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-keyword">char</span> buf[<span class="hljs-number">1024</span>] = {<span class="hljs-number">0</span>};
+	fread(buf,<span class="hljs-number">1</span>,<span class="hljs-number">1024</span>,f);
+	fclose(f);
+
+	<span class="hljs-comment">/* Should probably be looking for UsedBlocks: and advancing from there... */</span>
+	<span class="hljs-keyword">char</span> *b = <span class="hljs-built_in">strstr</span>(buf, <span class="hljs-string">":"</span>);
+	<span class="hljs-keyword">if</span> (!b) <span class="hljs-keyword">return</span>;
+	b += <span class="hljs-number">2</span>;
+
+	*<span class="hljs-built_in">size</span> = strtoul(b,<span class="hljs-literal">NULL</span>,<span class="hljs-number">10</span>) * <span class="hljs-number">4</span>; <span class="hljs-comment">/* Expressed in pages, so * 4 for kilobytes */</span>
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> fill_colors[] = {
+	<span class="hljs-number">1</span>, <span class="hljs-number">3</span>, <span class="hljs-number">4</span>, <span class="hljs-number">5</span>, <span class="hljs-number">6</span>
+};
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-15" id="section-15"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">print_meter</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * title, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * label, <span class="hljs-keyword">int</span> <span class="hljs-built_in">width</span>, <span class="hljs-keyword">int</span> count, <span class="hljs-keyword">ssize_t</span> filled[], <span class="hljs-keyword">size_t</span> maximum)</span> </span>{
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">available</span> = <span class="hljs-built_in">width</span> - <span class="hljs-built_in">strlen</span>(title) - <span class="hljs-number">4</span>;
+	<span class="hljs-keyword">int</span> remaining = <span class="hljs-built_in">available</span>;
+	<span class="hljs-keyword">int</span> fillSlots = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Count total fill slots */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+		filled[i] = filled[i] * <span class="hljs-built_in">available</span> / maximum;
+		<span class="hljs-keyword">if</span> (filled[i] &lt; <span class="hljs-number">0</span>) filled[i] = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (filled[i] &gt; remaining) filled[i] = remaining;
+		fillSlots += filled[i];
+		remaining = <span class="hljs-built_in">available</span> - fillSlots;
+	}
+
+	<span class="hljs-keyword">int</span> emptSlots = <span class="hljs-built_in">available</span> - fillSlots;
+
+	<span class="hljs-built_in">printf</span>(T_B <span class="hljs-string">"%s ["</span>, title);
+
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">fill</span> = <span class="hljs-built_in">malloc</span>(<span class="hljs-built_in">available</span> + <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">size_t</span> j = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; fillSlots; ++i, j++) <span class="hljs-built_in">fill</span>[j] = <span class="hljs-string">'|'</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; emptSlots; ++i, j++) <span class="hljs-built_in">fill</span>[j] = <span class="hljs-string">' '</span>;
+
+	<span class="hljs-keyword">size_t</span> l = <span class="hljs-built_in">strlen</span>(label);
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">available</span> &gt; (<span class="hljs-keyword">int</span>)l) {
+		<span class="hljs-built_in">sprintf</span>(<span class="hljs-built_in">fill</span> + <span class="hljs-built_in">available</span> - l, <span class="hljs-string">"%s"</span>, label);
+	}
+
+	j = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> c = <span class="hljs-number">0</span>; c &lt; count; ++c) {
+		<span class="hljs-built_in">printf</span>(T_FC, fill_colors[c % (<span class="hljs-keyword">sizeof</span>(fill_colors) / <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>))]);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; filled[c]; ++i, j++) <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%c"</span>,<span class="hljs-built_in">fill</span>[j]);
+	}
+	<span class="hljs-built_in">printf</span>(T_BR);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; emptSlots; ++i, j++) <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%c"</span>,<span class="hljs-built_in">fill</span>[j]);
+
+	<span class="hljs-built_in">printf</span>(T_C <span class="hljs-string">"]"</span> T_E <span class="hljs-string">" "</span>);
+	<span class="hljs-built_in">free</span>(<span class="hljs-built_in">fill</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-16" id="section-16"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">next_sort_order</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">size_t</span> column_count = <span class="hljs-number">1</span>; <span class="hljs-comment">/* NONE is always in there */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> * i = columns; *i; ++i) column_count++;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; column_count; ++i) {
+		<span class="hljs-keyword">if</span> (columns[i] == sort_column) {
+			sort_column = columns[(i + <span class="hljs-number">1</span>) % column_count];
+			<span class="hljs-keyword">return</span>;
+		}
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-17" id="section-17"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">prev_sort_order</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">size_t</span> column_count = <span class="hljs-number">1</span>; <span class="hljs-comment">/* NONE is always in there */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> * i = columns; *i; ++i) column_count++;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; column_count; ++i) {
+		<span class="hljs-keyword">if</span> (columns[i] == sort_column) {
+			sort_column = columns[(i + column_count - <span class="hljs-number">1</span>) % column_count];
+			<span class="hljs-keyword">return</span>;
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">toggle_threads</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (combine_threads) {
+		combine_threads = <span class="hljs-number">0</span>;
+		columns = columns_threads;
+	} <span class="hljs-keyword">else</span> {
+		combine_threads = <span class="hljs-number">1</span>;
+		columns = columns_default;
+		<span class="hljs-keyword">if</span> (sort_column == COLUMN_TID) sort_column = COLUMN_PID;
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-18" id="section-18"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> struct <span class="hljs-built_in">process</span> ** <span class="hljs-title">read_processes</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> * count)</span> </span>{
+	<span class="hljs-comment">/* Set minimum column widths to titles */</span>
+	reset_column_widths();
+
+	<span class="hljs-comment">/* Read the entries in the directory */</span>
+	ents_list = list_create();
+	process_ents = hashmap_create_int(<span class="hljs-number">10</span>);
+
+	procfs_iterate(top_callback, <span class="hljs-literal">NULL</span>, PROCFSLIB_NO_FREE | PROCFSLIB_COLLECT_COMMANDLINE | PROCFSLIB_NO_CURLY_THREADS);
+
+	hashmap_free(process_ents);
+	<span class="hljs-built_in">free</span>(process_ents);
+
+	<span class="hljs-comment">/* Turn list into an array */</span>
+	*count = ents_list-&gt;length;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">process</span> ** <span class="hljs-title">processList</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">process</span>*) * *<span class="hljs-title">count</span>);</span>
+	<span class="hljs-keyword">size_t</span> ent = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (ents_list-&gt;length) {
+		<span class="hljs-keyword">node_t</span> * node = list_pop(ents_list);
+		processList[ent] = node-&gt;value;
+		<span class="hljs-built_in">free</span>(node);
+		ent++;
+	}
+	<span class="hljs-built_in">free</span>(ents_list);
+
+	<span class="hljs-comment">/* Sort processes with the current sort column */</span>
+	qsort(processList, *count, <span class="hljs-keyword">sizeof</span>(struct <span class="hljs-built_in">process</span>*), sort_processes);
+
+	<span class="hljs-keyword">return</span> processList;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-19" id="section-19"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">do_once</span><span class="hljs-params">(<span class="hljs-keyword">int</span> <span class="hljs-built_in">delay</span>)</span> </span>{
+	<span class="hljs-keyword">size_t</span> count;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">process</span> ** <span class="hljs-title">processList</span> = <span class="hljs-title">read_processes</span>(&amp;<span class="hljs-title">count</span>);</span>
+
+	<span class="hljs-comment">/* Gather total memory usage /proc/meminfo */</span>
+	<span class="hljs-keyword">ssize_t</span> mem_total = <span class="hljs-number">0</span>, mem_used = <span class="hljs-number">0</span>;
+	get_mem_info(&amp;mem_total, &amp;mem_used);
+
+	<span class="hljs-keyword">size_t</span> mem_tmpfs = <span class="hljs-number">0</span>;
+	get_tmpfs_info(&amp;mem_tmpfs);
+
+	<span class="hljs-comment">/* Gather per-CPU usage from /proc/idle */</span>
+	<span class="hljs-keyword">int</span> cpus[<span class="hljs-number">32</span>];
+	get_cpu_info(cpus);
+
+	<span class="hljs-comment">/* Gather screen size */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">winsize</span> <span class="hljs-title">w</span>;</span>
+	ioctl(STDOUT_FILENO, TIOCGWINSZ, &amp;w);
+
+	<span class="hljs-comment">/* Figure out how we're going to lay out widgets */</span>
+	<span class="hljs-keyword">int</span> top_rows = <span class="hljs-number">1</span> + cpu_count;
+	<span class="hljs-keyword">int</span> meter_width = w.ws_col / <span class="hljs-number">2</span>;
+	<span class="hljs-keyword">int</span> current_row = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> left_side = <span class="hljs-number">1</span>;
+
+	<span class="hljs-comment">/* Generate info rows */</span>
+	<span class="hljs-keyword">int</span> info_width = w.ws_col - meter_width;
+	<span class="hljs-keyword">char</span> info_row[<span class="hljs-number">5</span>][<span class="hljs-number">100</span>] = {<span class="hljs-number">0</span>};
+	<span class="hljs-keyword">int</span> info_rows = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (info_width &lt;= <span class="hljs-number">30</span>) {
+		meter_width = w.ws_col;
+		info_width = <span class="hljs-number">0</span>;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">if</span> (top_rows &gt;= <span class="hljs-number">1</span>) {
+			info_rows = <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">256</span>] = {<span class="hljs-number">0</span>};
+			gethostname(tmp, <span class="hljs-number">255</span>);
+			<span class="hljs-built_in">snprintf</span>(info_row[<span class="hljs-number">0</span>], <span class="hljs-number">99</span>, T_T <span class="hljs-string">"Hostname: "</span> T_C <span class="hljs-string">"%.*s"</span> T_E, info_width - <span class="hljs-number">10</span>, tmp);
+		}
+		<span class="hljs-keyword">if</span> (top_rows &gt;= <span class="hljs-number">2</span>) {
+			info_rows = <span class="hljs-number">2</span>;
+			<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">256</span>] = {<span class="hljs-number">0</span>};
+			<span class="hljs-keyword">char</span> * format = <span class="hljs-string">"%a %b %d %T %Y %Z"</span>;
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tm</span> * <span class="hljs-title">timeinfo</span>;</span>
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timeval</span> <span class="hljs-title">now</span>;</span>
+			gettimeofday(&amp;now, <span class="hljs-literal">NULL</span>);
+			timeinfo = localtime((<span class="hljs-keyword">time_t</span> *)&amp;now.tv_sec);
+			strftime(tmp,<span class="hljs-number">255</span>,format,timeinfo);
+			<span class="hljs-built_in">snprintf</span>(info_row[<span class="hljs-number">1</span>], <span class="hljs-number">99</span>, T_T <span class="hljs-string">"Time: "</span> T_C <span class="hljs-string">"%.*s"</span> T_E, info_width - <span class="hljs-number">6</span>, tmp);
+		}
+		<span class="hljs-keyword">if</span> (top_rows &gt;= <span class="hljs-number">3</span>) {
+			info_rows = <span class="hljs-number">3</span>;
+			<span class="hljs-built_in">snprintf</span>(info_row[<span class="hljs-number">2</span>], <span class="hljs-number">99</span>, T_T <span class="hljs-string">"%s: "</span> T_C <span class="hljs-string">"%lu"</span> T_E, combine_threads ? <span class="hljs-string">"Tasks"</span> : <span class="hljs-string">"Threads"</span>, count);
+		}
+	}
+
+	<span class="hljs-comment">/* Reset cursor to upper left */</span>
+	<span class="hljs-built_in">printf</span>(T_CR);
+
+	<span class="hljs-comment">/* Display CPU usage widgets */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> cpu = <span class="hljs-number">0</span>; cpu &lt; cpu_count; ++cpu) {
+		<span class="hljs-keyword">char</span> name[<span class="hljs-number">20</span>], usage[<span class="hljs-number">30</span>];
+		<span class="hljs-built_in">sprintf</span>(name, <span class="hljs-string">"%3d"</span>, cpu + <span class="hljs-number">1</span>);
+		<span class="hljs-built_in">sprintf</span>(usage, <span class="hljs-string">"%d.%01d%%"</span>, cpus[cpu] / <span class="hljs-number">10</span>, cpus[cpu] % <span class="hljs-number">10</span>);
+		print_meter(name, usage, left_side ? meter_width : info_width, <span class="hljs-number">1</span>, (<span class="hljs-keyword">ssize_t</span>[]){cpus[cpu]}, <span class="hljs-number">1000</span>);
+
+		<span class="hljs-keyword">if</span> (current_row &lt; info_rows) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s"</span> T_K <span class="hljs-string">"\n"</span>, info_row[current_row]);
+			current_row++;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (info_rows) {
+			<span class="hljs-keyword">if</span> (left_side) {
+				left_side = <span class="hljs-number">0</span>;
+			} <span class="hljs-keyword">else</span> {
+				left_side = <span class="hljs-number">1</span>;
+				current_row++;
+			}
+		} <span class="hljs-keyword">else</span> {
+			current_row++;
+		}
+	}
+
+	<span class="hljs-comment">/* Display memory usage widget */</span>
+	<span class="hljs-keyword">char</span> memUsed[<span class="hljs-number">100</span>];
+	<span class="hljs-built_in">sprintf</span>(memUsed, <span class="hljs-string">"%zdM/%zdM"</span>, mem_used / <span class="hljs-number">1024</span>, mem_total / <span class="hljs-number">1024</span>);
+	print_meter(<span class="hljs-string">"Mem"</span>, memUsed, left_side ? meter_width : info_width, <span class="hljs-number">2</span>, (<span class="hljs-keyword">ssize_t</span>[]){mem_used-mem_tmpfs,mem_tmpfs}, mem_total);
+	<span class="hljs-keyword">if</span> (left_side &amp;&amp; current_row &lt; info_rows) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s"</span>, info_row[current_row]);
+	}
+	current_row++;
+	<span class="hljs-built_in">printf</span>(T_K <span class="hljs-string">"\n"</span>);
+
+	<span class="hljs-comment">/* Show column headers */</span>
+	print_header();
+	<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> ent = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Print entries, or help text lines */</span>
+	<span class="hljs-keyword">if</span> (show_help) {
+		<span class="hljs-keyword">for</span> (ent = <span class="hljs-number">0</span>; ent &lt; <span class="hljs-keyword">sizeof</span>(help_text) / <span class="hljs-keyword">sizeof</span>(*help_text); ++i, ++ent) {
+			<span class="hljs-keyword">if</span> (i &gt;= w.ws_row - current_row - <span class="hljs-number">2</span>) <span class="hljs-keyword">break</span>;
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s"</span> T_K <span class="hljs-string">"\n"</span>, (<span class="hljs-keyword">int</span>)w.ws_col, help_text[ent]);
+		}
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">for</span> (ent = <span class="hljs-number">0</span>; ent &lt; count; ++i, ++ent) {
+			<span class="hljs-keyword">if</span> (i &gt;= w.ws_row - current_row - <span class="hljs-number">2</span>) <span class="hljs-keyword">break</span>;
+			print_entry(processList[ent], w.ws_col);
+		}
+	}
+
+	<span class="hljs-comment">/* Clear remaining screen lines */</span>
+	<span class="hljs-keyword">for</span> (; i &lt; w.ws_row - current_row - <span class="hljs-number">2</span>; ++i) {
+		<span class="hljs-built_in">printf</span>(T_K <span class="hljs-string">"\n"</span>);
+	}
+
+	<span class="hljs-built_in">printf</span>(T_H <span class="hljs-string">" "</span>
+		T_R <span class="hljs-string">"q"</span> T_S <span class="hljs-string">" quit  "</span>
+		T_R <span class="hljs-string">"w"</span> T_S <span class="hljs-string">" next col  "</span>
+		T_R <span class="hljs-string">"W"</span> T_S <span class="hljs-string">" prev col  "</span>
+		T_R <span class="hljs-string">"T"</span> T_S <span class="hljs-string">" %s threads  "</span>
+		T_K T_E,
+		combine_threads ? <span class="hljs-string">"show"</span> : <span class="hljs-string">"hide"</span>);
+	fflush(<span class="hljs-built_in">stdout</span>);
+
+	<span class="hljs-comment">/* Clean up process data from this round */</span>
+	<span class="hljs-keyword">for</span> (ent = <span class="hljs-number">0</span>; ent &lt; count; ++ent) {
+		free_entry(processList[ent]);
+	}
+	<span class="hljs-built_in">free</span>(processList);
+
+	<span class="hljs-comment">/* Wait for command or 2 seconds for next refresh... */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">pollfd</span> <span class="hljs-title">fds</span>[1];</span>
+	fds[<span class="hljs-number">0</span>].fd = STDIN_FILENO;
+	fds[<span class="hljs-number">0</span>].events = POLLIN;
+	<span class="hljs-keyword">int</span> ret = poll(fds,<span class="hljs-number">1</span>,<span class="hljs-built_in">delay</span> * <span class="hljs-number">100</span>);
+	<span class="hljs-keyword">if</span> (ret &gt; <span class="hljs-number">0</span> &amp;&amp; fds[<span class="hljs-number">0</span>].revents &amp; POLLIN) {
+		<span class="hljs-keyword">int</span> c = fgetc(<span class="hljs-built_in">stdin</span>);
+		<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'q'</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'w'</span>) next_sort_order();
+		<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'W'</span>) prev_sort_order();
+		<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'h'</span>) show_help = !show_help;
+		<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'T'</span>) toggle_threads();
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-20" id="section-20"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">do_log</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">size_t</span> count;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">process</span> ** <span class="hljs-title">processList</span> = <span class="hljs-title">read_processes</span>(&amp;<span class="hljs-title">count</span>);</span>
+
+	<span class="hljs-keyword">ssize_t</span> mem_total = <span class="hljs-number">0</span>, mem_used = <span class="hljs-number">0</span>;
+	get_mem_info(&amp;mem_total, &amp;mem_used);
+
+	<span class="hljs-keyword">size_t</span> mem_tmpfs = <span class="hljs-number">0</span>;
+	get_tmpfs_info(&amp;mem_tmpfs);
+
+	<span class="hljs-comment">/* Gather per-CPU usage from /proc/idle */</span>
+	<span class="hljs-keyword">int</span> cpus[<span class="hljs-number">32</span>];
+	get_cpu_info(cpus);
+
+	<span class="hljs-comment">/* Hostname */</span>
+	{
+		<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">256</span>] = {<span class="hljs-number">0</span>};
+		gethostname(tmp, <span class="hljs-number">255</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Hostname: %s\n"</span>, tmp);
+	}
+
+	<span class="hljs-comment">/* Current time */</span>
+	{
+		<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">256</span>] = {<span class="hljs-number">0</span>};
+		<span class="hljs-keyword">char</span> * format = <span class="hljs-string">"%a %b %d %T %Y %Z"</span>;
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tm</span> * <span class="hljs-title">timeinfo</span>;</span>
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timeval</span> <span class="hljs-title">now</span>;</span>
+		gettimeofday(&amp;now, <span class="hljs-literal">NULL</span>);
+		timeinfo = localtime((<span class="hljs-keyword">time_t</span> *)&amp;now.tv_sec);
+		strftime(tmp,<span class="hljs-number">255</span>,format,timeinfo);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Time: %s\n"</span>, tmp);
+	}
+
+	<span class="hljs-comment">/* Task count and memory usage on one line */</span>
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Tasks: %-7lu Mem: %zdM/%zdM (%zuM tmpfs)\n"</span>, count, mem_used / <span class="hljs-number">1024</span>, mem_total / <span class="hljs-number">1024</span>, mem_tmpfs/<span class="hljs-number">1024</span>);
+
+	<span class="hljs-comment">/* CPU usage; all on one line; formatted best for small counts and &lt;100% usage */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> cpu = <span class="hljs-number">0</span>; cpu &lt; cpu_count; ++cpu) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"CPU%2d:%3d.%01d%%%s"</span>, cpu + <span class="hljs-number">1</span>, cpus[cpu] / <span class="hljs-number">10</span>, cpus[cpu] % <span class="hljs-number">10</span>,
+			(cpu + <span class="hljs-number">1</span> == cpu_count) ? <span class="hljs-string">"\n"</span> : <span class="hljs-string">"   "</span>);
+	}
+
+	<span class="hljs-comment">/* Blank line to separator process table */</span>
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\n"</span>);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> * c = columns; *c; ++c) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%*s "</span>, ColumnDescriptions[*c].<span class="hljs-built_in">width</span>, ColumnDescriptions[*c].title);
+	}
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"CMD\n"</span>);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> ent = <span class="hljs-number">0</span>; ent &lt; count; ++ent) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">process</span> * <span class="hljs-title">out</span> = <span class="hljs-title">processList</span>[<span class="hljs-title">ent</span>];</span>
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> * c = columns; *c; ++c) {
+			print_column(out, *c, <span class="hljs-number">0</span>);
+		}
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s%s\n"</span>, out-&gt;name, out-&gt;cmdline);
+		free_entry(out);
+	}
+	<span class="hljs-built_in">free</span>(processList);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">termios</span> <span class="hljs-title">old</span>;</span>
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">get_initial_termios</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	tcgetattr(STDOUT_FILENO, &amp;old);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-21" id="section-21"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">set_unbuffered</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">termios</span> <span class="hljs-title">new</span> = <span class="hljs-title">old</span>;</span>
+	<span class="hljs-keyword">new</span>.c_iflag &amp;= (~ICRNL) &amp; (~IXON);
+	<span class="hljs-keyword">new</span>.c_lflag &amp;= (~ICANON) &amp; (~ECHO);
+	tcsetattr(STDOUT_FILENO, TCSAFLUSH, &amp;<span class="hljs-keyword">new</span>);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[?1049h\033[?25l\033[H\033[2J"</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-22" id="section-22"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">set_buffered</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[H\033[2J\033[?25h\033[?1049l"</span>);
+	tcsetattr(STDOUT_FILENO, TCSAFLUSH, &amp;old);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">SIGWINCH_handler</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sig)</span> </span>{
+	(<span class="hljs-keyword">void</span>)sig;
+	signal(SIGWINCH, SIGWINCH_handler);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_S <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_E <span class="hljs-meta-string">"\033[0m"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+			<span class="hljs-string">"%s - Display running processes in a TUI.\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"usage: %s [-d "</span> X_S <span class="hljs-string">"delay"</span> X_E <span class="hljs-string">"]\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -h  --help   "</span> X_S <span class="hljs-string">"Show this help message."</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -d "</span> X_S <span class="hljs-string">"delay     Set the delay between refreshes in tenths of a second."</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -l "</span> X_S <span class="hljs-string">"samples   Force 'log mode' and print ."</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -H           "</span> X_S <span class="hljs-string">"Display threads separately."</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"When running, the following commands are available:\n\n"</span>,
+			argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>]);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> ent = <span class="hljs-number">0</span>; ent &lt; <span class="hljs-keyword">sizeof</span>(help_text) / <span class="hljs-keyword">sizeof</span>(*help_text); ++ent) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"  %s\n"</span>, help_text[ent]);
+	}
+
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"\n"</span>);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span> <span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+
+	<span class="hljs-keyword">int</span> log_samples = !isatty(STDOUT_FILENO);
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">delay</span> = <span class="hljs-number">20</span>;
+	<span class="hljs-keyword">int</span> opt;
+
+	columns = columns_default;
+
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"hHl:d:-:"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'h'</span>:
+				usage(argv);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'l'</span>:
+				log_samples = atoi(optarg);
+				<span class="hljs-keyword">if</span> (log_samples == <span class="hljs-number">0</span>) log_samples = <span class="hljs-number">-1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'d'</span>:
+				<span class="hljs-built_in">delay</span> = atoi(optarg);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'H'</span>:
+				<span class="hljs-keyword">if</span> (combine_threads) toggle_threads();
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'-'</span>:
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(optarg, <span class="hljs-string">"help"</span>)) {
+					usage(argv);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				}
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: '--%s' is not a recognized long option.\n"</span>, argv[<span class="hljs-number">0</span>], optarg);
+				<span class="hljs-comment">/* fallthrough */</span>
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> usage(argv);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (optind != argc) <span class="hljs-keyword">return</span> usage(argv);
+
+	<span class="hljs-comment">/* Assume CPU count doesn't change... */</span>
+	cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
+
+	<span class="hljs-comment">/* Simple log format */</span>
+	<span class="hljs-keyword">if</span> (log_samples) {
+		<span class="hljs-keyword">while</span> (log_samples &lt; <span class="hljs-number">0</span> || log_samples--) {
+			do_log();
+			<span class="hljs-keyword">if</span> (log_samples) usleep(<span class="hljs-number">1000</span> * <span class="hljs-built_in">delay</span> * <span class="hljs-number">100</span>);
+		}
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-comment">/* Initialize terminal for alt screen */</span>
+	get_initial_termios();
+	set_unbuffered();
+	signal(SIGWINCH, SIGWINCH_handler);
+
+	<span class="hljs-comment">/* Loop */</span>
+	<span class="hljs-keyword">while</span> (do_once(<span class="hljs-built_in">delay</span>));
+
+	<span class="hljs-comment">/* Reset terminal */</span>
+	set_buffered();
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

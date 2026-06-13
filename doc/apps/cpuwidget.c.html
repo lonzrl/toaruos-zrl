@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>cpuwidget.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\cpuwidget.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>cpuwidget.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;assert.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;dirent.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sched.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;math.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;net/if.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/times.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/fswait.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/yutani.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/decorations.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/text.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/menu.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> left, top, <span class="hljs-built_in">width</span>, <span class="hljs-built_in">height</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">menu_bar</span> <span class="hljs-title">menu_bar</span> = {</span><span class="hljs-number">0</span>};
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">menu_bar_entries</span> <span class="hljs-title">menu_entries</span>[] = {</span>
+	{<span class="hljs-string">"File"</span>, <span class="hljs-string">"file"</span>},
+	{<span class="hljs-string">"Help"</span>, <span class="hljs-string">"help"</span>},
+	{<span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>},
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_t</span> * yctx;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_window_t</span> * wina;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">gfx_context_t</span> * ctx_base;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">gfx_context_t</span> * ctx_cpu;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">gfx_context_t</span> * ctx_mem;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">gfx_context_t</span> * ctx_net;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> left_pad = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> h_pad = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> top_pad = <span class="hljs-number">19</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> bottom_pad = <span class="hljs-number">34</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> graph_height;
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Font</span> * <span class="hljs-title">tt_thin</span> = <span class="hljs-title">NULL</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Font</span> * <span class="hljs-title">tt_bold</span> = <span class="hljs-title">NULL</span>;</span>
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">hsv_to_rgb</span><span class="hljs-params">(<span class="hljs-keyword">float</span> h, <span class="hljs-keyword">float</span> s, <span class="hljs-keyword">float</span> v)</span> </span>{
+	<span class="hljs-keyword">float</span> c  = v * s;
+	<span class="hljs-keyword">float</span> hp = <span class="hljs-built_in">fmod</span>(h, <span class="hljs-number">2</span> * M_PI);
+	<span class="hljs-keyword">float</span> x = c * (<span class="hljs-number">1.0</span> - <span class="hljs-built_in">fabs</span>(<span class="hljs-built_in">fmod</span>(hp / <span class="hljs-number">1.0472</span>, <span class="hljs-number">2</span>) - <span class="hljs-number">1.0</span>));
+	<span class="hljs-keyword">float</span> m = v - c;
+	<span class="hljs-keyword">float</span> rp, gp, bp;
+	<span class="hljs-keyword">if</span> (hp &lt;= <span class="hljs-number">1.0472</span>)      { rp = c; gp = x; bp = <span class="hljs-number">0</span>; }
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (hp &lt;= <span class="hljs-number">2.0944</span>) { rp = x; gp = c; bp = <span class="hljs-number">0</span>; }
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (hp &lt;= <span class="hljs-number">3.1416</span>) { rp = <span class="hljs-number">0</span>; gp = c; bp = x; }
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (hp &lt;= <span class="hljs-number">4.1888</span>) { rp = <span class="hljs-number">0</span>; gp = x; bp = c; }
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (hp &lt;= <span class="hljs-number">5.2360</span>) { rp = x; gp = <span class="hljs-number">0</span>; bp = c; }
+	<span class="hljs-keyword">else</span>                   { rp = c; gp = <span class="hljs-number">0</span>; bp = x; }
+	<span class="hljs-keyword">return</span> rgb((rp + m) * <span class="hljs-number">255</span>, (gp + m) * <span class="hljs-number">255</span>, (bp + m) * <span class="hljs-number">255</span>);
+}
+
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> should_exit = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">clock_t</span> last_redraw = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> cpu_count = <span class="hljs-number">1</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">get_cpu_info</span><span class="hljs-params">(<span class="hljs-keyword">int</span> cpus[])</span> </span>{
+	FILE * f = fopen(<span class="hljs-string">"/proc/idle"</span>,<span class="hljs-string">"r"</span>);
+	<span class="hljs-keyword">char</span> buf[<span class="hljs-number">4096</span>];
+	fread(buf, <span class="hljs-number">4096</span>, <span class="hljs-number">1</span>, f);
+
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">buffer</span> = buf;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; cpu_count; ++i) {
+		<span class="hljs-comment">/* pid */</span>
+		<span class="hljs-keyword">char</span> * a = <span class="hljs-built_in">strchr</span>(<span class="hljs-built_in">buffer</span>, <span class="hljs-string">':'</span>);
+		a++;
+		cpus[i] = strtoul(a, &amp;a, <span class="hljs-number">10</span>);
+		cpus[i] += strtoul(a, &amp;a, <span class="hljs-number">10</span>);
+		cpus[i] += strtoul(a, &amp;a, <span class="hljs-number">10</span>);
+		cpus[i] += strtoul(a, &amp;a, <span class="hljs-number">10</span>);
+		cpus[i] /= <span class="hljs-number">4</span>;
+
+		<span class="hljs-keyword">if</span> (cpus[i] &lt; <span class="hljs-number">0</span>) cpus[i] = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (cpus[i] &gt; <span class="hljs-number">1000</span>) cpus[i] = <span class="hljs-number">1000</span>;
+		<span class="hljs-built_in">buffer</span> = <span class="hljs-built_in">strchr</span>(a, <span class="hljs-string">'\n'</span>);
+	}
+
+	fclose(f);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> colors[<span class="hljs-number">32</span>];
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> if_colors[<span class="hljs-number">32</span>];
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> EASE_WIDTH 8</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">plot_graph</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">size_t</span> scale, <span class="hljs-keyword">long</span> samples[<span class="hljs-number">100</span>], <span class="hljs-keyword">uint32_t</span> color, <span class="hljs-keyword">float</span> shift)</span> </span>{
+	<span class="hljs-keyword">float</span> unit_width = (<span class="hljs-keyword">float</span>)ctx-&gt;<span class="hljs-built_in">width</span> / <span class="hljs-number">99.0</span>;
+	<span class="hljs-keyword">float</span> factor[EASE_WIDTH];
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> k = <span class="hljs-number">0</span>; k &lt; EASE_WIDTH; ++k) {
+		factor[k] = (<span class="hljs-built_in">cos</span>(M_PI * ((<span class="hljs-keyword">float</span>)k / (<span class="hljs-keyword">float</span>)(EASE_WIDTH<span class="hljs-number">-1</span>))) + <span class="hljs-number">1.0</span>) / <span class="hljs-number">2.0</span>;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Contour</span> * <span class="hljs-title">contour</span> = <span class="hljs-title">NULL</span>;</span>
+	<span class="hljs-keyword">size_t</span> first = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">1</span>; j &lt; <span class="hljs-number">100</span>; ++j) {
+		<span class="hljs-keyword">if</span> (samples[j<span class="hljs-number">-1</span>] == <span class="hljs-number">-1</span>) {
+			first++;
+			<span class="hljs-keyword">continue</span>;
+		}
+		<span class="hljs-keyword">float</span> start = (<span class="hljs-keyword">float</span>)ctx-&gt;<span class="hljs-built_in">width</span> * (<span class="hljs-keyword">float</span>)(j - <span class="hljs-number">1</span>) / <span class="hljs-number">99.0</span> + shift;
+
+		<span class="hljs-keyword">size_t</span> old = samples[j<span class="hljs-number">-1</span>];
+		<span class="hljs-keyword">size_t</span> <span class="hljs-keyword">new</span> = samples[j];
+
+		<span class="hljs-keyword">if</span> (old &gt; scale) old = scale;
+		<span class="hljs-keyword">if</span> (<span class="hljs-keyword">new</span> &gt; scale) <span class="hljs-keyword">new</span> = scale;
+
+		<span class="hljs-keyword">float</span> nsamples[EASE_WIDTH];
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> k = <span class="hljs-number">0</span>; k &lt; EASE_WIDTH; ++k) {
+			<span class="hljs-keyword">float</span> value = old * factor[k] + <span class="hljs-keyword">new</span> * (<span class="hljs-number">1.0</span> - factor[k]);
+			nsamples[k] =  ((scale - value) * ((<span class="hljs-keyword">float</span>)ctx-&gt;<span class="hljs-built_in">height</span> - <span class="hljs-number">1</span>) / (<span class="hljs-keyword">float</span>)scale);
+		}
+
+		<span class="hljs-keyword">if</span> (!contour) {
+			contour = tt_contour_start(start, nsamples[<span class="hljs-number">0</span>]);
+		}
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> k = <span class="hljs-number">1</span>; k &lt; EASE_WIDTH; ++k) {
+			contour = tt_contour_line_to(contour, start + unit_width * ((<span class="hljs-keyword">float</span>)k / (<span class="hljs-keyword">float</span>)(EASE_WIDTH<span class="hljs-number">-1</span>)), nsamples[k]);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!contour) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Shape</span> * <span class="hljs-title">stroke</span> = <span class="hljs-title">tt_contour_stroke_shape</span>(<span class="hljs-title">contour</span>, 0.5);</span>
+	tt_path_paint(ctx, <span class="hljs-built_in">stroke</span>, color);
+	<span class="hljs-built_in">free</span>(<span class="hljs-built_in">stroke</span>);
+
+	contour = tt_contour_line_to(contour, ctx-&gt;<span class="hljs-built_in">width</span> + shift, ctx-&gt;<span class="hljs-built_in">height</span>);
+	contour = tt_contour_line_to(contour, (<span class="hljs-keyword">float</span>)ctx-&gt;<span class="hljs-built_in">width</span> * (<span class="hljs-keyword">float</span>)(first - <span class="hljs-number">1</span>) / <span class="hljs-number">99.0</span> + shift, ctx-&gt;<span class="hljs-built_in">height</span>);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Shape</span> * <span class="hljs-title">shape</span> = <span class="hljs-title">tt_contour_finish</span>(<span class="hljs-title">contour</span>);</span>
+
+	<span class="hljs-keyword">uint32_t</span> c = premultiply(rgba(_RED(color),_GRE(color),_BLU(color),_ALP(color) * <span class="hljs-number">0.25</span>));
+	tt_path_paint(ctx, shape, c);
+	<span class="hljs-built_in">free</span>(shape);
+	<span class="hljs-built_in">free</span>(contour);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> cpu_samples[<span class="hljs-number">32</span>][<span class="hljs-number">100</span>];
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">draw_lines</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx)</span> </span>{
+	<span class="hljs-keyword">float</span> unit_width = (<span class="hljs-keyword">float</span>)ctx-&gt;<span class="hljs-built_in">width</span> / <span class="hljs-number">99.0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; i &lt; <span class="hljs-number">10</span>; i++) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Contour</span> * <span class="hljs-title">line</span> = <span class="hljs-title">tt_contour_start</span>((<span class="hljs-title">int</span>)(<span class="hljs-title">unit_width</span> * 10.0 * <span class="hljs-title">i</span>) + 0.5, 0);</span>
+		<span class="hljs-built_in">line</span> = tt_contour_line_to(<span class="hljs-built_in">line</span>, (<span class="hljs-keyword">int</span>)(unit_width * <span class="hljs-number">10.0</span> * i) + <span class="hljs-number">0.5</span>, ctx-&gt;<span class="hljs-built_in">height</span>);
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Shape</span> * <span class="hljs-title">shape</span> = <span class="hljs-title">tt_contour_stroke_shape</span>(<span class="hljs-title">line</span>, 0.5);</span>
+		<span class="hljs-built_in">free</span>(<span class="hljs-built_in">line</span>);
+		tt_path_paint(ctx, shape, rgb(<span class="hljs-number">150</span>,<span class="hljs-number">150</span>,<span class="hljs-number">150</span>));
+		<span class="hljs-built_in">free</span>(shape);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">draw_cpu_graphs</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">float</span> shift)</span> </span>{
+	draw_fill(ctx, rgb(<span class="hljs-number">0xF8</span>,<span class="hljs-number">0xF8</span>,<span class="hljs-number">0xF8</span>));
+	draw_lines(ctx);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; cpu_count; ++i) {
+		plot_graph(ctx, <span class="hljs-number">1000</span>, cpu_samples[i], colors[i], shift);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">next_cpu</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx)</span> </span>{
+	<span class="hljs-keyword">int</span> cpus_new[<span class="hljs-number">32</span>];
+	get_cpu_info(cpus_new);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; cpu_count; ++i) {
+		memmove(&amp;cpu_samples[i][<span class="hljs-number">0</span>], &amp;cpu_samples[i][<span class="hljs-number">1</span>], <span class="hljs-number">99</span> * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">long</span>));
+		cpu_samples[i][<span class="hljs-number">99</span>] = <span class="hljs-number">1000</span>-cpus_new[i];
+	}
+
+	draw_cpu_graphs(ctx, <span class="hljs-number">0.0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">get_mem_info</span><span class="hljs-params">(<span class="hljs-keyword">int</span> * total, <span class="hljs-keyword">int</span> * used)</span> </span>{
+	FILE * f = fopen(<span class="hljs-string">"/proc/meminfo"</span>, <span class="hljs-string">"r"</span>);
+	<span class="hljs-keyword">if</span> (!f) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">free</span>;
+	<span class="hljs-keyword">char</span> buf[<span class="hljs-number">1024</span>] = {<span class="hljs-number">0</span>};
+	fgets(buf, <span class="hljs-number">1024</span>, f);
+
+	<span class="hljs-keyword">char</span> * a, * b;
+	a = <span class="hljs-built_in">strchr</span>(buf, <span class="hljs-string">' '</span>);
+	a++;
+	b = <span class="hljs-built_in">strchr</span>(a, <span class="hljs-string">'\n'</span>);
+	*b = <span class="hljs-string">'\0'</span>;
+	*total = atoi(a);
+	fgets(buf, <span class="hljs-number">1024</span>, f);
+	a = <span class="hljs-built_in">strchr</span>(buf, <span class="hljs-string">' '</span>);
+	a++;
+	b = <span class="hljs-built_in">strchr</span>(a, <span class="hljs-string">'\n'</span>);
+	*b = <span class="hljs-string">'\0'</span>;
+	<span class="hljs-built_in">free</span> = atoi(a);
+	*used = *total - <span class="hljs-built_in">free</span>;
+
+	fclose(f);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> mem_samples[<span class="hljs-number">100</span>];
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> mem_total;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">draw_mem_graphs</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">float</span> shift)</span> </span>{
+	draw_fill(ctx, rgb(<span class="hljs-number">0xF8</span>,<span class="hljs-number">0xF8</span>,<span class="hljs-number">0xF8</span>));
+	draw_lines(ctx);
+	plot_graph(ctx, mem_total, mem_samples, rgb(<span class="hljs-number">250</span>,<span class="hljs-number">110</span>,<span class="hljs-number">240</span>), shift);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">next_mem</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx)</span> </span>{
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> total = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> old_use = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> mem_use = <span class="hljs-number">0</span>;
+	get_mem_info(&amp;total, &amp;mem_use);
+
+	<span class="hljs-keyword">if</span> (!old_use) {
+		old_use = mem_use;
+		<span class="hljs-keyword">return</span>;
+	}
+
+	memmove(&amp;mem_samples[<span class="hljs-number">0</span>], &amp;mem_samples[<span class="hljs-number">1</span>], <span class="hljs-number">99</span> * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">long</span>));
+	mem_total = total;
+	mem_samples[<span class="hljs-number">99</span>] = mem_use;
+	draw_mem_graphs(ctx, <span class="hljs-number">0.0</span>);
+
+	old_use = mem_use;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> ifnames[<span class="hljs-number">32</span>][<span class="hljs-number">256</span>];
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">count_interfaces</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">int</span> count = <span class="hljs-number">0</span>;
+	DIR * d = opendir(<span class="hljs-string">"/dev/net"</span>);
+	<span class="hljs-keyword">if</span> (!d) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent</span> * <span class="hljs-title">ent</span>;</span>
+	<span class="hljs-keyword">while</span> ((ent = readdir(d))) {
+		<span class="hljs-keyword">if</span> (ent-&gt;d_name[<span class="hljs-number">0</span>] == <span class="hljs-string">'.'</span>) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-built_in">snprintf</span>(ifnames[count&gt;&gt;<span class="hljs-number">1</span>], <span class="hljs-number">255</span>, ent-&gt;d_name);
+		count += <span class="hljs-number">2</span>;
+	}
+
+	closedir(d);
+	<span class="hljs-keyword">return</span> count;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">refresh_interfaces</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> ifs[<span class="hljs-number">32</span>])</span> </span>{
+	<span class="hljs-keyword">int</span> ind = <span class="hljs-number">0</span>;
+
+	DIR * d = opendir(<span class="hljs-string">"/dev/net"</span>);
+	<span class="hljs-keyword">if</span> (!d) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent</span> * <span class="hljs-title">ent</span>;</span>
+	<span class="hljs-keyword">while</span> ((ent = readdir(d))) {
+		<span class="hljs-keyword">if</span> (ent-&gt;d_name[<span class="hljs-number">0</span>] == <span class="hljs-string">'.'</span>) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">char</span> if_path[<span class="hljs-number">1024</span>];
+		<span class="hljs-built_in">snprintf</span>(if_path, <span class="hljs-number">1023</span>, <span class="hljs-string">"/dev/net/%s"</span>, ent-&gt;d_name);
+		<span class="hljs-keyword">int</span> netdev = <span class="hljs-built_in">open</span>(if_path, O_RDONLY);
+		<span class="hljs-keyword">if</span> (netdev &lt; <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">continue</span>;
+		}
+
+		<span class="hljs-keyword">netif_counters_t</span> counts;
+		<span class="hljs-keyword">if</span> (!ioctl(netdev, SIOCGIFCOUNTS, &amp;counts)) {
+			ifs[ind + <span class="hljs-number">0</span>] = counts.rx_bytes;
+			ifs[ind + <span class="hljs-number">1</span>] = counts.tx_bytes;
+			ind += <span class="hljs-number">2</span>;
+		}
+
+		<span class="hljs-built_in">close</span>(netdev);
+	}
+
+	closedir(d);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> net_samples[<span class="hljs-number">32</span>][<span class="hljs-number">100</span>];
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> net_scale = <span class="hljs-number">300</span> * <span class="hljs-number">1024</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">redraw_net_scale</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span></span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> if_count = <span class="hljs-number">-1</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">draw_net_graphs</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">float</span> shift)</span> </span>{
+	draw_fill(ctx, rgb(<span class="hljs-number">0xF8</span>,<span class="hljs-number">0xF8</span>,<span class="hljs-number">0xF8</span>));
+	draw_lines(ctx);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; if_count; ++i) {
+		plot_graph(ctx, net_scale, net_samples[i], if_colors[i], shift);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">next_net</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx)</span> </span>{
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> old_ifs[<span class="hljs-number">32</span>];
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">clock_t</span> ticks_last = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> new_ifs[<span class="hljs-number">32</span>];
+
+	<span class="hljs-keyword">if</span> (!ticks_last) {
+		ticks_last = times(<span class="hljs-literal">NULL</span>);
+		refresh_interfaces(old_ifs);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-keyword">clock_t</span> ticks_now = times(<span class="hljs-literal">NULL</span>);
+	refresh_interfaces(new_ifs);
+
+	<span class="hljs-keyword">long</span> <span class="hljs-built_in">max</span> = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; if_count; ++i) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-number">99</span>; ++j) {
+			net_samples[i][j] = net_samples[i][j+<span class="hljs-number">1</span>];
+			<span class="hljs-keyword">if</span> (net_samples[i][j] != <span class="hljs-number">-1</span>) {
+				<span class="hljs-keyword">if</span> (net_samples[i][j] &gt; <span class="hljs-built_in">max</span>) {
+					<span class="hljs-built_in">max</span> = net_samples[i][j];
+				}
+			}
+		}
+
+		<span class="hljs-comment">/* Kilobits... */</span>
+		<span class="hljs-keyword">size_t</span> use = (new_ifs[i] - old_ifs[i]) * <span class="hljs-number">8</span> / <span class="hljs-number">1024</span>;
+		use *= CLOCKS_PER_SEC;
+		use /= (ticks_now - ticks_last);
+
+		net_samples[i][<span class="hljs-number">99</span>] = use;
+
+		<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">long</span>)use &gt; <span class="hljs-built_in">max</span>) {
+			<span class="hljs-built_in">max</span> = use;
+		}
+	}
+
+	<span class="hljs-keyword">size_t</span> scale = <span class="hljs-built_in">max</span> ? <span class="hljs-built_in">max</span> : (<span class="hljs-number">300</span> * <span class="hljs-number">1024</span>);
+	<span class="hljs-keyword">if</span> (scale != net_scale) {
+		net_scale = scale;
+		redraw_net_scale();
+	}
+
+	draw_net_graphs(ctx, <span class="hljs-number">0.0</span>);
+
+	<span class="hljs-built_in">memcpy</span>(old_ifs, new_ifs, <span class="hljs-keyword">sizeof</span>(new_ifs));
+	ticks_last = ticks_now;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">draw_legend_element</span><span class="hljs-params">(<span class="hljs-keyword">int</span> which, <span class="hljs-keyword">int</span> count, <span class="hljs-keyword">int</span> index, <span class="hljs-keyword">uint32_t</span> color, <span class="hljs-keyword">char</span> * label)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(wina, &amp;bounds);
+
+	<span class="hljs-comment">/* Available display width */</span>
+	<span class="hljs-keyword">int</span> legend_width = ctx_base-&gt;<span class="hljs-built_in">width</span> - bounds.<span class="hljs-built_in">width</span> - <span class="hljs-number">40</span>;
+	<span class="hljs-keyword">if</span> (legend_width &lt;= <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-comment">/* Calculate graph offset from the usual rule */</span>
+	<span class="hljs-keyword">int</span> y = MENU_BAR_HEIGHT + bounds.top_height + (which + <span class="hljs-number">1</span>) * (top_pad + graph_height) + which * bottom_pad + <span class="hljs-number">4</span>;
+
+	<span class="hljs-comment">/* Space to give to each unit. */</span>
+	<span class="hljs-keyword">int</span> unit_width = legend_width / count;
+
+	<span class="hljs-comment">/* Left offset of this unit */</span>
+	<span class="hljs-keyword">int</span> unit_x = unit_width * index + bounds.left_width + <span class="hljs-number">10</span>;
+
+	<span class="hljs-comment">/* First draw blob */</span>
+	draw_rounded_rectangle(ctx_base,
+		unit_x, y, <span class="hljs-number">20</span>, <span class="hljs-number">20</span>, <span class="hljs-number">5</span>, color);
+
+	<span class="hljs-keyword">if</span> (unit_width &gt; <span class="hljs-number">22</span>) {
+		<span class="hljs-keyword">char</span> * label_cropped = tt_ellipsify(label, <span class="hljs-number">12</span>, tt_thin, unit_width - <span class="hljs-number">22</span>, <span class="hljs-literal">NULL</span>);
+		tt_draw_string(ctx_base, tt_thin, <span class="hljs-number">22</span> + unit_x, y + <span class="hljs-number">14</span>, label_cropped, rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+		<span class="hljs-built_in">free</span>(label_cropped);
+	}
+
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">draw_legend_cpu</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; cpu_count; ++i) {
+		<span class="hljs-keyword">char</span> _cpu_name[] = <span class="hljs-string">"CPU    "</span>;
+		<span class="hljs-built_in">sprintf</span>(_cpu_name, <span class="hljs-string">"CPU %d"</span>, i+<span class="hljs-number">1</span>);
+		draw_legend_element(<span class="hljs-number">0</span>, cpu_count, i, colors[i], _cpu_name);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">draw_legend_mem</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	draw_legend_element(<span class="hljs-number">1</span>, <span class="hljs-number">1</span>, <span class="hljs-number">0</span>, rgb(<span class="hljs-number">250</span>,<span class="hljs-number">110</span>,<span class="hljs-number">240</span>), <span class="hljs-string">"Memory Usage"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">draw_legend_net</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; if_count; ++i) {
+		<span class="hljs-keyword">char</span> _net_name[<span class="hljs-number">300</span>];
+		<span class="hljs-built_in">sprintf</span>(_net_name, <span class="hljs-string">"%s (%s)"</span>, (i &amp; <span class="hljs-number">1</span>) ? <span class="hljs-string">"TX"</span> : <span class="hljs-string">"RX"</span>, ifnames[i&gt;&gt;<span class="hljs-number">1</span>]);
+		draw_legend_element(<span class="hljs-number">2</span>, if_count, i, if_colors[i], _net_name);
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> poll_tick = <span class="hljs-number">0</span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">redraw_graphs</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">float</span> shift = -(<span class="hljs-keyword">float</span>)(poll_tick + <span class="hljs-number">1</span>) / (<span class="hljs-keyword">float</span>)(EASE_WIDTH<span class="hljs-number">-1</span>) * ctx_cpu-&gt;<span class="hljs-built_in">width</span> / <span class="hljs-number">100.0</span>;
+	draw_cpu_graphs(ctx_cpu, shift);
+	draw_mem_graphs(ctx_mem, shift);
+	draw_net_graphs(ctx_net, shift);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">refresh</span><span class="hljs-params">(<span class="hljs-keyword">clock_t</span> ticks)</span> </span>{
+
+	<span class="hljs-keyword">if</span> (poll_tick == (EASE_WIDTH<span class="hljs-number">-2</span>)) {
+		next_cpu(ctx_cpu);
+		next_mem(ctx_mem);
+		next_net(ctx_net);
+		poll_tick = <span class="hljs-number">0</span>;
+	} <span class="hljs-keyword">else</span> {
+		redraw_graphs();
+		poll_tick++;
+	}
+
+	flip(ctx_base);
+	yutani_flip(yctx, wina);
+
+	last_redraw = ticks;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">redraw_net_scale</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(wina, &amp;bounds);
+	tt_set_size(tt_thin, <span class="hljs-number">10</span>);
+
+	<span class="hljs-keyword">char</span> net_max[<span class="hljs-number">100</span>];
+	<span class="hljs-built_in">snprintf</span>(net_max, <span class="hljs-number">100</span>, <span class="hljs-string">"%0.2fmbps"</span>, (<span class="hljs-keyword">double</span>)net_scale / <span class="hljs-number">1024.0</span>);
+	<span class="hljs-keyword">int</span> swidth = tt_string_width(tt_thin, net_max) + <span class="hljs-number">2</span>;
+	draw_rectangle(ctx_base, bounds.left_width + <span class="hljs-built_in">width</span> - swidth, MENU_BAR_HEIGHT + bounds.top_height + <span class="hljs-number">2</span> * (top_pad + bottom_pad + graph_height), swidth, <span class="hljs-number">20</span>, rgb(<span class="hljs-number">204</span>,<span class="hljs-number">204</span>,<span class="hljs-number">204</span>));
+	tt_draw_string(ctx_base, tt_thin, bounds.left_width + <span class="hljs-built_in">width</span> - swidth, MENU_BAR_HEIGHT + bounds.top_height + <span class="hljs-number">2</span> * (top_pad + bottom_pad + graph_height) + <span class="hljs-number">17</span>, net_max, rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">render_base</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	render_decorations(wina, ctx_base, <span class="hljs-string">"System Monitor"</span>);
+	menu_bar_render(&amp;menu_bar, ctx_base);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">redraw_window_callback</span><span class="hljs-params">(struct menu_bar * self)</span> </span>{
+	(<span class="hljs-keyword">void</span>)self;
+	render_base();
+	flip(ctx_base);
+	yutani_flip(yctx,wina);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">initial_stuff</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(wina, &amp;bounds);
+	graph_height = (<span class="hljs-built_in">height</span> - top_pad * <span class="hljs-number">3</span> - bottom_pad * <span class="hljs-number">3</span>) / <span class="hljs-number">3</span>;
+
+	menu_bar.x = bounds.left_width;
+	menu_bar.y = bounds.top_height;
+	menu_bar.<span class="hljs-built_in">width</span> = ctx_base-&gt;<span class="hljs-built_in">width</span> - bounds.<span class="hljs-built_in">width</span>;
+	menu_bar.window = wina;
+
+	draw_fill(ctx_base, rgb(<span class="hljs-number">204</span>,<span class="hljs-number">204</span>,<span class="hljs-number">204</span>));
+
+	ctx_cpu = init_graphics_subregion(ctx_base, bounds.left_width + left_pad, MENU_BAR_HEIGHT + bounds.top_height + top_pad, <span class="hljs-built_in">width</span> - h_pad, graph_height);
+	ctx_mem = init_graphics_subregion(ctx_base, bounds.left_width + left_pad, MENU_BAR_HEIGHT + bounds.top_height + <span class="hljs-number">2</span> * top_pad + graph_height + bottom_pad, <span class="hljs-built_in">width</span> - h_pad, graph_height);
+	ctx_net = init_graphics_subregion(ctx_base, bounds.left_width + left_pad, MENU_BAR_HEIGHT + bounds.top_height + <span class="hljs-number">3</span> * top_pad + <span class="hljs-number">2</span> * graph_height + <span class="hljs-number">2</span> * bottom_pad, <span class="hljs-built_in">width</span> - h_pad, graph_height);
+
+	draw_fill(ctx_cpu, rgb(<span class="hljs-number">0xF8</span>,<span class="hljs-number">0xF8</span>,<span class="hljs-number">0xF8</span>));
+	draw_fill(ctx_mem, rgb(<span class="hljs-number">0xF8</span>,<span class="hljs-number">0xF8</span>,<span class="hljs-number">0xF8</span>));
+	draw_fill(ctx_net, rgb(<span class="hljs-number">0xF8</span>,<span class="hljs-number">0xF8</span>,<span class="hljs-number">0xF8</span>));
+
+	tt_set_size(tt_bold, <span class="hljs-number">13</span>);
+	tt_draw_string(ctx_base, tt_bold, bounds.left_width + <span class="hljs-number">3</span>, MENU_BAR_HEIGHT + bounds.top_height + <span class="hljs-number">14</span>, <span class="hljs-string">"CPU"</span>, rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+	tt_draw_string(ctx_base, tt_bold, bounds.left_width + <span class="hljs-number">3</span>, MENU_BAR_HEIGHT + bounds.top_height + (top_pad + bottom_pad + graph_height) + <span class="hljs-number">14</span>, <span class="hljs-string">"Memory"</span>, rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+	tt_draw_string(ctx_base, tt_bold, bounds.left_width + <span class="hljs-number">3</span>, MENU_BAR_HEIGHT + bounds.top_height + <span class="hljs-number">2</span> * (top_pad + bottom_pad + graph_height) + <span class="hljs-number">14</span>, <span class="hljs-string">"Network"</span>, rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+
+	tt_set_size(tt_thin, <span class="hljs-number">10</span>);
+	tt_draw_string(ctx_base, tt_thin, bounds.left_width + <span class="hljs-built_in">width</span> - <span class="hljs-number">30</span>, MENU_BAR_HEIGHT + bounds.top_height + <span class="hljs-number">17</span>, <span class="hljs-string">"100%"</span>, rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+	tt_draw_string(ctx_base, tt_thin, bounds.left_width + <span class="hljs-built_in">width</span> - <span class="hljs-number">30</span>, MENU_BAR_HEIGHT + bounds.top_height + (top_pad + bottom_pad + graph_height) + <span class="hljs-number">17</span>, <span class="hljs-string">"100%"</span>, rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+
+	<span class="hljs-keyword">char</span> net_max[<span class="hljs-number">100</span>];
+	<span class="hljs-built_in">snprintf</span>(net_max, <span class="hljs-number">100</span>, <span class="hljs-string">"%0.2fmbps"</span>, (<span class="hljs-keyword">double</span>)net_scale / <span class="hljs-number">1024.0</span>);
+	<span class="hljs-keyword">int</span> swidth = tt_string_width(tt_thin, net_max) + <span class="hljs-number">2</span>;
+	tt_draw_string(ctx_base, tt_thin, bounds.left_width + <span class="hljs-built_in">width</span> - swidth, MENU_BAR_HEIGHT + bounds.top_height + <span class="hljs-number">2</span> * (top_pad + bottom_pad + graph_height) + <span class="hljs-number">17</span>, net_max, rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+
+	tt_draw_string(ctx_base, tt_thin, bounds.left_width + <span class="hljs-built_in">width</span> - <span class="hljs-number">25</span>, MENU_BAR_HEIGHT + bounds.top_height + top_pad + graph_height + <span class="hljs-number">13</span>, <span class="hljs-string">"0%"</span>, rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+	tt_draw_string(ctx_base, tt_thin, bounds.left_width + <span class="hljs-built_in">width</span> - <span class="hljs-number">25</span>, MENU_BAR_HEIGHT + bounds.top_height + <span class="hljs-number">2</span> * (top_pad + graph_height) + bottom_pad + <span class="hljs-number">13</span>, <span class="hljs-string">"0%"</span>, rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+	tt_draw_string(ctx_base, tt_thin, bounds.left_width + <span class="hljs-built_in">width</span> - <span class="hljs-number">40</span>, MENU_BAR_HEIGHT + bounds.top_height + <span class="hljs-number">3</span> * (top_pad + graph_height) + <span class="hljs-number">2</span> * bottom_pad + <span class="hljs-number">13</span>, <span class="hljs-string">"0mbps"</span>, rgb(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+
+	render_base();
+
+	draw_legend_cpu();
+	draw_legend_mem();
+	draw_legend_net();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">resize_finish</span><span class="hljs-params">(<span class="hljs-keyword">int</span> w, <span class="hljs-keyword">int</span> h)</span> </span>{
+
+	<span class="hljs-keyword">if</span> (w &lt; <span class="hljs-number">300</span>) w = <span class="hljs-number">300</span>;
+	<span class="hljs-keyword">if</span> (h &lt; <span class="hljs-number">300</span>) h = <span class="hljs-number">300</span>;
+
+	<span class="hljs-built_in">free</span>(ctx_cpu);
+	<span class="hljs-built_in">free</span>(ctx_mem);
+	<span class="hljs-built_in">free</span>(ctx_net);
+
+	yutani_window_resize_accept(yctx, wina, w, h);
+	reinit_graphics_yutani(ctx_base, wina);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(wina, &amp;bounds);
+
+	<span class="hljs-built_in">width</span>  = w - bounds.left_width - bounds.right_width;
+	<span class="hljs-built_in">height</span> = h - MENU_BAR_HEIGHT - bounds.top_height - bounds.bottom_height;
+
+	initial_stuff();
+	redraw_graphs();
+
+	flip(ctx_base);
+
+	yutani_window_resize_done(yctx, wina);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _menu_action_exit(struct MenuEntry * entry) {
+	<span class="hljs-built_in">exit</span>(<span class="hljs-number">0</span>);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _menu_action_help(struct MenuEntry * entry) {
+	system(<span class="hljs-string">"help-browser systemmonitor.trt &amp;"</span>);
+	render_base();
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _menu_action_about(struct MenuEntry * entry) {
+	<span class="hljs-comment">/* Show About dialog */</span>
+	<span class="hljs-keyword">char</span> about_cmd[<span class="hljs-number">1024</span>] = <span class="hljs-string">"\0"</span>;
+	<span class="hljs-built_in">strcat</span>(about_cmd, <span class="hljs-string">"about \"About System Monitor\" /usr/share/icons/48/system-monitor.png \"System Monitor\" \"© 2021-2023 K. Lange\n-\nPart of ToaruOS, which is free software\nreleased under the NCSA/University of Illinois\nlicense.\n-\n%https://toaruos.org\n%https://github.com/klange/toaruos\" "</span>);
+	<span class="hljs-keyword">char</span> coords[<span class="hljs-number">100</span>];
+	<span class="hljs-built_in">sprintf</span>(coords, <span class="hljs-string">"%d %d &amp;"</span>, (<span class="hljs-keyword">int</span>)wina-&gt;x + (<span class="hljs-keyword">int</span>)wina-&gt;<span class="hljs-built_in">width</span> / <span class="hljs-number">2</span>, (<span class="hljs-keyword">int</span>)wina-&gt;y + (<span class="hljs-keyword">int</span>)wina-&gt;<span class="hljs-built_in">height</span> / <span class="hljs-number">2</span>);
+	<span class="hljs-built_in">strcat</span>(about_cmd, coords);
+	system(about_cmd);
+	render_base();
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span> <span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> ** argv)</span> </span>{
+	left   = <span class="hljs-number">100</span>;
+	top    = <span class="hljs-number">100</span>;
+	<span class="hljs-built_in">width</span>  = <span class="hljs-number">640</span>;
+	<span class="hljs-built_in">height</span> = <span class="hljs-number">480</span>;
+	cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
+
+	yctx = yutani_init();
+	<span class="hljs-keyword">if</span> (!yctx) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: failed to connect to compositor\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	srand(time(<span class="hljs-literal">NULL</span>));
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; cpu_count; ++i) {
+		colors[i] = hsv_to_rgb((<span class="hljs-keyword">float</span>)i / (<span class="hljs-keyword">float</span>)cpu_count * <span class="hljs-number">6.24</span>, <span class="hljs-number">0.9</span>, <span class="hljs-number">0.9</span>);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-number">100</span>; ++j) {
+			cpu_samples[i][j] = <span class="hljs-number">-1</span>;
+		}
+	}
+
+	init_decorations();
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(<span class="hljs-literal">NULL</span>, &amp;bounds);
+
+	wina = yutani_window_create(yctx, <span class="hljs-built_in">width</span> + bounds.<span class="hljs-built_in">width</span>, <span class="hljs-built_in">height</span> + bounds.<span class="hljs-built_in">height</span> + MENU_BAR_HEIGHT);
+	yutani_window_move(yctx, wina, left, top);
+	yutani_window_advertise_icon(yctx, wina, <span class="hljs-string">"System Monitor"</span>, <span class="hljs-string">"system-monitor"</span>);
+
+	ctx_base = init_graphics_yutani_double_buffer(wina);
+
+	menu_bar.entries = menu_entries;
+	menu_bar.redraw_callback = redraw_window_callback;
+	menu_bar.<span class="hljs-built_in">set</span> = menu_set_create();
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">m</span> = <span class="hljs-title">menu_create</span>();</span> <span class="hljs-comment">/* File */</span>
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"exit"</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-string">"Exit"</span>, _menu_action_exit));
+	menu_set_insert(menu_bar.<span class="hljs-built_in">set</span>, <span class="hljs-string">"file"</span>, m);
+
+	m = menu_create();
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"help"</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-string">"Contents"</span>,_menu_action_help));
+	menu_insert(m, menu_create_separator());
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"star"</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-string">"About System Monitor"</span>,_menu_action_about));
+	menu_set_insert(menu_bar.<span class="hljs-built_in">set</span>, <span class="hljs-string">"help"</span>, m);
+
+	tt_thin = tt_font_from_shm(<span class="hljs-string">"sans-serif"</span>);
+	tt_bold = tt_font_from_shm(<span class="hljs-string">"sans-serif.bold"</span>);
+
+	if_count = count_interfaces();
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; if_count; ++i) {
+		if_colors[i] = hsv_to_rgb((<span class="hljs-keyword">float</span>)i / (<span class="hljs-keyword">float</span>)(if_count)* <span class="hljs-number">6.24</span> + <span class="hljs-number">0.2</span>, <span class="hljs-number">0.9</span>, <span class="hljs-number">0.9</span>);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-number">100</span>; ++j) {
+			net_samples[i][j] = <span class="hljs-number">-1</span>;
+		}
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">100</span>; ++i) {
+		mem_samples[i] = <span class="hljs-number">-1</span>;
+	}
+
+	initial_stuff();
+	refresh(times(<span class="hljs-literal">NULL</span>));
+
+	<span class="hljs-keyword">while</span> (!should_exit) {
+		<span class="hljs-keyword">int</span> fds[<span class="hljs-number">1</span>] = {fileno(yctx-&gt;sock)};
+		<span class="hljs-keyword">int</span> index = fswait2(<span class="hljs-number">1</span>,fds,<span class="hljs-number">20</span>);
+		<span class="hljs-keyword">if</span> (index == <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">yutani_msg_t</span> * m = yutani_poll(yctx);
+			<span class="hljs-keyword">while</span> (m) {
+				<span class="hljs-keyword">if</span> (menu_process_event(yctx, m)) {
+					<span class="hljs-comment">/* just decorations should be fine */</span>
+					render_base();
+					flip(ctx_base);
+					yutani_flip(yctx, wina);
+				}
+				<span class="hljs-keyword">switch</span> (m-&gt;type) {
+					<span class="hljs-keyword">case</span> YUTANI_MSG_KEY_EVENT:
+						{
+							<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_key_event</span> * <span class="hljs-title">ke</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+							<span class="hljs-keyword">if</span> (ke-&gt;event.action == KEY_ACTION_DOWN &amp;&amp; ke-&gt;event.keycode == <span class="hljs-string">'q'</span>) {
+								should_exit = <span class="hljs-number">1</span>;
+								sched_yield();
+							}
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_FOCUS_CHANGE:
+						{
+							<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_focus_change</span> * <span class="hljs-title">wf</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+							<span class="hljs-keyword">yutani_window_t</span> * win = hashmap_get(yctx-&gt;windows, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)wf-&gt;wid);
+							<span class="hljs-keyword">if</span> (win == wina) {
+								win-&gt;focused = wf-&gt;focused;
+								render_base();
+								flip(ctx_base);
+								yutani_flip(yctx, wina);
+							}
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> YUTANI_MSG_RESIZE_OFFER:
+						{
+							<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_resize</span> * <span class="hljs-title">wr</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+							resize_finish(wr-&gt;<span class="hljs-built_in">width</span>, wr-&gt;<span class="hljs-built_in">height</span>);
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_MOUSE_EVENT:
+						{
+							<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_mouse_event</span> * <span class="hljs-title">me</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+							<span class="hljs-keyword">yutani_window_t</span> * win = hashmap_get(yctx-&gt;windows, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)me-&gt;wid);
+							<span class="hljs-keyword">if</span> (win == wina) {
+								<span class="hljs-keyword">int</span> result = decor_handle_event(yctx, m);
+								<span class="hljs-keyword">switch</span> (result) {
+									<span class="hljs-keyword">case</span> DECOR_CLOSE:
+										should_exit = <span class="hljs-number">1</span>;
+										<span class="hljs-keyword">break</span>;
+									<span class="hljs-keyword">case</span> DECOR_RIGHT:
+										<span class="hljs-comment">/* right click in decoration, show appropriate menu */</span>
+										decor_show_default_menu(wina, wina-&gt;x + me-&gt;new_x, wina-&gt;y + me-&gt;new_y);
+										<span class="hljs-keyword">break</span>;
+									<span class="hljs-keyword">default</span>:
+										<span class="hljs-comment">/* Other actions */</span>
+										<span class="hljs-keyword">break</span>;
+								}
+								menu_bar_mouse_event(yctx, wina, &amp;menu_bar, me, me-&gt;new_x, me-&gt;new_y);
+							}
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_CLOSE:
+					<span class="hljs-keyword">case</span> YUTANI_MSG_SESSION_END:
+						should_exit = <span class="hljs-number">1</span>;
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">default</span>:
+						<span class="hljs-keyword">break</span>;
+				}
+				<span class="hljs-built_in">free</span>(m);
+				m = yutani_poll_async(yctx);
+			}
+		}
+		<span class="hljs-keyword">clock_t</span> ticks = times(<span class="hljs-literal">NULL</span>);
+		<span class="hljs-keyword">if</span> (ticks &gt; last_redraw + CLOCKS_PER_SEC/<span class="hljs-number">12</span>) {
+			refresh(ticks);
+		}
+	}
+
+	yutani_close(yctx, wina);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

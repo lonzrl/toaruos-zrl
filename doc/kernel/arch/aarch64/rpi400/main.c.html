@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>main.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../../doc-style.css" />
+  <script src="../../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../../";
+    var thisFile = "kernel\\arch\\aarch64\\rpi400\\main.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>main.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/elf.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/aarch64/rpi.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MMIO_BASE 0xFE000000UL</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MBOX_BASE    (MMIO_BASE + 0xB880)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MBOX_READ    (MBOX_BASE + 0x00)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MBOX_STATUS  (MBOX_BASE + 0x18)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MBOX_WRITE   (MBOX_BASE + 0x20)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MBOX_FULL    0x80000000</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MBOX_EMPTY   0x40000000</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MBOX_RESPONSE 0x80000000</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MBOX_REQUEST  0</span>
+
+<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> __attribute__((aligned(<span class="hljs-number">16</span>))) mbox[<span class="hljs-number">36</span>];
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">mmio_read32</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> addr)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> res = *((<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span>*)(addr));
+	<span class="hljs-keyword">return</span> res;
+}
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">mmio_write32</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> addr, <span class="hljs-keyword">uint32_t</span> val)</span> </span>{
+	(*((<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span>*)(addr))) = val;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint32_t</span> <span class="hljs-title">mbox_call</span><span class="hljs-params">(<span class="hljs-keyword">uint8_t</span> ch)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> r = ((<span class="hljs-keyword">uint32_t</span>)((<span class="hljs-keyword">uintptr_t</span>)&amp;mbox) &amp; ~<span class="hljs-number">0xF</span>) | (ch &amp; <span class="hljs-number">0xF</span>);
+
+	<span class="hljs-keyword">while</span> (mmio_read32(MBOX_STATUS) == MBOX_FULL); <span class="hljs-comment">/* wait for mailbox to be ready */</span>
+	mmio_write32(MBOX_WRITE, r);
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">while</span> (mmio_read32(MBOX_STATUS) &amp; MBOX_EMPTY);
+		<span class="hljs-keyword">if</span> (r == mmio_read32(MBOX_READ)) <span class="hljs-keyword">return</span> mbox[<span class="hljs-number">1</span>] == MBOX_RESPONSE;
+	}
+}
+
+<span class="hljs-keyword">uint8_t</span> * lfb_vid_memory = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">uint16_t</span> lfb_resolution_x = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">uint16_t</span> lfb_resolution_y = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">uint16_t</span> lfb_resolution_b = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">uint32_t</span> lfb_resolution_s = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">size_t</span> lfb_memsize = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> * <span class="hljs-title">malloc</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> x)</span> </span>{
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MB(j) mbox[i++] = j</span>
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">rpi_fb_init</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+
+	MB(<span class="hljs-number">35</span> * <span class="hljs-number">4</span>);
+	MB(MBOX_REQUEST);
+
+	MB(<span class="hljs-number">0x48003</span>);
+	MB(<span class="hljs-number">8</span>);
+	MB(<span class="hljs-number">0</span>);
+	<span class="hljs-keyword">int</span> fb_width = i;
+	MB(<span class="hljs-number">1920</span>);
+	<span class="hljs-keyword">int</span> fb_height = i;
+	MB(<span class="hljs-number">1080</span>);
+
+	MB(<span class="hljs-number">0x48004</span>);
+	MB(<span class="hljs-number">8</span>);
+	MB(<span class="hljs-number">8</span>);
+	MB(<span class="hljs-number">1920</span>);
+	MB(<span class="hljs-number">1080</span>);
+
+	MB(<span class="hljs-number">0x48009</span>);
+	MB(<span class="hljs-number">8</span>);
+	MB(<span class="hljs-number">8</span>);
+	MB(<span class="hljs-number">0</span>);
+	MB(<span class="hljs-number">0</span>);
+
+	MB(<span class="hljs-number">0x48005</span>);
+	MB(<span class="hljs-number">4</span>);
+	MB(<span class="hljs-number">4</span>);
+	<span class="hljs-keyword">int</span> fb_bpp = i;
+	MB(<span class="hljs-number">32</span>);
+
+	MB(<span class="hljs-number">0x48006</span>);
+	MB(<span class="hljs-number">4</span>);
+	MB(<span class="hljs-number">4</span>);
+	MB(<span class="hljs-number">1</span>);
+
+	MB(<span class="hljs-number">0x40001</span>);
+	MB(<span class="hljs-number">8</span>);
+	MB(<span class="hljs-number">8</span>);
+	<span class="hljs-keyword">int</span> fb_pointer = i;
+	MB(<span class="hljs-number">4096</span>);
+	<span class="hljs-keyword">int</span> fb_size = i;
+	MB(<span class="hljs-number">0</span>);
+
+	MB(<span class="hljs-number">0x40008</span>);
+	MB(<span class="hljs-number">4</span>);
+	MB(<span class="hljs-number">4</span>);
+	<span class="hljs-keyword">int</span> fb_pitch = i;
+	MB(<span class="hljs-number">0</span>);
+
+	MB(<span class="hljs-number">0</span>);
+
+	<span class="hljs-keyword">if</span> (mbox_call(<span class="hljs-number">8</span>) &amp;&amp; mbox[fb_bpp] == <span class="hljs-number">32</span> &amp;&amp; mbox[fb_pointer] != <span class="hljs-number">0</span>) {
+		lfb_vid_memory = (<span class="hljs-keyword">uint8_t</span>*)(<span class="hljs-keyword">uintptr_t</span>)(mbox[fb_pointer] &amp; <span class="hljs-number">0x3FFFFFFF</span>);
+		lfb_resolution_x = mbox[fb_width];
+		lfb_resolution_y = mbox[fb_height];
+		lfb_resolution_s = mbox[fb_pitch];
+		lfb_resolution_b = mbox[fb_bpp];
+		lfb_memsize = mbox[fb_size];
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> y = <span class="hljs-number">0</span>; y &lt; lfb_resolution_y; ++y) {
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; lfb_resolution_x; ++x) {
+				*(<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> *)((<span class="hljs-keyword">uintptr_t</span>)lfb_vid_memory + y * lfb_resolution_s + x * <span class="hljs-number">4</span>) = <span class="hljs-number">0x3ea3f0</span>;
+			}
+		}
+		<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">fbterm_initialize</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span></span>;
+		fbterm_initialize();
+
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">rpi_cpu_freq</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">int</span> max_rate = <span class="hljs-number">0</span>;
+	{
+		<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+		MB(<span class="hljs-number">13</span> * <span class="hljs-number">4</span>);
+		MB(MBOX_REQUEST);
+
+		MB(<span class="hljs-number">0x30004</span>);
+		MB(<span class="hljs-number">8</span>);
+		MB(<span class="hljs-number">0</span>);
+		MB(<span class="hljs-number">3</span>); <span class="hljs-comment">/* arm core */</span>
+		<span class="hljs-keyword">int</span> max_hz = i;
+		MB(<span class="hljs-number">0</span>);
+
+		MB(<span class="hljs-number">0x30047</span>);
+		MB(<span class="hljs-number">8</span>);
+		MB(<span class="hljs-number">0</span>);
+		MB(<span class="hljs-number">3</span>); <span class="hljs-comment">/* arm core */</span>
+		<span class="hljs-keyword">int</span> cur_hz = i;
+		MB(<span class="hljs-number">0</span>);
+
+		MB(<span class="hljs-number">0</span>);
+
+		mbox_call(<span class="hljs-number">8</span>);
+
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"bootstub: max clock rate is %u Hz, current is %u Hz\n"</span>, mbox[max_hz], mbox[cur_hz]);
+		max_rate = mbox[max_hz];
+	}
+
+	<span class="hljs-keyword">if</span> (max_rate) {
+		<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+		MB(<span class="hljs-number">9</span> * <span class="hljs-number">4</span>);
+		MB(MBOX_REQUEST);
+
+		MB(<span class="hljs-number">0x38002</span>);
+		MB(<span class="hljs-number">12</span>);
+		MB(<span class="hljs-number">0</span>);
+		MB(<span class="hljs-number">3</span>);
+		<span class="hljs-keyword">int</span> rate = i;
+		MB(max_rate);
+		MB(<span class="hljs-number">0</span>); <span class="hljs-comment">/* do not skip turbo setting */</span>
+
+		MB(<span class="hljs-number">0</span>);
+
+		mbox_call(<span class="hljs-number">8</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"bootstub: clock rate set to %u Hz\n"</span>, mbox[rate]);
+	}
+}
+
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">char</span> _kernel_start[];
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">char</span> _kernel_end[];
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">char</span> _ramdisk_start[];
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">char</span> _ramdisk_end[];
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">BaseTables</span> {</span>
+	<span class="hljs-keyword">uintptr_t</span> l0_base[<span class="hljs-number">512</span>];
+	<span class="hljs-keyword">uintptr_t</span> l1_high_gbs[<span class="hljs-number">512</span>];
+	<span class="hljs-keyword">uintptr_t</span> l1_low_gbs[<span class="hljs-number">512</span>];
+	<span class="hljs-keyword">uintptr_t</span> l2_kernel[<span class="hljs-number">512</span>];
+} _baseTables __attribute__((aligned(<span class="hljs-number">4096</span>)));
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PTE_VALID      (1UL &lt;&lt; 0)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PTE_TABLE      (1UL &lt;&lt; 1)</span>
+
+<span class="hljs-comment">/* Table attributes */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PTE_NSTABLE    (1UL &lt;&lt; 63)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PTE_APTABLE    (3UL &lt;&lt; 61) <span class="hljs-comment">/* two bits */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span>  PTE_APTABLE_A (1UL &lt;&lt; 62)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span>  PTE_APTABLE_B (1UL &lt;&lt; 61)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PTE_UXNTABLE   (1UL &lt;&lt; 60)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PTE_PXNTABLE   (1UL &lt;&lt; 59)</span>
+
+<span class="hljs-comment">/* Block attributes */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PTE_UXN        (1UL &lt;&lt; 54)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PTE_PXN        (1UL &lt;&lt; 53)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PTE_CONTIGUOUS (1UL &lt;&lt; 52)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PTE_NG         (1UL &lt;&lt; 11)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PTE_AF         (1UL &lt;&lt; 10)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PTE_SH         (3UL &lt;&lt; 8)  <span class="hljs-comment">/* two bits */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span>  PTE_SH_A      (1UL &lt;&lt; 9)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span>  PTE_SH_B      (1UL &lt;&lt; 8)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PTE_AP         (3UL &lt;&lt; 6)  <span class="hljs-comment">/* two bits */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span>  PTE_AP_A      (1UL &lt;&lt; 7)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span>  PTE_AP_B      (1UL &lt;&lt; 6)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PTE_NS         (1UL &lt;&lt; 5)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PTE_ATTRINDX   (7UL &lt;&lt; 2) <span class="hljs-comment">/* three bits */</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span>  PTE_ATTR_A    (1UL &lt;&lt; 4)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span>  PTE_ATTR_B    (1UL &lt;&lt; 3)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span>  PTE_ATTR_C    (1UL &lt;&lt; 2)</span>
+
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KERNEL_PHYS_BASE 0x2000000UL</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">bootstub_mmu_init</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-comment">/* Map memory */</span>
+	_baseTables.l0_base[<span class="hljs-number">0</span>]   = (<span class="hljs-keyword">uintptr_t</span>)&amp;_baseTables.l1_low_gbs | PTE_VALID | PTE_TABLE | PTE_AF;
+
+	<span class="hljs-comment">/* equivalent to high_base_pml */</span>
+	_baseTables.l0_base[<span class="hljs-number">511</span>] = (<span class="hljs-keyword">uintptr_t</span>)&amp;_baseTables.l1_high_gbs | PTE_VALID | PTE_TABLE | PTE_AF;
+
+	<span class="hljs-comment">/* Mapping for us */</span>
+	_baseTables.l1_low_gbs[<span class="hljs-number">0</span>] = <span class="hljs-number">0x00000000</span>UL | PTE_VALID | PTE_AF | PTE_SH_A | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">2</span>);
+	_baseTables.l1_low_gbs[<span class="hljs-number">1</span>] = <span class="hljs-number">0x40000000</span>UL | PTE_VALID | PTE_AF | PTE_SH_A | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">2</span>);
+	_baseTables.l1_low_gbs[<span class="hljs-number">2</span>] = <span class="hljs-number">0x80000000</span>UL | PTE_VALID | PTE_AF | PTE_SH_A | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">2</span>);
+	_baseTables.l1_low_gbs[<span class="hljs-number">3</span>] = <span class="hljs-number">0xc0000000</span>UL | PTE_VALID | PTE_AF | PTE_SH_A | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">2</span>);
+
+	<span class="hljs-comment">/* -512GB is a map of 64GB of memory */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">64</span>; ++i) {
+		_baseTables.l1_high_gbs[i] = (i &lt;&lt; <span class="hljs-number">30</span>) | PTE_VALID | PTE_AF | PTE_SH_A | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">2</span>);
+	}
+
+	<span class="hljs-comment">/* -2GiB, map kernel here */</span>
+	_baseTables.l1_high_gbs[<span class="hljs-number">510</span>] = (<span class="hljs-keyword">uintptr_t</span>)&amp;_baseTables.l2_kernel | PTE_VALID | PTE_TABLE | PTE_AF;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">512</span>; ++i) {
+		_baseTables.l2_kernel[i] = (KERNEL_PHYS_BASE + (i &lt;&lt; <span class="hljs-number">21</span>)) | PTE_VALID | PTE_AF | PTE_SH_A | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">2</span>);
+	}
+
+
+	<span class="hljs-keyword">uint64_t</span> sctlr = <span class="hljs-number">0</span>
+		| (<span class="hljs-number">1U</span>L &lt;&lt; <span class="hljs-number">0</span>)  <span class="hljs-comment">/* mmu enabled */</span>
+		| (<span class="hljs-number">1U</span>L &lt;&lt; <span class="hljs-number">2</span>)  <span class="hljs-comment">/* cachability */</span>
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<p>| (1UL &lt;&lt; 6)</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		| (<span class="hljs-number">1U</span>L &lt;&lt; <span class="hljs-number">12</span>) <span class="hljs-comment">/* instruction cachability */</span>
+		| (<span class="hljs-number">1U</span>L &lt;&lt; <span class="hljs-number">23</span>) <span class="hljs-comment">/* SPAN */</span>
+		| (<span class="hljs-number">1U</span>L &lt;&lt; <span class="hljs-number">28</span>) <span class="hljs-comment">/* nTLSMD */</span>
+		| (<span class="hljs-number">1U</span>L &lt;&lt; <span class="hljs-number">29</span>) <span class="hljs-comment">/* LSMAOE */</span>
+		| (<span class="hljs-number">1U</span>L &lt;&lt; <span class="hljs-number">20</span>) <span class="hljs-comment">/* TSCXT */</span>
+		| (<span class="hljs-number">1U</span>L &lt;&lt; <span class="hljs-number">7</span>)  <span class="hljs-comment">/* ITD */</span>
+	;
+
+	<span class="hljs-comment">/* Translate control register */</span>
+	<span class="hljs-keyword">uint64_t</span> tcr = <span class="hljs-number">0</span>
+		|  (<span class="hljs-number">3U</span>L &lt;&lt; <span class="hljs-number">32</span>)  <span class="hljs-comment">/* 36 bits? */</span>
+		|  (<span class="hljs-number">2U</span>L &lt;&lt; <span class="hljs-number">30</span>) <span class="hljs-comment">/* TG1 4KB granules in TTBR1 */</span>
+		| (<span class="hljs-number">16U</span>L &lt;&lt; <span class="hljs-number">16</span>) <span class="hljs-comment">/* T1SZ 48-bit */</span>
+		|  (<span class="hljs-number">3U</span>L &lt;&lt; <span class="hljs-number">28</span>)  <span class="hljs-comment">/* SH1 */</span>
+		|  (<span class="hljs-number">1U</span>L &lt;&lt; <span class="hljs-number">26</span>)  <span class="hljs-comment">/* ORGN1 */</span>
+		|  (<span class="hljs-number">1U</span>L &lt;&lt; <span class="hljs-number">24</span>)  <span class="hljs-comment">/* IRGN1 */</span>
+		|  (<span class="hljs-number">0U</span>L &lt;&lt; <span class="hljs-number">14</span>) <span class="hljs-comment">/* TG0 4KB granules in TTBR0 */</span>
+		| (<span class="hljs-number">16U</span>L &lt;&lt;  <span class="hljs-number">0</span>)  <span class="hljs-comment">/* T0SZ 48-bit */</span>
+		|  (<span class="hljs-number">3U</span>L &lt;&lt; <span class="hljs-number">12</span>)  <span class="hljs-comment">/* SH0 */</span>
+		|  (<span class="hljs-number">1U</span>L &lt;&lt; <span class="hljs-number">10</span>)  <span class="hljs-comment">/* ORGN0 */</span>
+		|  (<span class="hljs-number">1U</span>L &lt;&lt;  <span class="hljs-number">8</span>)   <span class="hljs-comment">/* IRGN0 */</span>
+	;
+
+	<span class="hljs-comment">/* MAIR setup? */</span>
+	<span class="hljs-keyword">uint64_t</span> mair  = (<span class="hljs-number">0x000000000044ff00</span>);
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"msr MAIR_EL1,%0"</span> :: <span class="hljs-string">"r"</span>(mair))</span></span>;
+
+	<span class="hljs-comment">/* Frob bits */</span>
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"bootstub: setting base values\n"</span>);
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"msr TCR_EL1,%0"</span> : : <span class="hljs-string">"r"</span>(tcr))</span></span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"msr TTBR0_EL1,%0"</span> : : <span class="hljs-string">"r"</span>(&amp;_baseTables.l0_base))</span></span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"msr TTBR1_EL1,%0"</span> : : <span class="hljs-string">"r"</span>(&amp;_baseTables.l0_base))</span></span>;
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"bootstub: frobbing bits\n"</span>);
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"dsb ishst\ntlbi vmalle1is\ndsb ish\nisb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"bootstub: enabling mmu\n"</span>);
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"msr SCTLR_EL1,%0"</span> : : <span class="hljs-string">"r"</span>(sctlr))</span></span>;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"isb"</span> ::: <span class="hljs-string">"memory"</span>)</span></span>;
+
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"bootstub: MMU initialized\n"</span>);
+
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">bootstub_load_kernel</span><span class="hljs-params">(Elf64_Header * header)</span> </span>{
+	<span class="hljs-comment">/* Find load headers */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; header-&gt;e_phnum; ++i) {
+		Elf64_Phdr * phdr = (<span class="hljs-keyword">void</span>*)((<span class="hljs-keyword">uintptr_t</span>)header + (header-&gt;e_phoff + header-&gt;e_phentsize * i));
+		<span class="hljs-keyword">if</span> (phdr-&gt;p_type == PT_LOAD) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"bootstub: Load %zu bytes @ %zx from off %zx\n"</span>, phdr-&gt;p_memsz, phdr-&gt;p_vaddr, phdr-&gt;p_offset);
+			<span class="hljs-built_in">memset</span>((<span class="hljs-keyword">void</span>*)phdr-&gt;p_vaddr, <span class="hljs-number">0</span>, phdr-&gt;p_memsz);
+			<span class="hljs-built_in">memcpy</span>((<span class="hljs-keyword">void</span>*)phdr-&gt;p_vaddr, (<span class="hljs-keyword">void</span>*)((<span class="hljs-keyword">uintptr_t</span>)header + phdr-&gt;p_offset), phdr-&gt;p_filesz);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"bootstub: Skip phdr %d\n"</span>, i);
+		}
+	}
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">rpitag</span> <span class="hljs-title">tag_data</span> = {</span><span class="hljs-number">0</span>};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">bootstub_start_kernel</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> dtb, Elf64_Header * header)</span> </span>{
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"bootstub: Jump to kernel entry point at %zx\n"</span>,
+		header-&gt;e_entry);
+
+	<span class="hljs-keyword">void</span> (*entry)(<span class="hljs-keyword">uintptr_t</span>,<span class="hljs-keyword">uintptr_t</span>,<span class="hljs-keyword">uintptr_t</span>) = (<span class="hljs-keyword">void</span>(*)(<span class="hljs-keyword">uintptr_t</span>,<span class="hljs-keyword">uintptr_t</span>,<span class="hljs-keyword">uintptr_t</span>))header-&gt;e_entry;
+	entry(dtb, KERNEL_PHYS_BASE, (<span class="hljs-keyword">uintptr_t</span>)&amp;tag_data);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">bootstub_exit_el2</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">uint64_t</span> spsr_el2, sctlr_el1;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"mrs %0, SPSR_EL2\n"</span> :<span class="hljs-string">"=r"</span>(spsr_el2))</span></span>;
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"bootstub: SPSR_EL2=%#zx\n"</span>, spsr_el2);
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"mrs %0, SCTLR_EL1\n"</span> :<span class="hljs-string">"=r"</span>(sctlr_el1))</span></span>;
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"bootstub: SCTLR_EL1=%#zx\n"</span>, sctlr_el1);
+
+	<span class="hljs-comment">/* get us out of EL2 */</span>
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-string">"ldr x0, =0x1004\n"</span>
+		<span class="hljs-string">"mrs x1, SCTLR_EL2\n"</span>
+		<span class="hljs-string">"orr x1, x1, x0\n"</span>
+		<span class="hljs-string">"msr SCTLR_EL2, x1\n"</span>
+		<span class="hljs-string">"ldr x0, =0x30d01804\n"</span>
+		<span class="hljs-string">"msr SCTLR_EL1, x0\n"</span> ::: <span class="hljs-string">"x0"</span>, <span class="hljs-string">"x1"</span>)</span></span>;
+
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"bootstub: sctlr_el1 set\n"</span>);
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-string">"ldr x0, =0x80000000\n"</span>
+		<span class="hljs-string">"msr HCR_EL2, x0\n"</span> ::: <span class="hljs-string">"x0"</span>)</span></span>;
+
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"bootstub: hcr set\n"</span>);
+
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-string">"ldr x0, =0x431\n"</span>
+		<span class="hljs-string">"msr SCR_EL3, x0\n"</span> ::: <span class="hljs-string">"x0"</span>)</span></span>;
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"bootstub: SCR_EL3 set\n"</span>);
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-string">"ldr x0, =0x3c5\n"</span>
+		<span class="hljs-string">"msr SPSR_EL2, x0\n"</span> ::: <span class="hljs-string">"x0"</span>)</span></span>;
+
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"bootstub: spsr_el2 set\n"</span>);
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-string">"mov x0, sp\n"</span>
+		<span class="hljs-string">"msr SP_EL1, x0\n"</span>
+		<span class="hljs-string">"adr x0, in_el1\n"</span>
+		<span class="hljs-string">"msr ELR_EL2, x0\n"</span>
+		<span class="hljs-string">"eret\n"</span>
+		<span class="hljs-string">"in_el1:\n"</span>
+		::: <span class="hljs-string">"x0"</span>, <span class="hljs-string">"memory"</span>, <span class="hljs-string">"cc"</span>
+	)</span></span>;
+
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"bootstub: out of EL2?\n"</span>);
+
+	<span class="hljs-keyword">uint64_t</span> CurrentEL;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"mrs %0, CurrentEL"</span> : <span class="hljs-string">"=r"</span>(CurrentEL))</span></span>;
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"in el%zu\n"</span>, CurrentEL &gt;&gt; <span class="hljs-number">2</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">kmain</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> dtb_address, <span class="hljs-keyword">uint32_t</span> base_addr)</span> </span>{
+
+	<span class="hljs-keyword">if</span> (rpi_fb_init()) {
+		<span class="hljs-comment">/* Panic */</span>
+		<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>);
+	}
+
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"rpi4 bootstub, kernel base address is %#x, dtb is at %#x\n"</span>, base_addr, dtb_address);
+
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"framebuffer (%u x %u) @ %#zx\n"</span>,
+		lfb_resolution_x,
+		lfb_resolution_y,
+		(<span class="hljs-keyword">uintptr_t</span>)lfb_vid_memory);
+
+	<span class="hljs-keyword">uint64_t</span> CurrentEL;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">"mrs %0, CurrentEL"</span> : <span class="hljs-string">"=r"</span>(CurrentEL))</span></span>;
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"in el%zu\n"</span>, CurrentEL &gt;&gt; <span class="hljs-number">2</span>);
+
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"kernel @ %#zx (%zu bytes) ramdisk @ %#zx (%zu bytes)\n"</span>,
+		(<span class="hljs-keyword">uintptr_t</span>)&amp;_kernel_start,
+		(<span class="hljs-keyword">size_t</span>)((<span class="hljs-keyword">uintptr_t</span>)&amp;_kernel_end - (<span class="hljs-keyword">uintptr_t</span>)&amp;_kernel_start),
+		(<span class="hljs-keyword">uintptr_t</span>)&amp;_ramdisk_start,
+		(<span class="hljs-keyword">size_t</span>)((<span class="hljs-keyword">uintptr_t</span>)&amp;_ramdisk_end - (<span class="hljs-keyword">uintptr_t</span>)&amp;_ramdisk_start));
+
+	rpi_cpu_freq();
+
+	bootstub_exit_el2();
+
+	bootstub_mmu_init();
+
+	tag_data.phys_addr = (<span class="hljs-keyword">uint32_t</span>)(<span class="hljs-keyword">uintptr_t</span>)lfb_vid_memory;
+	tag_data.x = lfb_resolution_x;
+	tag_data.y = lfb_resolution_y;
+	tag_data.s = lfb_resolution_s;
+	tag_data.b = lfb_resolution_b;
+	tag_data.<span class="hljs-built_in">size</span> = lfb_memsize;
+	tag_data.ramdisk_start = (<span class="hljs-keyword">uintptr_t</span>)&amp;_ramdisk_start;
+	tag_data.ramdisk_end   = (<span class="hljs-keyword">uintptr_t</span>)&amp;_ramdisk_end;
+
+	Elf64_Header *header = (<span class="hljs-keyword">void</span>*)&amp;_kernel_start;
+	bootstub_load_kernel(header);
+
+	<span class="hljs-comment">/* Jump to kernel */</span>
+	bootstub_start_kernel(dtb_address, header);
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>);
+
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

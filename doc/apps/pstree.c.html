@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>pstree.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\pstree.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>pstree.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/tree.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/procfs.h&gt;</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">uint8_t</span> <span class="hljs-title">find_pid</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * proc_v, <span class="hljs-keyword">void</span> * pid_v)</span> </span>{
+	<span class="hljs-keyword">p_t</span> * p = proc_v;
+	<span class="hljs-keyword">pid_t</span> i = (<span class="hljs-keyword">pid_t</span>)(<span class="hljs-keyword">uintptr_t</span>)pid_v;
+
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">uint8_t</span>)(p-&gt;pid == i);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BS <span class="hljs-meta-string">"\033(0"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BE <span class="hljs-meta-string">"\033(B"</span></span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * line_forms_utf8[]  = {   <span class="hljs-string">"─┬─"</span>,       <span class="hljs-string">"───"</span>,       <span class="hljs-string">"│"</span>,       <span class="hljs-string">" ├─"</span>,       <span class="hljs-string">" └─"</span>};
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * line_forms_ascii[] = {   <span class="hljs-string">"-+-"</span>,       <span class="hljs-string">"---"</span>,       <span class="hljs-string">"|"</span>,       <span class="hljs-string">" |-"</span>,       <span class="hljs-string">" `-"</span>};
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * line_forms_vt100[] = {BS <span class="hljs-string">"qwq"</span> BE, BS <span class="hljs-string">"qqq"</span> BE, BS <span class="hljs-string">"x"</span> BE, BS <span class="hljs-string">" tq"</span> BE, BS <span class="hljs-string">" mq"</span> BE};
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> BS</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> BE</span>
+
+<span class="hljs-keyword">enum</span> ColorMode {
+	COLOR_MODE_NONE = <span class="hljs-number">0</span>,
+	COLOR_MODE_AGE = <span class="hljs-number">1</span>,
+	COLOR_MODE_MINE = <span class="hljs-number">2</span>,
+	COLOR_MODE_CPU = <span class="hljs-number">3</span>,
+	COLOR_MODE_MEM = <span class="hljs-number">4</span>,
+	COLOR_MODE_INVALID = <span class="hljs-number">-1</span>,
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">PstreeContext</span> {</span>
+	<span class="hljs-keyword">char</span> * lines;
+	<span class="hljs-keyword">size_t</span> lines_size;
+
+	<span class="hljs-keyword">int</span> show_pids;
+	<span class="hljs-keyword">int</span> show_pgids;
+	<span class="hljs-keyword">int</span> hide_threads;
+	<span class="hljs-keyword">int</span> show_cmdline;
+	<span class="hljs-keyword">char</span> ** line_forms;
+
+	<span class="hljs-keyword">enum</span> ColorMode color_mode;
+	<span class="hljs-keyword">tree_t</span> * procs;
+};
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">lines_set</span><span class="hljs-params">(struct PstreeContext * ctx, <span class="hljs-keyword">size_t</span> i)</span> </span>{
+	<span class="hljs-keyword">if</span> (i &gt;= ctx-&gt;lines_size) {
+		<span class="hljs-keyword">size_t</span> old = ctx-&gt;lines_size;
+		ctx-&gt;lines_size = (ctx-&gt;lines_size) * <span class="hljs-number">2</span>;
+		ctx-&gt;lines = <span class="hljs-built_in">realloc</span>(ctx-&gt;lines, ctx-&gt;lines_size);
+		<span class="hljs-built_in">memset</span>(ctx-&gt;lines + old, <span class="hljs-number">0</span>, ctx-&gt;lines_size - old);
+	}
+
+	ctx-&gt;lines[i] = <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">lines_clear</span><span class="hljs-params">(struct PstreeContext * ctx, <span class="hljs-keyword">size_t</span> from, <span class="hljs-keyword">size_t</span> until)</span> </span>{
+	<span class="hljs-keyword">for</span> (; from &lt; ctx-&gt;lines_size &amp;&amp; from &lt; until; ++from) {
+		ctx-&gt;lines[from] = <span class="hljs-number">0</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">lines_get</span><span class="hljs-params">(struct PstreeContext * ctx, <span class="hljs-keyword">size_t</span> i)</span> </span>{
+	<span class="hljs-keyword">if</span> (i &gt;= ctx-&gt;lines_size) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> ctx-&gt;lines[i];
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">print_process_tree_node</span><span class="hljs-params">(struct PstreeContext * ctx, <span class="hljs-keyword">tree_node_t</span> * node, <span class="hljs-keyword">size_t</span> depth, <span class="hljs-keyword">int</span> indented, <span class="hljs-keyword">int</span> more)</span> </span>{
+
+	<span class="hljs-keyword">p_t</span> * proc = node-&gt;value;
+
+	<span class="hljs-keyword">size_t</span> depth_in = depth;
+	lines_clear(ctx, depth_in, ctx-&gt;lines_size);
+
+	<span class="hljs-keyword">if</span> (!indented &amp;&amp; depth) {
+		<span class="hljs-keyword">if</span> (more) {
+			<span class="hljs-built_in">printf</span>(ctx-&gt;line_forms[<span class="hljs-number">0</span>]);
+			lines_set(ctx, depth+<span class="hljs-number">1</span>);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-built_in">printf</span>(ctx-&gt;line_forms[<span class="hljs-number">1</span>]);
+		}
+		depth += <span class="hljs-number">3</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (indented) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; (<span class="hljs-keyword">int</span>)depth; ++i) {
+			<span class="hljs-keyword">if</span> (lines_get(ctx, i)) {
+				<span class="hljs-built_in">printf</span>(ctx-&gt;line_forms[<span class="hljs-number">2</span>]);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">" "</span>);
+			}
+		}
+		<span class="hljs-keyword">if</span> (more) {
+			<span class="hljs-built_in">printf</span>(ctx-&gt;line_forms[<span class="hljs-number">3</span>]);
+			lines_set(ctx, depth+<span class="hljs-number">1</span>);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-built_in">printf</span>(ctx-&gt;line_forms[<span class="hljs-number">4</span>]);
+		}
+		depth += <span class="hljs-number">3</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (proc-&gt;user_data) <span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[1m"</span>);
+	<span class="hljs-keyword">if</span> (ctx-&gt;color_mode == COLOR_MODE_AGE) {
+		<span class="hljs-keyword">time_t</span> now = time(<span class="hljs-literal">NULL</span>);
+		<span class="hljs-keyword">if</span> (now - proc-&gt;starttime &lt; <span class="hljs-number">60</span>) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[32m"</span>);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (now - proc-&gt;starttime &lt; <span class="hljs-number">60</span> * <span class="hljs-number">60</span>) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[33m"</span>);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[31m"</span>);
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ctx-&gt;color_mode == COLOR_MODE_MINE) {
+		<span class="hljs-keyword">if</span> (proc-&gt;uid == getuid()) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[32m"</span>);
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ctx-&gt;color_mode == COLOR_MODE_CPU) {
+		<span class="hljs-keyword">if</span> (proc-&gt;cpu[<span class="hljs-number">0</span>] &gt; <span class="hljs-number">1000</span>) { <span class="hljs-comment">/* 100% (multi-threaded apps using more than one core) */</span>
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[1;31m"</span>);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (proc-&gt;cpu[<span class="hljs-number">0</span>] &gt; <span class="hljs-number">500</span>) { <span class="hljs-comment">/* 50% */</span>
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[31m"</span>);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (proc-&gt;cpu[<span class="hljs-number">0</span>] &gt; <span class="hljs-number">50</span>) { <span class="hljs-comment">/* 5% */</span>
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[33m"</span>);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (proc-&gt;cpu[<span class="hljs-number">0</span>] &gt; <span class="hljs-number">5</span>) { <span class="hljs-comment">/* 0.5% */</span>
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[32m"</span>);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[34m"</span>);
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ctx-&gt;color_mode == COLOR_MODE_MEM) {
+		<span class="hljs-keyword">if</span> (proc-&gt;mem &gt; <span class="hljs-number">666</span>) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[31m"</span>);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (proc-&gt;mem &gt; <span class="hljs-number">333</span>) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[33m"</span>);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (proc-&gt;mem &gt; <span class="hljs-number">10</span>) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[32m"</span>);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[34m"</span>);
+		}
+	}
+
+	<span class="hljs-keyword">int</span> force_nl = <span class="hljs-number">0</span>;
+
+	depth += <span class="hljs-built_in">printf</span>(proc-&gt;name);
+
+	<span class="hljs-keyword">int</span> show_cmdline = ctx-&gt;show_cmdline &amp;&amp; proc-&gt;pid == proc-&gt;tgid;
+
+	<span class="hljs-keyword">if</span> (show_cmdline &amp;&amp; (ctx-&gt;show_pids || ctx-&gt;show_pgids)) depth += <span class="hljs-built_in">printf</span>(<span class="hljs-string">","</span>);
+	<span class="hljs-keyword">if</span> (!show_cmdline &amp;&amp; (ctx-&gt;show_pids || ctx-&gt;show_pgids)) depth += <span class="hljs-built_in">printf</span>(<span class="hljs-string">"("</span>);
+	<span class="hljs-keyword">if</span> (ctx-&gt;show_pids) depth += <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%d"</span>, proc-&gt;pid);
+	<span class="hljs-keyword">if</span> (ctx-&gt;show_pids &amp;&amp; ctx-&gt;show_pgids) depth += <span class="hljs-built_in">printf</span>(<span class="hljs-string">","</span>);
+	<span class="hljs-keyword">if</span> (ctx-&gt;show_pgids) depth += <span class="hljs-built_in">printf</span>(<span class="hljs-string">"%d"</span>, proc-&gt;pgid);
+	<span class="hljs-keyword">if</span> (!show_cmdline &amp;&amp; (ctx-&gt;show_pids || ctx-&gt;show_pgids)) depth += <span class="hljs-built_in">printf</span>(<span class="hljs-string">")"</span>);
+
+	<span class="hljs-keyword">if</span> (show_cmdline &amp;&amp; proc-&gt;cmdline) {
+		force_nl = <span class="hljs-number">1</span>;
+		depth = depth_in + (indented ? <span class="hljs-number">3</span> : <span class="hljs-number">0</span>);
+		fputc(<span class="hljs-string">' '</span>, <span class="hljs-built_in">stdout</span>);
+
+		<span class="hljs-comment">/* Skip name */</span>
+		<span class="hljs-keyword">char</span> * cmdline = proc-&gt;cmdline;
+		<span class="hljs-keyword">while</span> (*cmdline &amp;&amp; *cmdline != <span class="hljs-number">30</span>) cmdline++;
+		<span class="hljs-keyword">if</span> (*cmdline == <span class="hljs-number">30</span>) cmdline++;
+
+		<span class="hljs-comment">/* Replace record separators with space */</span>
+		<span class="hljs-keyword">while</span> (*cmdline) {
+			fputc(*cmdline == <span class="hljs-number">30</span> ? <span class="hljs-string">' '</span> : *cmdline, <span class="hljs-built_in">stdout</span>);
+			cmdline++;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (proc-&gt;user_data || ctx-&gt;color_mode) <span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[0m"</span>);
+
+	<span class="hljs-keyword">if</span> (!node-&gt;children-&gt;length) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\n"</span>);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">int</span> t = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (force_nl) <span class="hljs-built_in">printf</span>(<span class="hljs-string">"\n"</span>);
+
+		foreach(child, node-&gt;children) {
+			<span class="hljs-comment">/* Recursively print the children */</span>
+			print_process_tree_node(ctx, child-&gt;value, depth, !!(t + force_nl), ((t+<span class="hljs-number">1</span>)!=(<span class="hljs-keyword">int</span>)node-&gt;children-&gt;length) );
+			t++;
+		}
+	}
+
+	lines_clear(ctx, depth_in, depth);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">pstree_callback</span><span class="hljs-params">(struct <span class="hljs-built_in">process</span> * proc, <span class="hljs-keyword">void</span> *_ctx)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">PstreeContext</span> * <span class="hljs-title">ctx</span> = _<span class="hljs-title">ctx</span>;</span>
+	<span class="hljs-keyword">tree_t</span> * procs = ctx-&gt;procs;
+
+	<span class="hljs-keyword">if</span> (proc-&gt;cpu[<span class="hljs-number">0</span>] &gt; <span class="hljs-number">1000</span>) proc-&gt;cpu[<span class="hljs-number">0</span>] = <span class="hljs-number">1000</span>; <span class="hljs-comment">/* Cap this as it can sometimes go slightly over 100.0% */</span>
+
+	<span class="hljs-keyword">if</span> (ctx-&gt;hide_threads &amp;&amp; proc-&gt;pid != proc-&gt;tgid) {
+		<span class="hljs-keyword">if</span> (ctx-&gt;color_mode == COLOR_MODE_CPU) {
+			<span class="hljs-keyword">tree_node_t</span> * v = tree_find(procs,(<span class="hljs-keyword">void</span> *)(<span class="hljs-keyword">uintptr_t</span>)proc-&gt;tgid,find_pid);
+			<span class="hljs-keyword">if</span> (v) {
+				((struct <span class="hljs-built_in">process</span> *)v-&gt;value)-&gt;cpu[<span class="hljs-number">0</span>] += proc-&gt;cpu[<span class="hljs-number">0</span>];
+			}
+		}
+		procfs_free(proc);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (proc-&gt;ppid == <span class="hljs-number">0</span> &amp;&amp; proc-&gt;pid == <span class="hljs-number">1</span>) {
+		tree_set_root(procs, proc);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">pid_t</span> ppid = (proc-&gt;tgid != proc-&gt;pid ? proc-&gt;tgid : proc-&gt;ppid);
+		<span class="hljs-keyword">tree_node_t</span> * parent = tree_find(procs,(<span class="hljs-keyword">void</span> *)(<span class="hljs-keyword">uintptr_t</span>)ppid,find_pid);
+		<span class="hljs-keyword">if</span> (parent) {
+			tree_node_insert_child(procs, parent, proc);
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">parse_color_mode</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * str)</span> </span>{
+	<span class="hljs-keyword">if</span> (!strcasecmp(str, <span class="hljs-string">"age"</span>)) <span class="hljs-keyword">return</span> COLOR_MODE_AGE;
+	<span class="hljs-keyword">if</span> (!strcasecmp(str, <span class="hljs-string">"mine"</span>)) <span class="hljs-keyword">return</span> COLOR_MODE_MINE;
+	<span class="hljs-keyword">if</span> (!strcasecmp(str, <span class="hljs-string">"cpu"</span>)) <span class="hljs-keyword">return</span> COLOR_MODE_CPU;
+	<span class="hljs-keyword">if</span> (!strcasecmp(str, <span class="hljs-string">"mem"</span>)) <span class="hljs-keyword">return</span> COLOR_MODE_MEM;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_S <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_E <span class="hljs-meta-string">"\033[0m"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+			<span class="hljs-string">"%s - display a tree of running processes\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"usage: %s [-p] [-T] ["</span> X_S <span class="hljs-string">"pid"</span> X_E <span class="hljs-string">"]\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" --help    "</span> X_S <span class="hljs-string">"Show this help message."</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -a        "</span> X_S <span class="hljs-string">"Show command lines."</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -p        "</span> X_S <span class="hljs-string">"Show pids."</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -g        "</span> X_S <span class="hljs-string">"Show pgids."</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -T        "</span> X_S <span class="hljs-string">"Hide threads."</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -h        "</span> X_S <span class="hljs-string">"Hilight the current process and its ancestors."</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -H "</span> X_S <span class="hljs-string">"PID    Like above, but for the given PID."</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -C "</span> X_S <span class="hljs-string">"MODE   Color processes by a given mode:"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"    age    "</span> X_S <span class="hljs-string">"New proceses are green; older processs are yellow;"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"           "</span> X_S <span class="hljs-string">"oldest processes are red. (60s, 1hr, etc.)"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"    mine   "</span> X_S <span class="hljs-string">"Color processes belonging to the calling user green."</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"    cpu    "</span> X_S <span class="hljs-string">"Color processes by core usage."</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"    mem    "</span> X_S <span class="hljs-string">"Color processes by memory usage."</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"If a "</span> X_S <span class="hljs-string">"pid"</span> X_E <span class="hljs-string">" argument is provided, the tree will be rooted\n"</span>
+			<span class="hljs-string">"in that process; otherwise, the tree will be rooted in "</span> X_S <span class="hljs-string">"init"</span> X_E <span class="hljs-string">".\n"</span>
+			<span class="hljs-string">"\n"</span>,
+			argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span> <span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+
+	<span class="hljs-keyword">int</span> opt;
+	<span class="hljs-keyword">int</span> root_pid = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">int</span> hilight_pid = <span class="hljs-number">0</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">PstreeContext</span> <span class="hljs-title">ctx</span> = {</span><span class="hljs-number">0</span>};
+
+	ctx.line_forms = line_forms_utf8;
+
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"aTpghH:C:AUG-:"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'a'</span>:
+				ctx.show_cmdline = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'A'</span>:
+				ctx.line_forms = line_forms_ascii;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'U'</span>:
+				ctx.line_forms = line_forms_utf8;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'G'</span>:
+				ctx.line_forms = line_forms_vt100;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'p'</span>:
+				ctx.show_pids = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'g'</span>:
+				ctx.show_pgids = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'T'</span>:
+				ctx.hide_threads = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'h'</span>:
+				hilight_pid = getpid();
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'H'</span>:
+				hilight_pid = atoi(optarg);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'C'</span>:
+				<span class="hljs-keyword">if</span> ((ctx.color_mode = parse_color_mode(optarg)) == <span class="hljs-number">-1</span>) <span class="hljs-keyword">return</span> usage(argv);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'-'</span>:
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(optarg,<span class="hljs-string">"help"</span>)) {
+					usage(argv);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				}
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: '--%s' is not a recognized long option.\n"</span>, argv[<span class="hljs-number">0</span>],optarg);
+				<span class="hljs-comment">/* fallthrough */</span>
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> usage(argv);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (optind != argc) {
+		root_pid = atoi(argv[optind]);
+		optind++;
+	}
+
+	<span class="hljs-keyword">if</span> (optind != argc) {
+		<span class="hljs-keyword">return</span> usage(argv);
+	}
+
+	<span class="hljs-comment">/* Read the entries in the directory */</span>
+	ctx.procs = tree_create();
+
+	<span class="hljs-keyword">int</span> flags = PROCFSLIB_NO_FREE;
+	<span class="hljs-keyword">if</span> (ctx.color_mode == COLOR_MODE_AGE) flags |= PROCFSLIB_COLLECT_STARTTIME;
+	<span class="hljs-keyword">if</span> (ctx.show_cmdline) flags |= PROCFSLIB_COLLECT_COMMANDLINE;
+
+	procfs_iterate(pstree_callback,&amp;ctx, flags);
+
+	<span class="hljs-keyword">if</span> (hilight_pid) {
+		<span class="hljs-keyword">tree_node_t</span> * proc = tree_find(ctx.procs, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)hilight_pid, find_pid);
+		<span class="hljs-keyword">while</span> (proc) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">process</span> * <span class="hljs-title">p</span> = <span class="hljs-title">proc</span>-&gt;<span class="hljs-title">value</span>;</span>
+			p-&gt;user_data = <span class="hljs-number">1</span>;
+			proc = proc-&gt;parent;
+		}
+	}
+
+	ctx.lines_size = <span class="hljs-number">100</span>;
+	ctx.lines = <span class="hljs-built_in">calloc</span>(ctx.lines_size,<span class="hljs-number">1</span>);
+
+	<span class="hljs-keyword">tree_node_t</span> * root = root_pid == <span class="hljs-number">1</span> ? ctx.procs-&gt;root : tree_find(ctx.procs,(<span class="hljs-keyword">void</span> *)(<span class="hljs-keyword">uintptr_t</span>)root_pid,find_pid);
+
+	<span class="hljs-keyword">if</span> (root) print_process_tree_node(&amp;ctx, root, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

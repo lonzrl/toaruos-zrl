@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>jpeg.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "lib\\jpeg.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>jpeg.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;math.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> !defined(NO_SSE) &amp;&amp; defined(__x86_64__)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;xmmintrin.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;emmintrin.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/trace.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TRACE_APP_NAME <span class="hljs-meta-string">"jpeg"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TRACE(...)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">sprite_t</span> * sprite = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-comment">/* Byte swap short (because JPEG uses big-endian values) */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">swap16</span><span class="hljs-params">(<span class="hljs-keyword">uint16_t</span> * val)</span> </span>{
+	<span class="hljs-keyword">char</span> * a = (<span class="hljs-keyword">char</span> *)val;
+	<span class="hljs-keyword">char</span> b = a[<span class="hljs-number">0</span>];
+	a[<span class="hljs-number">0</span>] = a[<span class="hljs-number">1</span>];
+	a[<span class="hljs-number">1</span>] = b;
+}
+
+<span class="hljs-comment">/* JPEG compontent zig-zag ordering */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> zigzag[] = {
+	 <span class="hljs-number">0</span>,  <span class="hljs-number">1</span>,  <span class="hljs-number">8</span>, <span class="hljs-number">16</span>,  <span class="hljs-number">9</span>,  <span class="hljs-number">2</span>,  <span class="hljs-number">3</span>, <span class="hljs-number">10</span>,
+	<span class="hljs-number">17</span>, <span class="hljs-number">24</span>, <span class="hljs-number">32</span>, <span class="hljs-number">25</span>, <span class="hljs-number">18</span>, <span class="hljs-number">11</span>,  <span class="hljs-number">4</span>,  <span class="hljs-number">5</span>,
+	<span class="hljs-number">12</span>, <span class="hljs-number">19</span>, <span class="hljs-number">26</span>, <span class="hljs-number">33</span>, <span class="hljs-number">40</span>, <span class="hljs-number">48</span>, <span class="hljs-number">41</span>, <span class="hljs-number">34</span>,
+	<span class="hljs-number">27</span>, <span class="hljs-number">20</span>, <span class="hljs-number">13</span>,  <span class="hljs-number">6</span>,  <span class="hljs-number">7</span>, <span class="hljs-number">14</span>, <span class="hljs-number">21</span>, <span class="hljs-number">28</span>,
+	<span class="hljs-number">35</span>, <span class="hljs-number">42</span>, <span class="hljs-number">49</span>, <span class="hljs-number">56</span>, <span class="hljs-number">57</span>, <span class="hljs-number">50</span>, <span class="hljs-number">43</span>, <span class="hljs-number">36</span>,
+	<span class="hljs-number">29</span>, <span class="hljs-number">22</span>, <span class="hljs-number">15</span>, <span class="hljs-number">23</span>, <span class="hljs-number">30</span>, <span class="hljs-number">37</span>, <span class="hljs-number">44</span>, <span class="hljs-number">51</span>,
+	<span class="hljs-number">58</span>, <span class="hljs-number">59</span>, <span class="hljs-number">52</span>, <span class="hljs-number">45</span>, <span class="hljs-number">38</span>, <span class="hljs-number">31</span>, <span class="hljs-number">39</span>, <span class="hljs-number">46</span>,
+	<span class="hljs-number">53</span>, <span class="hljs-number">60</span>, <span class="hljs-number">61</span>, <span class="hljs-number">54</span>, <span class="hljs-number">47</span>, <span class="hljs-number">55</span>, <span class="hljs-number">62</span>, <span class="hljs-number">63</span>
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint8_t</span> quant_mapping[<span class="hljs-number">3</span>] = {<span class="hljs-number">0</span>};
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint8_t</span> quant[<span class="hljs-number">8</span>][<span class="hljs-number">64</span>];
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">clamp</span><span class="hljs-params">(<span class="hljs-keyword">int</span> col)</span> </span>{
+	<span class="hljs-keyword">if</span> (col &gt; <span class="hljs-number">255</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">255</span>;
+	<span class="hljs-keyword">if</span> (col &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> col;
+}
+
+<span class="hljs-comment">/* YCbCr to RGB conversion */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">color_conversion</span><span class="hljs-params">(
+		<span class="hljs-keyword">float</span> Y, <span class="hljs-keyword">float</span> Cb, <span class="hljs-keyword">float</span> Cr,
+		<span class="hljs-keyword">int</span> *R, <span class="hljs-keyword">int</span> *G, <span class="hljs-keyword">int</span> *B
+	)</span> </span>{
+	<span class="hljs-keyword">float</span> r = (Cr*(<span class="hljs-number">2.0</span><span class="hljs-number">-2.0</span>*<span class="hljs-number">0.299</span>) + Y);
+	<span class="hljs-keyword">float</span> b = (Cb*(<span class="hljs-number">2.0</span><span class="hljs-number">-2.0</span>*<span class="hljs-number">0.114</span>) + Y);
+	<span class="hljs-keyword">float</span> g = (Y - <span class="hljs-number">0.144</span> * b - <span class="hljs-number">0.229</span> * r) / <span class="hljs-number">0.587</span>;
+
+	*R = clamp(r + <span class="hljs-number">128</span>);
+	*G = clamp(g + <span class="hljs-number">128</span>);
+	*B = clamp(b + <span class="hljs-number">128</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">xy_to_lin</span><span class="hljs-params">(<span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y)</span> </span>{
+	<span class="hljs-keyword">return</span> x + y * <span class="hljs-number">8</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">huffman_table</span> {</span>
+	<span class="hljs-keyword">uint8_t</span> lengths[<span class="hljs-number">16</span>];
+	<span class="hljs-keyword">uint8_t</span> elements[<span class="hljs-number">256</span>];
+} huffman_tables[<span class="hljs-number">256</span>] = {<span class="hljs-number">0</span>};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stream</span> {</span>
+	FILE * file;
+	<span class="hljs-keyword">uint8_t</span> <span class="hljs-keyword">byte</span>;
+	<span class="hljs-keyword">int</span> have;
+	<span class="hljs-keyword">int</span> pos;
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">define_quant_table</span><span class="hljs-params">(FILE * f, <span class="hljs-keyword">int</span> len)</span> </span>{
+
+	TRACE(<span class="hljs-string">"Defining quant table"</span>);
+	<span class="hljs-keyword">while</span> (len &gt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">uint8_t</span> hdr;
+		fread(&amp;hdr, <span class="hljs-number">1</span>, <span class="hljs-number">1</span>, f);
+		fread(&amp;quant[(hdr) &amp; <span class="hljs-number">0xF</span>], <span class="hljs-number">64</span>, <span class="hljs-number">1</span>, f);
+		len -= <span class="hljs-number">65</span>;
+	}
+	TRACE(<span class="hljs-string">"Done"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">baseline_dct</span><span class="hljs-params">(FILE * f, <span class="hljs-keyword">int</span> len)</span> </span>{
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dct</span> {</span>
+		<span class="hljs-keyword">uint8_t</span>  hdr;
+		<span class="hljs-keyword">uint16_t</span> <span class="hljs-built_in">height</span>;
+		<span class="hljs-keyword">uint16_t</span> <span class="hljs-built_in">width</span>;
+		<span class="hljs-keyword">uint8_t</span>  components;
+	} __attribute__((packed)) dct;
+
+	fread(&amp;dct, <span class="hljs-keyword">sizeof</span>(struct dct), <span class="hljs-number">1</span>, f);
+
+	<span class="hljs-comment">/* Read image dimensions, each as big-endian 16-bit values */</span>
+	<span class="hljs-keyword">uint16_t</span> h = dct.<span class="hljs-built_in">height</span>;
+	<span class="hljs-keyword">uint16_t</span> w = dct.<span class="hljs-built_in">width</span>;
+	swap16(&amp;h);
+	swap16(&amp;w);
+	dct.<span class="hljs-built_in">height</span> = h;
+	dct.<span class="hljs-built_in">width</span> = w;
+
+	<span class="hljs-comment">/* We read 7 bytes */</span>
+	len -= <span class="hljs-keyword">sizeof</span>(struct dct);
+
+	TRACE(<span class="hljs-string">"Image dimensions are %d×%d"</span>, dct.<span class="hljs-built_in">width</span>, dct.<span class="hljs-built_in">height</span>);
+	sprite-&gt;<span class="hljs-built_in">width</span>  = dct.<span class="hljs-built_in">width</span>;
+	sprite-&gt;<span class="hljs-built_in">height</span> = dct.<span class="hljs-built_in">height</span>;
+	sprite-&gt;bitmap = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>) * sprite-&gt;<span class="hljs-built_in">width</span> * sprite-&gt;<span class="hljs-built_in">height</span>);
+	sprite-&gt;masks = <span class="hljs-literal">NULL</span>;
+	sprite-&gt;alpha = <span class="hljs-number">0</span>;
+	sprite-&gt;blank = <span class="hljs-number">0</span>;
+
+	TRACE(<span class="hljs-string">"Loading quantization mappings..."</span>);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; dct.components; ++i) {
+		<span class="hljs-comment">/* Quant mapping */</span>
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+			<span class="hljs-keyword">uint8_t</span> id;
+			<span class="hljs-keyword">uint8_t</span> samp;
+			<span class="hljs-keyword">uint8_t</span> qtb_id;
+		} __attribute__((packed)) tmp;
+
+		fread(&amp;tmp, <span class="hljs-keyword">sizeof</span>(tmp), <span class="hljs-number">1</span>, f);
+
+		<span class="hljs-comment">/* There should only be three of these for the images we support. */</span>
+		<span class="hljs-keyword">if</span> (i &gt; <span class="hljs-number">3</span>) {
+			<span class="hljs-built_in">abort</span>();
+		}
+
+		quant_mapping[i] = tmp.qtb_id;
+
+		<span class="hljs-comment">/* 3 bytes were read */</span>
+		len -= <span class="hljs-number">3</span>;
+	}
+
+	<span class="hljs-comment">/* Skip whatever else might be in this section */</span>
+	<span class="hljs-keyword">if</span> (len &gt; <span class="hljs-number">0</span>) {
+		fseek(f, len, SEEK_CUR);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">define_huffman_table</span><span class="hljs-params">(FILE * f, <span class="hljs-keyword">int</span> len)</span> </span>{
+
+	TRACE(<span class="hljs-string">"Loading Huffman tables..."</span>);
+	<span class="hljs-keyword">while</span> (len &gt; <span class="hljs-number">0</span>) {
+		<span class="hljs-comment">/* Read header ID */</span>
+		<span class="hljs-keyword">uint8_t</span> hdr;
+		fread(&amp;hdr, <span class="hljs-number">1</span>, <span class="hljs-number">1</span>, f);
+		len--;
+
+		<span class="hljs-comment">/* Read length table */</span>
+		fread(huffman_tables[hdr].lengths, <span class="hljs-number">16</span>, <span class="hljs-number">1</span>, f);
+		len -= <span class="hljs-number">16</span>;
+
+		<span class="hljs-comment">/* Read Huffman table entries */</span>
+		<span class="hljs-keyword">int</span> o = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">16</span>; ++i) {
+			<span class="hljs-keyword">int</span> l = huffman_tables[hdr].lengths[i];
+			fread(&amp;huffman_tables[hdr].elements[o], l, <span class="hljs-number">1</span>, f);
+			o += l;
+			len -= l;
+		}
+	}
+
+	<span class="hljs-comment">/* Skip rest of section */</span>
+	<span class="hljs-keyword">if</span> (len &gt; <span class="hljs-number">0</span>) {
+		fseek(f, len, SEEK_CUR);
+	}
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">idct</span> {</span>
+	<span class="hljs-keyword">float</span> base[<span class="hljs-number">64</span>];
+};
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>norm_coeff[0] = 0.35355339059
+norm_coeff[1] = 0.5</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">static</span> <span class="hljs-keyword">float</span> cosines[<span class="hljs-number">8</span>][<span class="hljs-number">8</span>] = {
+	{ <span class="hljs-number">0.35355339059</span>,<span class="hljs-number">0.35355339059</span>,<span class="hljs-number">0.35355339059</span>,<span class="hljs-number">0.35355339059</span>,<span class="hljs-number">0.35355339059</span>,<span class="hljs-number">0.35355339059</span>,<span class="hljs-number">0.35355339059</span>,<span class="hljs-number">0.35355339059</span> },
+	{ <span class="hljs-number">0.490392640202</span>,<span class="hljs-number">0.415734806151</span>,<span class="hljs-number">0.27778511651</span>,<span class="hljs-number">0.0975451610081</span>,<span class="hljs-number">-0.0975451610081</span>,<span class="hljs-number">-0.27778511651</span>,<span class="hljs-number">-0.415734806151</span>,<span class="hljs-number">-0.490392640202</span> },
+	{ <span class="hljs-number">0.461939766256</span>,<span class="hljs-number">0.191341716183</span>,<span class="hljs-number">-0.191341716183</span>,<span class="hljs-number">-0.461939766256</span>,<span class="hljs-number">-0.461939766256</span>,<span class="hljs-number">-0.191341716183</span>,<span class="hljs-number">0.191341716183</span>,<span class="hljs-number">0.461939766256</span> },
+	{ <span class="hljs-number">0.415734806151</span>,<span class="hljs-number">-0.0975451610081</span>,<span class="hljs-number">-0.490392640202</span>,<span class="hljs-number">-0.27778511651</span>,<span class="hljs-number">0.27778511651</span>,<span class="hljs-number">0.490392640202</span>,<span class="hljs-number">0.0975451610081</span>,<span class="hljs-number">-0.415734806151</span> },
+	{ <span class="hljs-number">0.353553390593</span>,<span class="hljs-number">-0.353553390593</span>,<span class="hljs-number">-0.353553390593</span>,<span class="hljs-number">0.353553390593</span>,<span class="hljs-number">0.353553390593</span>,<span class="hljs-number">-0.353553390593</span>,<span class="hljs-number">-0.353553390593</span>,<span class="hljs-number">0.353553390593</span> },
+	{ <span class="hljs-number">0.27778511651</span>,<span class="hljs-number">-0.490392640202</span>,<span class="hljs-number">0.0975451610081</span>,<span class="hljs-number">0.415734806151</span>,<span class="hljs-number">-0.415734806151</span>,<span class="hljs-number">-0.0975451610081</span>,<span class="hljs-number">0.490392640202</span>,<span class="hljs-number">-0.27778511651</span> },
+	{ <span class="hljs-number">0.191341716183</span>,<span class="hljs-number">-0.461939766256</span>,<span class="hljs-number">0.461939766256</span>,<span class="hljs-number">-0.191341716183</span>,<span class="hljs-number">-0.191341716183</span>,<span class="hljs-number">0.461939766256</span>,<span class="hljs-number">-0.461939766256</span>,<span class="hljs-number">0.191341716183</span> },
+	{ <span class="hljs-number">0.0975451610081</span>,<span class="hljs-number">-0.27778511651</span>,<span class="hljs-number">0.415734806151</span>,<span class="hljs-number">-0.490392640202</span>,<span class="hljs-number">0.490392640202</span>,<span class="hljs-number">-0.415734806151</span>,<span class="hljs-number">0.27778511651</span>,<span class="hljs-number">-0.0975451610081</span> },
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">float</span> premul[<span class="hljs-number">8</span>][<span class="hljs-number">8</span>][<span class="hljs-number">8</span>][<span class="hljs-number">8</span>]= {{{{<span class="hljs-number">0</span>}}}};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">add_idc</span><span class="hljs-params">(struct idct * self, <span class="hljs-keyword">int</span> n, <span class="hljs-keyword">int</span> m, <span class="hljs-keyword">int</span> coeff)</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(NO_SSE) || !defined(__x86_64__)</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> y = <span class="hljs-number">0</span>; y &lt; <span class="hljs-number">8</span>; ++y) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; <span class="hljs-number">8</span>; ++x) {
+			self-&gt;base[xy_to_lin(x, y)] += premul[n][m][y][x] * coeff;
+		}
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+	__m128 c = _mm_set_ps(coeff,coeff,coeff,coeff);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> y = <span class="hljs-number">0</span>; y &lt; <span class="hljs-number">8</span>; ++y) {
+		__m128 a, b;
+		<span class="hljs-comment">/* base[y][x] = base[y][x] + premul[n][m][y][x] * coeff */</span>
+
+		<span class="hljs-comment">/* x = 0..3 */</span>
+		a = _mm_load_ps(&amp;premul[n][m][y][<span class="hljs-number">0</span>]);
+		a = _mm_mul_ps(a,c);
+		b = _mm_load_ps(&amp;self-&gt;base[xy_to_lin(<span class="hljs-number">0</span>,y)]);
+		a = _mm_add_ps(a,b);
+		_mm_store_ps(&amp;self-&gt;base[xy_to_lin(<span class="hljs-number">0</span>,y)], a);
+
+		<span class="hljs-comment">/* x = 4..7 */</span>
+		a = _mm_load_ps(&amp;premul[n][m][y][<span class="hljs-number">4</span>]);
+		a = _mm_mul_ps(a,c);
+		b = _mm_load_ps(&amp;self-&gt;base[xy_to_lin(<span class="hljs-number">4</span>,y)]);
+		a = _mm_add_ps(a,b);
+		_mm_store_ps(&amp;self-&gt;base[xy_to_lin(<span class="hljs-number">4</span>,y)], a);
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">add_zigzag</span><span class="hljs-params">(struct idct * self, <span class="hljs-keyword">int</span> zi, <span class="hljs-keyword">int</span> coeff)</span> </span>{
+	<span class="hljs-keyword">int</span> i = zigzag[zi];
+	<span class="hljs-keyword">int</span> n = i &amp; <span class="hljs-number">0x7</span>;
+	<span class="hljs-keyword">int</span> m = i &gt;&gt; <span class="hljs-number">3</span>;
+	add_idc(self, n, m, coeff);
+}
+
+<span class="hljs-comment">/* Read a bit from the stream */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">get_bit</span><span class="hljs-params">(struct stream * st)</span> </span>{
+	<span class="hljs-keyword">while</span> ((st-&gt;pos &gt;&gt; <span class="hljs-number">3</span>) &gt;= st-&gt;have) {
+		<span class="hljs-comment">/* We have finished using the current byte and need to read another one */</span>
+		<span class="hljs-keyword">int</span> t = fgetc(st-&gt;file);
+		<span class="hljs-keyword">if</span> (t &lt; <span class="hljs-number">0</span>) {
+			<span class="hljs-comment">/* EOF */</span>
+			st-&gt;<span class="hljs-keyword">byte</span> = <span class="hljs-number">0</span>;
+		} <span class="hljs-keyword">else</span> {
+			st-&gt;<span class="hljs-keyword">byte</span> = t;
+		}
+
+		<span class="hljs-keyword">if</span> (st-&gt;<span class="hljs-keyword">byte</span> == <span class="hljs-number">0xFF</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If we see 0xFF, it's followed by a 0x00
+that should be skipped.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			<span class="hljs-keyword">int</span> tmp = fgetc(st-&gt;file);
+			<span class="hljs-keyword">if</span> (tmp != <span class="hljs-number">0</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If it's <em>not</em>, we reached the end of the file - but
+this shouldn't happen.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">				st-&gt;<span class="hljs-keyword">byte</span> = <span class="hljs-number">0</span>;
+			}
+		}
+
+		<span class="hljs-comment">/* We've seen a new byte */</span>
+		st-&gt;have++;
+	}
+
+	<span class="hljs-comment">/* Extract appropriate bit from this byte */</span>
+	<span class="hljs-keyword">uint8_t</span> b = st-&gt;<span class="hljs-keyword">byte</span>;
+	<span class="hljs-keyword">int</span> s = <span class="hljs-number">7</span> - (st-&gt;pos &amp; <span class="hljs-number">0x7</span>);
+
+	<span class="hljs-comment">/* We move forward one position in the bit stream */</span>
+	st-&gt;pos += <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> (b &gt;&gt; s) &amp; <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-comment">/* Advance forward and get the n'th next bit */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">get_bitn</span><span class="hljs-params">(struct stream * st, <span class="hljs-keyword">int</span> l)</span> </span>{
+	<span class="hljs-keyword">int</span> val = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; l; ++i) {
+		val = val * <span class="hljs-number">2</span> + get_bit(st);
+	}
+	<span class="hljs-keyword">return</span> val;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Read a Huffman code by reading bits and using
+the Huffman table.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">get_code</span><span class="hljs-params">(struct huffman_table * table, struct stream * st)</span> </span>{
+	<span class="hljs-keyword">int</span> val = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> off = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> ini = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">16</span>; ++i) {
+		val = val * <span class="hljs-number">2</span> + get_bit(st);
+		<span class="hljs-keyword">if</span> (table-&gt;lengths[i] &gt; <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">if</span> (val - ini &lt; table-&gt;lengths[i]) {
+				<span class="hljs-keyword">return</span> table-&gt;elements[off + val - ini];
+			}
+			ini = ini + table-&gt;lengths[i];
+			off += table-&gt;lengths[i];
+		}
+		ini *= <span class="hljs-number">2</span>;
+	}
+
+	<span class="hljs-comment">/* Invalid */</span>
+	<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+}
+
+<span class="hljs-comment">/* Decode Huffman codes to values */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">decode</span><span class="hljs-params">(<span class="hljs-keyword">int</span> code, <span class="hljs-keyword">int</span> bits)</span> </span>{
+	<span class="hljs-keyword">int</span> l = <span class="hljs-number">1L</span> &lt;&lt; (code - <span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (bits &gt;= l) {
+		<span class="hljs-keyword">return</span> bits;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">return</span> bits - (<span class="hljs-number">2</span> * l - <span class="hljs-number">1</span>);
+	}
+}
+
+<span class="hljs-comment">/* Build IDCT matrix */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> struct idct * <span class="hljs-title">build_matrix</span><span class="hljs-params">(struct idct * i, struct stream * st, <span class="hljs-keyword">int</span> idx, <span class="hljs-keyword">uint8_t</span> * quant, <span class="hljs-keyword">int</span> oldcoeff, <span class="hljs-keyword">int</span> * outcoeff)</span> </span>{
+	<span class="hljs-built_in">memset</span>(i, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(struct idct));
+
+	<span class="hljs-keyword">int</span> code = get_code(&amp;huffman_tables[idx], st);
+	<span class="hljs-keyword">int</span> bits = get_bitn(st, code);
+	<span class="hljs-keyword">int</span> dccoeff = decode(code, bits) + oldcoeff;
+
+	add_zigzag(i, <span class="hljs-number">0</span>, dccoeff * quant[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">int</span> l = <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">while</span> (l &lt; <span class="hljs-number">64</span>) {
+		code = get_code(&amp;huffman_tables[<span class="hljs-number">16</span>+idx], st);
+		<span class="hljs-keyword">if</span> (code == <span class="hljs-number">0</span>) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">if</span> (code &gt; <span class="hljs-number">15</span>) {
+			l += (code &gt;&gt; <span class="hljs-number">4</span>);
+			code = code &amp; <span class="hljs-number">0xF</span>;
+		}
+		bits = get_bitn(st, code);
+		<span class="hljs-keyword">int</span> coeff = decode(code, bits);
+		add_zigzag(i, l, coeff * quant[l]);
+		l += <span class="hljs-number">1</span>;
+	}
+
+	*outcoeff = dccoeff;
+	<span class="hljs-keyword">return</span> i;
+}
+
+<span class="hljs-comment">/* Set pixel in sprite buffer with bounds checking */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">set_pixel</span><span class="hljs-params">(<span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y, <span class="hljs-keyword">uint32_t</span> color)</span> </span>{
+	<span class="hljs-keyword">if</span> ((x &lt; sprite-&gt;<span class="hljs-built_in">width</span>) &amp;&amp; (y &lt; sprite-&gt;<span class="hljs-built_in">height</span>)) {
+		SPRITE(sprite,x,y) = color;
+	}
+}
+
+<span class="hljs-comment">/* Concvert YCbCr values to RGB pixels */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">draw_matrix</span><span class="hljs-params">(<span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y, struct idct * L, struct idct * cb, struct idct * cr)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> yy = <span class="hljs-number">0</span>; yy &lt; <span class="hljs-number">8</span>; ++yy) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> xx = <span class="hljs-number">0</span>; xx &lt; <span class="hljs-number">8</span>; ++xx) {
+			<span class="hljs-keyword">int</span> o = xy_to_lin(xx,yy);
+			<span class="hljs-keyword">int</span> r, g, b;
+			color_conversion(L-&gt;base[o], cb-&gt;base[o], cr-&gt;base[o], &amp;r, &amp;g, &amp;b);
+			<span class="hljs-keyword">uint32_t</span> c = <span class="hljs-number">0xFF000000</span> | (r &lt;&lt; <span class="hljs-number">16</span>) | (g &lt;&lt; <span class="hljs-number">8</span>) | b;
+			set_pixel((x * <span class="hljs-number">8</span> + xx), (y * <span class="hljs-number">8</span> + yy), c);
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">start_of_scan</span><span class="hljs-params">(FILE * f, <span class="hljs-keyword">int</span> len)</span> </span>{
+
+	TRACE(<span class="hljs-string">"Reading image data"</span>);
+
+	<span class="hljs-comment">/* Skip header */</span>
+	fseek(f, len, SEEK_CUR);
+
+	<span class="hljs-comment">/* Initialize bit stream */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stream</span> _<span class="hljs-title">st</span> = {</span><span class="hljs-number">0</span>};
+	_st.file = f;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stream</span> * <span class="hljs-title">st</span> = &amp;_<span class="hljs-title">st</span>;</span>
+
+	<span class="hljs-keyword">int</span> old_lum = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> old_crd = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> old_cbd = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> y = <span class="hljs-number">0</span>; y &lt; sprite-&gt;<span class="hljs-built_in">height</span> / <span class="hljs-number">8</span> + !!(sprite-&gt;<span class="hljs-built_in">height</span> &amp; <span class="hljs-number">0x7</span>); ++y) {
+		TRACE(<span class="hljs-string">"Star row %d"</span>, y );
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; sprite-&gt;<span class="hljs-built_in">width</span> / <span class="hljs-number">8</span> + !!(sprite-&gt;<span class="hljs-built_in">width</span> &amp; <span class="hljs-number">0x7</span>); ++x) {
+			<span class="hljs-keyword">if</span> (y &gt;= <span class="hljs-number">134</span>) {
+				TRACE(<span class="hljs-string">"Start col %d"</span>, x);
+			}
+
+			<span class="hljs-comment">/* Build matrices */</span>
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">idct</span> <span class="hljs-title">matL</span>, <span class="hljs-title">matCr</span>, <span class="hljs-title">matCb</span>;</span>
+			build_matrix(&amp;matL,  st, <span class="hljs-number">0</span>, quant[quant_mapping[<span class="hljs-number">0</span>]], old_lum, &amp;old_lum);
+			build_matrix(&amp;matCb, st, <span class="hljs-number">1</span>, quant[quant_mapping[<span class="hljs-number">1</span>]], old_cbd, &amp;old_cbd);
+			build_matrix(&amp;matCr, st, <span class="hljs-number">1</span>, quant[quant_mapping[<span class="hljs-number">2</span>]], old_crd, &amp;old_crd);
+
+			<span class="hljs-keyword">if</span> (y &gt;= <span class="hljs-number">134</span>) {
+				TRACE(<span class="hljs-string">"Draw col %d"</span>, x);
+			}
+			draw_matrix(x, y, &amp;matL, &amp;matCb, &amp;matCr);
+		}
+	}
+
+	TRACE(<span class="hljs-string">"Done."</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">check_sprite_jpeg</span><span class="hljs-params">(FILE * f)</span> </span>{
+	<span class="hljs-keyword">if</span> (fgetc(f) != <span class="hljs-number">0xFF</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (fgetc(f) != <span class="hljs-number">0xD8</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (fgetc(f) != <span class="hljs-number">0xFF</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">load_sprite_jpeg</span><span class="hljs-params">(<span class="hljs-keyword">sprite_t</span> * tsprite, FILE * f)</span> </span>{
+	sprite = tsprite;
+
+	<span class="hljs-built_in">memset</span>(huffman_tables, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(huffman_tables));
+
+	<span class="hljs-keyword">if</span> (premul[<span class="hljs-number">0</span>][<span class="hljs-number">0</span>][<span class="hljs-number">0</span>][<span class="hljs-number">0</span>] == <span class="hljs-number">0.0</span>) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> n = <span class="hljs-number">0</span>; n &lt; <span class="hljs-number">8</span>; ++n) {
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> m = <span class="hljs-number">0</span>; m &lt; <span class="hljs-number">8</span>; ++m) {
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> y = <span class="hljs-number">0</span>; y &lt; <span class="hljs-number">8</span>; ++y) {
+					<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>; x &lt; <span class="hljs-number">8</span>; ++x) {
+						premul[n][m][y][x] = cosines[n][x] * cosines[m][y];
+					}
+				}
+			}
+		}
+	}
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+
+		<span class="hljs-comment">/* Read a header */</span>
+		<span class="hljs-keyword">uint16_t</span> hdr;
+		<span class="hljs-keyword">int</span> r = fread(&amp;hdr, <span class="hljs-number">2</span>, <span class="hljs-number">1</span>, f);
+		<span class="hljs-keyword">if</span> (r &lt;= <span class="hljs-number">0</span>) {
+			<span class="hljs-comment">/* EOF */</span>
+			<span class="hljs-keyword">break</span>;
+		}
+
+		<span class="hljs-comment">/* These headers are stored big-endian */</span>
+		swap16(&amp;hdr);
+
+		<span class="hljs-keyword">if</span> (hdr == <span class="hljs-number">0xffd8</span>) {
+			<span class="hljs-comment">/* No data */</span>
+			<span class="hljs-keyword">continue</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (hdr == <span class="hljs-number">0xffd9</span>) {
+			<span class="hljs-comment">/* End of file */</span>
+			<span class="hljs-keyword">break</span>;
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-comment">/* Regular sections with data start with a length */</span>
+			<span class="hljs-keyword">uint16_t</span> len;
+			fread(&amp;len, <span class="hljs-number">2</span>, <span class="hljs-number">1</span>, f);
+			swap16(&amp;len);
+
+			<span class="hljs-comment">/* Subtract two because the length includes itself */</span>
+			len -= <span class="hljs-number">2</span>;
+
+			<span class="hljs-keyword">if</span> (hdr == <span class="hljs-number">0xffdb</span>) {
+				define_quant_table(f, len);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (hdr == <span class="hljs-number">0xffc0</span>) {
+				baseline_dct(f, len);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (hdr == <span class="hljs-number">0xffc4</span>) {
+				define_huffman_table(f, len);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (hdr == <span class="hljs-number">0xffda</span>) {
+				start_of_scan(f, len);
+				<span class="hljs-comment">/* End immediately after reading the data */</span>
+				<span class="hljs-keyword">break</span>;
+			} <span class="hljs-keyword">else</span> {
+				TRACE(<span class="hljs-string">"Unknown header\n"</span>);
+				fseek(f, len, SEEK_CUR);
+			}
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>module_poll.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kuroko\\src\\modules\\module_poll.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>module_poll.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> _WIN32</span>
+KRK_Module(poll) {
+	krk_runtimeError(vm.exceptions-&gt;OSError, <span class="hljs-string">"poll is not available on Windows"</span>);
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;poll.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> KrkClass * PollObject;
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">PollObject</span> {</span>
+	KrkInstance inst;
+	<span class="hljs-keyword">size_t</span> nfds;
+	<span class="hljs-keyword">size_t</span> ncap;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">pollfd</span> * <span class="hljs-title">fds</span>;</span>
+};
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> IS_PollObject(o) (krk_isInstanceOf(o,PollObject))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AS_PollObject(o) ((struct PollObject*)AS_OBJECT(o))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE struct PollObject *</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_NAME  self</span>
+
+KRK_Method(PollObject,poll) {
+	<span class="hljs-keyword">int</span> timeout = <span class="hljs-number">-1</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<p>Handle None for timeout?</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">".|i"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *[]){<span class="hljs-string">"timeout"</span>}, &amp;timeout)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-keyword">int</span> res = poll(self-&gt;fds, self-&gt;nfds, timeout);
+	<span class="hljs-keyword">if</span> (res &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> krk_runtimeError(KRK_EXC(OSError), <span class="hljs-string">"%s"</span>, strerror(errno));
+
+	KrkValue outlist = krk_list_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	krk_push(outlist);
+
+	<span class="hljs-keyword">if</span> (res &gt; <span class="hljs-number">0</span>) {
+		<span class="hljs-comment">/* Go through each one and do the thing */</span>
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; self-&gt;nfds; ++i) {
+			<span class="hljs-keyword">if</span> (self-&gt;fds[i].revents) {
+				krk_push(krk_tuple_of(<span class="hljs-number">2</span>, (KrkValue[]){INTEGER_VAL(self-&gt;fds[i].fd),INTEGER_VAL(self-&gt;fds[i].revents)}, <span class="hljs-number">0</span>));
+				krk_writeValueArray(AS_LIST(outlist), krk_peek(<span class="hljs-number">0</span>));
+				krk_pop();
+				self-&gt;fds[i].revents = <span class="hljs-number">0</span>;
+			}
+		}
+	}
+
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+
+KRK_Method(PollObject,<span class="hljs-keyword">register</span>) {
+	<span class="hljs-keyword">int</span> fd;
+	<span class="hljs-keyword">int</span> flags = POLLIN|POLLPRI|POLLOUT;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<p>TODO: It would be nice to take any object that has a fileno method?</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">".i|i"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *[]){<span class="hljs-string">"fd"</span>,<span class="hljs-string">"eventmask"</span>},
+		&amp;fd, &amp;flags)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<p>TODO: Should scan entire list to see if this fd was already there.</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (self-&gt;nfds + <span class="hljs-number">1</span> &gt; self-&gt;ncap) {
+		<span class="hljs-keyword">size_t</span> old = self-&gt;ncap;
+		self-&gt;ncap = KRK_GROW_CAPACITY(old);
+		self-&gt;fds  = KRK_GROW_ARRAY(struct pollfd, self-&gt;fds, old, self-&gt;ncap);
+	}
+	self-&gt;fds[self-&gt;nfds].fd = fd;
+	self-&gt;fds[self-&gt;nfds].events = flags;
+	self-&gt;fds[self-&gt;nfds].revents = <span class="hljs-number">0</span>;
+	self-&gt;nfds++;
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(PollObject,unregister) {
+	<span class="hljs-keyword">int</span> fd;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">".i"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"fd"</span>}, &amp;fd)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; self-&gt;nfds; ++i) {
+		<span class="hljs-keyword">if</span> (self-&gt;fds[i].fd == fd) {
+			<span class="hljs-built_in">memcpy</span>(&amp;self-&gt;fds[i], &amp;self-&gt;fds[i+<span class="hljs-number">1</span>], (self-&gt;nfds - i - <span class="hljs-number">1</span>) * <span class="hljs-keyword">sizeof</span>(struct pollfd));
+			self-&gt;nfds -= <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">return</span> NONE_VAL();
+		}
+	}
+
+	<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;keyError, <span class="hljs-string">"%d"</span>, fd);
+}
+
+KRK_Method(PollObject,modify) {
+	<span class="hljs-keyword">int</span> fd;
+	<span class="hljs-keyword">int</span> flags;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">".ii"</span>,(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *[]){<span class="hljs-string">"fd"</span>,<span class="hljs-string">"eventmask"</span>},
+		&amp;fd, &amp;flags)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; self-&gt;nfds; ++i) {
+		<span class="hljs-keyword">if</span> (self-&gt;fds[i].fd == fd) {
+			self-&gt;fds[i].events = flags;
+			<span class="hljs-keyword">return</span> NONE_VAL();
+		}
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<p>This is OSError ENOENT in Python...</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;keyError, <span class="hljs-string">"%d"</span>, fd);
+}
+
+KRK_Module(poll) {
+	KRK_DOC(<span class="hljs-keyword">module</span>, <span class="hljs-string">"@brief Bindings to Unix poll."</span>);
+
+	PollObject = krk_makeClass(<span class="hljs-keyword">module</span>, &amp;PollObject, <span class="hljs-string">"PollObject"</span>, vm.baseClasses-&gt;objectClass);
+	PollObject-&gt;allocSize = <span class="hljs-keyword">sizeof</span>(struct PollObject);
+
+	BIND_METHOD(PollObject,poll);
+	BIND_METHOD(PollObject,<span class="hljs-keyword">register</span>);
+	BIND_METHOD(PollObject,unregister);
+	BIND_METHOD(PollObject,modify);
+
+	krk_finalizeClass(PollObject);
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> POLL_CONST(o) krk_attachNamedValue(&amp;module-&gt;fields, #o, INTEGER_VAL(o));</span>
+
+	POLL_CONST(POLLIN);
+	POLL_CONST(POLLPRI);
+	POLL_CONST(POLLOUT);
+	POLL_CONST(POLLERR);
+	POLL_CONST(POLLHUP);
+	POLL_CONST(POLLNVAL);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

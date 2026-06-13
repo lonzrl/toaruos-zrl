@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>msk.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\msk.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>msk.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/confreader.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/hashmap.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MSK_VERSION <span class="hljs-meta-string">"1.0.0"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> VAR_PATH <span class="hljs-meta-string">"/var/msk"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> LOCK_PATH <span class="hljs-meta-string">"/var/run/msk.lock"</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">confreader_t</span> * msk_config = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">confreader_t</span> * msk_manifest = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">hashmap_t</span> *    msk_installed = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> lock_fd = <span class="hljs-number">-1</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> verbose = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">release_lock</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (lock_fd != <span class="hljs-number">-1</span>) {
+		unlink(LOCK_PATH);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">needs_lock</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (lock_fd == <span class="hljs-number">-1</span>) {
+		lock_fd = <span class="hljs-built_in">open</span>(LOCK_PATH, O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC);
+		<span class="hljs-keyword">if</span> (lock_fd &lt; <span class="hljs-number">0</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"msk: failed to obtain exclusive lock\n"</span>);
+			<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+		}
+		atexit(release_lock);
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>checks whether 'candidate' is newer than 'current'.</p>
+</div>
+<div class="body">
+<p>Requires version strings to be of the form x.y.z</p>
+<blockquote>
+<p>0   candidate is newer
+= 0   candidate is the same
+&lt; 0   candidate is older</p>
+</blockquote>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">compare_version_strings</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * current, <span class="hljs-keyword">char</span> * candidate)</span> </span>{
+	<span class="hljs-keyword">int</span> current_x, current_y, current_z;
+	<span class="hljs-keyword">int</span> candidate_x, candidate_y, candidate_z;
+
+	<span class="hljs-built_in">sscanf</span>(current, <span class="hljs-string">"%d.%d.%d"</span>, &amp;current_x, &amp;current_y, &amp;current_z);
+	<span class="hljs-built_in">sscanf</span>(candidate, <span class="hljs-string">"%d.%d.%d"</span>, &amp;candidate_x, &amp;candidate_y, &amp;candidate_z);
+
+	<span class="hljs-keyword">if</span> (candidate_x &gt; current_x) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (candidate_x == current_x) {
+		<span class="hljs-keyword">if</span> (candidate_y &gt;current_y) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (candidate_y == current_y) {
+			<span class="hljs-keyword">if</span> (candidate_z &gt; current_z) {
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (candidate_z == current_z) {
+				<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			}
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">read_config</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">confreader_t</span> * conf = confreader_load(<span class="hljs-string">"/etc/msk.conf"</span>);
+	<span class="hljs-keyword">if</span> (!conf) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"failed to read configuration file\n"</span>);
+		<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(confreader_getd(conf, <span class="hljs-string">""</span>, <span class="hljs-string">"verbose"</span>,<span class="hljs-string">""</span>), <span class="hljs-string">"y"</span>)) {
+		verbose = <span class="hljs-number">1</span>;
+	}
+
+	msk_config = conf;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">read_manifest</span><span class="hljs-params">(<span class="hljs-keyword">int</span> required)</span> </span>{
+	<span class="hljs-keyword">confreader_t</span> * conf = confreader_load(VAR_PATH <span class="hljs-string">"/manifest"</span>);
+	<span class="hljs-keyword">if</span> (!conf) {
+		<span class="hljs-keyword">if</span> (required) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"no manifest; try `msk update` first\n"</span>);
+			<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+		} <span class="hljs-keyword">else</span> {
+			conf = confreader_create_empty();
+		}
+	}
+
+	msk_manifest = conf;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">read_installed</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	msk_installed = hashmap_create(<span class="hljs-number">10</span>);
+
+	FILE * installed = fopen(VAR_PATH <span class="hljs-string">"/installed"</span>, <span class="hljs-string">"r"</span>);
+	<span class="hljs-keyword">if</span> (!installed) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-keyword">while</span> (!feof(installed)) {
+		<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">128</span>] = {<span class="hljs-number">0</span>};
+		<span class="hljs-keyword">if</span> (!fgets(tmp, <span class="hljs-number">128</span>, installed)) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">char</span> * nl = <span class="hljs-built_in">strstr</span>(tmp, <span class="hljs-string">"\n"</span>);
+		<span class="hljs-keyword">if</span> (nl) *nl = <span class="hljs-string">'\0'</span>;
+
+		<span class="hljs-keyword">char</span> * eqeq = <span class="hljs-built_in">strstr</span>(tmp, <span class="hljs-string">"=="</span>);
+		<span class="hljs-keyword">if</span> (!eqeq) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Installation cache is malformed\n"</span>);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"line was: [%s]\n"</span>, tmp);
+			<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+		}
+
+		*eqeq = <span class="hljs-string">'\0'</span>;
+		<span class="hljs-keyword">char</span> * version = eqeq+<span class="hljs-number">2</span>;
+
+		hashmap_set(msk_installed, tmp, strdup(version));
+	}
+
+	fclose(installed);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">make_var</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">buf</span>;</span>
+	<span class="hljs-keyword">if</span> (stat(VAR_PATH, &amp;buf)) {
+		<span class="hljs-built_in">mkdir</span>(VAR_PATH, <span class="hljs-number">0755</span>);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">needs_root</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (geteuid() != <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"only root can install packages; try `sudo`\n"</span>);
+		<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _IT <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _END <span class="hljs-meta-string">"\033[0m\n"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+			<span class="hljs-string">"%s - package manager "</span> MSK_VERSION <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"usage: %s update\n"</span>
+			<span class="hljs-string">"       %s install [PACKAGE...]\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" update  "</span> _IT <span class="hljs-string">"update local manifest from remote"</span> _END
+			<span class="hljs-string">" install "</span> _IT <span class="hljs-string">"install packages"</span> _END
+			<span class="hljs-string">"\n"</span>, argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">update_stores</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	needs_root();
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">2</span>) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,<span class="hljs-string">"%s: %s: unexpected arguments in command\n"</span>, argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">1</span>]);
+		<span class="hljs-keyword">return</span> usage(argc,argv);
+	}
+
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * manifest_prefix = <span class="hljs-string">""</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __aarch64__</span>
+	manifest_prefix = <span class="hljs-string">"aarch64."</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	needs_lock();
+
+	read_config();
+	make_var();
+
+	<span class="hljs-keyword">confreader_t</span> * manifest_out = confreader_create_empty();
+	<span class="hljs-keyword">hashmap_t</span> * remotes = hashmap_get(msk_config-&gt;sections, <span class="hljs-string">"remotes"</span>);
+
+	<span class="hljs-keyword">if</span> (!remotes) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"No remotes defined - bad msk.conf?\n"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">int</span> one_success = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">char</span> * order = strdup(confreader_getd(msk_config, <span class="hljs-string">""</span>, <span class="hljs-string">"remote_order"</span>, <span class="hljs-string">""</span>));
+	<span class="hljs-keyword">char</span> * save;
+	<span class="hljs-keyword">char</span> * tok = strtok_r(order, <span class="hljs-string">","</span>, &amp;save);
+	<span class="hljs-keyword">do</span> {
+		<span class="hljs-keyword">char</span> * remote_name = strdup(tok);
+		<span class="hljs-keyword">char</span> * remote_path = hashmap_get(remotes, remote_name);
+		<span class="hljs-keyword">if</span> (!remote_path) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Undefined remote specified in remote_order: %s\n"</span>, remote_name);
+			<span class="hljs-keyword">goto</span> _next;
+		}
+
+		<span class="hljs-keyword">confreader_t</span> * manifest;
+
+		<span class="hljs-keyword">if</span> (remote_path[<span class="hljs-number">0</span>] == <span class="hljs-string">'/'</span>) {
+			<span class="hljs-keyword">char</span> source[<span class="hljs-number">512</span>];
+			<span class="hljs-built_in">sprintf</span>(source, <span class="hljs-string">"%s/manifest"</span>, remote_path);
+			manifest = confreader_load(source);
+			<span class="hljs-keyword">if</span> (!manifest) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Skipping unavailable local manifest '%s'.\n"</span>, remote_name);
+				<span class="hljs-keyword">goto</span> _next;
+			}
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">char</span> cmd[<span class="hljs-number">512</span>];
+			<span class="hljs-built_in">sprintf</span>(cmd, <span class="hljs-string">"fetch -vo /tmp/.msk_remote_%s %s/%smanifest"</span>, remote_name, remote_path, manifest_prefix);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Downloading remote manifest '%s'...\n"</span>, remote_name);
+			<span class="hljs-keyword">if</span> (system(cmd)) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Skipping unavailable remote manifest '%s' (%s).\n"</span>, remote_name, remote_path);
+				<span class="hljs-keyword">goto</span> _next;
+			}
+			<span class="hljs-built_in">sprintf</span>(cmd, <span class="hljs-string">"/tmp/.msk_remote_%s"</span>, remote_name);
+			manifest = confreader_load(cmd);
+		}
+
+		<span class="hljs-keyword">list_t</span> * packages = hashmap_keys(manifest-&gt;sections);
+		foreach(nnode, packages) {
+			<span class="hljs-keyword">char</span> * package_name = (<span class="hljs-keyword">char</span>*)nnode-&gt;value;
+			<span class="hljs-keyword">hashmap_t</span> * package_data = (<span class="hljs-keyword">hashmap_t</span>*)hashmap_get(manifest-&gt;sections, package_name);
+			<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(package_name,<span class="hljs-string">""</span>)) <span class="hljs-keyword">continue</span>; <span class="hljs-comment">/* skip intro section - remote repo information */</span>
+
+			hashmap_set(package_data, <span class="hljs-string">"remote_path"</span>, remote_path);
+			hashmap_set(package_data, <span class="hljs-string">"remote_name"</span>, remote_name);
+
+			<span class="hljs-keyword">if</span> (!hashmap_has(manifest_out-&gt;sections, package_name)) {
+				<span class="hljs-comment">/* Package not yet known */</span>
+				hashmap_set(manifest_out-&gt;sections, package_name, package_data);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-comment">/* Package is known, keep the newer version */</span>
+				<span class="hljs-keyword">char</span> * old_version = confreader_get(manifest_out, package_name, <span class="hljs-string">"version"</span>);
+				<span class="hljs-keyword">char</span> * new_version = confreader_get(manifest, package_name, <span class="hljs-string">"version"</span>);
+
+				<span class="hljs-keyword">if</span> (compare_version_strings(old_version, new_version) &gt; <span class="hljs-number">0</span>) {
+					hashmap_set(manifest_out-&gt;sections, package_name, package_data);
+				}
+			}
+		}
+
+		one_success = <span class="hljs-number">1</span>;
+
+_next:
+		tok = strtok_r(<span class="hljs-literal">NULL</span>, <span class="hljs-string">","</span>, &amp;save);
+	} <span class="hljs-keyword">while</span> (tok);
+	<span class="hljs-built_in">free</span>(order);
+
+	<span class="hljs-keyword">if</span> (!one_success) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"\033[1;31merror\033[0m: no remote succeeded, no packages are available\n"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">return</span> confreader_write(manifest_out, VAR_PATH <span class="hljs-string">"/manifest"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">list_contains</span><span class="hljs-params">(<span class="hljs-keyword">list_t</span> * <span class="hljs-built_in">list</span>, <span class="hljs-keyword">char</span> * key)</span> </span>{
+	foreach(node, <span class="hljs-built_in">list</span>) {
+		<span class="hljs-keyword">char</span> * v = node-&gt;value;
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(v,key)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">process_package</span><span class="hljs-params">(<span class="hljs-keyword">list_t</span> * pkgs, <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strlen</span>(name)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"invalid package name\n"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">if</span> (hashmap_has(msk_installed, name)) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (list_contains(pkgs, name)) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (!hashmap_has(msk_manifest-&gt;sections, name)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"don't know how to install '%s'\n"</span>, name);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* Gather dependencies */</span>
+	<span class="hljs-keyword">char</span> * tmp  = confreader_get(msk_manifest, name, <span class="hljs-string">"dependencies"</span>);
+	<span class="hljs-keyword">if</span> (tmp &amp;&amp; <span class="hljs-built_in">strlen</span>(tmp)) {
+		<span class="hljs-keyword">char</span> * deps = strdup(tmp);
+		<span class="hljs-keyword">char</span> * save;
+		<span class="hljs-keyword">char</span> * tok = strtok_r(deps, <span class="hljs-string">" "</span>, &amp;save);
+		<span class="hljs-keyword">do</span> {
+			process_package(pkgs, tok);
+			tok = strtok_r(<span class="hljs-literal">NULL</span>, <span class="hljs-string">" "</span>, &amp;save);
+		} <span class="hljs-keyword">while</span> (tok);
+		<span class="hljs-built_in">free</span>(deps);
+	}
+
+	<span class="hljs-comment">/* Insert */</span>
+	list_insert(pkgs, strdup(name));
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">install_package</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * pkg)</span> </span>{
+
+	<span class="hljs-keyword">char</span> * type = confreader_getd(msk_manifest, pkg, <span class="hljs-string">"type"</span>, <span class="hljs-string">""</span>);
+	<span class="hljs-keyword">char</span> * msk_remote = confreader_get(msk_manifest, pkg, <span class="hljs-string">"remote_path"</span>);
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(msk_remote, <span class="hljs-string">"http:"</span>) == msk_remote || <span class="hljs-built_in">strstr</span>(msk_remote, <span class="hljs-string">"https:"</span>) == msk_remote) {
+		<span class="hljs-keyword">char</span> * source = confreader_get(msk_manifest, pkg, <span class="hljs-string">"source"</span>);
+		<span class="hljs-keyword">if</span> (source) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Download %s...\n"</span>, pkg);
+			<span class="hljs-keyword">char</span> cmd[<span class="hljs-number">1024</span>];
+			<span class="hljs-built_in">sprintf</span>(cmd, <span class="hljs-string">"fetch -o /tmp/msk.file -v %s/%s"</span>, msk_remote,
+					source);
+			<span class="hljs-keyword">int</span> status;
+			<span class="hljs-keyword">if</span> ((status = system(cmd))) {
+				<span class="hljs-keyword">return</span> status;
+			}
+			hashmap_set(hashmap_get(msk_manifest-&gt;sections, pkg), <span class="hljs-string">"source"</span>, <span class="hljs-string">"/tmp/msk.file"</span>);
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (msk_remote[<span class="hljs-number">0</span>] == <span class="hljs-string">'/'</span>) {
+		<span class="hljs-keyword">char</span> * source = confreader_get(msk_manifest, pkg, <span class="hljs-string">"source"</span>);
+		<span class="hljs-keyword">if</span> (source) {
+			<span class="hljs-keyword">char</span> * pkg_name = <span class="hljs-built_in">malloc</span>(<span class="hljs-built_in">strlen</span>(msk_remote) + <span class="hljs-built_in">strlen</span>(source) + <span class="hljs-number">2</span>);
+			<span class="hljs-built_in">sprintf</span>(pkg_name, <span class="hljs-string">"%s/%s"</span>, msk_remote, source);
+			hashmap_set(hashmap_get(msk_manifest-&gt;sections, pkg), <span class="hljs-string">"source"</span>, pkg_name);
+		}
+	}
+
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Install '%s'...\n"</span>, pkg);
+
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(type, <span class="hljs-string">"file"</span>)) {
+		<span class="hljs-comment">/* Legacy single-file package, has a source and a destination */</span>
+
+		<span class="hljs-keyword">if</span> (verbose) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"  - Copy file '%s' to '%s' and set its mask to '%s'\n"</span>,
+					confreader_get(msk_manifest, pkg, <span class="hljs-string">"source"</span>),
+					confreader_get(msk_manifest, pkg, <span class="hljs-string">"destination"</span>),
+					confreader_get(msk_manifest, pkg, <span class="hljs-string">"mask"</span>));
+		}
+
+		<span class="hljs-keyword">char</span> cmd[<span class="hljs-number">1024</span>];
+		<span class="hljs-built_in">sprintf</span>(cmd, <span class="hljs-string">"cp %s %s; chmod 0%s %s"</span>,
+				confreader_get(msk_manifest, pkg, <span class="hljs-string">"source"</span>),
+				confreader_get(msk_manifest, pkg, <span class="hljs-string">"destination"</span>),
+				confreader_get(msk_manifest, pkg, <span class="hljs-string">"mask"</span>),
+				confreader_get(msk_manifest, pkg, <span class="hljs-string">"destination"</span>));
+
+		<span class="hljs-keyword">int</span> status;
+		<span class="hljs-keyword">if</span> ((status = system(cmd))) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"installation command returned %d\n"</span>, status);
+			<span class="hljs-keyword">return</span> status;
+		}
+
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(type, <span class="hljs-string">"tar"</span>)) {
+		<span class="hljs-comment">/* Uncompressed archive */</span>
+
+		<span class="hljs-keyword">if</span> (verbose) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"  - Extract '%s' to '%s'\n"</span>,
+					confreader_get(msk_manifest, pkg, <span class="hljs-string">"source"</span>),
+					confreader_get(msk_manifest, pkg, <span class="hljs-string">"destination"</span>));
+		}
+
+		<span class="hljs-keyword">char</span> cmd[<span class="hljs-number">1024</span>];
+		<span class="hljs-built_in">sprintf</span>(cmd, <span class="hljs-string">"cd %s; tar -xf %s"</span>,
+				confreader_get(msk_manifest, pkg, <span class="hljs-string">"destination"</span>),
+				confreader_get(msk_manifest, pkg, <span class="hljs-string">"source"</span>));
+
+		<span class="hljs-keyword">int</span> status;
+		<span class="hljs-keyword">if</span> ((status = system(cmd))) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"installation command returned %d\n"</span>, status);
+			<span class="hljs-keyword">return</span> status;
+		}
+
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(type, <span class="hljs-string">"tgz"</span>)) {
+		<span class="hljs-comment">/* Compressed archive */</span>
+
+		<span class="hljs-keyword">if</span> (verbose) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"  - Extract (compressed) '%s' to '%s'\n"</span>,
+					confreader_get(msk_manifest, pkg, <span class="hljs-string">"source"</span>),
+					confreader_get(msk_manifest, pkg, <span class="hljs-string">"destination"</span>));
+		}
+
+		<span class="hljs-keyword">char</span> cmd[<span class="hljs-number">1024</span>];
+		<span class="hljs-built_in">sprintf</span>(cmd, <span class="hljs-string">"cd %s; tar -xzf %s"</span>,
+				confreader_get(msk_manifest, pkg, <span class="hljs-string">"destination"</span>),
+				confreader_get(msk_manifest, pkg, <span class="hljs-string">"source"</span>));
+
+		<span class="hljs-keyword">int</span> status;
+		<span class="hljs-keyword">if</span> ((status = system(cmd))) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"installation command returned %d\n"</span>, status);
+			<span class="hljs-keyword">return</span> status;
+		}
+
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(type, <span class="hljs-string">"meta"</span>)) {
+		<span class="hljs-comment">/* Do nothing */</span>
+
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Unknown package type: %s\n"</span>, type);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">char</span> * source = confreader_get(msk_manifest, pkg, <span class="hljs-string">"source"</span>);
+	<span class="hljs-keyword">if</span> (source &amp;&amp; !<span class="hljs-built_in">strcmp</span>(source, <span class="hljs-string">"/tmp/msk.file"</span>)) {
+		<span class="hljs-keyword">char</span> cmd[<span class="hljs-number">1024</span>];
+		<span class="hljs-built_in">sprintf</span>(cmd, <span class="hljs-string">"rm %s"</span>, source);
+		<span class="hljs-keyword">int</span> status;
+		<span class="hljs-keyword">if</span> ((status = system(cmd))) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"cleanup command returned %d\n"</span>, status);
+			<span class="hljs-keyword">return</span> status;
+		}
+	}
+
+	<span class="hljs-keyword">char</span> * post = confreader_getd(msk_manifest, pkg, <span class="hljs-string">"post"</span>, <span class="hljs-string">""</span>);
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strlen</span>(post)) {
+		<span class="hljs-keyword">int</span> status;
+		<span class="hljs-keyword">if</span> ((status = system(post))) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"post-installation command returned %d\n"</span>, status);
+			<span class="hljs-keyword">return</span> status;
+		}
+	}
+
+	<span class="hljs-comment">/* Mark as installed */</span>
+	FILE * installed = fopen(VAR_PATH <span class="hljs-string">"/installed"</span>, <span class="hljs-string">"a"</span>);
+	<span class="hljs-built_in">fprintf</span>(installed, <span class="hljs-string">"%s==%s\n"</span>, pkg, confreader_get(msk_manifest, pkg, <span class="hljs-string">"version"</span>));
+	fclose(installed);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">install_packages</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	needs_root();
+	needs_lock();
+	read_config();
+	read_manifest(<span class="hljs-number">1</span>);
+	read_installed();
+
+	<span class="hljs-comment">/* Go through each package and find its dependencies */</span>
+	<span class="hljs-keyword">list_t</span> * ordered = list_create();
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">2</span>; i &lt; argc; ++i) {
+		<span class="hljs-keyword">if</span> (process_package(ordered, argv[i])) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+
+	<span class="hljs-comment">/* Additional packages must be installed, let's ask. */</span>
+	<span class="hljs-keyword">if</span> (ordered-&gt;length != (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)(argc - <span class="hljs-number">2</span>) &amp;&amp; !getenv(<span class="hljs-string">"MSK_YES"</span>)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"The following packages will be installed:\n"</span>);
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"    "</span>);
+		<span class="hljs-keyword">int</span> notfirst = <span class="hljs-number">0</span>;
+		foreach(node, ordered) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s%s"</span>, notfirst ? <span class="hljs-string">" "</span> : <span class="hljs-string">""</span>, (<span class="hljs-keyword">char</span>*)node-&gt;value);
+			notfirst = <span class="hljs-number">1</span>;
+		}
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"\nContinue? [Y/n] "</span>);
+		fflush(<span class="hljs-built_in">stderr</span>);
+		<span class="hljs-keyword">char</span> resp[<span class="hljs-number">5</span>];
+		fgets(resp, <span class="hljs-number">5</span>, <span class="hljs-built_in">stdin</span>);
+		<span class="hljs-keyword">if</span> (!(!<span class="hljs-built_in">strcmp</span>(resp,<span class="hljs-string">"\n"</span>) || !<span class="hljs-built_in">strcmp</span>(resp,<span class="hljs-string">"y\n"</span>) || !<span class="hljs-built_in">strcmp</span>(resp,<span class="hljs-string">"Y\n"</span>) || !<span class="hljs-built_in">strcmp</span>(resp,<span class="hljs-string">"yes\n"</span>))) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Aborting.\n"</span>);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+
+	foreach(node, ordered) {
+		<span class="hljs-keyword">if</span> (install_package(node-&gt;value)) {
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">list_packages</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	read_config();
+	read_manifest(<span class="hljs-number">0</span>);
+	read_installed();
+
+	<span class="hljs-comment">/* Go through sections */</span>
+	<span class="hljs-keyword">list_t</span> * packages = hashmap_keys(msk_manifest-&gt;sections);
+	foreach(node, packages) {
+		<span class="hljs-keyword">char</span> * name = node-&gt;value;
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strlen</span>(name)) <span class="hljs-keyword">continue</span>; <span class="hljs-comment">/* skip empty section */</span>
+		<span class="hljs-keyword">char</span> * desc = confreader_get(msk_manifest, name, <span class="hljs-string">"description"</span>);
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">" %c %-20s %s\n"</span>, hashmap_has(msk_installed, name) ? <span class="hljs-string">'I'</span> : <span class="hljs-string">' '</span>, name, desc);
+		<span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> Installation status */</span>
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">count_packages</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	read_config();
+	read_manifest(<span class="hljs-number">0</span>);
+	read_installed();
+
+	<span class="hljs-keyword">int</span> installed = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">available</span> = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Go through sections */</span>
+	<span class="hljs-keyword">list_t</span> * packages = hashmap_keys(msk_manifest-&gt;sections);
+	foreach(node, packages) {
+		<span class="hljs-keyword">char</span> * name = node-&gt;value;
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strlen</span>(name)) <span class="hljs-keyword">continue</span>; <span class="hljs-comment">/* skip empty section */</span>
+		<span class="hljs-built_in">available</span>++;
+		<span class="hljs-keyword">if</span> (hashmap_has(msk_installed, name)) {
+			installed++;
+		}
+	}
+
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"%d installed; %d available\n"</span>, installed, <span class="hljs-built_in">available</span>);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">version</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"msk "</span> MSK_VERSION <span class="hljs-string">"\n"</span>);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">2</span>) {
+		<span class="hljs-keyword">return</span> usage(argc,argv);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">1</span>],<span class="hljs-string">"--version"</span>)) {
+		<span class="hljs-keyword">return</span> version();
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">1</span>],<span class="hljs-string">"update"</span>)) {
+		<span class="hljs-keyword">return</span> update_stores(argc,argv);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">1</span>], <span class="hljs-string">"install"</span>)) {
+		<span class="hljs-keyword">return</span> install_packages(argc,argv);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">1</span>], <span class="hljs-string">"list"</span>)) {
+		<span class="hljs-keyword">return</span> list_packages(argc, argv);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">1</span>], <span class="hljs-string">"count"</span>)) {
+		<span class="hljs-keyword">return</span> count_packages(argc, argv);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: unknown command '%s'\n"</span>, argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">1</span>]);
+		<span class="hljs-keyword">return</span> usage(argc,argv);
+	}
+
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>watchdog.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\tools\\watchdog.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>watchdog.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/kuroko.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/debug.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"../src/vendor/keigo.h"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"common.h"</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DEFAULT_LIMIT 500000</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"usage: %s [-s COUNT] [-q] FILE [args...]\n"</span>, argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">help</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	usage(argv);
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+		<span class="hljs-string">"Run scripts with an instruction counter and halt when a "</span>
+		<span class="hljs-string">"limit is exceeded. The default limit is %d. A total count of "</span>
+		<span class="hljs-string">"executed instructions is printed after completion.\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"Options:\n"</span>
+		<span class="hljs-string">" -s COUNT    Set watchdog timeout to COUNT instructions.\n"</span>
+		<span class="hljs-string">"             Specify -1 to set disable limit.\n"</span>
+		<span class="hljs-string">" -q          Do not print total instruction count.\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" --help      Show this help text.\n"</span>
+		<span class="hljs-string">"\n"</span>,
+		DEFAULT_LIMIT);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> instrCounter = <span class="hljs-number">0</span>;     <span class="hljs-comment">/* Total counter of executed instructions */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> stopAt = DEFAULT_LIMIT;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span>    quiet = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">krk_callgrind_debuggerHook</span><span class="hljs-params">(KrkCallFrame * frame)</span> </span>{
+	instrCounter++;
+	<span class="hljs-keyword">if</span> (instrCounter &lt; stopAt) <span class="hljs-keyword">return</span> KRK_DEBUGGER_STEP;
+	<span class="hljs-keyword">if</span> (instrCounter == stopAt) {
+		krk_runtimeError(vm.exceptions-&gt;baseException, <span class="hljs-string">"Watchdog counter expired."</span>);
+	}
+	<span class="hljs-keyword">return</span> KRK_DEBUGGER_CONTINUE;
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> *argv[])</span> </span>{
+	<span class="hljs-keyword">int</span> opt;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Keigo</span> <span class="hljs-title">ctx</span> = {</span><span class="hljs-number">0</span>};
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> optind (ctx.i)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> optarg (ctx.arg)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> optopt (ctx.opt)</span>
+	<span class="hljs-keyword">while</span> ((opt = keigo(&amp;ctx,argc,argv,<span class="hljs-string">"s:q-:"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'s'</span>:
+				stopAt = strtoul(optarg,<span class="hljs-literal">NULL</span>,<span class="hljs-number">10</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'q'</span>:
+				quiet = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">':'</span>:
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: option '%c' requires an argument\n"</span>, argv[<span class="hljs-number">0</span>], optopt);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: unrecognized option '%c'\n"</span>, argv[<span class="hljs-number">0</span>], optopt);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'-'</span>:
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(optarg,<span class="hljs-string">"help"</span>)) {
+					<span class="hljs-keyword">return</span> help(argv);
+				}
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: unrecognized option: '--%s'\n"</span>, argv[<span class="hljs-number">0</span>], optarg);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (optind == argc) {
+		<span class="hljs-keyword">return</span> usage(argv);
+	}
+
+	findInterpreter(argv);
+	krk_initVM(KRK_THREAD_SINGLE_STEP);
+	krk_debug_registerCallback(krk_callgrind_debuggerHook);
+	addArgs(argc,argv,optind);
+
+	krk_startModule(<span class="hljs-string">"__main__"</span>);
+	krk_runfile(argv[optind],argv[optind]);
+
+	<span class="hljs-keyword">if</span> (!quiet) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%zu total instructions\n"</span>, instrCounter);
+	}
+
+	krk_freeVM();
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

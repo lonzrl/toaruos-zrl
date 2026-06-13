@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>elf64.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\misc\\elf64.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>elf64.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/symboltable.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/elf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/misc.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/ksym.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/module.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/hashmap.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mutex.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/shm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mman.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/auxv.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/mman.h&gt;</span></span>
+
+<span class="hljs-keyword">hashmap_t</span> * _modules_table = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">sched_mutex_t</span> * _modules_mutex = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">modules_install</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	_modules_table = hashmap_create(<span class="hljs-number">10</span>);
+	_modules_mutex = mutex_init(<span class="hljs-string">"module loader"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">hashmap_t</span> * <span class="hljs-title">modules_get_list</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> _modules_table;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Encode immediate for ADR(p) instruction</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">aarch64_imm_adr</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> val)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> low  = (val &amp; <span class="hljs-number">0x3</span>) &lt;&lt; <span class="hljs-number">29</span>;
+	<span class="hljs-keyword">uint32_t</span> high = ((val &gt;&gt; <span class="hljs-number">2</span>) &amp; <span class="hljs-number">0x7ffff</span>) &lt;&lt; <span class="hljs-number">5</span>;
+	<span class="hljs-keyword">return</span> low | high;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Encode immediate for 12-bit instructions</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">aarch64_imm_12</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> val)</span> </span>{
+	<span class="hljs-keyword">return</span> (val &amp; <span class="hljs-number">0xFFF</span>) &lt;&lt; <span class="hljs-number">10</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">elf_module</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *file, <span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> ** argv)</span> </span>{
+	<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+	Elf64_Header header;
+
+	<span class="hljs-keyword">ssize_t</span> header_size = read_fs(file, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(Elf64_Header), (<span class="hljs-keyword">uint8_t</span>*)&amp;header);
+	<span class="hljs-keyword">if</span> (header_size != <span class="hljs-keyword">sizeof</span>(Elf64_Header) ||
+	    header.e_ident[<span class="hljs-number">0</span>] != ELFMAG0 ||
+	    header.e_ident[<span class="hljs-number">1</span>] != ELFMAG1 ||
+	    header.e_ident[<span class="hljs-number">2</span>] != ELFMAG2 ||
+	    header.e_ident[<span class="hljs-number">3</span>] != ELFMAG3 ||
+	    header.e_ident[EI_CLASS] != ELFCLASS64 ||
+	    header.e_type != ET_REL ||
+	    !header.e_shnum ||
+	    header.e_shentsize != <span class="hljs-keyword">sizeof</span>(Elf64_Shdr)) {
+		<span class="hljs-keyword">return</span> -ENOEXEC;
+	}
+
+	Elf64_Shdr * shdrs = <span class="hljs-built_in">malloc</span>(header.e_shentsize * header.e_shnum);
+	<span class="hljs-keyword">if</span> (read_fs(file, header.e_shoff, header.e_shentsize * header.e_shnum, (<span class="hljs-keyword">void</span>*)shdrs) != header.e_shentsize * header.e_shnum) {
+		<span class="hljs-built_in">free</span>(shdrs);
+		<span class="hljs-keyword">return</span> -EINVAL;
+	}
+
+	mutex_acquire(_modules_mutex);
+
+	<span class="hljs-keyword">char</span> * module_load_address = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">size_t</span> module_size = <span class="hljs-number">0</span>;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Module</span> * <span class="hljs-title">moduleData</span> = <span class="hljs-title">NULL</span>;</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Loop over sections in two passes:
+First we calculate how much space we'll need to allocate for the module.
+Then we actually read the module / zero out NOBITS sections.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-number">2</span>; ++j) {
+		<span class="hljs-keyword">size_t</span> current_offset = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; header.e_shnum; ++i) {
+
+			<span class="hljs-comment">/* Align this section as requested. */</span>
+			<span class="hljs-keyword">if</span> (current_offset &amp; (shdrs[i].sh_addralign - <span class="hljs-number">1</span>)) {
+				current_offset = (current_offset + (shdrs[i].sh_addralign - <span class="hljs-number">1</span>)) &amp; ~(shdrs[i].sh_addralign - <span class="hljs-number">1</span>);
+			}
+
+			<span class="hljs-keyword">if</span> (module_load_address) {
+				<span class="hljs-comment">/* Second pass, actually load. */</span>
+				<span class="hljs-keyword">uintptr_t</span> addr = (<span class="hljs-keyword">uintptr_t</span>)module_load_address + current_offset;
+				shdrs[i].sh_addr = addr;
+
+				<span class="hljs-keyword">if</span> (shdrs[i].sh_type == SHT_NOBITS) {
+					<span class="hljs-built_in">memset</span>((<span class="hljs-keyword">char</span>*)addr, <span class="hljs-number">0</span>, shdrs[i].sh_size);
+				} <span class="hljs-keyword">else</span> {
+					<span class="hljs-keyword">if</span> (read_fs(file, shdrs[i].sh_offset, shdrs[i].sh_size, (<span class="hljs-keyword">void</span>*)addr) != (<span class="hljs-keyword">ssize_t</span>)shdrs[i].sh_size) {
+						error = -EINVAL;
+						<span class="hljs-keyword">goto</span> _unmap_module;
+					}
+				}
+			}
+
+			current_offset += shdrs[i].sh_size;
+		}
+
+		<span class="hljs-comment">/* Ensure the size we allocate is page aligned. */</span>
+		<span class="hljs-keyword">if</span> (current_offset &amp; (<span class="hljs-number">4095</span>)) {
+			current_offset = (current_offset + <span class="hljs-number">4095</span>) &amp; ~<span class="hljs-number">4095</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (!module_load_address) {
+			<span class="hljs-comment">/* First pass, allocate space. */</span>
+			module_size = current_offset;
+			module_load_address = mmu_map_module(module_size);
+		}
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; header.e_shnum; ++i) {
+		<span class="hljs-keyword">if</span> (shdrs[i].sh_type != SHT_SYMTAB) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">char</span> * strtab = (<span class="hljs-keyword">char</span>*)shdrs[shdrs[i].sh_link].sh_addr;
+		Elf64_Sym * syms = (Elf64_Sym*)shdrs[i].sh_addr;
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; shdrs[i].sh_size / <span class="hljs-keyword">sizeof</span>(Elf64_Sym); ++j) {
+			<span class="hljs-keyword">if</span> (syms[j].st_shndx &gt; <span class="hljs-number">0</span> &amp;&amp; syms[j].st_shndx &lt; SHN_LOPROC) {
+				<span class="hljs-comment">/* Local */</span>
+				syms[j].st_value += shdrs[syms[j].st_shndx].sh_addr;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (syms[j].st_shndx == SHN_UNDEF) {
+				<span class="hljs-comment">/* Undefined global. */</span>
+				syms[j].st_value = (<span class="hljs-keyword">uintptr_t</span>)ksym_lookup(strtab + syms[j].st_name);
+			}
+
+			<span class="hljs-keyword">if</span> (syms[j].st_name &amp;&amp; !<span class="hljs-built_in">strcmp</span>(strtab + syms[j].st_name, <span class="hljs-string">"metadata"</span>)) {
+				moduleData = (<span class="hljs-keyword">void</span>*)syms[j].st_value;
+			}
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!moduleData) {
+		error = EINVAL;
+		<span class="hljs-keyword">goto</span> _unmap_module;
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; header.e_shnum; ++i) {
+		Elf64_Shdr * sectionHeader = &amp;shdrs[i];
+		<span class="hljs-keyword">if</span> (sectionHeader-&gt;sh_type != SHT_RELA) <span class="hljs-keyword">continue</span>;
+
+		Elf64_Rela * table = (Elf64_Rela*)sectionHeader-&gt;sh_addr;
+
+		<span class="hljs-comment">/* Get the section these relocations apply to */</span>
+		Elf64_Shdr * targetSection = &amp;shdrs[sectionHeader-&gt;sh_info];
+
+		<span class="hljs-comment">/* Get the symbol table */</span>
+		Elf64_Shdr * symbolSection = &amp;shdrs[sectionHeader-&gt;sh_link];
+		Elf64_Sym * symbolTable = (Elf64_Sym *)symbolSection-&gt;sh_addr;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> S (symbolTable[ELF64_R_SYM(table[rela].r_info)].st_value)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> A (table[rela].r_addend)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> T32 (*(uint32_t*)target)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> T64 (*(uint64_t*)target)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> P  (target)</span>
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> rela = <span class="hljs-number">0</span>; rela &lt; sectionHeader-&gt;sh_size / <span class="hljs-keyword">sizeof</span>(Elf64_Rela); ++rela) {
+			<span class="hljs-keyword">uintptr_t</span> target = table[rela].r_offset + targetSection-&gt;sh_addr;
+			<span class="hljs-keyword">switch</span> (ELF64_R_TYPE(table[rela].r_info)) {
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> defined(__x86_64__)</span>
+				<span class="hljs-keyword">case</span> R_X86_64_64: {
+					<span class="hljs-keyword">uint64_t</span> sa = S + A;
+					<span class="hljs-built_in">memcpy</span>((<span class="hljs-keyword">void</span>*)target, &amp;sa, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint64_t</span>));
+					<span class="hljs-keyword">break</span>;
+				}
+				<span class="hljs-keyword">case</span> R_X86_64_32: {
+					<span class="hljs-keyword">uint32_t</span> sa = S + A;
+					<span class="hljs-built_in">memcpy</span>((<span class="hljs-keyword">void</span>*)target, &amp;sa, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>));
+					<span class="hljs-keyword">break</span>;
+				}
+				<span class="hljs-keyword">case</span> R_X86_64_PC32: {
+					<span class="hljs-keyword">uint32_t</span> samp = S + A - P;
+					<span class="hljs-built_in">memcpy</span>((<span class="hljs-keyword">void</span>*)target, &amp;samp, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>));
+					<span class="hljs-keyword">break</span>;
+				}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">elif</span> defined(__aarch64__)</span>
+				<span class="hljs-keyword">case</span> R_AARCH64_ADR_PREL_PG_HI21: {
+					T32 = T32 | aarch64_imm_adr( ((S + A) &gt;&gt; <span class="hljs-number">12</span>) - (P &gt;&gt; <span class="hljs-number">12</span>) );
+					<span class="hljs-keyword">break</span>;
+				}
+				<span class="hljs-keyword">case</span> R_AARCH64_LDST64_ABS_LO12_NC:
+					T32 = T32 | aarch64_imm_12( ((S + A) &gt;&gt; <span class="hljs-number">3</span>) &amp; <span class="hljs-number">0x1FF</span> );
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> R_AARCH64_JUMP26:
+				<span class="hljs-keyword">case</span> R_AARCH64_CALL26:
+					T32 = T32 | (((S + A - P) &gt;&gt; <span class="hljs-number">2</span>) &amp; <span class="hljs-number">0x3ffffff</span>);
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> R_AARCH64_ABS64:
+					T64 = S + A;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> R_AARCH64_ABS32:
+					T32 = S + A;
+					<span class="hljs-keyword">break</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+				<span class="hljs-keyword">default</span>:
+					dprintf(<span class="hljs-string">"mod: unsupported relocation %ld found\n"</span>, ELF64_R_TYPE(table[rela].r_info));
+					error = EINVAL;
+			}
+		}
+	}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> S</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> A</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> T32</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> T64</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> P</span>
+
+	<span class="hljs-keyword">if</span> (error) <span class="hljs-keyword">goto</span> _unmap_module;
+
+	<span class="hljs-keyword">if</span> (hashmap_has(_modules_table, moduleData-&gt;name)) {
+		error = EEXIST;
+		<span class="hljs-keyword">goto</span> _unmap_module;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">LoadedModule</span> * <span class="hljs-title">loadedData</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">LoadedModule</span>));</span>
+	loadedData-&gt;metadata = moduleData;
+	loadedData-&gt;baseAddress = (<span class="hljs-keyword">uintptr_t</span>)module_load_address;
+	loadedData-&gt;fileSize = file-&gt;length;
+	loadedData-&gt;loadedSize = module_size;
+
+	<span class="hljs-built_in">free</span>(shdrs);
+
+	hashmap_set(_modules_table, moduleData-&gt;name, loadedData);
+	mutex_release(_modules_mutex);
+
+	<span class="hljs-comment">/* Count arguments */</span>
+	<span class="hljs-keyword">return</span> moduleData-&gt;init(argc, argv);
+
+_unmap_module:
+	<span class="hljs-built_in">free</span>(shdrs);
+	mmu_unmap_module((<span class="hljs-keyword">uintptr_t</span>)module_load_address, module_size);
+
+	mutex_release(_modules_mutex);
+	<span class="hljs-keyword">return</span> -error;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">process_acquire_big_lock</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">process_release_big_lock</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uintptr_t</span> <span class="hljs-title">load_from_file</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * file, Elf64_Header * header, <span class="hljs-keyword">uintptr_t</span> *base_out, <span class="hljs-keyword">int</span> is_interp)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> base = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uintptr_t</span> phdr_vaddr = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (header-&gt;e_type == ET_DYN) {
+		base = is_interp ? <span class="hljs-number">0x10000000</span> : <span class="hljs-number">0x20000000</span>;
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; header-&gt;e_phnum; ++i) {
+		Elf64_Phdr phdr;
+		read_fs(file, header-&gt;e_phoff + header-&gt;e_phentsize * i, <span class="hljs-keyword">sizeof</span>(Elf64_Phdr), (<span class="hljs-keyword">uint8_t</span>*)&amp;phdr);
+		<span class="hljs-keyword">if</span> (phdr.p_type == PT_LOAD) {
+			<span class="hljs-comment">/* Round down */</span>
+			<span class="hljs-keyword">size_t</span>    pageoffset = (phdr.p_vaddr &amp; <span class="hljs-number">0xFFF</span>);
+			<span class="hljs-keyword">uintptr_t</span> addr   = phdr.p_vaddr - pageoffset;
+			<span class="hljs-keyword">size_t</span>    <span class="hljs-built_in">size</span>   = phdr.p_filesz + pageoffset;
+			<span class="hljs-keyword">off_t</span>     offset = phdr.p_offset - pageoffset;
+			<span class="hljs-built_in">size</span> = (<span class="hljs-built_in">size</span> + <span class="hljs-number">0xFFF</span>) &amp; ~<span class="hljs-number">0xFFF</span>;
+
+			<span class="hljs-keyword">uintptr_t</span> mapped_to = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">int</span> prot = PROT_READ;
+			<span class="hljs-keyword">if</span> (phdr.p_flags &amp; PF_W) prot |= PROT_WRITE;
+			<span class="hljs-keyword">if</span> (phdr.p_flags &amp; PF_X) prot |= PROT_EXEC;
+
+			<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span>) {
+				mapped_to = mmap_file(base + addr, <span class="hljs-built_in">size</span>, prot, MAP_PRIVATE | MAP_FIXED, file, offset);
+				<span class="hljs-keyword">if</span> (phdr.p_flags &amp; PF_W) {
+					<span class="hljs-keyword">uintptr_t</span> pad = mapped_to + pageoffset + phdr.p_filesz;
+					<span class="hljs-keyword">if</span> (pad &amp; <span class="hljs-number">0xFFF</span>) {
+						<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">fill</span> = <span class="hljs-number">0x1000</span> - (pad &amp; <span class="hljs-number">0xFFF</span>);
+						<span class="hljs-built_in">memset</span>((<span class="hljs-keyword">void</span>*)pad, <span class="hljs-number">0</span>, <span class="hljs-built_in">fill</span>);
+					}
+				}
+			} <span class="hljs-keyword">else</span> {
+				mapped_to = addr;
+			}
+
+			<span class="hljs-keyword">if</span> (header-&gt;e_phoff &gt;= phdr.p_offset &amp;&amp; header-&gt;e_phoff &lt; phdr.p_offset + phdr.p_filesz) {
+				<span class="hljs-keyword">uintptr_t</span> offset_into_segment = header-&gt;e_phoff - phdr.p_offset;
+				phdr_vaddr = mapped_to + pageoffset + offset_into_segment;
+			}
+
+			<span class="hljs-keyword">if</span> (phdr.p_memsz &gt; phdr.p_filesz) {
+				<span class="hljs-keyword">uintptr_t</span> start = mapped_to + pageoffset + phdr.p_filesz;
+				<span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">end</span>   = mapped_to + pageoffset + phdr.p_memsz;
+				<span class="hljs-keyword">uintptr_t</span> start_page = (start + <span class="hljs-number">0xFFF</span>) &amp; ~(<span class="hljs-number">0xFFF</span>);
+				<span class="hljs-keyword">uintptr_t</span> end_page   = (<span class="hljs-built_in">end</span> + <span class="hljs-number">0xFFF</span>) &amp; ~(<span class="hljs-number">0xFFF</span>);
+				<span class="hljs-keyword">if</span> (end_page &gt; start_page) {
+					mmap_anon(start_page, end_page - start_page, prot, MAP_PRIVATE | MAP_FIXED);
+				}
+			}
+		}
+	}
+
+	*base_out = base;
+	<span class="hljs-keyword">return</span> phdr_vaddr;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">elf_exec</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * path, <span class="hljs-keyword">fs_node_t</span> * file, <span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *<span class="hljs-keyword">const</span> argv[], <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *<span class="hljs-keyword">const</span> env[], <span class="hljs-keyword">int</span> interp)</span> </span>{
+	Elf64_Header header;
+
+	read_fs(file, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(Elf64_Header), (<span class="hljs-keyword">uint8_t</span>*)&amp;header);
+
+	<span class="hljs-keyword">if</span> (header.e_ident[<span class="hljs-number">0</span>] != ELFMAG0 ||
+	    header.e_ident[<span class="hljs-number">1</span>] != ELFMAG1 ||
+	    header.e_ident[<span class="hljs-number">2</span>] != ELFMAG2 ||
+	    header.e_ident[<span class="hljs-number">3</span>] != ELFMAG3) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Invalid file: Bad header.\n"</span>);
+		close_fs(file);
+		<span class="hljs-keyword">return</span> -EINVAL;
+	}
+
+	<span class="hljs-keyword">if</span> (header.e_ident[EI_CLASS] != ELFCLASS64) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"(Wrong Elf class)\n"</span>);
+		close_fs(file);
+		<span class="hljs-keyword">return</span> -EINVAL;
+	}
+
+	<span class="hljs-comment">/* This loader can only handle basic executables. */</span>
+	<span class="hljs-keyword">if</span> (header.e_type != ET_EXEC &amp;&amp; header.e_type != ET_DYN) {
+		close_fs(file);
+		<span class="hljs-keyword">return</span> -EINVAL;
+	}
+
+	<span class="hljs-keyword">fs_node_t</span> * interpreter = <span class="hljs-literal">NULL</span>;
+	Elf64_Header interp_header;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; header.e_phnum; ++i) {
+		Elf64_Phdr phdr;
+		read_fs(file, header.e_phoff + header.e_phentsize * i, <span class="hljs-keyword">sizeof</span>(Elf64_Phdr), (<span class="hljs-keyword">uint8_t</span>*)&amp;phdr);
+		<span class="hljs-keyword">if</span> (phdr.p_type == PT_INTERP) {
+			<span class="hljs-comment">/* Must load interpreter */</span>
+			<span class="hljs-keyword">if</span> (phdr.p_filesz &lt; <span class="hljs-number">2</span> || phdr.p_filesz &gt; <span class="hljs-number">256</span>) <span class="hljs-keyword">return</span> -EINVAL;
+			<span class="hljs-keyword">char</span> * tmp = <span class="hljs-built_in">malloc</span>(phdr.p_filesz);
+			read_fs(file, phdr.p_offset, phdr.p_filesz, (<span class="hljs-keyword">uint8_t</span>*)tmp);
+			<span class="hljs-keyword">if</span> (tmp[phdr.p_filesz<span class="hljs-number">-1</span>] != <span class="hljs-string">'\0'</span>) <span class="hljs-keyword">return</span> <span class="hljs-built_in">free</span>(tmp), -EINVAL;
+
+			<span class="hljs-keyword">int</span> error = <span class="hljs-number">0</span>;
+			interpreter = kopen_error(tmp, <span class="hljs-number">0</span>, &amp;error);
+			<span class="hljs-built_in">free</span>(tmp);
+			<span class="hljs-keyword">if</span> (!interpreter) <span class="hljs-keyword">return</span> -error;
+
+			<span class="hljs-keyword">ssize_t</span> r = read_fs(interpreter, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(Elf64_Header), (<span class="hljs-keyword">uint8_t</span>*)&amp;interp_header);
+			<span class="hljs-keyword">if</span> (r &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> close_fs(interpreter), r;
+			<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">size_t</span>)r &lt; <span class="hljs-keyword">sizeof</span>(Elf64_Header)) <span class="hljs-keyword">return</span> close_fs(interpreter), -EINVAL;
+
+			<span class="hljs-keyword">if</span> (interp_header.e_ident[<span class="hljs-number">0</span>] != ELFMAG0 ||
+			    interp_header.e_ident[<span class="hljs-number">1</span>] != ELFMAG1 ||
+			    interp_header.e_ident[<span class="hljs-number">2</span>] != ELFMAG2 ||
+			    interp_header.e_ident[<span class="hljs-number">3</span>] != ELFMAG3 ||
+			    interp_header.e_ident[EI_CLASS] != ELFCLASS64 ||
+			    (interp_header.e_type != ET_EXEC &amp;&amp; interp_header.e_type != ET_DYN)) {
+				<span class="hljs-keyword">return</span> close_fs(interpreter), -EINVAL;
+			}
+		}
+	}
+
+	<span class="hljs-comment">/* Point of no return. */</span>
+
+	<span class="hljs-keyword">if</span> (!(this_core-&gt;current_process-&gt;flags &amp; (PROC_FLAGS_TRACE)) &amp;&amp; !this_core-&gt;current_process-&gt;tracer) {
+		<span class="hljs-keyword">if</span> (file-&gt;mask &amp; S_ISUID) this_core-&gt;current_process-&gt;user = file-&gt;uid; <span class="hljs-comment">/* set-user-ID */</span>
+		<span class="hljs-keyword">if</span> (file-&gt;mask &amp; S_ISGID) this_core-&gt;current_process-&gt;user_group = file-&gt;gid; <span class="hljs-comment">/* set-group-ID */</span>
+	}
+
+	this_core-&gt;current_process-&gt;saved_user = this_core-&gt;current_process-&gt;user;
+	this_core-&gt;current_process-&gt;saved_user_group = this_core-&gt;current_process-&gt;user_group;
+
+	shm_release_all((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process);
+	process_close_fds((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, PROC_FD_MODE_CLOEXEC);
+
+	process_acquire_big_lock();
+	mmu_set_directory(<span class="hljs-literal">NULL</span>);
+	<span class="hljs-keyword">page_directory_t</span> * this_directory = this_core-&gt;current_process-&gt;thread.page_directory;
+	this_core-&gt;current_process-&gt;thread.page_directory = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">page_directory_t</span>));
+	this_core-&gt;current_process-&gt;thread.page_directory-&gt;refcount = <span class="hljs-number">1</span>;
+	spin_init(this_core-&gt;current_process-&gt;thread.page_directory-&gt;lock);
+	this_core-&gt;current_process-&gt;thread.page_directory-&gt;directory = mmu_clone(<span class="hljs-literal">NULL</span>);
+	mmu_set_directory(this_core-&gt;current_process-&gt;thread.page_directory-&gt;directory);
+	process_release_directory(this_directory);
+	process_release_big_lock();
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; NUMSIGNALS; ++i) {
+		<span class="hljs-keyword">if</span> (this_core-&gt;current_process-&gt;signals[i].handler != <span class="hljs-number">1</span>) {
+			this_core-&gt;current_process-&gt;signals[i].handler = <span class="hljs-number">0</span>;
+			this_core-&gt;current_process-&gt;signals[i].flags = <span class="hljs-number">0</span>;
+		}
+	}
+
+	<span class="hljs-comment">/* Load binary */</span>
+	<span class="hljs-keyword">uintptr_t</span> base_addr;
+	<span class="hljs-keyword">uintptr_t</span> phdr_vaddr = load_from_file(file, &amp;header, &amp;base_addr, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">uintptr_t</span> entrypoint = header.e_entry + base_addr;
+	<span class="hljs-keyword">uintptr_t</span> interp_base = <span class="hljs-number">0</span>;
+	close_fs(file);
+
+	<span class="hljs-comment">/* We've loaded the binary, now let's load the interpreter! */</span>
+	<span class="hljs-keyword">if</span> (interpreter) {
+		load_from_file(interpreter, &amp;interp_header, &amp;interp_base, <span class="hljs-number">1</span>);
+		entrypoint = interp_base + interp_header.e_entry;
+		close_fs(interpreter);
+	}
+
+	<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">rand</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span></span>;
+
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+	<span class="hljs-keyword">uintptr_t</span> shake = (rand() &amp; <span class="hljs-number">0x7FFF</span>) * <span class="hljs-number">0x100000</span>;
+	this_core-&gt;current_process-&gt;<span class="hljs-built_in">image</span>.heap  = <span class="hljs-number">0x100000000</span> + shake;
+	<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	<span class="hljs-comment">/* TODO some stuff breaks with the bigger heap */</span>
+	this_core-&gt;current_process-&gt;<span class="hljs-built_in">image</span>.heap  = <span class="hljs-number">0x60000000</span>;
+	this_core-&gt;current_process-&gt;<span class="hljs-built_in">image</span>.entry = entrypoint;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<p>arch_set_...?</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+	<span class="hljs-comment">/* Map stack space */</span>
+	<span class="hljs-keyword">uintptr_t</span> userstack = <span class="hljs-number">0x800000000000</span>;
+	<span class="hljs-keyword">size_t</span>    stack_size = <span class="hljs-number">512</span> * <span class="hljs-number">0x400</span>;
+	mmap_anon(userstack - stack_size, stack_size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE|MAP_FIXED);
+	this_core-&gt;current_process-&gt;<span class="hljs-built_in">image</span>.userstack = userstack;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PUSH(type,val) do { \
+	userstack -= sizeof(type); \
+	while (userstack &amp; (sizeof(type)-1)) userstack--; \
+	*((type*)userstack) = (val); \
+} while (0)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PUSHSTR(s) do { \
+	ssize_t l = strlen(s); \
+	do { \
+		PUSH(char,s[l]); \
+		l--; \
+	} while (l&gt;=0); \
+} while (0)</span>
+
+	<span class="hljs-keyword">char</span> * argv_ptrs[argc];
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; argc; ++i) {
+		PUSHSTR(argv[i]);
+		argv_ptrs[i] = (<span class="hljs-keyword">char</span>*)userstack;
+	}
+
+	<span class="hljs-comment">/* Now push envp */</span>
+	<span class="hljs-keyword">int</span> envc = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> ** envpp = (<span class="hljs-keyword">char</span>**)env;
+	<span class="hljs-keyword">while</span> (*envpp) {
+		envc++;
+		envpp++;
+	}
+	<span class="hljs-keyword">char</span> * envp_ptrs[envc];
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; envc; ++i) {
+		PUSHSTR(env[i]);
+		envp_ptrs[i] = (<span class="hljs-keyword">char</span>*)userstack;
+	}
+
+	PUSH(<span class="hljs-keyword">uint32_t</span>, rand());
+	PUSH(<span class="hljs-keyword">uint32_t</span>, rand());
+	PUSH(<span class="hljs-keyword">uint32_t</span>, rand());
+	PUSH(<span class="hljs-keyword">uint32_t</span>, rand());
+	<span class="hljs-keyword">uintptr_t</span> rand_offset = userstack;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> push_auxv(name, value) do { \
+	PUSH(uintptr_t, (uintptr_t)(value)); \
+	PUSH(uintptr_t, (uintptr_t)(name)); \
+} while (0)</span>
+
+	push_auxv(AT_NULL,   <span class="hljs-literal">NULL</span>);
+	push_auxv(AT_RANDOM, rand_offset);
+	push_auxv(AT_EGID,   this_core-&gt;current_process-&gt;user_group);
+	push_auxv(AT_GID,    this_core-&gt;current_process-&gt;real_user_group);
+	push_auxv(AT_EUID,   this_core-&gt;current_process-&gt;user);
+	push_auxv(AT_UID,    this_core-&gt;current_process-&gt;real_user);
+	push_auxv(AT_PHNUM,  header.e_phnum);
+	push_auxv(AT_PHENT,  <span class="hljs-keyword">sizeof</span>(Elf64_Phdr));
+	push_auxv(AT_PHDR,   phdr_vaddr);
+	push_auxv(AT_ENTRY,  base_addr + header.e_entry);
+	push_auxv(AT_BASE,   interp_base);
+	push_auxv(AT_PAGESZ, <span class="hljs-number">4096</span>);
+
+	PUSH(<span class="hljs-keyword">uintptr_t</span>, <span class="hljs-number">0</span>); <span class="hljs-comment">/* envp NULL */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = envc; i &gt; <span class="hljs-number">0</span>; i--) {
+		PUSH(<span class="hljs-keyword">char</span>*,envp_ptrs[i<span class="hljs-number">-1</span>]);
+	}
+	<span class="hljs-keyword">char</span> ** _envp = (<span class="hljs-keyword">char</span>**)userstack;
+	PUSH(<span class="hljs-keyword">uintptr_t</span>, <span class="hljs-number">0</span>); <span class="hljs-comment">/* argv NULL */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = argc; i &gt; <span class="hljs-number">0</span>; i--) {
+		PUSH(<span class="hljs-keyword">char</span>*,argv_ptrs[i<span class="hljs-number">-1</span>]);
+	}
+	<span class="hljs-keyword">char</span> ** _argv = (<span class="hljs-keyword">char</span>**)userstack;
+	PUSH(<span class="hljs-keyword">uintptr_t</span>, argc);
+
+	arch_set_kernel_stack(this_core-&gt;current_process-&gt;<span class="hljs-built_in">image</span>.<span class="hljs-built_in">stack</span>);
+	arch_enter_user(entrypoint, argc, _argv, _envp, userstack);
+
+	task_exit(<span class="hljs-number">127</span> &lt;&lt; <span class="hljs-number">8</span>);
+	__builtin_unreachable();
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

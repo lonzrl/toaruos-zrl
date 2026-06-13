@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>pong.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\pong.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>pong.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;assert.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;math.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sched.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/time.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/yutani.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> GAME_PATH <span class="hljs-meta-string">"/usr/share/games/pong"</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PADDLE_WIDTH  50</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PADDLE_HEIGHT 300</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BALL_SIZE     50</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_t</span> * yctx;
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">object</span> {</span>
+	<span class="hljs-keyword">double</span> x;
+	<span class="hljs-keyword">double</span> y;
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">width</span>;
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">height</span>;
+	<span class="hljs-keyword">double</span> vel_x;
+	<span class="hljs-keyword">double</span> vel_y;
+	<span class="hljs-keyword">sprite_t</span> sprite;
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_window_t</span> * paddle_left;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_window_t</span> * paddle_right;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_window_t</span> * ball_win;
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">object</span> <span class="hljs-title">left</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">object</span> <span class="hljs-title">right</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">object</span> <span class="hljs-title">ball</span>;</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">gfx_context_t</span> * paddle_left_ctx;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">gfx_context_t</span> * paddle_right_ctx;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">gfx_context_t</span> * ball_ctx;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> should_exit = <span class="hljs-number">0</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> left_score = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> right_score = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">note</span><span class="hljs-params">(<span class="hljs-keyword">int</span> frequency)</span> </span>{
+	<span class="hljs-keyword">char</span> <span class="hljs-built_in">beep</span>[<span class="hljs-number">100</span>];
+	<span class="hljs-built_in">sprintf</span>(<span class="hljs-built_in">beep</span>, <span class="hljs-string">"beep -f %d -l 200 &amp;"</span>, frequency / <span class="hljs-number">10</span>);
+	system(<span class="hljs-built_in">beep</span>);
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">current_time</span><span class="hljs-params">()</span> </span>{
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> start_time = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> start_subtime = <span class="hljs-number">0</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timeval</span> <span class="hljs-title">t</span>;</span>
+	gettimeofday(&amp;t, <span class="hljs-literal">NULL</span>);
+
+	<span class="hljs-keyword">if</span> (!start_time) {
+		start_time = t.tv_sec;
+		start_subtime = t.tv_usec;
+	}
+
+	<span class="hljs-keyword">uint32_t</span> sec_diff = t.tv_sec - start_time;
+	<span class="hljs-keyword">uint32_t</span> usec_diff = t.tv_usec - start_subtime;
+
+	<span class="hljs-keyword">if</span> (t.tv_usec &lt; (<span class="hljs-keyword">int</span>)start_subtime) {
+		sec_diff -= <span class="hljs-number">1</span>;
+		usec_diff = (<span class="hljs-number">1000000</span> + t.tv_usec) - start_subtime;
+	}
+
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">uint32_t</span>)(sec_diff * <span class="hljs-number">1000</span> + usec_diff / <span class="hljs-number">1000</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">colliding</span><span class="hljs-params">(struct object * a, struct object * b)</span> </span>{
+	<span class="hljs-keyword">if</span> (a-&gt;x &gt;= b-&gt;x + b-&gt;<span class="hljs-built_in">width</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (a-&gt;y &gt;= b-&gt;y + b-&gt;<span class="hljs-built_in">height</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (b-&gt;x &gt;= a-&gt;x + a-&gt;<span class="hljs-built_in">width</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (b-&gt;y &gt;= a-&gt;y + a-&gt;<span class="hljs-built_in">height</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">redraw</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	draw_fill(paddle_left_ctx, rgba(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+	draw_fill(paddle_right_ctx, rgba(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+	draw_fill(ball_ctx, rgba(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>));
+
+	draw_sprite(paddle_left_ctx, &amp;left.sprite, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>);
+	draw_sprite(paddle_right_ctx, &amp;right.sprite, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>);
+	draw_sprite(ball_ctx, &amp;ball.sprite, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>);
+
+	yutani_flip(yctx, paddle_left);
+	yutani_flip(yctx, paddle_right);
+	yutani_flip(yctx, ball_win);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">update_left</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	yutani_window_move(yctx, paddle_left, left.x, left.y);
+}
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">update_right</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	yutani_window_move(yctx, paddle_right, right.x, right.y);
+}
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">update_ball</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	yutani_window_move(yctx, ball_win, ball.x, ball.y);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">update_stuff</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+
+	right.vel_y = (right.y + right.<span class="hljs-built_in">height</span> / <span class="hljs-number">2</span> &lt; ball.y + ball.<span class="hljs-built_in">height</span> / <span class="hljs-number">2</span>) ? <span class="hljs-number">2.0</span> : <span class="hljs-number">-2.0</span>;
+	right.y += right.vel_y;
+	update_right();
+
+	ball.x += ball.vel_x;
+	ball.y += ball.vel_y;
+
+	<span class="hljs-keyword">if</span> (ball.y &lt; <span class="hljs-number">0</span>) {
+		ball.vel_y = -ball.vel_y;
+		ball.y = <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">if</span> (ball.y &gt; yctx-&gt;display_height - ball.<span class="hljs-built_in">height</span>) {
+		ball.vel_y = -ball.vel_y;
+		ball.y = yctx-&gt;display_height - ball.<span class="hljs-built_in">height</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (ball.x &lt; <span class="hljs-number">0</span>) {
+		ball.x       = yctx-&gt;display_width / <span class="hljs-number">2</span> - ball.<span class="hljs-built_in">width</span> / <span class="hljs-number">2</span>;
+		ball.y       = yctx-&gt;display_height / <span class="hljs-number">2</span> - ball.<span class="hljs-built_in">height</span> / <span class="hljs-number">2</span>;
+		ball.vel_x   = <span class="hljs-number">-10.0</span>;
+		ball.vel_y = ((<span class="hljs-keyword">double</span>)rand() / RAND_MAX) * <span class="hljs-number">6.0</span> - <span class="hljs-number">3.0</span>;
+		note(<span class="hljs-number">10000</span>);
+		right_score++;
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%d : %d\n"</span>, left_score, right_score);
+	}
+
+	<span class="hljs-keyword">if</span> (ball.x &gt; yctx-&gt;display_width - ball.<span class="hljs-built_in">width</span> ) {
+		ball.x       = yctx-&gt;display_width / <span class="hljs-number">2</span> - ball.<span class="hljs-built_in">width</span> / <span class="hljs-number">2</span>;
+		ball.y       = yctx-&gt;display_height / <span class="hljs-number">2</span> - ball.<span class="hljs-built_in">height</span> / <span class="hljs-number">2</span>;
+		ball.vel_x   = <span class="hljs-number">10.0</span>;
+		ball.vel_y = ((<span class="hljs-keyword">double</span>)rand() / RAND_MAX) * <span class="hljs-number">6.0</span> - <span class="hljs-number">3.0</span>;
+		note(<span class="hljs-number">17000</span>);
+		left_score++;
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%d : %d\n"</span>, left_score, right_score);
+	}
+
+	<span class="hljs-keyword">if</span> (colliding(&amp;ball, &amp;left)) {
+		ball.x = left.x + left.<span class="hljs-built_in">width</span> + <span class="hljs-number">2</span>;
+		ball.vel_x   = (<span class="hljs-built_in">fabs</span>(ball.vel_x) &lt; <span class="hljs-number">8.0</span>) ? -ball.vel_x * <span class="hljs-number">1.05</span> : -ball.vel_x;
+
+		<span class="hljs-keyword">double</span> intersect = ((ball.y + ball.<span class="hljs-built_in">height</span>/<span class="hljs-number">2</span>) - (left.y)) / ((<span class="hljs-keyword">double</span>)left.<span class="hljs-built_in">height</span>) - <span class="hljs-number">0.5</span>;
+		ball.vel_y = intersect * <span class="hljs-number">8.0</span>;
+		note(<span class="hljs-number">15680</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (colliding(&amp;ball, &amp;right)) {
+		ball.x = right.x - ball.<span class="hljs-built_in">width</span> - <span class="hljs-number">2</span>;
+		ball.vel_x   = (<span class="hljs-built_in">fabs</span>(ball.vel_x) &lt; <span class="hljs-number">8.0</span>) ? -ball.vel_x * <span class="hljs-number">1.05</span> : -ball.vel_x;
+
+		<span class="hljs-keyword">double</span> intersect = ((ball.y + ball.<span class="hljs-built_in">height</span>/<span class="hljs-number">2</span>) - (right.y)) / ((<span class="hljs-keyword">double</span>)right.<span class="hljs-built_in">height</span>/<span class="hljs-number">2.0</span>);
+		ball.vel_y = intersect * <span class="hljs-number">3.0</span>;
+		note(<span class="hljs-number">11747</span>);
+	}
+
+	update_ball();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span> <span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> ** argv)</span> </span>{
+
+	yctx = yutani_init();
+
+	left.<span class="hljs-built_in">width</span>   = PADDLE_WIDTH;
+	left.<span class="hljs-built_in">height</span>  = PADDLE_HEIGHT;
+
+	right.<span class="hljs-built_in">width</span>  = PADDLE_WIDTH;
+	right.<span class="hljs-built_in">height</span> = PADDLE_HEIGHT;
+
+	ball.<span class="hljs-built_in">width</span>   = BALL_SIZE;
+	ball.<span class="hljs-built_in">height</span>  = BALL_SIZE;
+
+	ball.x       = yctx-&gt;display_width / <span class="hljs-number">2</span> - ball.<span class="hljs-built_in">width</span> / <span class="hljs-number">2</span>;
+	ball.y       = yctx-&gt;display_height / <span class="hljs-number">2</span> - ball.<span class="hljs-built_in">height</span> / <span class="hljs-number">2</span>;
+
+	left.x       = <span class="hljs-number">10</span>;
+	left.y       = yctx-&gt;display_height / <span class="hljs-number">2</span> - left.<span class="hljs-built_in">height</span> / <span class="hljs-number">2</span>;
+
+	right.x      = yctx-&gt;display_width - right.<span class="hljs-built_in">width</span> - <span class="hljs-number">10</span>;
+	right.y      = yctx-&gt;display_height / <span class="hljs-number">2</span> - right.<span class="hljs-built_in">height</span> / <span class="hljs-number">2</span>;
+
+	paddle_left  = yutani_window_create(yctx, PADDLE_WIDTH, PADDLE_HEIGHT);
+	paddle_right = yutani_window_create(yctx, PADDLE_WIDTH, PADDLE_HEIGHT);
+	ball_win     = yutani_window_create(yctx, BALL_SIZE, BALL_SIZE);
+
+	paddle_left_ctx  = init_graphics_yutani(paddle_left);
+	paddle_right_ctx = init_graphics_yutani(paddle_right);
+	ball_ctx         = init_graphics_yutani(ball_win);
+
+	srand(time(<span class="hljs-literal">NULL</span>));
+
+	ball.vel_y = ((<span class="hljs-keyword">double</span>)rand() / RAND_MAX) * <span class="hljs-number">6.0</span> - <span class="hljs-number">3.0</span>;
+	ball.vel_x = <span class="hljs-number">-10.0</span>;
+
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Loading sprites...\n"</span>);
+	load_sprite(&amp;left.sprite, GAME_PATH <span class="hljs-string">"/paddle-red.png"</span>);
+	load_sprite(&amp;right.sprite,GAME_PATH <span class="hljs-string">"/paddle-blue.png"</span>);
+	load_sprite(&amp;ball.sprite, GAME_PATH <span class="hljs-string">"/ball.png"</span>);
+
+	redraw();
+	update_left();
+	update_right();
+	update_ball();
+
+	<span class="hljs-keyword">uint32_t</span> last_tick = current_time();
+
+	<span class="hljs-keyword">while</span> (!should_exit) {
+		<span class="hljs-keyword">uint32_t</span> t = current_time();
+		<span class="hljs-keyword">if</span> (t &gt; last_tick + <span class="hljs-number">10</span>) {
+			last_tick += <span class="hljs-number">10</span>;
+			update_stuff();
+		}
+		<span class="hljs-keyword">yutani_msg_t</span> * m = yutani_poll_async(yctx);
+		<span class="hljs-keyword">if</span> (m) {
+			<span class="hljs-keyword">switch</span> (m-&gt;type) {
+				<span class="hljs-keyword">case</span> YUTANI_MSG_KEY_EVENT:
+					{
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_key_event</span> * <span class="hljs-title">ke</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+						
+						<span class="hljs-keyword">if</span> (ke-&gt;event.key == <span class="hljs-string">'q'</span> &amp;&amp; ke-&gt;event.action == KEY_ACTION_DOWN) {
+							should_exit = <span class="hljs-number">1</span>;
+						}
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_MOVE:
+					{
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_move</span> * <span class="hljs-title">wm</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+						<span class="hljs-keyword">if</span> (wm-&gt;wid == paddle_left-&gt;wid) {
+							<span class="hljs-comment">/* Update paddle speed and position */</span>
+							left.y = (<span class="hljs-keyword">double</span>)wm-&gt;y;
+							<span class="hljs-keyword">if</span> (wm-&gt;x != (<span class="hljs-keyword">int</span>)left.x) {
+								update_left();
+							}
+						}
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_MOUSE_EVENT:
+					{
+						<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_mouse_event</span> * <span class="hljs-title">me</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+						<span class="hljs-keyword">if</span> (me-&gt;command == YUTANI_MOUSE_EVENT_DOWN &amp;&amp; me-&gt;buttons &amp; YUTANI_MOUSE_BUTTON_LEFT) {
+							<span class="hljs-keyword">if</span> (me-&gt;wid == paddle_left-&gt;wid) {
+								yutani_window_drag_start(yctx, paddle_left);
+							}
+						}
+					}
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> YUTANI_MSG_SESSION_END:
+					should_exit = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">default</span>:
+					<span class="hljs-keyword">break</span>;
+			}
+			<span class="hljs-built_in">free</span>(m);
+		} <span class="hljs-keyword">else</span> {
+			sched_yield();
+		}
+	}
+
+	yutani_close(yctx, paddle_left);
+	yutani_close(yctx, paddle_right);
+	yutani_close(yctx, ball_win);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

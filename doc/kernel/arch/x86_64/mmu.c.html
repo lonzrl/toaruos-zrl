@@ -1,0 +1,2055 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>mmu.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kernel\\arch\\x86_64\\mmu.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>mmu.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/assert.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/spinlock.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/misc.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/pml.h&gt;</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">arch_tlb_shootdown</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span>)</span></span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>bitmap page allocator for 4KiB pages</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">static</span> <span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> *frames;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> nframes;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> total_memory = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> unavailable_memory = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint8_t</span> * mem_refcounts = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PAGE_SHIFT     12</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PAGE_SIZE      0x1000UL</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PAGE_SIZE_MASK 0xFFFFffffFFFFf000UL</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PAGE_LOW_MASK  0x0000000000000FFFUL</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> LARGE_PAGE_SIZE 0x200000UL</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span>   USER_PML_ACCESS 0x07</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> KERNEL_PML_ACCESS 0x03</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span>    LARGE_PAGE_BIT 0x80</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PDP_MASK 0x3fffffffUL</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span>  PD_MASK 0x1fffffUL</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span>  PT_MASK PAGE_LOW_MASK</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ENTRY_MASK 0x1FF</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PHYS_MASK 0x7fffffffffUL</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CANONICAL_MASK 0xFFFFffffFFFFUL</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> INDEX_FROM_BIT(b)  ((b) &gt;&gt; 5)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> OFFSET_FROM_BIT(b) ((b) &amp; 0x1F)</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">frame_addr</span>
+<span>Address of the frame (not index!)
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">mmu_frame_set</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> frame_addr)</span> </span>{
+	<span class="hljs-comment">/* If the frame is within bounds... */</span>
+	<span class="hljs-keyword">if</span> (frame_addr &lt; nframes * PAGE_SIZE) {
+		<span class="hljs-keyword">uint64_t</span> frame  = frame_addr &gt;&gt; <span class="hljs-number">12</span>;
+		<span class="hljs-keyword">uint64_t</span> index  = INDEX_FROM_BIT(frame);
+		<span class="hljs-keyword">uint32_t</span> offset = OFFSET_FROM_BIT(frame);
+		frames[index]  |= ((<span class="hljs-keyword">uint32_t</span>)<span class="hljs-number">1</span> &lt;&lt; offset);
+		<span class="hljs-keyword">asm</span> (<span class="hljs-string">""</span> ::: <span class="hljs-string">"memory"</span>);
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uintptr_t</span> lowest_available = <span class="hljs-number">0</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">frame_addr</span>
+<span>Address of the frame (not index!)
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">mmu_frame_clear</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> frame_addr)</span> </span>{
+	<span class="hljs-comment">/* If the frame is within bounds... */</span>
+	<span class="hljs-keyword">if</span> (frame_addr &lt; nframes * PAGE_SIZE) {
+		<span class="hljs-keyword">uint64_t</span> frame  = frame_addr &gt;&gt; PAGE_SHIFT;
+		<span class="hljs-keyword">uint64_t</span> index  = INDEX_FROM_BIT(frame);
+		<span class="hljs-keyword">uint32_t</span> offset = OFFSET_FROM_BIT(frame);
+		frames[index]  &amp;= ~((<span class="hljs-keyword">uint32_t</span>)<span class="hljs-number">1</span> &lt;&lt; offset);
+		<span class="hljs-keyword">asm</span> (<span class="hljs-string">""</span> ::: <span class="hljs-string">"memory"</span>);
+		<span class="hljs-keyword">if</span> (frame &lt; lowest_available) lowest_available = frame;
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">frame_addr</span>
+<span>Address of the frame (not index!)
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">mmu_frame_test</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> frame_addr)</span> </span>{
+	<span class="hljs-keyword">if</span> (!(frame_addr &lt; nframes * PAGE_SIZE)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">uint64_t</span> frame  = frame_addr &gt;&gt; PAGE_SHIFT;
+	<span class="hljs-keyword">uint64_t</span> index  = INDEX_FROM_BIT(frame);
+	<span class="hljs-keyword">uint32_t</span> offset = OFFSET_FROM_BIT(frame);
+	<span class="hljs-keyword">asm</span> (<span class="hljs-string">""</span> ::: <span class="hljs-string">"memory"</span>);
+	<span class="hljs-keyword">return</span> !!(frames[index] &amp; ((<span class="hljs-keyword">uint32_t</span>)<span class="hljs-number">1</span> &lt;&lt; offset));
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> frame_alloc_lock = { <span class="hljs-number">0</span> };
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> kheap_lock = { <span class="hljs-number">0</span> };
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> mmio_space_lock = { <span class="hljs-number">0</span> };
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> module_space_lock = { <span class="hljs-number">0</span> };
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">mmu_frame_release</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> frame_addr)</span> </span>{
+	spin_lock(frame_alloc_lock);
+	mmu_frame_clear(frame_addr);
+	spin_unlock(frame_alloc_lock);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">uintptr_t</span> <span class="hljs-title">mmu_first_n_frames</span><span class="hljs-params">(<span class="hljs-keyword">int</span> n)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint64_t</span> i = <span class="hljs-number">0</span>; i &lt; nframes * PAGE_SIZE; i += PAGE_SIZE) {
+		<span class="hljs-keyword">int</span> bad = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; n; ++j) {
+			<span class="hljs-keyword">if</span> (mmu_frame_test(i + PAGE_SIZE * j)) {
+				bad = j + <span class="hljs-number">1</span>;
+			}
+		}
+		<span class="hljs-keyword">if</span> (!bad) {
+			<span class="hljs-keyword">return</span> i / PAGE_SIZE;
+		}
+	}
+
+	arch_fatal_prepare();
+	dprintf(<span class="hljs-string">"Failed to allocate %d contiguous frames.\n"</span>, n);
+	arch_dump_traceback();
+	arch_fatal();
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-number">-1</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">uintptr_t</span> <span class="hljs-title">mmu_first_frame</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> i, j;
+	<span class="hljs-keyword">for</span> (i = INDEX_FROM_BIT(lowest_available); i &lt; INDEX_FROM_BIT(nframes); ++i) {
+		<span class="hljs-keyword">if</span> (frames[i] != (<span class="hljs-keyword">uint32_t</span>)<span class="hljs-number">-1</span>) {
+			<span class="hljs-keyword">for</span> (j = <span class="hljs-number">0</span>; j &lt; (<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>)*<span class="hljs-number">8</span>); ++j) {
+				<span class="hljs-keyword">uint32_t</span> testFrame = (<span class="hljs-keyword">uint32_t</span>)<span class="hljs-number">1</span> &lt;&lt; j;
+				<span class="hljs-keyword">if</span> (!(frames[i] &amp; testFrame)) {
+					<span class="hljs-keyword">uintptr_t</span> out = (i &lt;&lt; <span class="hljs-number">5</span>) + j;
+					lowest_available = out + <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">return</span> out;
+				}
+			}
+		}
+	}
+
+	arch_fatal_prepare();
+	dprintf(<span class="hljs-string">"Out of memory.\n"</span>);
+	arch_dump_traceback();
+	arch_fatal();
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-number">-1</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">mmu_frame_allocate</span><span class="hljs-params">(<span class="hljs-keyword">union</span> PML * page, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">if</span> (page-&gt;bits.page == <span class="hljs-number">0</span>) {
+		spin_lock(frame_alloc_lock);
+		<span class="hljs-keyword">uintptr_t</span> index = mmu_first_frame();
+		mmu_frame_set(index &lt;&lt; PAGE_SHIFT);
+		page-&gt;bits.page     = index;
+		spin_unlock(frame_alloc_lock);
+	}
+	page-&gt;bits.<span class="hljs-built_in">size</span>     = <span class="hljs-number">0</span>;
+	page-&gt;bits.present  = <span class="hljs-number">1</span>;
+	page-&gt;bits.writable = (flags &amp; MMU_FLAG_WRITABLE) ? <span class="hljs-number">1</span> : <span class="hljs-number">0</span>;
+	page-&gt;bits.user     = (flags &amp; MMU_FLAG_KERNEL)   ? <span class="hljs-number">0</span> : <span class="hljs-number">1</span>;
+	page-&gt;bits.nocache  = (flags &amp; MMU_FLAG_NOCACHE)  ? <span class="hljs-number">1</span> : <span class="hljs-number">0</span>;
+	page-&gt;bits.writethrough  = (flags &amp; MMU_FLAG_WRITETHROUGH)  ? <span class="hljs-number">1</span> : <span class="hljs-number">0</span>;
+	page-&gt;bits.<span class="hljs-built_in">size</span>     = (flags &amp; MMU_FLAG_SPEC) ? <span class="hljs-number">1</span> : <span class="hljs-number">0</span>;
+	page-&gt;bits.nx       = (flags &amp; MMU_FLAG_NOEXECUTE) ? <span class="hljs-number">1</span> : <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">mmu_frame_map_address</span><span class="hljs-params">(<span class="hljs-keyword">union</span> PML * page, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> flags, <span class="hljs-keyword">uintptr_t</span> physAddr)</span> </span>{
+	mmu_frame_set(physAddr);
+	page-&gt;bits.page = physAddr &gt;&gt; PAGE_SHIFT;
+	mmu_frame_allocate(page, flags);
+}
+
+<span class="hljs-comment">/* Initial memory maps loaded by boostrap */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _pagemap __attribute__((aligned(PAGE_SIZE))) = {0}</span>
+<span class="hljs-keyword">union</span> PML init_page_region[<span class="hljs-number">3</span>][<span class="hljs-number">512</span>] _pagemap;
+<span class="hljs-keyword">union</span> PML high_base_pml[<span class="hljs-number">512</span>] _pagemap;
+<span class="hljs-keyword">union</span> PML heap_base_pml[<span class="hljs-number">512</span>] _pagemap;
+<span class="hljs-keyword">union</span> PML heap_base_pd[<span class="hljs-number">512</span>] _pagemap;
+<span class="hljs-keyword">union</span> PML heap_base_pt[<span class="hljs-number">512</span>*<span class="hljs-number">3</span>] _pagemap;
+<span class="hljs-keyword">union</span> PML low_base_pmls[<span class="hljs-number">34</span>][<span class="hljs-number">512</span>] _pagemap;
+<span class="hljs-keyword">union</span> PML twom_high_pds[<span class="hljs-number">64</span>][<span class="hljs-number">512</span>] _pagemap;
+<span class="hljs-keyword">union</span> PML kbase_pmls[<span class="hljs-number">65</span>][<span class="hljs-number">512</span>] _pagemap;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> * <span class="hljs-title">mmu_map_from_physical</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> frameaddress)</span> </span>{
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">void</span>*)(frameaddress | HIGH_MAP_REGION);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">union</span> PML * <span class="hljs-title">mmu_get_page_other</span><span class="hljs-params">(<span class="hljs-keyword">union</span> PML * root, <span class="hljs-keyword">uintptr_t</span> virtAddr)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> realBits = virtAddr &amp; CANONICAL_MASK;
+	<span class="hljs-keyword">uintptr_t</span> pageAddr = realBits &gt;&gt; PAGE_SHIFT;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> pml4_entry = (pageAddr &gt;&gt; <span class="hljs-number">27</span>) &amp; ENTRY_MASK;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> pdp_entry  = (pageAddr &gt;&gt; <span class="hljs-number">18</span>) &amp; ENTRY_MASK;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> pd_entry   = (pageAddr &gt;&gt; <span class="hljs-number">9</span>)  &amp; ENTRY_MASK;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> pt_entry   = (pageAddr) &amp; ENTRY_MASK;
+
+	<span class="hljs-comment">/* Get the PML4 entry for this address */</span>
+	<span class="hljs-keyword">if</span> (!root[pml4_entry].bits.present) {
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">union</span> PML * pdp = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)root[pml4_entry].bits.page &lt;&lt; PAGE_SHIFT);
+
+	<span class="hljs-keyword">if</span> (!pdp[pdp_entry].bits.present) {
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (pdp[pdp_entry].bits.<span class="hljs-built_in">size</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">union</span> PML * pd = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)pdp[pdp_entry].bits.page &lt;&lt; PAGE_SHIFT);
+
+	<span class="hljs-keyword">if</span> (!pd[pd_entry].bits.present) {
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (pd[pd_entry].bits.<span class="hljs-built_in">size</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">union</span> PML * pt = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)pd[pd_entry].bits.page &lt;&lt; PAGE_SHIFT);
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">union</span> PML *)&amp;pt[pt_entry];
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-11" id="section-11"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">uintptr_t</span> <span class="hljs-title">mmu_map_to_physical</span><span class="hljs-params">(<span class="hljs-keyword">union</span> PML * root, <span class="hljs-keyword">uintptr_t</span> virtAddr)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> realBits = virtAddr &amp; CANONICAL_MASK;
+	<span class="hljs-keyword">uintptr_t</span> pageAddr = realBits &gt;&gt; PAGE_SHIFT;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> pml4_entry = (pageAddr &gt;&gt; <span class="hljs-number">27</span>) &amp; ENTRY_MASK;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> pdp_entry  = (pageAddr &gt;&gt; <span class="hljs-number">18</span>) &amp; ENTRY_MASK;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> pd_entry   = (pageAddr &gt;&gt; <span class="hljs-number">9</span>)  &amp; ENTRY_MASK;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> pt_entry   = (pageAddr) &amp; ENTRY_MASK;
+
+	<span class="hljs-comment">/* Get the PML4 entry for this address */</span>
+	<span class="hljs-keyword">if</span> (!root[pml4_entry].bits.present) <span class="hljs-keyword">return</span> (<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-number">-1</span>;
+
+	<span class="hljs-keyword">union</span> PML * pdp = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)root[pml4_entry].bits.page &lt;&lt; PAGE_SHIFT);
+
+	<span class="hljs-keyword">if</span> (!pdp[pdp_entry].bits.present) <span class="hljs-keyword">return</span> (<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-number">-2</span>;
+	<span class="hljs-keyword">if</span> (pdp[pdp_entry].bits.<span class="hljs-built_in">size</span>) <span class="hljs-keyword">return</span> ((<span class="hljs-keyword">uintptr_t</span>)pdp[pdp_entry].bits.page &lt;&lt; PAGE_SHIFT) | (virtAddr &amp; PDP_MASK);
+
+	<span class="hljs-keyword">union</span> PML * pd = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)pdp[pdp_entry].bits.page &lt;&lt; PAGE_SHIFT);
+
+	<span class="hljs-keyword">if</span> (!pd[pd_entry].bits.present) <span class="hljs-keyword">return</span> (<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-number">-3</span>;
+	<span class="hljs-keyword">if</span> (pd[pd_entry].bits.<span class="hljs-built_in">size</span>) <span class="hljs-keyword">return</span> ((<span class="hljs-keyword">uintptr_t</span>)pd[pd_entry].bits.page &lt;&lt; PAGE_SHIFT) | (virtAddr &amp; PD_MASK);
+
+	<span class="hljs-keyword">union</span> PML * pt = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)pd[pd_entry].bits.page &lt;&lt; PAGE_SHIFT);
+
+	<span class="hljs-keyword">if</span> (!pt[pt_entry].bits.present) <span class="hljs-keyword">return</span> (<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-number">-4</span>;
+	<span class="hljs-keyword">return</span> ((<span class="hljs-keyword">uintptr_t</span>)pt[pt_entry].bits.page &lt;&lt; PAGE_SHIFT) | (virtAddr &amp; PT_MASK);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-12" id="section-12"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">virtAddr</span>
+<span>Canonical virtual address offset.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">flags</span>
+<span>See @c MMU_GET_MAKE
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">union</span> PML * <span class="hljs-title">mmu_get_page</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> virtAddr, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">uintptr_t</span> realBits = virtAddr &amp; CANONICAL_MASK;
+	<span class="hljs-keyword">uintptr_t</span> pageAddr = realBits &gt;&gt; PAGE_SHIFT;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> pml4_entry = (pageAddr &gt;&gt; <span class="hljs-number">27</span>) &amp; ENTRY_MASK;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> pdp_entry  = (pageAddr &gt;&gt; <span class="hljs-number">18</span>) &amp; ENTRY_MASK;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> pd_entry   = (pageAddr &gt;&gt; <span class="hljs-number">9</span>)  &amp; ENTRY_MASK;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> pt_entry   = (pageAddr) &amp; ENTRY_MASK;
+
+	<span class="hljs-keyword">union</span> PML * root = this_core-&gt;current_pml;
+
+	<span class="hljs-comment">/* Get the PML4 entry for this address */</span>
+	<span class="hljs-keyword">if</span> (!root[pml4_entry].bits.present) {
+		<span class="hljs-keyword">if</span> (!(flags &amp; MMU_GET_MAKE)) <span class="hljs-keyword">goto</span> _noentry;
+		spin_lock(frame_alloc_lock);
+		<span class="hljs-keyword">uintptr_t</span> newPage = mmu_first_frame() &lt;&lt; PAGE_SHIFT;
+		mmu_frame_set(newPage);
+		spin_unlock(frame_alloc_lock);
+		<span class="hljs-comment">/* zero it */</span>
+		<span class="hljs-built_in">memset</span>(mmu_map_from_physical(newPage), <span class="hljs-number">0</span>, PAGE_SIZE);
+		root[pml4_entry].raw = (newPage) | USER_PML_ACCESS;
+	}
+
+	<span class="hljs-keyword">union</span> PML * pdp = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)root[pml4_entry].bits.page &lt;&lt; PAGE_SHIFT);
+
+	<span class="hljs-keyword">if</span> (!pdp[pdp_entry].bits.present) {
+		<span class="hljs-keyword">if</span> (!(flags &amp; MMU_GET_MAKE)) <span class="hljs-keyword">goto</span> _noentry;
+		spin_lock(frame_alloc_lock);
+		<span class="hljs-keyword">uintptr_t</span> newPage = mmu_first_frame() &lt;&lt; PAGE_SHIFT;
+		mmu_frame_set(newPage);
+		spin_unlock(frame_alloc_lock);
+		<span class="hljs-comment">/* zero it */</span>
+		<span class="hljs-built_in">memset</span>(mmu_map_from_physical(newPage), <span class="hljs-number">0</span>, PAGE_SIZE);
+		pdp[pdp_entry].raw = (newPage) | USER_PML_ACCESS;
+	}
+
+	<span class="hljs-keyword">if</span> (pdp[pdp_entry].bits.<span class="hljs-built_in">size</span>) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Warning: Tried to get page for a 1GiB page!\n"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">union</span> PML * pd = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)pdp[pdp_entry].bits.page &lt;&lt; PAGE_SHIFT);
+
+	<span class="hljs-keyword">if</span> (!pd[pd_entry].bits.present) {
+		<span class="hljs-keyword">if</span> (!(flags &amp; MMU_GET_MAKE)) <span class="hljs-keyword">goto</span> _noentry;
+		spin_lock(frame_alloc_lock);
+		<span class="hljs-keyword">uintptr_t</span> newPage = mmu_first_frame() &lt;&lt; PAGE_SHIFT;
+		mmu_frame_set(newPage);
+		spin_unlock(frame_alloc_lock);
+		<span class="hljs-comment">/* zero it */</span>
+		<span class="hljs-built_in">memset</span>(mmu_map_from_physical(newPage), <span class="hljs-number">0</span>, PAGE_SIZE);
+		pd[pd_entry].raw = (newPage) | USER_PML_ACCESS;
+	}
+
+	<span class="hljs-keyword">if</span> (pd[pd_entry].bits.<span class="hljs-built_in">size</span>) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Warning: Tried to get page for a 2MiB page!\n"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">union</span> PML * pt = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)pd[pd_entry].bits.page &lt;&lt; PAGE_SHIFT);
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">union</span> PML *)&amp;pt[pt_entry];
+
+_noentry:
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"no entry for requested page\n"</span>);
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-13" id="section-13"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">frame</span>
+<span>Physical page index
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">refcount_inc</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> frame)</span> </span>{
+	<span class="hljs-keyword">if</span> (frame &gt;= nframes) {
+		arch_fatal_prepare();
+		dprintf(<span class="hljs-string">"%zu (inc, bad frame)\n"</span>, frame);
+		arch_dump_traceback();
+		arch_fatal();
+	}
+	<span class="hljs-keyword">if</span> (mem_refcounts[frame] == <span class="hljs-number">255</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	mem_refcounts[frame]++;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-14" id="section-14"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">frame</span>
+<span>Physical page index
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">uint8_t</span> <span class="hljs-title">refcount_dec</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> frame)</span> </span>{
+	<span class="hljs-keyword">if</span> (frame &gt;= nframes) {
+		arch_fatal_prepare();
+		dprintf(<span class="hljs-string">"%zu (dec, bad frame)\n"</span>, frame);
+		arch_dump_traceback();
+		arch_fatal();
+	}
+	<span class="hljs-keyword">if</span> (mem_refcounts[frame] == <span class="hljs-number">0</span>) {
+		arch_fatal_prepare();
+		dprintf(<span class="hljs-string">"%zu (dec, frame has no references)\n"</span>, frame);
+		arch_dump_traceback();
+		arch_fatal();
+	}
+	mem_refcounts[frame]--;
+	<span class="hljs-keyword">return</span> mem_refcounts[frame];
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-15" id="section-15"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">pt_in</span>
+<span>Existing page table.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">pt_out</span>
+<span>New directory's page table.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">l</span>
+<span>Index into both page tables for this page.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">address</span>
+<span>Virtual address being referenced.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">copy_page_maybe</span><span class="hljs-params">(<span class="hljs-keyword">union</span> PML * pt_in, <span class="hljs-keyword">union</span> PML * pt_out, <span class="hljs-keyword">size_t</span> l, <span class="hljs-keyword">uintptr_t</span> address)</span> </span>{
+	<span class="hljs-comment">/* Can we cow the current page? */</span>
+	spin_lock(frame_alloc_lock);
+
+	<span class="hljs-comment">/* Is the page writable? */</span>
+	<span class="hljs-keyword">if</span> (pt_in[l].bits.writable) {
+		<span class="hljs-comment">/* Then we need to initialize the refcounts */</span>
+		<span class="hljs-keyword">if</span> (mem_refcounts[pt_in[l].bits.page] != <span class="hljs-number">0</span>) {
+			arch_fatal_prepare();
+			dprintf(<span class="hljs-string">"%#zx (page=%u) refcount = %u\n"</span>,
+				address, pt_in[l].bits.page, mem_refcounts[pt_in[l].bits.page]);
+			arch_dump_traceback();
+			arch_fatal();
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		mem_refcounts[pt_in[l].bits.page] = <span class="hljs-number">2</span>;
+		pt_in[l].bits.writable = <span class="hljs-number">0</span>;
+		pt_in[l].bits.cow_pending = <span class="hljs-number">1</span>;
+		pt_out[l].raw = pt_in[l].raw;
+		<span class="hljs-keyword">asm</span> (<span class="hljs-string">""</span> ::: <span class="hljs-string">"memory"</span>);
+		mmu_invalidate(address);
+		spin_unlock(frame_alloc_lock);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (!pt_in[l].bits.cow_pending) {
+		<span class="hljs-keyword">if</span> (mem_refcounts[pt_in[l].bits.page] == <span class="hljs-number">0</span>) {
+			mem_refcounts[pt_in[l].bits.page] = <span class="hljs-number">2</span>;
+			pt_out[l].raw = pt_in[l].raw;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (refcount_inc(pt_in[l].bits.page)) {
+			<span class="hljs-keyword">char</span> * page_in = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)pt_in[l].bits.page &lt;&lt; PAGE_SHIFT);
+			<span class="hljs-keyword">uintptr_t</span> newPage = mmu_first_frame() &lt;&lt; PAGE_SHIFT;
+			mmu_frame_set(newPage);
+			<span class="hljs-keyword">char</span> * page_out = mmu_map_from_physical(newPage);
+			<span class="hljs-built_in">memcpy</span>(page_out,page_in,PAGE_SIZE);
+			assert(mem_refcounts[newPage &gt;&gt; PAGE_SHIFT] == <span class="hljs-number">0</span>);
+			pt_out[l].raw = <span class="hljs-number">0</span>;
+			pt_out[l].bits.present = <span class="hljs-number">1</span>;
+			pt_out[l].bits.user = <span class="hljs-number">1</span>;
+			pt_out[l].bits.page = newPage &gt;&gt; PAGE_SHIFT;
+			pt_out[l].bits.writable = <span class="hljs-number">0</span>;
+			pt_out[l].bits.cow_pending = <span class="hljs-number">0</span>;
+			pt_out[l].bits.nx = pt_in[l].bits.nx;
+		} <span class="hljs-keyword">else</span> {
+			pt_out[l].raw = pt_in[l].raw;
+		}
+		<span class="hljs-keyword">asm</span> (<span class="hljs-string">""</span> ::: <span class="hljs-string">"memory"</span>);
+		mmu_invalidate(address);
+		spin_unlock(frame_alloc_lock);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-comment">/* Can we make a new reference? */</span>
+	<span class="hljs-keyword">if</span> (refcount_inc(pt_in[l].bits.page)) {
+		<span class="hljs-comment">/* There are too many references to fit in our refcount table, so just make a new page. */</span>
+		<span class="hljs-keyword">char</span> * page_in = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)pt_in[l].bits.page &lt;&lt; PAGE_SHIFT);
+		<span class="hljs-keyword">uintptr_t</span> newPage = mmu_first_frame() &lt;&lt; PAGE_SHIFT;
+		mmu_frame_set(newPage);
+		<span class="hljs-keyword">char</span> * page_out = mmu_map_from_physical(newPage);
+		<span class="hljs-built_in">memcpy</span>(page_out,page_in,PAGE_SIZE);
+		assert(mem_refcounts[newPage &gt;&gt; PAGE_SHIFT] == <span class="hljs-number">0</span>);
+		pt_out[l].raw = <span class="hljs-number">0</span>;
+		pt_out[l].bits.present = <span class="hljs-number">1</span>;
+		pt_out[l].bits.user = <span class="hljs-number">1</span>;
+		pt_out[l].bits.page = newPage &gt;&gt; PAGE_SHIFT;
+		pt_out[l].bits.writable = <span class="hljs-number">1</span>;
+		pt_out[l].bits.cow_pending = <span class="hljs-number">0</span>;
+		pt_out[l].bits.nx = pt_in[l].bits.nx;
+		<span class="hljs-keyword">asm</span> (<span class="hljs-string">""</span> ::: <span class="hljs-string">"memory"</span>);
+	} <span class="hljs-keyword">else</span> {
+		pt_out[l].raw = pt_in[l].raw;
+	}
+
+	spin_unlock(frame_alloc_lock);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-16" id="section-16"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">pt_in</span>
+<span>Start of page table
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">l</span>
+<span>Offset into page table for this page
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">address</span>
+<span>Virtual address being freed (was used for debugging)
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">free_page_maybe</span><span class="hljs-params">(<span class="hljs-keyword">union</span> PML * pt_in, <span class="hljs-keyword">size_t</span> l, <span class="hljs-keyword">uintptr_t</span> address)</span> </span>{
+	<span class="hljs-keyword">if</span> (pt_in[l].bits.writable) {
+		assert(mem_refcounts[pt_in[l].bits.page] == <span class="hljs-number">0</span>);
+		mmu_frame_clear((<span class="hljs-keyword">uintptr_t</span>)pt_in[l].bits.page &lt;&lt; PAGE_SHIFT);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (!pt_in[l].bits.cow_pending &amp;&amp; !mem_refcounts[pt_in[l].bits.page]) {
+		mmu_frame_clear((<span class="hljs-keyword">uintptr_t</span>)pt_in[l].bits.page &lt;&lt; PAGE_SHIFT);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-comment">/* No more references */</span>
+	<span class="hljs-keyword">if</span> (refcount_dec(pt_in[l].bits.page) == <span class="hljs-number">0</span>) {
+		mmu_frame_clear((<span class="hljs-keyword">uintptr_t</span>)pt_in[l].bits.page &lt;&lt; PAGE_SHIFT);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-17" id="section-17"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">from</span>
+<span>The directory to clone, or NULL to clone the kernel map.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">union</span> PML * <span class="hljs-title">mmu_clone</span><span class="hljs-params">(<span class="hljs-keyword">union</span> PML * from)</span> </span>{
+	<span class="hljs-comment">/* Clone the current PMLs... */</span>
+	<span class="hljs-keyword">if</span> (!from) from = this_core-&gt;current_pml;
+
+	<span class="hljs-comment">/* First get a page for ourselves. */</span>
+	spin_lock(frame_alloc_lock);
+	<span class="hljs-keyword">uintptr_t</span> newPage = mmu_first_frame() &lt;&lt; PAGE_SHIFT;
+	mmu_frame_set(newPage);
+	spin_unlock(frame_alloc_lock);
+	<span class="hljs-keyword">union</span> PML * pml4_out = mmu_map_from_physical(newPage);
+
+	<span class="hljs-comment">/* Zero bottom half */</span>
+	<span class="hljs-built_in">memset</span>(&amp;pml4_out[<span class="hljs-number">0</span>], <span class="hljs-number">0</span>, <span class="hljs-number">256</span> * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">union</span> PML));
+
+	<span class="hljs-comment">/* Copy top half */</span>
+	<span class="hljs-built_in">memcpy</span>(&amp;pml4_out[<span class="hljs-number">256</span>], &amp;from[<span class="hljs-number">256</span>], <span class="hljs-number">256</span> * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">union</span> PML));
+
+	<span class="hljs-comment">/* Copy PDPs */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">256</span>; ++i) {
+		<span class="hljs-keyword">if</span> (from[i].bits.present) {
+			<span class="hljs-keyword">union</span> PML * pdp_in = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)from[i].bits.page &lt;&lt; PAGE_SHIFT);
+			spin_lock(frame_alloc_lock);
+			<span class="hljs-keyword">uintptr_t</span> newPage = mmu_first_frame() &lt;&lt; PAGE_SHIFT;
+			mmu_frame_set(newPage);
+			spin_unlock(frame_alloc_lock);
+			<span class="hljs-keyword">union</span> PML * pdp_out = mmu_map_from_physical(newPage);
+			<span class="hljs-built_in">memset</span>(pdp_out, <span class="hljs-number">0</span>, <span class="hljs-number">512</span> * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">union</span> PML));
+			pml4_out[i].raw = (newPage) | USER_PML_ACCESS;
+
+			<span class="hljs-comment">/* Copy the PDs */</span>
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-number">512</span>; ++j) {
+				<span class="hljs-keyword">if</span> (pdp_in[j].bits.present) {
+					<span class="hljs-keyword">union</span> PML * pd_in = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)pdp_in[j].bits.page &lt;&lt; PAGE_SHIFT);
+					spin_lock(frame_alloc_lock);
+					<span class="hljs-keyword">uintptr_t</span> newPage = mmu_first_frame() &lt;&lt; PAGE_SHIFT;
+					mmu_frame_set(newPage);
+					spin_unlock(frame_alloc_lock);
+					<span class="hljs-keyword">union</span> PML * pd_out = mmu_map_from_physical(newPage);
+					<span class="hljs-built_in">memset</span>(pd_out, <span class="hljs-number">0</span>, <span class="hljs-number">512</span> * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">union</span> PML));
+					pdp_out[j].raw = (newPage) | USER_PML_ACCESS;
+
+					<span class="hljs-comment">/* Now copy the PTs */</span>
+					<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> k = <span class="hljs-number">0</span>; k &lt; <span class="hljs-number">512</span>; ++k) {
+						<span class="hljs-keyword">if</span> (pd_in[k].bits.present) {
+							<span class="hljs-keyword">union</span> PML * pt_in = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)pd_in[k].bits.page &lt;&lt; PAGE_SHIFT);
+							spin_lock(frame_alloc_lock);
+							<span class="hljs-keyword">uintptr_t</span> newPage = mmu_first_frame() &lt;&lt; PAGE_SHIFT;
+							mmu_frame_set(newPage);
+							spin_unlock(frame_alloc_lock);
+							<span class="hljs-keyword">union</span> PML * pt_out = mmu_map_from_physical(newPage);
+							<span class="hljs-built_in">memset</span>(pt_out, <span class="hljs-number">0</span>, <span class="hljs-number">512</span> * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">union</span> PML));
+							pd_out[k].raw = (newPage) | USER_PML_ACCESS;
+
+							<span class="hljs-comment">/* Now, finally, copy pages */</span>
+							<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> l = <span class="hljs-number">0</span>; l &lt; <span class="hljs-number">512</span>; ++l) {
+								<span class="hljs-keyword">uintptr_t</span> address = ((i &lt;&lt; (<span class="hljs-number">9</span> * <span class="hljs-number">3</span> + <span class="hljs-number">12</span>)) | (j &lt;&lt; (<span class="hljs-number">9</span>*<span class="hljs-number">2</span> + <span class="hljs-number">12</span>)) | (k &lt;&lt; (<span class="hljs-number">9</span> + <span class="hljs-number">12</span>)) | (l &lt;&lt; PAGE_SHIFT));
+								<span class="hljs-keyword">if</span> (address &gt;= USER_DEVICE_MAP &amp;&amp; address &lt;= USER_SHM_HIGH) <span class="hljs-keyword">continue</span>;
+								<span class="hljs-keyword">if</span> (pt_in[l].bits.present) {
+									<span class="hljs-keyword">if</span> (pt_in[l].bits.user) {
+										copy_page_maybe(pt_in, pt_out, l, address);
+									} <span class="hljs-keyword">else</span> {
+										<span class="hljs-comment">/* If it's not a user page, just copy directly */</span>
+										pt_out[l].raw = pt_in[l].raw;
+									}
+								} <span class="hljs-comment">/* Else, mmap'd files? */</span>
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	<span class="hljs-keyword">return</span> pml4_out;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-18" id="section-18"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">uintptr_t</span> <span class="hljs-title">mmu_allocate_a_frame</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	spin_lock(frame_alloc_lock);
+	<span class="hljs-keyword">uintptr_t</span> index = mmu_first_frame();
+	mmu_frame_set(index &lt;&lt; PAGE_SHIFT);
+	spin_unlock(frame_alloc_lock);
+	<span class="hljs-keyword">return</span> index;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-19" id="section-19"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">uintptr_t</span> <span class="hljs-title">mmu_allocate_n_frames</span><span class="hljs-params">(<span class="hljs-keyword">int</span> n)</span> </span>{
+	spin_lock(frame_alloc_lock);
+	<span class="hljs-keyword">uintptr_t</span> index = mmu_first_n_frames(n);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; n; ++i) {
+		mmu_frame_set((index+i) &lt;&lt; PAGE_SHIFT);
+	}
+	spin_unlock(frame_alloc_lock);
+	<span class="hljs-keyword">return</span> index;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-20" id="section-20"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">from</span>
+<span>Top-level page directory to scan.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">size_t</span> <span class="hljs-title">mmu_count_user</span><span class="hljs-params">(<span class="hljs-keyword">union</span> PML * from)</span> </span>{
+	<span class="hljs-keyword">size_t</span> out = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">256</span>; ++i) {
+		<span class="hljs-keyword">if</span> (from[i].bits.present) {
+			out++;
+			<span class="hljs-keyword">union</span> PML * pdp_in = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)from[i].bits.page &lt;&lt; PAGE_SHIFT);
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-number">512</span>; ++j) {
+				<span class="hljs-keyword">if</span> (pdp_in[j].bits.present) {
+					out++;
+					<span class="hljs-keyword">union</span> PML * pd_in = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)pdp_in[j].bits.page &lt;&lt; PAGE_SHIFT);
+					<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> k = <span class="hljs-number">0</span>; k &lt; <span class="hljs-number">512</span>; ++k) {
+						<span class="hljs-keyword">if</span> (pd_in[k].bits.present) {
+							out++;
+							<span class="hljs-keyword">union</span> PML * pt_in = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)pd_in[k].bits.page &lt;&lt; PAGE_SHIFT);
+							<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> l = <span class="hljs-number">0</span>; l &lt; <span class="hljs-number">512</span>; ++l) {
+								<span class="hljs-comment">/* Calculate final address to skip SHM */</span>
+								<span class="hljs-keyword">uintptr_t</span> address = ((i &lt;&lt; (<span class="hljs-number">9</span> * <span class="hljs-number">3</span> + <span class="hljs-number">12</span>)) | (j &lt;&lt; (<span class="hljs-number">9</span>*<span class="hljs-number">2</span> + <span class="hljs-number">12</span>)) | (k &lt;&lt; (<span class="hljs-number">9</span> + <span class="hljs-number">12</span>)) | (l &lt;&lt; PAGE_SHIFT));
+								<span class="hljs-keyword">if</span> (address &gt;= USER_DEVICE_MAP &amp;&amp; address &lt;= USER_SHM_HIGH) <span class="hljs-keyword">continue</span>;
+								<span class="hljs-keyword">if</span> (pt_in[l].bits.present) {
+									<span class="hljs-keyword">if</span> (pt_in[l].bits.user) {
+										out++;
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	<span class="hljs-keyword">return</span> out;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-21" id="section-21"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">from</span>
+<span>Top-level page directory to scan.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">size_t</span> <span class="hljs-title">mmu_count_shm</span><span class="hljs-params">(<span class="hljs-keyword">union</span> PML * from)</span> </span>{
+	<span class="hljs-keyword">size_t</span> out = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">256</span>; ++i) {
+		<span class="hljs-keyword">if</span> (from[i].bits.present) {
+			<span class="hljs-keyword">union</span> PML * pdp_in = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)from[i].bits.page &lt;&lt; PAGE_SHIFT);
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-number">512</span>; ++j) {
+				<span class="hljs-keyword">if</span> (pdp_in[j].bits.present) {
+					<span class="hljs-keyword">union</span> PML * pd_in = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)pdp_in[j].bits.page &lt;&lt; PAGE_SHIFT);
+					<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> k = <span class="hljs-number">0</span>; k &lt; <span class="hljs-number">512</span>; ++k) {
+						<span class="hljs-keyword">if</span> (pd_in[k].bits.present) {
+							<span class="hljs-keyword">union</span> PML * pt_in = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)pd_in[k].bits.page &lt;&lt; PAGE_SHIFT);
+							<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> l = <span class="hljs-number">0</span>; l &lt; <span class="hljs-number">512</span>; ++l) {
+								<span class="hljs-comment">/* Calculate final address to skip SHM */</span>
+								<span class="hljs-keyword">uintptr_t</span> address = ((i &lt;&lt; (<span class="hljs-number">9</span> * <span class="hljs-number">3</span> + <span class="hljs-number">12</span>)) | (j &lt;&lt; (<span class="hljs-number">9</span>*<span class="hljs-number">2</span> + <span class="hljs-number">12</span>)) | (k &lt;&lt; (<span class="hljs-number">9</span> + <span class="hljs-number">12</span>)) | (l &lt;&lt; PAGE_SHIFT));
+								<span class="hljs-keyword">if</span> (address &lt; USER_DEVICE_MAP || address &gt; USER_SHM_HIGH) <span class="hljs-keyword">continue</span>;
+								<span class="hljs-keyword">if</span> (pt_in[l].bits.present) {
+									<span class="hljs-keyword">if</span> (pt_in[l].bits.user) {
+										out++;
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	<span class="hljs-keyword">return</span> out;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-22" id="section-22"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">size_t</span> <span class="hljs-title">mmu_total_memory</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> total_memory;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-23" id="section-23"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">size_t</span> <span class="hljs-title">mmu_used_memory</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">size_t</span> ret = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> i, j;
+	<span class="hljs-keyword">for</span> (i = <span class="hljs-number">0</span>; i &lt; INDEX_FROM_BIT(nframes); ++i) {
+		<span class="hljs-keyword">for</span> (j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-number">32</span>; ++j) {
+			<span class="hljs-keyword">uint32_t</span> testFrame = (<span class="hljs-keyword">uint32_t</span>)<span class="hljs-number">0x1</span> &lt;&lt; j;
+			<span class="hljs-keyword">if</span> (frames[i] &amp; testFrame) {
+				ret++;
+			}
+		}
+	}
+	<span class="hljs-keyword">return</span> ret * <span class="hljs-number">4</span> - unavailable_memory;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-24" id="section-24"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">from</span>
+<span>Virtual pointer to top-level directory.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">mmu_free</span><span class="hljs-params">(<span class="hljs-keyword">union</span> PML * from)</span> </span>{
+	<span class="hljs-keyword">if</span> (!from) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"can't clear NULL directory\n"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	spin_lock(frame_alloc_lock);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">256</span>; ++i) {
+		<span class="hljs-keyword">if</span> (from[i].bits.present) {
+			<span class="hljs-keyword">union</span> PML * pdp_in = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)from[i].bits.page &lt;&lt; PAGE_SHIFT);
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-number">512</span>; ++j) {
+				<span class="hljs-keyword">if</span> (pdp_in[j].bits.present) {
+					<span class="hljs-keyword">union</span> PML * pd_in = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)pdp_in[j].bits.page &lt;&lt; PAGE_SHIFT);
+					<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> k = <span class="hljs-number">0</span>; k &lt; <span class="hljs-number">512</span>; ++k) {
+						<span class="hljs-keyword">if</span> (pd_in[k].bits.present) {
+							<span class="hljs-keyword">union</span> PML * pt_in = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)pd_in[k].bits.page &lt;&lt; PAGE_SHIFT);
+							<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> l = <span class="hljs-number">0</span>; l &lt; <span class="hljs-number">512</span>; ++l) {
+								<span class="hljs-keyword">uintptr_t</span> address = ((i &lt;&lt; (<span class="hljs-number">9</span> * <span class="hljs-number">3</span> + <span class="hljs-number">12</span>)) | (j &lt;&lt; (<span class="hljs-number">9</span>*<span class="hljs-number">2</span> + <span class="hljs-number">12</span>)) | (k &lt;&lt; (<span class="hljs-number">9</span> + <span class="hljs-number">12</span>)) | (l &lt;&lt; PAGE_SHIFT));
+								<span class="hljs-comment">/* Do not free shared mappings; SHM subsystem does that for SHM, devices don't need it. */</span>
+								<span class="hljs-keyword">if</span> (address &gt;= USER_DEVICE_MAP &amp;&amp; address &lt;= USER_SHM_HIGH) <span class="hljs-keyword">continue</span>;
+								<span class="hljs-keyword">if</span> (pt_in[l].bits.present) {
+									<span class="hljs-comment">/* Free only user pages */</span>
+									<span class="hljs-keyword">if</span> (pt_in[l].bits.user) {
+										free_page_maybe(pt_in,l,address);
+									}
+								}
+							}
+							mmu_frame_clear((<span class="hljs-keyword">uintptr_t</span>)pd_in[k].bits.page &lt;&lt; PAGE_SHIFT);
+						}
+					}
+					mmu_frame_clear((<span class="hljs-keyword">uintptr_t</span>)pdp_in[j].bits.page &lt;&lt; PAGE_SHIFT);
+				}
+			}
+			mmu_frame_clear((<span class="hljs-keyword">uintptr_t</span>)from[i].bits.page &lt;&lt; PAGE_SHIFT);
+		}
+	}
+
+	mmu_frame_clear((((<span class="hljs-keyword">uintptr_t</span>)from) &amp; PHYS_MASK));
+	spin_unlock(frame_alloc_lock);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">union</span> PML * <span class="hljs-title">mmu_get_kernel_directory</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">union</span> PML*)&amp;init_page_region[<span class="hljs-number">0</span>];
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-25" id="section-25"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">new_pml</span>
+<span>Either the physical address or the shadow mapping virtual address                of the new PML4 directory to switch into, general obtained from
+a process struct; if NULL is passed, the initial kernel directory
+will be used and no userspace mappings will be present.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">mmu_set_directory</span><span class="hljs-params">(<span class="hljs-keyword">union</span> PML * new_pml)</span> </span>{
+	<span class="hljs-keyword">if</span> (!new_pml) new_pml = (<span class="hljs-keyword">union</span> PML*)&amp;init_page_region[<span class="hljs-number">0</span>];
+	this_core-&gt;current_pml = new_pml;
+
+	<span class="hljs-keyword">uintptr_t</span> pml_phys = mmu_map_to_physical(new_pml, (<span class="hljs-keyword">uintptr_t</span>)new_pml);
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-string">"movq %0, %%cr3"</span>
+		: : <span class="hljs-string">"r"</span>((<span class="hljs-keyword">uintptr_t</span>)pml_phys))</span></span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-26" id="section-26"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">addr</span>
+<span>Virtual address in the current address space to invalidate.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">mmu_invalidate</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> addr)</span> </span>{
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-string">"invlpg (%0)"</span>
+		: : <span class="hljs-string">"r"</span>(addr))</span></span>;
+	arch_tlb_shootdown(addr);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">mmu_flush</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * addr)</span> </span>{
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">""</span> : : : <span class="hljs-string">"memory"</span>)</span></span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">mmu_get_page_deep</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> virtAddr, <span class="hljs-keyword">union</span> PML ** pml4_out, <span class="hljs-keyword">union</span> PML ** pdp_out, <span class="hljs-keyword">union</span> PML ** pd_out, <span class="hljs-keyword">union</span> PML ** pt_out)</span> </span>{
+	<span class="hljs-comment">/* This is all the same as x86, thankfully? */</span>
+	<span class="hljs-keyword">uintptr_t</span> realBits = virtAddr &amp; CANONICAL_MASK;
+	<span class="hljs-keyword">uintptr_t</span> pageAddr = realBits &gt;&gt; PAGE_SHIFT;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> pml4_entry = (pageAddr &gt;&gt; <span class="hljs-number">27</span>) &amp; ENTRY_MASK;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> pdp_entry  = (pageAddr &gt;&gt; <span class="hljs-number">18</span>) &amp; ENTRY_MASK;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> pd_entry   = (pageAddr &gt;&gt; <span class="hljs-number">9</span>)  &amp; ENTRY_MASK;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> pt_entry   = (pageAddr) &amp; ENTRY_MASK;
+
+	<span class="hljs-comment">/* Zero all the outputs */</span>
+	*pdp_out  = <span class="hljs-literal">NULL</span>;
+	*pd_out   = <span class="hljs-literal">NULL</span>;
+	*pt_out   = <span class="hljs-literal">NULL</span>;
+
+	spin_lock(frame_alloc_lock);
+	<span class="hljs-keyword">union</span> PML * root = this_core-&gt;current_pml;
+	*pml4_out = (<span class="hljs-keyword">union</span> PML *)&amp;root[pml4_entry];
+	<span class="hljs-keyword">if</span> (!root[pml4_entry].bits.present) <span class="hljs-keyword">goto</span> _noentry;
+	<span class="hljs-keyword">union</span> PML * pdp = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)root[pml4_entry].bits.page &lt;&lt; PAGE_SHIFT);
+	*pdp_out = (<span class="hljs-keyword">union</span> PML *)&amp;pdp[pdp_entry];
+	<span class="hljs-keyword">if</span> (!pdp[pdp_entry].bits.present) <span class="hljs-keyword">goto</span> _noentry;
+	<span class="hljs-keyword">union</span> PML * pd = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)pdp[pdp_entry].bits.page &lt;&lt; PAGE_SHIFT);
+	*pd_out = (<span class="hljs-keyword">union</span> PML *)&amp;pd[pd_entry];
+	<span class="hljs-keyword">if</span> (!pd[pd_entry].bits.present) <span class="hljs-keyword">goto</span> _noentry;
+	<span class="hljs-keyword">union</span> PML * pt = mmu_map_from_physical((<span class="hljs-keyword">uintptr_t</span>)pd[pd_entry].bits.page &lt;&lt; PAGE_SHIFT);
+	*pt_out = (<span class="hljs-keyword">union</span> PML *)&amp;pt[pt_entry];
+
+	spin_unlock(frame_alloc_lock);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+_noentry:
+	spin_unlock(frame_alloc_lock);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">maybe_release_directory</span><span class="hljs-params">(<span class="hljs-keyword">union</span> PML * parent, <span class="hljs-keyword">union</span> PML * child)</span> </span>{
+	<span class="hljs-comment">/* child points to one entry, to get the base, we can page align it */</span>
+	<span class="hljs-keyword">union</span> PML * table = (<span class="hljs-keyword">union</span> PML *)((<span class="hljs-keyword">uintptr_t</span>)child &amp; PAGE_SIZE_MASK);
+
+	<span class="hljs-comment">/* Is everything in the table free? */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">512</span>; ++i) {
+		<span class="hljs-keyword">if</span> (table[i].bits.present) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">uintptr_t</span> old_page = (parent-&gt;bits.page &lt;&lt; PAGE_SHIFT);
+
+	<span class="hljs-comment">/* Then we can mark 'parent' as freed, clear the whole thing. */</span>
+	parent-&gt;raw = <span class="hljs-number">0</span>;
+	mmu_frame_clear(old_page);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">mmu_unmap_user</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> addr, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uintptr_t</span> a = addr; a &lt; addr + <span class="hljs-built_in">size</span>; a += PAGE_SIZE) {
+		<span class="hljs-keyword">union</span> PML * pml4, * pdp, * pd, * pt;
+
+		<span class="hljs-keyword">if</span> (a &gt;= USER_DEVICE_MAP &amp;&amp; a &lt;= USER_SHM_HIGH) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-keyword">if</span> (mmu_get_page_deep(a, &amp;pml4, &amp;pdp, &amp;pd, &amp;pt)) <span class="hljs-keyword">continue</span>;
+
+		spin_lock(frame_alloc_lock);
+
+		<span class="hljs-keyword">if</span> (pt &amp;&amp; pt-&gt;bits.present &amp;&amp; pt-&gt;bits.user) {
+			<span class="hljs-keyword">if</span> (pt-&gt;bits.writable) {
+				assert(mem_refcounts[pt-&gt;bits.page] == <span class="hljs-number">0</span>);
+				mmu_frame_clear((<span class="hljs-keyword">uintptr_t</span>)pt-&gt;bits.page &lt;&lt; PAGE_SHIFT);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!pt-&gt;bits.cow_pending &amp;&amp; !mem_refcounts[pt-&gt;bits.page]) {
+				mmu_frame_clear((<span class="hljs-keyword">uintptr_t</span>)pt-&gt;bits.page &lt;&lt; PAGE_SHIFT);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (refcount_dec(pt-&gt;bits.page) == <span class="hljs-number">0</span>) {
+				mmu_frame_clear((<span class="hljs-keyword">uintptr_t</span>)pt-&gt;bits.page &lt;&lt; PAGE_SHIFT);
+			}
+			pt-&gt;bits.present = <span class="hljs-number">0</span>;
+			pt-&gt;bits.writable = <span class="hljs-number">0</span>;
+
+			<span class="hljs-keyword">if</span> (maybe_release_directory(pd, pt)) {
+				<span class="hljs-keyword">if</span> (maybe_release_directory(pdp, pd)) {
+					maybe_release_directory(pml4, pdp);
+				}
+			}
+
+			mmu_invalidate(a);
+		}
+
+		spin_unlock(frame_alloc_lock);
+	}
+}
+
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * heapStart = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">char</span> <span class="hljs-built_in">end</span>[];
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uintptr_t</span> module_base_address = MODULE_BASE_START;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uintptr_t</span> mmu_k2p_base = <span class="hljs-number">0</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-27" id="section-27"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">base</span>
+<span>Load address of the kernel, so we can skip the             lower parts of memory and maybe reclaim them.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">__attribute__((no_sanitize_undefined))
+<span class="hljs-function"><span class="hljs-keyword">uintptr_t</span> <span class="hljs-title">mmu_early_init</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> base)</span> </span>{
+	<span class="hljs-comment">/* Uppermost */</span>
+	init_page_region[<span class="hljs-number">0</span>][<span class="hljs-number">511</span>].raw = (<span class="hljs-keyword">uintptr_t</span>)&amp;high_base_pml | KERNEL_PML_ACCESS;
+
+	high_base_pml[<span class="hljs-number">510</span>].raw = (<span class="hljs-keyword">uintptr_t</span>)(&amp;kbase_pmls[<span class="hljs-number">0</span>]) | KERNEL_PML_ACCESS;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-number">2</span>; ++j) {
+		kbase_pmls[<span class="hljs-number">0</span>][j].raw = (<span class="hljs-keyword">uintptr_t</span>)(&amp;kbase_pmls[<span class="hljs-number">1</span>+j]) | KERNEL_PML_ACCESS;
+	}
+
+	<span class="hljs-keyword">uintptr_t</span> _end = (<span class="hljs-keyword">uintptr_t</span>)&amp;<span class="hljs-built_in">end</span> - base;
+
+	<span class="hljs-keyword">if</span> (_end &amp; PAGE_LOW_MASK) {
+		_end = (_end &amp; PAGE_SIZE_MASK) + PAGE_SIZE;
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; _end / PAGE_SIZE; ++i) {
+		kbase_pmls[<span class="hljs-number">1</span>+i/<span class="hljs-number">512</span>][i%<span class="hljs-number">512</span>].raw = (<span class="hljs-keyword">uintptr_t</span>)(PAGE_SIZE * i + base) | KERNEL_PML_ACCESS;
+	}
+
+	module_base_address = (<span class="hljs-keyword">uintptr_t</span>)MODULE_BASE_START + _end;
+	mmu_k2p_base = base;
+
+	<span class="hljs-keyword">return</span> MODULE_BASE_START;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uintptr_t</span> <span class="hljs-title">k2p</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * x)</span> </span>{
+	<span class="hljs-keyword">return</span> ((<span class="hljs-keyword">uintptr_t</span>)x - MODULE_BASE_START + mmu_k2p_base);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-28" id="section-28"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">page</span>
+<span>Physical address of a new page directory (one level).
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">mmu_populate_low</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> page)</span> </span>{
+	<span class="hljs-keyword">union</span> PML * pml = (<span class="hljs-keyword">void</span>*)mmu_map_from_physical(page);
+	<span class="hljs-built_in">memcpy</span>(pml, &amp;init_page_region, <span class="hljs-number">0x1000</span>);
+
+	low_base_pmls[<span class="hljs-number">0</span>][<span class="hljs-number">0</span>].raw = k2p(&amp;low_base_pmls[<span class="hljs-number">1</span>]) | USER_PML_ACCESS;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-number">2</span>; ++j) {
+		low_base_pmls[<span class="hljs-number">1</span>][j].raw = k2p(&amp;low_base_pmls[<span class="hljs-number">2</span>+j]) | KERNEL_PML_ACCESS;
+	}
+
+	<span class="hljs-keyword">uintptr_t</span> _end = k2p(&amp;<span class="hljs-built_in">end</span>);
+	<span class="hljs-keyword">if</span> (_end &amp; PAGE_LOW_MASK) {
+		_end = (_end &amp; PAGE_SIZE_MASK) + PAGE_SIZE;
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; _end / PAGE_SIZE; ++i) {
+		low_base_pmls[<span class="hljs-number">2</span>+i/<span class="hljs-number">512</span>][i%<span class="hljs-number">512</span>].raw = (<span class="hljs-keyword">uintptr_t</span>)(PAGE_SIZE * i) | KERNEL_PML_ACCESS;
+	}
+
+	<span class="hljs-comment">/* Unmap null */</span>
+	low_base_pmls[<span class="hljs-number">2</span>][<span class="hljs-number">0</span>].raw = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Now map our new low base */</span>
+	pml[<span class="hljs-number">0</span>].raw = k2p(&amp;low_base_pmls[<span class="hljs-number">0</span>]) | USER_PML_ACCESS;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-29" id="section-29"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">memsize</span>
+<span>The maximum accessible physical address.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">firstFreePage</span>
+<span>The address of the first frame the kernel may use for new allocations.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">mmu_init</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> memsize, <span class="hljs-keyword">uintptr_t</span> firstFreePage)</span> </span>{
+	this_core-&gt;current_pml = (<span class="hljs-keyword">union</span> PML *)&amp;init_page_region[<span class="hljs-number">0</span>];
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-30" id="section-30"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Enable WP bit, which will cause kernel writes to
+non-writable pages to trigger page faults. We use
+this to perform COW mappings for user processes if
+they passed an unmapped region to a system call, though
+this should be handled by @see mmu_validate_user_pointer
+before we get to that point...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(
+		<span class="hljs-string">"movq %%cr0, %%rax\n"</span>
+		<span class="hljs-string">"orq  $0x10000, %%rax\n"</span>
+		<span class="hljs-string">"movq %%rax, %%cr0\n"</span>
+		: : : <span class="hljs-string">"rax"</span>)</span></span>;
+
+	<span class="hljs-comment">/* Map the high base PDP */</span>
+	init_page_region[<span class="hljs-number">0</span>][<span class="hljs-number">510</span>].raw = k2p(&amp;heap_base_pml) | KERNEL_PML_ACCESS;
+
+	<span class="hljs-comment">/* Identity map from -128GB in the boot PML using 2MiB pages */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">64</span>; ++i) {
+		high_base_pml[i].raw = k2p(&amp;twom_high_pds[i]) | KERNEL_PML_ACCESS;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uintptr_t</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-number">512</span>; ++j) {
+			twom_high_pds[i][j].raw = ((i &lt;&lt; <span class="hljs-number">30</span>) + (j &lt;&lt; <span class="hljs-number">21</span>)) | LARGE_PAGE_BIT | KERNEL_PML_ACCESS;
+		}
+	}
+
+	<span class="hljs-comment">/* Ensure we don't have a lingering low mapping. */</span>
+	init_page_region[<span class="hljs-number">0</span>][<span class="hljs-number">0</span>].raw = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Set up the page allocator bitmap... */</span>
+	nframes = (memsize &gt;&gt; <span class="hljs-number">12</span>);
+	<span class="hljs-keyword">size_t</span> bytesOfFrames = INDEX_FROM_BIT(nframes * <span class="hljs-number">8</span>);
+	bytesOfFrames = (bytesOfFrames + PAGE_LOW_MASK) &amp; PAGE_SIZE_MASK;
+	firstFreePage = (firstFreePage + PAGE_LOW_MASK) &amp; PAGE_SIZE_MASK;
+	<span class="hljs-keyword">size_t</span> pagesOfFrames = bytesOfFrames &gt;&gt; <span class="hljs-number">12</span>;
+
+	<span class="hljs-comment">/* Set up heap map for that... */</span>
+	heap_base_pml[<span class="hljs-number">0</span>].raw = k2p(&amp;heap_base_pd) | KERNEL_PML_ACCESS;
+	heap_base_pd[<span class="hljs-number">0</span>].raw  = k2p(&amp;heap_base_pt[<span class="hljs-number">0</span>]) | KERNEL_PML_ACCESS;
+	heap_base_pd[<span class="hljs-number">1</span>].raw  = k2p(&amp;heap_base_pt[<span class="hljs-number">512</span>]) | KERNEL_PML_ACCESS;
+	heap_base_pd[<span class="hljs-number">2</span>].raw  = k2p(&amp;heap_base_pt[<span class="hljs-number">1024</span>]) | KERNEL_PML_ACCESS;
+
+	<span class="hljs-keyword">if</span> (pagesOfFrames &gt; <span class="hljs-number">512</span>*<span class="hljs-number">3</span>) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Warning: Too much available memory for current setup. Need %zu pages to represent allocation bitmap.\n"</span>, pagesOfFrames);
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; pagesOfFrames; i++) {
+		heap_base_pt[i].raw = (firstFreePage + (i &lt;&lt; <span class="hljs-number">12</span>)) | KERNEL_PML_ACCESS;
+	}
+
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">(<span class="hljs-string">""</span> : : : <span class="hljs-string">"memory"</span>)</span></span>;
+
+	<span class="hljs-comment">/* We are now in the new stuff. */</span>
+	frames = (<span class="hljs-keyword">void</span>*)((<span class="hljs-keyword">uintptr_t</span>)KERNEL_HEAP_START);
+	<span class="hljs-built_in">memset</span>((<span class="hljs-keyword">void</span>*)frames, <span class="hljs-number">0xFF</span>, bytesOfFrames);
+
+	<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">mboot_unmark_valid_memory</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span></span>;
+	mboot_unmark_valid_memory();
+
+	<span class="hljs-comment">/* Don't trust anything but our own bitmap... */</span>
+	<span class="hljs-keyword">size_t</span> unavail = <span class="hljs-number">0</span>, avail = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; INDEX_FROM_BIT(nframes); ++i) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-number">32</span>; ++j) {
+			<span class="hljs-keyword">uint32_t</span> testFrame = (<span class="hljs-keyword">uint32_t</span>)<span class="hljs-number">0x1</span> &lt;&lt; j;
+			<span class="hljs-keyword">if</span> (frames[i] &amp; testFrame) {
+				unavail++;
+			} <span class="hljs-keyword">else</span> {
+				avail++;
+			}
+		}
+	}
+
+	total_memory = avail * <span class="hljs-number">4</span>;
+	unavailable_memory = unavail * <span class="hljs-number">4</span>;
+
+	<span class="hljs-comment">/* Now mark everything up to (firstFreePage + bytesOfFrames) as in use */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uintptr_t</span> i = <span class="hljs-number">0</span>; i &lt; firstFreePage + bytesOfFrames; i += PAGE_SIZE) {
+		mmu_frame_set(i);
+	}
+
+	heapStart = (<span class="hljs-keyword">char</span>*)KERNEL_HEAP_START + bytesOfFrames;
+
+	<span class="hljs-comment">/* Then, uh, make a bunch of space for page counts? */</span>
+	<span class="hljs-keyword">size_t</span> size_of_refcounts = (nframes &amp; PAGE_LOW_MASK) ? (nframes + PAGE_SIZE - (nframes &amp; PAGE_LOW_MASK)) : nframes;
+	mem_refcounts = sbrk(size_of_refcounts);
+	<span class="hljs-built_in">memset</span>(mem_refcounts, <span class="hljs-number">0</span>, size_of_refcounts);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-31" id="section-31"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">bytes</span>
+<span>Bytes to allocate. Must be a multiple of PAGE_SIZE.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> * <span class="hljs-title">sbrk</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> bytes)</span> </span>{
+	<span class="hljs-keyword">if</span> (!heapStart) {
+		arch_fatal_prepare();
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"sbrk: Called before heap was ready.\n"</span>);
+		arch_dump_traceback();
+		arch_fatal();
+	}
+
+	<span class="hljs-keyword">if</span> (!bytes) {
+		<span class="hljs-comment">/* Skip lock acquisition if we just wanted to know where the break was. */</span>
+		<span class="hljs-keyword">return</span> heapStart;
+	}
+
+	<span class="hljs-keyword">if</span> (bytes &amp; PAGE_LOW_MASK) {
+		arch_fatal_prepare();
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"sbrk: Size must be multiple of 4096, was %#zx\n"</span>, bytes);
+		arch_dump_traceback();
+		arch_fatal();
+	}
+
+	<span class="hljs-keyword">if</span> (bytes &gt; <span class="hljs-number">0x1F00000</span>) {
+		arch_fatal_prepare();
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"sbrk: Size must be within a reasonable bound, was %#zx\n"</span>, bytes);
+		arch_dump_traceback();
+		arch_fatal();
+	}
+
+	spin_lock(kheap_lock);
+	<span class="hljs-keyword">void</span> * out = heapStart;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uintptr_t</span> p = (<span class="hljs-keyword">uintptr_t</span>)out; p &lt; (<span class="hljs-keyword">uintptr_t</span>)out + bytes; p += PAGE_SIZE) {
+		<span class="hljs-keyword">union</span> PML * page = mmu_get_page(p, MMU_GET_MAKE);
+		mmu_frame_allocate(page, MMU_FLAG_WRITABLE | MMU_FLAG_KERNEL);
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-32" id="section-32"></a>
+</div>
+<p>memset(out, 0xAA, bytes);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+	heapStart += bytes;
+	spin_unlock(kheap_lock);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uintptr_t</span> mmio_base_address = MMIO_BASE_START;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-33" id="section-33"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">physical_address</span>
+<span>Physical memory offset of the destination MMIO space.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">size</span>
+<span>Size of the requested space, which must be a multiple of PAGE_SIZE.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> * <span class="hljs-title">mmu_map_mmio_region</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> physical_address, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &amp; PAGE_LOW_MASK) {
+		arch_fatal_prepare();
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"mmu_map_mmio_region: MMIO region size must be multiple of 4096 bytes, was %#zx.\n"</span>, <span class="hljs-built_in">size</span>);
+		arch_dump_traceback();
+		arch_fatal();
+	}
+
+	spin_lock(mmio_space_lock);
+	<span class="hljs-keyword">void</span> * out = (<span class="hljs-keyword">void</span>*)mmio_base_address;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">size</span>; i += PAGE_SIZE) {
+		<span class="hljs-keyword">union</span> PML * p = mmu_get_page(mmio_base_address + i, MMU_GET_MAKE);
+		mmu_frame_map_address(p, MMU_FLAG_KERNEL | MMU_FLAG_WRITABLE | MMU_FLAG_NOCACHE | MMU_FLAG_WRITETHROUGH, physical_address + i);
+	}
+	mmio_base_address += <span class="hljs-built_in">size</span>;
+	spin_unlock(mmio_space_lock);
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-34" id="section-34"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">size</span>
+<span>How much space to allocate, will be rounded up to page size.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> * <span class="hljs-title">mmu_map_module</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &amp; PAGE_LOW_MASK) {
+		<span class="hljs-built_in">size</span> += (PAGE_LOW_MASK + <span class="hljs-number">1</span>) - (<span class="hljs-built_in">size</span> &amp; PAGE_LOW_MASK);
+	}
+
+	spin_lock(module_space_lock);
+	<span class="hljs-keyword">void</span> * out = (<span class="hljs-keyword">void</span>*)module_base_address;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">size</span>; i += PAGE_SIZE) {
+		<span class="hljs-keyword">union</span> PML * p = mmu_get_page(module_base_address + i, MMU_GET_MAKE);
+		mmu_frame_allocate(p, MMU_FLAG_KERNEL | MMU_FLAG_WRITABLE);
+	}
+	module_base_address += <span class="hljs-built_in">size</span>;
+	spin_unlock(module_space_lock);
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-35" id="section-35"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">start_address</span>
+<span>Start of mapping to unmap.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">size</span>
+<span>Size of mapping to unmap.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">mmu_unmap_module</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> start_address, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> ((<span class="hljs-built_in">size</span> &amp; PAGE_LOW_MASK) || (start_address &amp; PAGE_LOW_MASK)) {
+		arch_fatal_prepare();
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"mmu_unmap_module start and size must be multiple of page size %#zx:%#zx.\n"</span>, start_address, <span class="hljs-built_in">size</span>);
+		arch_dump_traceback();
+		arch_fatal();
+	}
+
+	spin_lock(module_space_lock);
+	<span class="hljs-keyword">uintptr_t</span> end_address = start_address + <span class="hljs-built_in">size</span>;
+
+	<span class="hljs-comment">/* Unmap all pages we just allocated */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uintptr_t</span> i = start_address; i &lt; end_address; i += <span class="hljs-number">0x1000</span>) {
+		<span class="hljs-keyword">union</span> PML * p = mmu_get_page(i, <span class="hljs-number">0</span>);
+		mmu_frame_clear(p-&gt;bits.page &lt;&lt; <span class="hljs-number">12</span>);
+	}
+
+	<span class="hljs-comment">/* Reset module base address if it was at the end, to avoid wasting address space */</span>
+	<span class="hljs-keyword">if</span> (end_address == module_base_address) {
+		module_base_address = start_address;
+	}
+	spin_unlock(module_space_lock);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-36" id="section-36"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">address</span>
+<span>Virtual address that triggered the fault.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">mmu_copy_on_write</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> address)</span> </span>{
+	<span class="hljs-keyword">union</span> PML * page = mmu_get_page(address,<span class="hljs-number">0</span>);
+
+	<span class="hljs-comment">/* Was this address pending a cow? */</span>
+	<span class="hljs-keyword">if</span> (!page-&gt;bits.cow_pending) {
+		<span class="hljs-comment">/* No, go back and trigger and a SIGSEGV */</span>
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	spin_lock(frame_alloc_lock);
+
+	<span class="hljs-comment">/* Is this the last reference to this page? */</span>
+	<span class="hljs-keyword">uint8_t</span> refs = refcount_dec(page-&gt;bits.page);
+	<span class="hljs-keyword">if</span> (refs == <span class="hljs-number">0</span>) {
+		<span class="hljs-comment">/* Then we can just mark it writable. */</span>
+		page-&gt;bits.writable = <span class="hljs-number">1</span>;
+		page-&gt;bits.cow_pending = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">asm</span> (<span class="hljs-string">""</span> ::: <span class="hljs-string">"memory"</span>);
+		mmu_invalidate(address);
+		spin_unlock(frame_alloc_lock);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-comment">/* Allocate a new writable page */</span>
+	<span class="hljs-keyword">uintptr_t</span> faulting_frame = page-&gt;bits.page;
+	<span class="hljs-keyword">uintptr_t</span> fresh_frame = mmu_first_frame();
+	mmu_frame_set(fresh_frame &lt;&lt; PAGE_SHIFT);
+
+	<span class="hljs-comment">/* Copy the read-only page into the new writable page */</span>
+	<span class="hljs-keyword">char</span> * page_in  = mmu_map_from_physical(faulting_frame &lt;&lt; PAGE_SHIFT);
+	<span class="hljs-keyword">char</span> * page_out = mmu_map_from_physical(fresh_frame &lt;&lt; PAGE_SHIFT);
+	<span class="hljs-built_in">memcpy</span>(page_out, page_in, <span class="hljs-number">4096</span>);
+
+	<span class="hljs-comment">/* And swap out the page table entry. */</span>
+	assert(mem_refcounts[fresh_frame] == <span class="hljs-number">0</span>);
+	page-&gt;bits.page = fresh_frame;
+	page-&gt;bits.writable = <span class="hljs-number">1</span>;
+	page-&gt;bits.cow_pending = <span class="hljs-number">0</span>;
+	spin_unlock(frame_alloc_lock);
+
+	<span class="hljs-keyword">asm</span> (<span class="hljs-string">""</span> ::: <span class="hljs-string">"memory"</span>);
+
+	mmu_invalidate(address);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-37" id="section-37"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+<div class="dox_tag_title">Params</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">addr</span>
+<span>Address to start checking from.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">size</span>
+<span>Size after @p addr to check.
+</span>
+</div>
+<div class="dox_tag_detail">
+<span class="dox_tag_name">flags</span>
+<span>Control what constitutes a failure.
+</span>
+</div>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">mmu_validate_user_pointer</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> * addr, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">if</span> (addr == <span class="hljs-literal">NULL</span>) {
+		<span class="hljs-keyword">if</span> (!(flags &amp; MMU_PTR_NULL) || <span class="hljs-built_in">size</span> != <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &gt;     <span class="hljs-number">0x800000000000</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">uintptr_t</span> base = (<span class="hljs-keyword">uintptr_t</span>)addr;
+	<span class="hljs-keyword">uintptr_t</span> <span class="hljs-built_in">end</span>  = <span class="hljs-built_in">size</span> ? (base + (<span class="hljs-built_in">size</span> - <span class="hljs-number">1</span>)) : base;
+
+	<span class="hljs-comment">/* Get start page, end page */</span>
+	<span class="hljs-keyword">uintptr_t</span> page_base = base &gt;&gt; <span class="hljs-number">12</span>;
+	<span class="hljs-keyword">uintptr_t</span> page_end  =  <span class="hljs-built_in">end</span> &gt;&gt; <span class="hljs-number">12</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uintptr_t</span> page = page_base; page &lt;= page_end; ++page) {
+		<span class="hljs-keyword">if</span> ((page &amp; <span class="hljs-number">0xffff800000000</span>) != <span class="hljs-number">0</span> &amp;&amp; (page &amp; <span class="hljs-number">0xffff800000000</span>) != <span class="hljs-number">0xffff800000000</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">union</span> PML * page_entry = mmu_get_page_other(this_core-&gt;current_process-&gt;thread.page_directory-&gt;directory, page &lt;&lt; <span class="hljs-number">12</span>);
+		<span class="hljs-keyword">if</span> (!page_entry) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (!page_entry-&gt;bits.present) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (!page_entry-&gt;bits.user) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (!page_entry-&gt;bits.writable &amp;&amp; (flags &amp; MMU_PTR_WRITE)) {
+			<span class="hljs-keyword">if</span> (mmu_copy_on_write((<span class="hljs-keyword">uintptr_t</span>)(page &lt;&lt; <span class="hljs-number">12</span>))) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

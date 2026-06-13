@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>iso9660.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "modules\\iso9660.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>iso9660.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/module.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/args.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/tokenize.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/hashmap.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ISO_SECTOR_SIZE 2048</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> FLAG_HIDDEN      0x01</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> FLAG_DIRECTORY   0x02</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> FLAG_ASSOCIATED  0x04</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> FLAG_EXTENDED    0x08</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> FLAG_PERMISSIONS 0x10</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> FLAG_CONTINUES   0x80</span>
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+	<span class="hljs-keyword">fs_node_t</span> * block_device;
+	<span class="hljs-keyword">uint32_t</span> block_size;
+	<span class="hljs-keyword">hashmap_t</span> * cache;
+	<span class="hljs-keyword">list_t</span> * lru;
+} <span class="hljs-keyword">iso_9660_fs_t</span>;
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+	<span class="hljs-keyword">char</span> year[<span class="hljs-number">4</span>];
+	<span class="hljs-keyword">char</span> month[<span class="hljs-number">2</span>];
+	<span class="hljs-keyword">char</span> day[<span class="hljs-number">2</span>];
+	<span class="hljs-keyword">char</span> hour[<span class="hljs-number">2</span>];
+	<span class="hljs-keyword">char</span> minute[<span class="hljs-number">2</span>];
+	<span class="hljs-keyword">char</span> second[<span class="hljs-number">2</span>];
+	<span class="hljs-keyword">char</span> hundredths[<span class="hljs-number">2</span>];
+	<span class="hljs-keyword">int8_t</span> timezone;
+} __attribute__((packed)) <span class="hljs-keyword">iso_9660_datetime_t</span>;
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+	<span class="hljs-keyword">uint8_t</span> year;
+	<span class="hljs-keyword">uint8_t</span> month;
+	<span class="hljs-keyword">uint8_t</span> day;
+	<span class="hljs-keyword">uint8_t</span> hour;
+	<span class="hljs-keyword">uint8_t</span> minute;
+	<span class="hljs-keyword">uint8_t</span> second;
+	<span class="hljs-keyword">int8_t</span> timezone;
+} __attribute__((packed)) <span class="hljs-keyword">iso_9660_rec_date_t</span>;
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+	<span class="hljs-keyword">uint8_t</span> length;
+	<span class="hljs-keyword">uint8_t</span> ext_length;
+
+	<span class="hljs-keyword">uint32_t</span> extent_start_LSB;
+	<span class="hljs-keyword">uint32_t</span> extent_start_MSB;
+
+	<span class="hljs-keyword">uint32_t</span> extent_length_LSB;
+	<span class="hljs-keyword">uint32_t</span> extent_length_MSB;
+
+	<span class="hljs-keyword">iso_9660_rec_date_t</span> record_date;
+
+	<span class="hljs-keyword">uint8_t</span> flags;
+	<span class="hljs-keyword">uint8_t</span> interleave_units;
+	<span class="hljs-keyword">uint8_t</span> interleave_gap;
+
+	<span class="hljs-keyword">uint16_t</span> volume_seq_LSB;
+	<span class="hljs-keyword">uint16_t</span> volume_seq_MSB;
+
+	<span class="hljs-keyword">uint8_t</span> name_len;
+	<span class="hljs-keyword">char</span> name[];
+} __attribute__((packed)) <span class="hljs-keyword">iso_9660_directory_entry_t</span>;
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+	<span class="hljs-keyword">uint8_t</span> type; <span class="hljs-comment">/* 0x01 */</span>
+	<span class="hljs-keyword">char</span> id[<span class="hljs-number">5</span>]; <span class="hljs-comment">/* CD001 */</span>
+
+	<span class="hljs-keyword">uint8_t</span> version;
+	<span class="hljs-keyword">uint8_t</span> _unused0;
+
+	<span class="hljs-keyword">char</span> system_id[<span class="hljs-number">32</span>];
+	<span class="hljs-keyword">char</span> volume_id[<span class="hljs-number">32</span>];
+
+	<span class="hljs-keyword">uint8_t</span> _unused1[<span class="hljs-number">8</span>];
+
+	<span class="hljs-keyword">uint32_t</span> volume_space_LSB;
+	<span class="hljs-keyword">uint32_t</span> volume_space_MSB;
+
+	<span class="hljs-keyword">uint8_t</span> _unused2[<span class="hljs-number">32</span>];
+
+	<span class="hljs-keyword">uint16_t</span> volume_set_LSB;
+	<span class="hljs-keyword">uint16_t</span> volume_set_MSB;
+
+	<span class="hljs-keyword">uint16_t</span> volume_seq_LSB;
+	<span class="hljs-keyword">uint16_t</span> volume_seq_MSB;
+
+	<span class="hljs-keyword">uint16_t</span> logical_block_size_LSB;
+	<span class="hljs-keyword">uint16_t</span> logical_block_size_MSB;
+
+	<span class="hljs-keyword">uint32_t</span> path_table_size_LSB;
+	<span class="hljs-keyword">uint32_t</span> path_table_size_MSB;
+
+	<span class="hljs-keyword">uint32_t</span> path_table_LSB;
+	<span class="hljs-keyword">uint32_t</span> optional_path_table_LSB;
+
+	<span class="hljs-keyword">uint32_t</span> path_table_MSB;
+	<span class="hljs-keyword">uint32_t</span> optional_path_table_MSB;
+
+	<span class="hljs-comment">/* iso_9660_directory_entry_t */</span>
+	<span class="hljs-keyword">char</span> root[<span class="hljs-number">34</span>];
+
+	<span class="hljs-keyword">char</span> volume_set_id[<span class="hljs-number">128</span>];
+	<span class="hljs-keyword">char</span> volume_publisher[<span class="hljs-number">128</span>];
+	<span class="hljs-keyword">char</span> data_preparer[<span class="hljs-number">128</span>];
+	<span class="hljs-keyword">char</span> application_id[<span class="hljs-number">128</span>];
+
+	<span class="hljs-keyword">char</span> copyright_file[<span class="hljs-number">38</span>];
+	<span class="hljs-keyword">char</span> abstract_file[<span class="hljs-number">36</span>];
+	<span class="hljs-keyword">char</span> bibliographic_file[<span class="hljs-number">37</span>];
+
+	<span class="hljs-keyword">iso_9660_datetime_t</span> creation;
+	<span class="hljs-keyword">iso_9660_datetime_t</span> modification;
+	<span class="hljs-keyword">iso_9660_datetime_t</span> expiration;
+	<span class="hljs-keyword">iso_9660_datetime_t</span> effective;
+
+	<span class="hljs-keyword">uint8_t</span> file_structure_version;
+	<span class="hljs-keyword">uint8_t</span> _unused_3;
+
+	<span class="hljs-keyword">char</span> application_use[];
+} __attribute__((packed)) <span class="hljs-keyword">iso_9660_volume_descriptor_t</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">file_from_dir_entry</span><span class="hljs-params">(<span class="hljs-keyword">iso_9660_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">size_t</span> sector, <span class="hljs-keyword">iso_9660_directory_entry_t</span> * dir, <span class="hljs-keyword">size_t</span> offset, <span class="hljs-keyword">fs_node_t</span> * fs)</span></span>;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CACHE_SIZE 64</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">read_sector</span><span class="hljs-params">(<span class="hljs-keyword">iso_9660_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">uint32_t</span> sector_id, <span class="hljs-keyword">char</span> * <span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (<span class="hljs-keyword">this</span>-&gt;cache) {
+		<span class="hljs-keyword">void</span> * sector_id_v = (<span class="hljs-keyword">void</span> *)(<span class="hljs-keyword">uintptr_t</span>)sector_id;
+		<span class="hljs-keyword">if</span> (hashmap_has(<span class="hljs-keyword">this</span>-&gt;cache, sector_id_v)) {
+			<span class="hljs-built_in">memcpy</span>(<span class="hljs-built_in">buffer</span>,hashmap_get(<span class="hljs-keyword">this</span>-&gt;cache, sector_id_v), <span class="hljs-keyword">this</span>-&gt;block_size);
+			<span class="hljs-keyword">node_t</span> * me = list_find(<span class="hljs-keyword">this</span>-&gt;lru, sector_id_v);
+			list_delete(<span class="hljs-keyword">this</span>-&gt;lru, me);
+			list_append(<span class="hljs-keyword">this</span>-&gt;lru, me);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">if</span> (<span class="hljs-keyword">this</span>-&gt;lru-&gt;length &gt; CACHE_SIZE) {
+				<span class="hljs-keyword">node_t</span> * l = list_dequeue(<span class="hljs-keyword">this</span>-&gt;lru);
+				<span class="hljs-built_in">free</span>(hashmap_get(<span class="hljs-keyword">this</span>-&gt;cache, l-&gt;value));
+				hashmap_remove(<span class="hljs-keyword">this</span>-&gt;cache, l-&gt;value);
+				<span class="hljs-built_in">free</span>(l);
+			}
+			<span class="hljs-keyword">int</span> result = read_fs(<span class="hljs-keyword">this</span>-&gt;block_device, sector_id * <span class="hljs-keyword">this</span>-&gt;block_size, <span class="hljs-keyword">this</span>-&gt;block_size, (<span class="hljs-keyword">uint8_t</span> *)<span class="hljs-built_in">buffer</span>);
+			<span class="hljs-keyword">if</span> (result &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> result;
+			<span class="hljs-keyword">if</span> (result == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">char</span> * buf = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+			<span class="hljs-built_in">memcpy</span>(buf, <span class="hljs-built_in">buffer</span>, <span class="hljs-keyword">this</span>-&gt;block_size);
+			hashmap_set(<span class="hljs-keyword">this</span>-&gt;cache, sector_id_v, buf);
+			list_insert(<span class="hljs-keyword">this</span>-&gt;lru, sector_id_v);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">int</span> result = read_fs(<span class="hljs-keyword">this</span>-&gt;block_device, sector_id * <span class="hljs-keyword">this</span>-&gt;block_size, <span class="hljs-keyword">this</span>-&gt;block_size, (<span class="hljs-keyword">uint8_t</span> *)<span class="hljs-built_in">buffer</span>);
+		<span class="hljs-keyword">if</span> (result &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> result;
+		<span class="hljs-keyword">if</span> (result == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">inplace_lower</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * <span class="hljs-built_in">string</span>)</span> </span>{
+	<span class="hljs-keyword">while</span> (*<span class="hljs-built_in">string</span>) {
+		<span class="hljs-keyword">if</span> (*<span class="hljs-built_in">string</span> &gt;= <span class="hljs-string">'A'</span> &amp;&amp; *<span class="hljs-built_in">string</span> &lt;= <span class="hljs-string">'Z'</span>) {
+			*<span class="hljs-built_in">string</span> += (<span class="hljs-string">'a'</span> - <span class="hljs-string">'A'</span>);
+		}
+		<span class="hljs-built_in">string</span>++;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">open_iso</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-comment">/* Nothing to do here */</span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">close_iso</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+	<span class="hljs-comment">/* Nothing to do here */</span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">readdir_iso</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> index, struct dirent * dent)</span> </span>{
+	<span class="hljs-keyword">if</span> (index == <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">memset</span>(dent, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+		dent-&gt;d_ino = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">strcpy</span>(dent-&gt;d_name, <span class="hljs-string">"."</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (index == <span class="hljs-number">1</span>) {
+		<span class="hljs-built_in">memset</span>(dent, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+		dent-&gt;d_ino = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">strcpy</span>(dent-&gt;d_name, <span class="hljs-string">".."</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">iso_9660_fs_t</span> * <span class="hljs-keyword">this</span> = node-&gt;device;
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">buffer</span> = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+	read_sector(<span class="hljs-keyword">this</span>, node-&gt;inode, <span class="hljs-built_in">buffer</span>);
+	<span class="hljs-keyword">iso_9660_directory_entry_t</span> * root_entry = (<span class="hljs-keyword">iso_9660_directory_entry_t</span> *)(<span class="hljs-built_in">buffer</span> + node-&gt;impl);
+
+	<span class="hljs-keyword">uint8_t</span> * root_data = <span class="hljs-built_in">malloc</span>(root_entry-&gt;extent_length_LSB);
+	<span class="hljs-keyword">uint8_t</span> * offset = root_data;
+	<span class="hljs-keyword">size_t</span> sector_offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> length_to_read = root_entry-&gt;extent_length_LSB;
+	<span class="hljs-keyword">while</span> (length_to_read) {
+		read_sector(<span class="hljs-keyword">this</span>, root_entry-&gt;extent_start_LSB + sector_offset, (<span class="hljs-keyword">char</span>*)offset);
+		<span class="hljs-keyword">if</span> (length_to_read &gt;= <span class="hljs-keyword">this</span>-&gt;block_size) {
+			offset += <span class="hljs-keyword">this</span>-&gt;block_size;
+			sector_offset += <span class="hljs-number">1</span>;
+			length_to_read -= <span class="hljs-keyword">this</span>-&gt;block_size;
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-comment">/* Examine directory */</span>
+	offset = root_data;
+
+	<span class="hljs-keyword">int</span> found = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">fs_node_t</span> * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">memset</span>(dent, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">iso_9660_directory_entry_t</span> * dir = (<span class="hljs-keyword">iso_9660_directory_entry_t</span> *)offset;
+		<span class="hljs-keyword">if</span> (dir-&gt;length == <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">size_t</span>)(offset - root_data) &lt; root_entry-&gt;extent_length_LSB) {
+				offset += <span class="hljs-number">1</span>; <span class="hljs-comment">// this-&gt;block_size - ((uintptr_t)offset % this-&gt;block_size);</span>
+				<span class="hljs-keyword">goto</span> try_again;
+			}
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">if</span> (!(dir-&gt;flags &amp; FLAG_HIDDEN)) {
+			<span class="hljs-keyword">if</span> (i == index) {
+				file_from_dir_entry(<span class="hljs-keyword">this</span>, (root_entry-&gt;extent_start_LSB)+(offset - root_data)/<span class="hljs-keyword">this</span>-&gt;block_size, dir, (offset - root_data) % <span class="hljs-keyword">this</span>-&gt;block_size, out);
+				<span class="hljs-built_in">memcpy</span>(&amp;dent-&gt;d_name, out-&gt;name, <span class="hljs-built_in">strlen</span>(out-&gt;name)+<span class="hljs-number">1</span>);
+				dent-&gt;d_ino = out-&gt;inode;
+				found = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">goto</span> cleanup;
+			}
+			i += <span class="hljs-number">1</span>;
+		}
+		offset += dir-&gt;length;
+try_again:
+		<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">size_t</span>)(offset - root_data) &gt;= root_entry-&gt;extent_length_LSB) <span class="hljs-keyword">break</span>;
+	}
+
+cleanup:
+	<span class="hljs-built_in">free</span>(root_data);
+	<span class="hljs-built_in">free</span>(<span class="hljs-built_in">buffer</span>);
+	<span class="hljs-built_in">free</span>(out);
+	<span class="hljs-keyword">return</span> found;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">read_iso</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> * <span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">iso_9660_fs_t</span> * <span class="hljs-keyword">this</span> = node-&gt;device;
+	<span class="hljs-keyword">char</span> * tmp = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+	read_sector(<span class="hljs-keyword">this</span>, node-&gt;inode, tmp);
+	<span class="hljs-keyword">iso_9660_directory_entry_t</span> * root_entry = (<span class="hljs-keyword">iso_9660_directory_entry_t</span> *)(tmp + node-&gt;impl);
+
+	<span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">end</span>;
+	<span class="hljs-comment">/* We can do this in a single underlying read to the filesystem */</span>
+	<span class="hljs-keyword">if</span> (offset + <span class="hljs-built_in">size</span> &gt; root_entry-&gt;extent_length_LSB) {
+		<span class="hljs-built_in">end</span> = root_entry-&gt;extent_length_LSB;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">end</span> = offset + <span class="hljs-built_in">size</span>;
+	}
+	<span class="hljs-keyword">uint32_t</span> size_to_read = <span class="hljs-built_in">end</span> - offset;
+
+	read_fs(<span class="hljs-keyword">this</span>-&gt;block_device, root_entry-&gt;extent_start_LSB * <span class="hljs-keyword">this</span>-&gt;block_size + offset, size_to_read, (<span class="hljs-keyword">uint8_t</span> *)<span class="hljs-built_in">buffer</span>);
+
+	<span class="hljs-built_in">free</span>(tmp);
+	<span class="hljs-keyword">return</span> size_to_read;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">finddir_iso</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> *name)</span> </span>{
+	<span class="hljs-keyword">iso_9660_fs_t</span> * <span class="hljs-keyword">this</span> = node-&gt;device;
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">buffer</span> = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">this</span>-&gt;block_size);
+	read_sector(<span class="hljs-keyword">this</span>, node-&gt;inode, <span class="hljs-built_in">buffer</span>);
+	<span class="hljs-keyword">iso_9660_directory_entry_t</span> * root_entry = (<span class="hljs-keyword">iso_9660_directory_entry_t</span> *)(<span class="hljs-built_in">buffer</span> + node-&gt;impl);
+
+	<span class="hljs-keyword">uint8_t</span> * root_data = <span class="hljs-built_in">malloc</span>(root_entry-&gt;extent_length_LSB);
+	<span class="hljs-keyword">uint8_t</span> * offset = root_data;
+	<span class="hljs-keyword">size_t</span> sector_offset = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> length_to_read = root_entry-&gt;extent_length_LSB;
+	<span class="hljs-keyword">while</span> (length_to_read) {
+		read_sector(<span class="hljs-keyword">this</span>, root_entry-&gt;extent_start_LSB + sector_offset, (<span class="hljs-keyword">char</span>*)offset);
+		<span class="hljs-keyword">if</span> (length_to_read &gt;= <span class="hljs-keyword">this</span>-&gt;block_size) {
+			offset += <span class="hljs-keyword">this</span>-&gt;block_size;
+			sector_offset += <span class="hljs-number">1</span>;
+			length_to_read -= <span class="hljs-keyword">this</span>-&gt;block_size;
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-comment">/* Examine directory */</span>
+	offset = root_data;
+
+	<span class="hljs-keyword">fs_node_t</span> * out = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">iso_9660_directory_entry_t</span> * dir = (<span class="hljs-keyword">iso_9660_directory_entry_t</span> *)offset;
+		<span class="hljs-keyword">if</span> (dir-&gt;length == <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">size_t</span>)(offset - root_data) &lt; root_entry-&gt;extent_length_LSB) {
+				offset += <span class="hljs-number">1</span>; <span class="hljs-comment">// this-&gt;block_size - ((uintptr_t)offset % this-&gt;block_size);</span>
+				<span class="hljs-keyword">goto</span> try_next_finddir;
+			}
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">if</span> (!(dir-&gt;flags &amp; FLAG_HIDDEN)) {
+			<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+			file_from_dir_entry(<span class="hljs-keyword">this</span>, (root_entry-&gt;extent_start_LSB)+(offset - root_data)/<span class="hljs-keyword">this</span>-&gt;block_size, dir, (offset - root_data) % <span class="hljs-keyword">this</span>-&gt;block_size, out);
+
+			<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(out-&gt;name, name)) {
+				<span class="hljs-keyword">goto</span> cleanup; <span class="hljs-comment">/* found it */</span>
+			}
+
+		}
+		offset += dir-&gt;length;
+try_next_finddir:
+		<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">size_t</span>)(offset - root_data) &gt; root_entry-&gt;extent_length_LSB) <span class="hljs-keyword">break</span>;
+	}
+
+	<span class="hljs-built_in">free</span>(out);
+	out = <span class="hljs-literal">NULL</span>;
+
+cleanup:
+	<span class="hljs-built_in">free</span>(root_data);
+	<span class="hljs-built_in">free</span>(<span class="hljs-built_in">buffer</span>);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">file_from_dir_entry</span><span class="hljs-params">(<span class="hljs-keyword">iso_9660_fs_t</span> * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">size_t</span> sector, <span class="hljs-keyword">iso_9660_directory_entry_t</span> * dir, <span class="hljs-keyword">size_t</span> offset, <span class="hljs-keyword">fs_node_t</span> * fs)</span> </span>{
+	fs-&gt;device = <span class="hljs-keyword">this</span>;
+	fs-&gt;inode  = sector; <span class="hljs-comment">/* Sector the file is in */</span>
+	fs-&gt;impl   = offset; <span class="hljs-comment">/* Offset */</span>
+
+	<span class="hljs-keyword">char</span> * file_name = <span class="hljs-built_in">malloc</span>(dir-&gt;name_len + <span class="hljs-number">1</span>);
+	<span class="hljs-built_in">memcpy</span>(file_name, dir-&gt;name, dir-&gt;name_len);
+	file_name[dir-&gt;name_len] = <span class="hljs-number">0</span>;
+	inplace_lower(file_name);
+	<span class="hljs-keyword">char</span> * dot = <span class="hljs-built_in">strchr</span>(file_name, <span class="hljs-string">'.'</span>);
+	<span class="hljs-keyword">if</span> (!dot) {
+		<span class="hljs-comment">/* It's a directory. */</span>
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">char</span> * ext = dot + <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">char</span> * semi = <span class="hljs-built_in">strchr</span>(ext, <span class="hljs-string">';'</span>);
+		<span class="hljs-keyword">if</span> (semi) {
+			*semi = <span class="hljs-number">0</span>;
+		}
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strlen</span>(ext) == <span class="hljs-number">0</span>) {
+			*dot = <span class="hljs-number">0</span>;
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">char</span> * derp = ext;
+			<span class="hljs-keyword">while</span> (*derp == <span class="hljs-string">'.'</span>) derp++;
+			<span class="hljs-keyword">if</span> (derp != ext) {
+				memmove(ext, derp, <span class="hljs-built_in">strlen</span>(derp)+<span class="hljs-number">1</span>);
+			}
+		}
+	}
+	<span class="hljs-built_in">memcpy</span>(fs-&gt;name, file_name, <span class="hljs-built_in">strlen</span>(file_name)+<span class="hljs-number">1</span>);
+	<span class="hljs-built_in">free</span>(file_name);
+
+	fs-&gt;uid = <span class="hljs-number">0</span>;
+	fs-&gt;gid = <span class="hljs-number">0</span>;
+	fs-&gt;length = dir-&gt;extent_length_LSB;
+	fs-&gt;mask = <span class="hljs-number">0555</span>;
+	fs-&gt;nlink = <span class="hljs-number">0</span>; <span class="hljs-comment">/* Unsupported */</span>
+	<span class="hljs-keyword">if</span> (dir-&gt;flags &amp; FLAG_DIRECTORY) {
+		fs-&gt;flags = FS_DIRECTORY;
+		fs-&gt;readdir = readdir_iso;
+		fs-&gt;finddir = finddir_iso;
+	} <span class="hljs-keyword">else</span> {
+		fs-&gt;flags = FS_FILE;
+		fs-&gt;<span class="hljs-built_in">read</span> = read_iso;
+	}
+	<span class="hljs-comment">/* Other things not supported */</span>
+	<span class="hljs-comment">/* TODO actually get these from the CD into Unix time */</span>
+	fs-&gt;atime = now();
+	fs-&gt;mtime = now();
+	fs-&gt;ctime = now();
+
+	fs-&gt;<span class="hljs-built_in">open</span> = open_iso;
+	fs-&gt;<span class="hljs-built_in">close</span> = close_iso;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">iso_fs_mount</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * device, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * mount_path)</span> </span>{
+	<span class="hljs-keyword">char</span> * arg = strdup(device);
+	<span class="hljs-keyword">char</span> * argv[<span class="hljs-number">10</span>];
+	<span class="hljs-keyword">int</span> argc = tokenize(arg, <span class="hljs-string">","</span>, argv);
+
+	<span class="hljs-keyword">fs_node_t</span> * dev = kopen(argv[<span class="hljs-number">0</span>], <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">if</span> (!dev) {
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">int</span> cache = <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; i &lt; argc; ++i) {
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(argv[i],<span class="hljs-string">"nocache"</span>)) {
+			cache = <span class="hljs-number">0</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!dev) {
+		<span class="hljs-built_in">free</span>(arg);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">iso_9660_fs_t</span> * <span class="hljs-keyword">this</span> = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">iso_9660_fs_t</span>));
+	<span class="hljs-keyword">this</span>-&gt;block_device = dev;
+	<span class="hljs-keyword">this</span>-&gt;block_size = ISO_SECTOR_SIZE;
+	<span class="hljs-keyword">if</span> (cache) {
+		<span class="hljs-keyword">this</span>-&gt;cache = hashmap_create_int(<span class="hljs-number">10</span>);
+		<span class="hljs-keyword">this</span>-&gt;lru = list_create(<span class="hljs-string">"iso9660 lru cache"</span>, <span class="hljs-keyword">this</span>);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">this</span>-&gt;cache = <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-comment">/* Probably want to put a block cache on this like EXT2 driver does; or do that in the ATAPI layer... */</span>
+
+	<span class="hljs-comment">/* Read the volume descriptors */</span>
+	<span class="hljs-keyword">uint8_t</span> * tmp = <span class="hljs-built_in">malloc</span>(ISO_SECTOR_SIZE);
+	<span class="hljs-keyword">int</span> i = <span class="hljs-number">0x10</span>;
+	<span class="hljs-keyword">int</span> found = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">if</span> (read_sector(<span class="hljs-keyword">this</span>,i,(<span class="hljs-keyword">char</span>*)tmp)) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">if</span> (tmp[<span class="hljs-number">0</span>] == <span class="hljs-number">0x00</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<p>debug_print(WARNING, &quot; Boot Record&quot;);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (tmp[<span class="hljs-number">0</span>] == <span class="hljs-number">0x01</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<p>debug_print(WARNING, &quot; Primary Volume Descriptor&quot;);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			found = <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">break</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (tmp[<span class="hljs-number">0</span>] == <span class="hljs-number">0x02</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<p>debug_print(WARNING, &quot; Secondary Volume Descriptor&quot;);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (tmp[<span class="hljs-number">0</span>] == <span class="hljs-number">0x03</span>) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<p>debug_print(WARNING, &quot; Volume Partition Descriptor&quot;);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		}
+		<span class="hljs-keyword">if</span> (tmp[<span class="hljs-number">0</span>] == <span class="hljs-number">0xFF</span>) <span class="hljs-keyword">break</span>;
+		i++;
+	}
+
+	<span class="hljs-keyword">if</span> (!found) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<p>debug_print(WARNING, &quot;No primary volume descriptor?&quot;);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		<span class="hljs-built_in">free</span>(arg);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">iso_9660_volume_descriptor_t</span> * root = (<span class="hljs-keyword">iso_9660_volume_descriptor_t</span> *)tmp;
+	<span class="hljs-keyword">iso_9660_directory_entry_t</span> * root_entry = (<span class="hljs-keyword">iso_9660_directory_entry_t</span> *)&amp;root-&gt;root;
+
+	<span class="hljs-keyword">fs_node_t</span> * fs = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">memset</span>(fs, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	file_from_dir_entry(<span class="hljs-keyword">this</span>, i, root_entry, <span class="hljs-number">156</span>, fs);
+
+	<span class="hljs-built_in">free</span>(arg);
+	<span class="hljs-keyword">return</span> fs;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">init</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	vfs_register(<span class="hljs-string">"iso"</span>, iso_fs_mount);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">fini</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Module</span> <span class="hljs-title">metadata</span> = {</span>
+	.name = <span class="hljs-string">"iso9660"</span>,
+	.init = init,
+	.fini = fini,
+};
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

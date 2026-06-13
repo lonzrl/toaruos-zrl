@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>embedding.md</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\docs\\embedding.md";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+      <div class="heading h2">
+        <a href="#kuroko-c-api-documentation-embedding">Kuroko C API Documentation {#embedding}</a>
+      </div>
+
+      <div class="heading h3">
+        <a href="#getting-started-getting-started">Getting Started {#getting-started}</a>
+      </div>
+
+      <div class="heading h4">
+        <a href="#headers">Headers</a>
+      </div>
+
+      <div class="heading h4">
+        <a href="#initializing-the-vm">Initializing the VM</a>
+      </div>
+
+      <div class="heading h4">
+        <a href="#starting-a-module">Starting a Module</a>
+      </div>
+
+      <div class="heading h4">
+        <a href="#calling-the-interpreter">Calling the Interpreter</a>
+      </div>
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="docs markdown"><div class="pilwrap" id="kuroko-c-api-documentation-embedding">
+  <h2>
+    <a href="#kuroko-c-api-documentation-embedding" name="kuroko-c-api-documentation-embedding" class="pilcrow"></a>
+Kuroko C API Documentation {#embedding}
+  </h2>
+</div>
+<p>This documentation covers using Kuroko 1.1 as a scripting language in a host C application and assumes a relatively recent Linux or similarly POSIX-y build environment.</p>
+<p>We'll also assume you've already installed Kuroko from a package that includes source headers, such as <a href="https://launchpad.net/~k-lange/+archive/ubuntu/kuroko/">the PPA</a>.</p>
+<div class="pilwrap" id="getting-started-getting-started">
+  <h3>
+    <a href="#getting-started-getting-started" name="getting-started-getting-started" class="pilcrow"></a>
+Getting Started {#getting-started}
+  </h3>
+</div>
+<pre><code class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/kuroko.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> *argv[])</span> </span>{
+    krk_initVM(<span class="hljs-number">0</span>);
+    krk_startModule(<span class="hljs-string">"__main__"</span>);
+    krk_interpret(<span class="hljs-string">"print('hello, world')"</span>, <span class="hljs-string">"&lt;stdin&gt;"</span>);
+    krk_freeVM();
+    <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+</code></pre>
+<p>Let's start by looking at the example code above.</p>
+<div class="pilwrap" id="headers">
+  <h4>
+    <a href="#headers" name="headers" class="pilcrow"></a>
+Headers
+  </h4>
+</div>
+<p>Kuroko's public API is exposed primarily through the <code>&lt;kuroko/kuroko.h&gt;</code> header.</p>
+<p><code>&lt;kuroko/vm.h&gt;</code> provides internal functions for finer control over how the VM operates.</p>
+<p>Other headers provide convenience functions and macros for building C extensions.</p>
+<div class="pilwrap" id="initializing-the-vm">
+  <h4>
+    <a href="#initializing-the-vm" name="initializing-the-vm" class="pilcrow"></a>
+Initializing the VM
+  </h4>
+</div>
+<p>Our first task in integrating Kuroko into an embedded application is to set up the VM, which we do with <code>krk_initVM()</code>. This function takes one paramater representing the initial <em>global and thread flags</em>, which control debugging features for tracing. In our example code, we do not need to use to use any debug features so we pass <code>0</code>.</p>
+<p>Valid flags to pass to <code>krk_initVM()</code> include:</p>
+<ul>
+<li><code>KRK_THREAD_ENABLE_TRACING</code><br>
+Prints instruction traces during execution.</li>
+<li><code>KRK_THREAD_ENABLE_DISASSEMBLY</code><br>
+Prints function bytecode disassembly whenever the compiler is called.</li>
+<li><code>KRK_THREAD_SINGLE_STEP</code><br>
+Halts execution and calls the debugger before every instruction.</li>
+<li><code>KRK_GLOBAL_REPORT_GC_COLLECTS</code><br>
+Prints a message each time the garbage collector is run.</li>
+<li><code>KRK_GLOBAL_ENABLE_STRESS_GC</code><br>
+Causes the garbage collector to be called on every allocation (from the main thread).</li>
+<li><code>KRK_GLOBAL_CLEAN_OUTPUT</code><br>
+Disables automatic printing of uncaught exception tracebacks. Use <code>krk_dumpTraceback()</code> to print a traceback from the exception in the current thread to <code>stderr</code>.</li>
+</ul>
+<p>@bsnote{Be careful when using <code>KRK_GLOBAL_CLEAN_OUTPUT</code> when threading is available; uncaught exceptions from threads will not be automatically printed and are trickier to catch from C code.}</p>
+<div class="pilwrap" id="starting-a-module">
+  <h4>
+    <a href="#starting-a-module" name="starting-a-module" class="pilcrow"></a>
+Starting a Module
+  </h4>
+</div>
+<p>All Kuroko code runs in the context of a <em>module</em>. When we run code directly using <code>krk_interpret()</code>, such as when providing a REPL or calling snippets, or by using <code>krk_runfile()</code> to execute the contents of a file, we need to establish our own module first. <code>krk_startModule()</code> creates a module context and gives it a name. We use the name <code>__main__</code> as a convention for directly executed code, distinguishing it from imported code.</p>
+<div class="pilwrap" id="calling-the-interpreter">
+  <h4>
+    <a href="#calling-the-interpreter" name="calling-the-interpreter" class="pilcrow"></a>
+Calling the Interpreter
+  </h4>
+</div>
+<p>We pass C strings containg Kuroko code to <code>krk_interpret()</code> to be run by the interpreter. The second argument to <code>krk_interpret()</code> provides a filename for the source of the code, or representative string to show in tracebacks for code that did not come from a file.</p>
+<p>Next up, we'll look at @ref c_functions.</p>
+</div>
+  </div>
+</body>
+</html>

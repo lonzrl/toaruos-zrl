@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>arp.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\net\\arp.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>arp.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/hashmap.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/net/netif.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/net/eth.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/socket.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> MISAKA_DEBUG_NET</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> printf(...)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">arp_header</span> {</span>
+	<span class="hljs-keyword">uint16_t</span> arp_htype;
+	<span class="hljs-keyword">uint16_t</span> arp_ptype;
+	<span class="hljs-keyword">uint8_t</span>  arp_hlen;
+	<span class="hljs-keyword">uint8_t</span>  arp_plen;
+	<span class="hljs-keyword">uint16_t</span> arp_oper;
+	<span class="hljs-keyword">union</span> {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+			<span class="hljs-keyword">uint8_t</span>  arp_sha[<span class="hljs-number">6</span>];
+			<span class="hljs-keyword">uint32_t</span> arp_spa;
+			<span class="hljs-keyword">uint8_t</span> arp_tha[<span class="hljs-number">6</span>];
+			<span class="hljs-keyword">uint32_t</span> arp_tpa;
+		} __attribute__((packed)) arp_eth_ipv4;
+	} arp_data;
+} __attribute__((packed));
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ip_ntoa</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">uint32_t</span> src_addr, <span class="hljs-keyword">char</span> * out)</span> </span>{
+	<span class="hljs-built_in">snprintf</span>(out, <span class="hljs-number">16</span>, <span class="hljs-string">"%d.%d.%d.%d"</span>,
+		(src_addr &amp; <span class="hljs-number">0xFF000000</span>) &gt;&gt; <span class="hljs-number">24</span>,
+		(src_addr &amp; <span class="hljs-number">0xFF0000</span>) &gt;&gt; <span class="hljs-number">16</span>,
+		(src_addr &amp; <span class="hljs-number">0xFF00</span>) &gt;&gt; <span class="hljs-number">8</span>,
+		(src_addr &amp; <span class="hljs-number">0xFF</span>));
+}
+
+<span class="hljs-keyword">spin_lock_t</span> net_arp_cache_lock = {<span class="hljs-number">0</span>};
+<span class="hljs-keyword">hashmap_t</span> * net_arp_cache = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">net_arp_cache_add</span><span class="hljs-params">(struct EthernetDevice * iface, <span class="hljs-keyword">uint32_t</span> addr, <span class="hljs-keyword">uint8_t</span> * hwaddr, <span class="hljs-keyword">uint16_t</span> flags)</span> </span>{
+	spin_lock(net_arp_cache_lock);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ArpCacheEntry</span> * <span class="hljs-title">entry</span> = <span class="hljs-title">hashmap_get</span>(<span class="hljs-title">net_arp_cache</span>, (<span class="hljs-title">void</span>*)(<span class="hljs-title">uintptr_t</span>)<span class="hljs-title">addr</span>);</span>
+	<span class="hljs-keyword">if</span> (!entry) entry = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(struct ArpCacheEntry));
+	<span class="hljs-built_in">memcpy</span>(entry-&gt;hwaddr, hwaddr, <span class="hljs-number">6</span>);
+	entry-&gt;flags = flags;
+	entry-&gt;iface = iface;
+	hashmap_set(net_arp_cache, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)addr, entry);
+	spin_unlock(net_arp_cache_lock);
+}
+
+<span class="hljs-function">struct ArpCacheEntry * <span class="hljs-title">net_arp_cache_get</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> addr)</span> </span>{
+	spin_lock(net_arp_cache_lock);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ArpCacheEntry</span> * <span class="hljs-title">out</span> = <span class="hljs-title">hashmap_get</span>(<span class="hljs-title">net_arp_cache</span>, (<span class="hljs-title">void</span>*)(<span class="hljs-title">uintptr_t</span>)<span class="hljs-title">addr</span>);</span>
+	spin_unlock(net_arp_cache_lock);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">net_arp_ask</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> addr, <span class="hljs-keyword">fs_node_t</span> * fsnic)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">EthernetDevice</span> * <span class="hljs-title">ethnic</span> = <span class="hljs-title">fsnic</span>-&gt;<span class="hljs-title">device</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">arp_header</span> <span class="hljs-title">arp_request</span> = {</span><span class="hljs-number">0</span>};
+
+	arp_request.arp_htype = htons(<span class="hljs-number">1</span>); <span class="hljs-comment">/* Ethernet */</span>
+	arp_request.arp_ptype = htons(ETHERNET_TYPE_IPV4);
+	arp_request.arp_hlen  = <span class="hljs-number">6</span>;
+	arp_request.arp_plen  = <span class="hljs-number">4</span>;
+	arp_request.arp_oper  = htons(<span class="hljs-number">1</span>); <span class="hljs-comment">/* Who is...? */</span>
+	arp_request.arp_data.arp_eth_ipv4.arp_tpa = addr;
+	<span class="hljs-built_in">memcpy</span>(arp_request.arp_data.arp_eth_ipv4.arp_sha, ethnic-&gt;mac, <span class="hljs-number">6</span>);
+
+	<span class="hljs-keyword">if</span> (ethnic-&gt;ipv4_addr) {
+		arp_request.arp_data.arp_eth_ipv4.arp_spa = ethnic-&gt;ipv4_addr;
+	}
+
+	net_eth_send(ethnic, <span class="hljs-keyword">sizeof</span>(struct arp_header), &amp;arp_request, ETHERNET_TYPE_ARP, ETHERNET_BROADCAST_MAC);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">net_arp_handle</span><span class="hljs-params">(struct arp_header * packet, <span class="hljs-keyword">fs_node_t</span> * nic)</span> </span>{
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"net: arp: hardware %d protocol %d operation %d hlen %d plen %d\n"</span>,
+		ntohs(packet-&gt;arp_htype), ntohs(packet-&gt;arp_ptype), ntohs(packet-&gt;arp_oper),
+		packet-&gt;arp_hlen, packet-&gt;arp_plen);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">EthernetDevice</span> * <span class="hljs-title">eth_dev</span> = <span class="hljs-title">nic</span>-&gt;<span class="hljs-title">device</span>;</span>
+
+	<span class="hljs-keyword">if</span> (ntohs(packet-&gt;arp_htype) == <span class="hljs-number">1</span> &amp;&amp; ntohs(packet-&gt;arp_ptype) == ETHERNET_TYPE_IPV4) {
+		<span class="hljs-comment">/* Ethernet, IPv4 */</span>
+		<span class="hljs-keyword">if</span> (packet-&gt;arp_data.arp_eth_ipv4.arp_spa) {
+			net_arp_cache_add(eth_dev, packet-&gt;arp_data.arp_eth_ipv4.arp_spa, packet-&gt;arp_data.arp_eth_ipv4.arp_sha, <span class="hljs-number">0</span>);
+		}
+		<span class="hljs-keyword">if</span> (ntohs(packet-&gt;arp_oper) == <span class="hljs-number">1</span>) {
+			<span class="hljs-keyword">char</span> spa[<span class="hljs-number">17</span>];
+			ip_ntoa(ntohl(packet-&gt;arp_data.arp_eth_ipv4.arp_spa), spa);
+			<span class="hljs-keyword">char</span> tpa[<span class="hljs-number">17</span>];
+			ip_ntoa(ntohl(packet-&gt;arp_data.arp_eth_ipv4.arp_tpa), tpa);
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"net: arp: "</span> MAC_FORMAT <span class="hljs-string">" (%s) wants to know who %s is\n"</span>,
+				FORMAT_MAC(packet-&gt;arp_data.arp_eth_ipv4.arp_sha),
+				spa, tpa);
+			<span class="hljs-keyword">if</span> (eth_dev-&gt;ipv4_addr &amp;&amp;  packet-&gt;arp_data.arp_eth_ipv4.arp_tpa == eth_dev-&gt;ipv4_addr) {
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"net: arp: that's us, we should reply...\n"</span>);
+
+				<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">arp_header</span> <span class="hljs-title">response</span> = {</span><span class="hljs-number">0</span>};
+				response.arp_htype = htons(<span class="hljs-number">1</span>);
+				response.arp_ptype = htons(ETHERNET_TYPE_IPV4);
+				response.arp_hlen = <span class="hljs-number">6</span>;
+				response.arp_plen = <span class="hljs-number">4</span>;
+				response.arp_oper = htons(<span class="hljs-number">2</span>);
+				<span class="hljs-built_in">memcpy</span>(response.arp_data.arp_eth_ipv4.arp_sha, eth_dev-&gt;mac, <span class="hljs-number">6</span>);
+				<span class="hljs-built_in">memcpy</span>(response.arp_data.arp_eth_ipv4.arp_tha, packet-&gt;arp_data.arp_eth_ipv4.arp_sha, <span class="hljs-number">6</span>);
+				response.arp_data.arp_eth_ipv4.arp_spa = eth_dev-&gt;ipv4_addr;
+				response.arp_data.arp_eth_ipv4.arp_tpa = packet-&gt;arp_data.arp_eth_ipv4.arp_spa;
+				net_eth_send(eth_dev, <span class="hljs-keyword">sizeof</span>(struct arp_header), &amp;response, ETHERNET_TYPE_ARP, packet-&gt;arp_data.arp_eth_ipv4.arp_sha);
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ntohs(packet-&gt;arp_oper) == <span class="hljs-number">2</span>) {
+			<span class="hljs-keyword">char</span> spa[<span class="hljs-number">17</span>];
+			ip_ntoa(ntohl(packet-&gt;arp_data.arp_eth_ipv4.arp_spa), spa);
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"net: arp: "</span> MAC_FORMAT <span class="hljs-string">" says they are %s\n"</span>,
+				FORMAT_MAC(packet-&gt;arp_data.arp_eth_ipv4.arp_sha),
+				spa);
+		}
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>killall.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\killall.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>killall.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;fcntl.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;getopt.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;ctype.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/signal.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/procfs.h&gt;</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">show_usage</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_S <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_E <span class="hljs-meta-string">"\033[0m"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+			<span class="hljs-string">"%s - send a signal to all process with the given names\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"usage: %s [-"</span> X_S <span class="hljs-string">"name"</span> X_E <span class="hljs-string">"] "</span> X_S <span class="hljs-string">"procname..."</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" --help          "</span> X_S <span class="hljs-string">"Show this help message."</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -s "</span> X_S <span class="hljs-string">"name         Specify the signal to send."</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"Signals may be named with or without the SIG prefix, or numerically.\n"</span>,
+			argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">KillallContext</span> {</span>
+	<span class="hljs-keyword">char</span> ** argv;
+	<span class="hljs-keyword">int</span> i;
+	<span class="hljs-keyword">int</span> signum;
+	<span class="hljs-keyword">int</span> killed_something;
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">killall_callback</span><span class="hljs-params">(struct <span class="hljs-built_in">process</span> * proc, <span class="hljs-keyword">void</span> * ctx)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">KillallContext</span> * <span class="hljs-title">this</span> = <span class="hljs-title">ctx</span>;</span>
+
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(proc-&gt;name, <span class="hljs-keyword">this</span>-&gt;argv[<span class="hljs-keyword">this</span>-&gt;i])) {
+		<span class="hljs-keyword">if</span> (kill(proc-&gt;pid, <span class="hljs-keyword">this</span>-&gt;signum) &lt; <span class="hljs-number">0</span>) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s(%d): %s\n"</span>, <span class="hljs-keyword">this</span>-&gt;argv[<span class="hljs-number">0</span>], <span class="hljs-keyword">this</span>-&gt;argv[<span class="hljs-keyword">this</span>-&gt;i], proc-&gt;pid, strerror(errno));
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">this</span>-&gt;killed_something = <span class="hljs-number">1</span>;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span> <span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">KillallContext</span> <span class="hljs-title">ctx</span> = {</span>argv, <span class="hljs-number">-1</span>, SIGTERM, <span class="hljs-number">0</span>};
+
+	<span class="hljs-keyword">int</span> c;
+	<span class="hljs-keyword">while</span> ((c = getopt(argc, argv, <span class="hljs-string">"s:-:"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (c) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'s'</span>:
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">char</span> *s = optarg; *s; s++) {
+					*s = <span class="hljs-built_in">toupper</span>(*s);
+				}
+				<span class="hljs-keyword">if</span> (str2sig(optarg, &amp;ctx.signum)) {
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,<span class="hljs-string">"%s: %s: invalid signal specification\n"</span>,argv[<span class="hljs-number">0</span>],optarg);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'-'</span>:
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(optarg, <span class="hljs-string">"help"</span>)) {
+					show_usage(argc, argv);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				}
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: '--%s' is not a recognized long option.\n"</span>, argv[<span class="hljs-number">0</span>],optarg);
+				<span class="hljs-comment">/* fall through */</span>
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> show_usage(argc, argv);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (optind &gt;= argc) {
+		show_usage(argc, argv);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">int</span> retval = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = optind; i &lt; argc; ++i) {
+		ctx.killed_something = <span class="hljs-number">0</span>;
+		ctx.i = i;
+		procfs_iterate(killall_callback, &amp;ctx, PROCFSLIB_NO_THREADS);
+
+		<span class="hljs-keyword">if</span> (!ctx.killed_something) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: %s: no process found\n"</span>, argv[<span class="hljs-number">0</span>], argv[i]);
+			retval = <span class="hljs-number">1</span>;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> retval;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

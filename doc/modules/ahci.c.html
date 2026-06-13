@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ahci.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "modules\\ahci.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>ahci.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/module.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pci.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">mmio_read4</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> mmiobase, <span class="hljs-keyword">intptr_t</span> offset)</span> </span>{
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> * data = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> *)(mmiobase + offset);
+	<span class="hljs-keyword">return</span> *data;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">mmio_write4</span><span class="hljs-params">(<span class="hljs-keyword">uintptr_t</span> mmiobase, <span class="hljs-keyword">intptr_t</span> offset, <span class="hljs-keyword">uint32_t</span> value)</span> </span>{
+	<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> * data = (<span class="hljs-keyword">volatile</span> <span class="hljs-keyword">uint32_t</span> *)(mmiobase + offset);
+	*data = value;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">ahci_device_name</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> pcidev, <span class="hljs-keyword">int</span> port)</span> </span>{
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> buf[<span class="hljs-number">20</span>];
+	<span class="hljs-built_in">snprintf</span>(buf,<span class="hljs-number">19</span>,<span class="hljs-string">"ahcip%ds%dp%d"</span>,
+			(<span class="hljs-keyword">int</span>)pci_extract_bus(pcidev),
+			(<span class="hljs-keyword">int</span>)pci_extract_slot(pcidev),
+			port);
+	<span class="hljs-keyword">return</span> buf;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AHCI_PXCMD_ST    (1 &lt;&lt; 0UL)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AHCI_PXCMD_SUD   (1 &lt;&lt; 1UL)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AHCI_PXCMD_POD   (1 &lt;&lt; 2UL)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AHCI_PXCMD_CLO   (1 &lt;&lt; 3UL)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AHCI_PXCMD_FRE   (1 &lt;&lt; 4UL)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AHCI_PXCMD_MPSS  (1 &lt;&lt; 13UL)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AHCI_PXCMD_FR    (1 &lt;&lt; 14UL)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AHCI_PXCMD_CR    (1 &lt;&lt; 15UL)</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DPRINT(fmt,...) fprintf(stderr, <span class="hljs-meta-string">"%s: "</span> fmt, ahci_device_name(pcidev,port), ##__VA_ARGS__)</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ahci_setup_atapi</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * <span class="hljs-built_in">stderr</span>, <span class="hljs-keyword">uint32_t</span> pcidev, <span class="hljs-keyword">uintptr_t</span> mmio_addr, <span class="hljs-keyword">int</span> port)</span> </span>{
+	<span class="hljs-keyword">intptr_t</span> offset = <span class="hljs-number">0x100</span> + port * <span class="hljs-number">0x80</span>;
+	DPRINT(<span class="hljs-string">"setting up ATAPI device\n"</span>);
+	<span class="hljs-keyword">uint32_t</span> PxCMD = mmio_read4(mmio_addr, offset + <span class="hljs-number">0x18</span>);
+	DPRINT(<span class="hljs-string">"device cmd: %#x\n"</span>, PxCMD);
+	<span class="hljs-keyword">if</span> (PxCMD &amp; AHCI_PXCMD_ST)  DPRINT(<span class="hljs-string">"  started (not idle!)\n"</span>);
+	<span class="hljs-keyword">if</span> (PxCMD &amp; AHCI_PXCMD_FRE) DPRINT(<span class="hljs-string">"  FIS receive enable (not idle!)\n"</span>);
+	<span class="hljs-keyword">if</span> (PxCMD &amp; AHCI_PXCMD_FR)  DPRINT(<span class="hljs-string">"  FIS receive running (not idle!)\n"</span>);
+	<span class="hljs-keyword">if</span> (PxCMD &amp; AHCI_PXCMD_CR)  DPRINT(<span class="hljs-string">"  command list running (not idle!)\n"</span>);
+
+	<span class="hljs-keyword">if</span> (PxCMD &amp; (AHCI_PXCMD_ST | AHCI_PXCMD_FRE | AHCI_PXCMD_FR | AHCI_PXCMD_CR)) {
+		DPRINT(<span class="hljs-string">"Not idle, setting to idle state...\n"</span>);
+		PxCMD &amp;= ~(AHCI_PXCMD_ST);
+		mmio_write4(mmio_addr, offset + <span class="hljs-number">0x18</span>, PxCMD);
+		DPRINT(<span class="hljs-string">"Waiting for device...\n"</span>);
+		<span class="hljs-keyword">while</span> (mmio_read4(mmio_addr, offset + <span class="hljs-number">0x18</span>) &amp; AHCI_PXCMD_CR);
+		DPRINT(<span class="hljs-string">"Device is stopped.\n"</span>);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">find_ahci</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> device, <span class="hljs-keyword">uint16_t</span> vendorid, <span class="hljs-keyword">uint16_t</span> deviceid, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-keyword">if</span> (pci_find_type(device) != <span class="hljs-number">0x0106</span>) <span class="hljs-keyword">return</span>; <span class="hljs-comment">/* Mass Storage, SATA controller */</span>
+	<span class="hljs-keyword">if</span> (pci_read_field(device, PCI_PROG_IF, <span class="hljs-number">1</span>) != <span class="hljs-number">0x01</span>) <span class="hljs-keyword">return</span>; <span class="hljs-comment">/* AHCI */</span>
+	<span class="hljs-keyword">fs_node_t</span> * <span class="hljs-built_in">stderr</span> = extra;
+
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"ahci: located device at %#x\n"</span>, device);
+
+	<span class="hljs-keyword">uint16_t</span> command_reg = pci_read_field(device, PCI_COMMAND, <span class="hljs-number">2</span>);
+	command_reg |= (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">2</span>);
+	command_reg |= (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">1</span>);
+	command_reg ^= (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">10</span>);
+	pci_write_field(device, PCI_COMMAND, <span class="hljs-number">2</span>, command_reg);
+
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"ahci: examining PCI config space...\n"</span>);
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"ahci: interrupt line = %d\n"</span>, pci_get_interrupt(device));
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"ahci: BAR5 = %#x\n"</span>, pci_read_field(device, PCI_BAR5, <span class="hljs-number">4</span>));
+
+	<span class="hljs-keyword">uintptr_t</span> mmio_addr = (<span class="hljs-keyword">uintptr_t</span>)mmu_map_mmio_region(pci_read_field(device, PCI_BAR5, <span class="hljs-number">4</span>) &amp; <span class="hljs-number">0xFFFFFFF0</span>, <span class="hljs-number">0x2000</span>); <span class="hljs-comment">/* I have no idea how much space this needs */</span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"ahci: mapping mmio to %#zx\n"</span>, mmio_addr);
+
+	<span class="hljs-keyword">uint32_t</span> enabledPorts = mmio_read4(mmio_addr, <span class="hljs-number">0x0C</span>);
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"ahci: implemented ports = %#x\n"</span>, enabledPorts);
+
+	<span class="hljs-keyword">uint32_t</span> ahciVersion = mmio_read4(mmio_addr, <span class="hljs-number">0x10</span>);
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"ahci: version %d.%d%d\n"</span>,
+		(ahciVersion &gt;&gt; <span class="hljs-number">16</span>) &amp; <span class="hljs-number">0xFFF</span>,
+		(ahciVersion &gt;&gt; <span class="hljs-number">8</span>) &amp; <span class="hljs-number">0xFF</span>,
+		(ahciVersion) &amp; <span class="hljs-number">0xFF</span>);
+
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"ahci: Telling host controller we are aware of it.\n"</span>);
+	mmio_write4(mmio_addr, <span class="hljs-number">0x04</span>, mmio_read4(mmio_addr, <span class="hljs-number">0x04</span>) | (<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">31U</span>L));
+
+	<span class="hljs-keyword">int</span> offset = <span class="hljs-number">0x100</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> port = <span class="hljs-number">0</span>; port &lt; <span class="hljs-number">32</span>; ++port) {
+		<span class="hljs-keyword">if</span> (enabledPorts &amp; (<span class="hljs-number">1U</span>L &lt;&lt; port)) {
+			<span class="hljs-comment">/* Check status */</span>
+			<span class="hljs-keyword">uint32_t</span> portSig    = mmio_read4(mmio_addr, offset + <span class="hljs-number">0x24</span>);
+			<span class="hljs-keyword">uint32_t</span> portStatus = mmio_read4(mmio_addr, offset + <span class="hljs-number">0x28</span>);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"ahci: port %d: status = %#x\n"</span>, port, portStatus);
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"ahci: port %d: sig    = %#x\n"</span>, port, portSig);
+
+			<span class="hljs-keyword">switch</span> (portSig) {
+				<span class="hljs-keyword">case</span> <span class="hljs-number">0xeb140101</span>:
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"ahci:           ATAPI (CD, DVD)\n"</span>);
+					ahci_setup_atapi(<span class="hljs-built_in">stderr</span>, device, mmio_addr, port);
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-number">0x00000101</span>:
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"ahci:           hard disk\n"</span>);
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-number">0xffff0101</span>:
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"ahci:           no device\n"</span>);
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">default</span>:
+					<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"ahci:           unsupported/unknown\n"</span>);
+					<span class="hljs-keyword">break</span>;
+			}
+
+		}
+		offset += <span class="hljs-number">0x80</span>;
+	}
+
+
+	
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">init</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> * node = FD_ENTRY(<span class="hljs-number">1</span>); <span class="hljs-comment">/* Get the stdout for the process that loaded the module */</span>
+	pci_scan(find_ahci, <span class="hljs-number">-1</span>, node);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">fini</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Module</span> <span class="hljs-title">metadata</span> = {</span>
+	.name = <span class="hljs-string">"ahci"</span>,
+	.init = init,
+	.fini = fini,
+};
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

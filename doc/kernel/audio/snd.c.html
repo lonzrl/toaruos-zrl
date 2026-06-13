@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>snd.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\audio\\snd.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>snd.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/ringbuffer.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/list.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/spinlock.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mod/snd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+
+<span class="hljs-comment">/* Utility macros */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> N_ELEMENTS(arr) (sizeof(arr) / sizeof((arr)[0]))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MIN(a,b) ((a) &lt; (b) ? (a) : (b))</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SND_BUF_SIZE 0x4000</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> _devices_lock;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> _buffers_lock;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">list_t</span> _devices;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint32_t</span> _next_device_id = SND_DEVICE_MAIN;
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dsp_node</span> {</span>
+	<span class="hljs-keyword">ring_buffer_t</span> * rb;
+	<span class="hljs-keyword">size_t</span> samples;
+	<span class="hljs-keyword">size_t</span> written;
+	<span class="hljs-keyword">int</span> realtime;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dsp_node</span> *<span class="hljs-title">next</span>;</span>
+	<span class="hljs-keyword">int</span> <span class="hljs-keyword">delete</span>;
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dsp_node</span> * <span class="hljs-title">buffers_head</span> = <span class="hljs-title">NULL</span>;</span>
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">snd_register</span><span class="hljs-params">(<span class="hljs-keyword">snd_device_t</span> * device)</span> </span>{
+	<span class="hljs-keyword">int</span> rv = <span class="hljs-number">0</span>;
+
+	spin_lock(_devices_lock);
+	device-&gt;id = _next_device_id;
+	_next_device_id++;
+	<span class="hljs-keyword">if</span> (list_find(&amp;_devices, device)) {
+		rv = <span class="hljs-number">-1</span>;
+		<span class="hljs-keyword">goto</span> snd_register_cleanup;
+	}
+	list_insert(&amp;_devices, device);
+
+snd_register_cleanup:
+	spin_unlock(_devices_lock);
+	<span class="hljs-keyword">return</span> rv;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">snd_unregister</span><span class="hljs-params">(<span class="hljs-keyword">snd_device_t</span> * device)</span> </span>{
+	<span class="hljs-keyword">int</span> rv = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">node_t</span> * node = list_find(&amp;_devices, device);
+	<span class="hljs-keyword">if</span> (!node) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"attempted to unregister unknown audio sink: %s\n"</span>, device-&gt;name);
+		<span class="hljs-keyword">goto</span> snd_unregister_cleanup;
+	}
+	list_delete(&amp;_devices, node);
+
+snd_unregister_cleanup:
+	spin_unlock(_devices_lock);
+	<span class="hljs-keyword">return</span> rv;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">snd_dsp_write</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (!_devices.length) <span class="hljs-keyword">return</span> -EPIPE; <span class="hljs-comment">/* No sink available. */</span>
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dsp_node</span> * <span class="hljs-title">dsp</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+
+	<span class="hljs-keyword">size_t</span> s = ring_buffer_available(dsp-&gt;rb);
+	<span class="hljs-keyword">size_t</span> out;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &gt; s &amp;&amp; dsp-&gt;realtime) {
+		out = ring_buffer_write(dsp-&gt;rb, s &amp; ~<span class="hljs-number">0x3</span>, <span class="hljs-built_in">buffer</span>);
+	} <span class="hljs-keyword">else</span> {
+		out = ring_buffer_write(dsp-&gt;rb, <span class="hljs-built_in">size</span>, <span class="hljs-built_in">buffer</span>);
+	}
+	dsp-&gt;written += out / <span class="hljs-number">4</span>;
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">snd_dsp_ioctl</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> request, <span class="hljs-keyword">void</span> * argp)</span> </span>{
+	<span class="hljs-comment">/* Potentially use this to set sample rates in the future */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dsp_node</span> * <span class="hljs-title">dsp</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+	<span class="hljs-keyword">if</span> (request == <span class="hljs-number">4</span>) {
+		dsp-&gt;realtime = <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (request == <span class="hljs-number">5</span>) {
+		<span class="hljs-keyword">return</span> dsp-&gt;samples;
+	}
+	<span class="hljs-keyword">return</span> -ENOTTY;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">snd_cleanup_client</span><span class="hljs-params">(struct dsp_node * dsp)</span> </span>{
+	ring_buffer_destroy(dsp-&gt;rb);
+	<span class="hljs-built_in">free</span>(dsp-&gt;rb);
+	<span class="hljs-built_in">free</span>(dsp);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">snd_cleanup_slow</span><span class="hljs-params">(struct dsp_node * dsp)</span> </span>{
+	spin_lock(_buffers_lock);
+	<span class="hljs-keyword">if</span> (dsp == buffers_head) {
+		buffers_head = dsp-&gt;next;
+	} <span class="hljs-keyword">else</span> {
+		struct dsp_node * prev = buffers_head;
+		<span class="hljs-keyword">while</span> (prev) {
+			<span class="hljs-keyword">if</span> (prev-&gt;next == dsp) {
+				prev-&gt;next = dsp-&gt;next;
+				<span class="hljs-keyword">break</span>;
+			}
+			prev = prev-&gt;next;
+		}
+	}
+	spin_unlock(_buffers_lock);
+	snd_cleanup_client(dsp);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">snd_dsp_close</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dsp_node</span> * <span class="hljs-title">dsp</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">device</span>;</span>
+	<span class="hljs-keyword">if</span> (!_devices.length) {
+		snd_cleanup_slow(dsp);
+	} <span class="hljs-keyword">else</span> {
+		dsp-&gt;<span class="hljs-keyword">delete</span> = <span class="hljs-number">1</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">snd_device_t</span> * <span class="hljs-title">snd_device_by_id</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> device_id)</span> </span>{
+	spin_lock(_devices_lock);
+	<span class="hljs-keyword">snd_device_t</span> * out = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">snd_device_t</span> * cur = <span class="hljs-literal">NULL</span>;
+
+	foreach(node, &amp;_devices) {
+		cur = node-&gt;value;
+		<span class="hljs-keyword">if</span> (cur-&gt;id == device_id) {
+			out = cur;
+		}
+	}
+	spin_unlock(_devices_lock);
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">snd_mixer_ioctl</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> request, <span class="hljs-keyword">void</span> * argp)</span> </span>{
+	<span class="hljs-keyword">switch</span> (request) {
+		<span class="hljs-keyword">case</span> SND_MIXER_GET_KNOBS: {
+			<span class="hljs-keyword">snd_knob_list_t</span> * <span class="hljs-built_in">list</span> = argp;
+			<span class="hljs-keyword">snd_device_t</span> * device = snd_device_by_id(<span class="hljs-built_in">list</span>-&gt;device);
+			<span class="hljs-keyword">if</span> (!device) {
+				<span class="hljs-keyword">return</span> -ENODEV;
+			}
+			<span class="hljs-built_in">list</span>-&gt;num = device-&gt;num_knobs;
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint32_t</span> i = <span class="hljs-number">0</span>; i &lt; device-&gt;num_knobs; i++) {
+				<span class="hljs-built_in">list</span>-&gt;ids[i] = device-&gt;knobs[i].id;
+			}
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+		<span class="hljs-keyword">case</span> SND_MIXER_GET_KNOB_INFO: {
+			<span class="hljs-keyword">snd_knob_info_t</span> * info = argp;
+			<span class="hljs-keyword">snd_device_t</span> * device = snd_device_by_id(info-&gt;device);
+			<span class="hljs-keyword">if</span> (!device) {
+				<span class="hljs-keyword">return</span> -ENODEV;
+			}
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint32_t</span> i = <span class="hljs-number">0</span>; i &lt; device-&gt;num_knobs; i++) {
+				<span class="hljs-keyword">if</span> (device-&gt;knobs[i].id == info-&gt;id) {
+					<span class="hljs-built_in">memcpy</span>(info-&gt;name, device-&gt;knobs[i].name, <span class="hljs-keyword">sizeof</span>(info-&gt;name));
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				}
+			}
+			<span class="hljs-keyword">return</span> -EINVAL;
+		}
+		<span class="hljs-keyword">case</span> SND_MIXER_READ_KNOB: {
+			<span class="hljs-keyword">snd_knob_value_t</span> * value = argp;
+			<span class="hljs-keyword">snd_device_t</span> * device = snd_device_by_id(value-&gt;device);
+			<span class="hljs-keyword">if</span> (!device) {
+				<span class="hljs-keyword">return</span> -ENODEV;
+			}
+			<span class="hljs-keyword">return</span> device-&gt;mixer_read(value-&gt;id, &amp;value-&gt;val);
+		}
+		<span class="hljs-keyword">case</span> SND_MIXER_WRITE_KNOB: {
+			<span class="hljs-keyword">snd_knob_value_t</span> * value = argp;
+			<span class="hljs-keyword">snd_device_t</span> * device = snd_device_by_id(value-&gt;device);
+			<span class="hljs-keyword">if</span> (!device) {
+				<span class="hljs-keyword">return</span> -ENODEV;
+			}
+			<span class="hljs-keyword">return</span> device-&gt;mixer_write(value-&gt;id, value-&gt;val);
+		}
+		<span class="hljs-keyword">case</span> SND_MIXER_GET_DEVICES: {
+			<span class="hljs-keyword">if</span> (!argp) <span class="hljs-keyword">return</span> -EINVAL;
+			<span class="hljs-keyword">if</span> (!mmu_validate_user_pointer(argp,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">snd_device_list_t</span>),MMU_PTR_WRITE)) <span class="hljs-keyword">return</span> -EFAULT;
+			<span class="hljs-keyword">snd_device_list_t</span> * arg = argp;
+			<span class="hljs-keyword">if</span> (arg-&gt;space &amp;&amp; !mmu_validate_user_pointer(argp,<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">snd_device_list_t</span>) + arg-&gt;space * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">snd_device_user_t</span>), MMU_PTR_WRITE)) <span class="hljs-keyword">return</span> -EFAULT;
+			arg-&gt;count = _devices.length;
+			spin_lock(_devices_lock);
+			<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>;
+			foreach(node, &amp;_devices) {
+				<span class="hljs-keyword">if</span> (i &gt;= arg-&gt;space) <span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">snd_device_t</span> * device = node-&gt;value;
+				arg-&gt;devices[i].id = device-&gt;id;
+				arg-&gt;devices[i].playback_speed  = device-&gt;playback_speed;
+				arg-&gt;devices[i].playback_format = device-&gt;playback_format;
+				arg-&gt;devices[i].num_knobs = device-&gt;num_knobs;
+				<span class="hljs-built_in">memcpy</span>(arg-&gt;devices[i].name, device-&gt;name, <span class="hljs-keyword">sizeof</span>(device-&gt;name));
+				i++;
+			}
+			spin_unlock(_devices_lock);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+		<span class="hljs-keyword">default</span>: {
+			<span class="hljs-keyword">return</span> -ENOTTY;
+		}
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">snd_request_buf</span><span class="hljs-params">(<span class="hljs-keyword">snd_device_t</span> * device, <span class="hljs-keyword">uint32_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">int16_t</span> tmp_buf[<span class="hljs-number">0x100</span>];
+
+	<span class="hljs-built_in">memset</span>(<span class="hljs-built_in">buffer</span>, <span class="hljs-number">0</span>, <span class="hljs-built_in">size</span>);
+
+	spin_lock(_buffers_lock);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dsp_node</span> * <span class="hljs-title">dsp</span> = <span class="hljs-title">buffers_head</span>;</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dsp_node</span> * <span class="hljs-title">prev</span> = <span class="hljs-title">NULL</span>;</span>
+	<span class="hljs-keyword">while</span> (dsp) {
+		<span class="hljs-keyword">ring_buffer_t</span> * buf = dsp-&gt;rb;
+		<span class="hljs-comment">/* ~0x3 is to ensure we don't read partial samples or just a single channel */</span>
+		<span class="hljs-keyword">size_t</span> bytes_left = MIN(ring_buffer_unread(buf) &amp; ~<span class="hljs-number">0x3</span>, <span class="hljs-built_in">size</span>);
+		<span class="hljs-keyword">int16_t</span> * adding_ptr = (<span class="hljs-keyword">int16_t</span> *) <span class="hljs-built_in">buffer</span>;
+		<span class="hljs-keyword">while</span> (bytes_left) {
+			<span class="hljs-keyword">size_t</span> this_read_size = MIN(bytes_left, <span class="hljs-keyword">sizeof</span>(tmp_buf));
+			ring_buffer_read(buf, this_read_size, (<span class="hljs-keyword">uint8_t</span> *)tmp_buf);
+			dsp-&gt;samples += this_read_size / <span class="hljs-number">4</span>; <span class="hljs-comment">/* 16 bits, 2 channels */</span>
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Reduce the sample by a half so that multiple sources won't immediately
+cause awful clipping. This is kind of a hack since it would probably be
+better to just use some kind of compressor.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; N_ELEMENTS(tmp_buf); i++) {
+				tmp_buf[i] /= <span class="hljs-number">2</span>;
+			}
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; this_read_size / <span class="hljs-keyword">sizeof</span>(*adding_ptr); i++) {
+				adding_ptr[i] += tmp_buf[i];
+			}
+			adding_ptr += this_read_size / <span class="hljs-keyword">sizeof</span>(*adding_ptr);
+			bytes_left -= this_read_size;
+		}
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dsp_node</span> * <span class="hljs-title">next</span> = <span class="hljs-title">dsp</span>-&gt;<span class="hljs-title">next</span>;</span>
+		<span class="hljs-keyword">if</span> (dsp-&gt;<span class="hljs-keyword">delete</span> &amp;&amp; ring_buffer_unread(buf) &lt; <span class="hljs-number">4</span>) {
+			<span class="hljs-keyword">if</span> (!prev) buffers_head = next;
+			<span class="hljs-keyword">else</span> prev-&gt;next = next;
+			snd_cleanup_client(dsp);
+		} <span class="hljs-keyword">else</span> {
+			prev = dsp;
+		}
+		dsp = next;
+	}
+	spin_unlock(_buffers_lock);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">size</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">snd_device_t</span> * <span class="hljs-title">snd_main_device</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	spin_lock(_devices_lock);
+	foreach(node, &amp;_devices) {
+		spin_unlock(_devices_lock);
+		<span class="hljs-keyword">return</span> node-&gt;value;
+	}
+
+	spin_unlock(_devices_lock);
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">readdir_dev_snd</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">uint64_t</span> index, struct dirent *out)</span> </span>{
+	<span class="hljs-keyword">if</span> (index &lt; <span class="hljs-number">2</span>) {
+		<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+		out-&gt;d_ino = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">strcpy</span>(out-&gt;d_name, <span class="hljs-string">".."</span> + index);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">new_dsp_channel</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dsp_node</span> * <span class="hljs-title">dsp</span> = <span class="hljs-title">calloc</span>(1, <span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">dsp_node</span>));</span>
+	dsp-&gt;rb = ring_buffer_create(SND_BUF_SIZE);
+	spin_lock(_buffers_lock);
+	dsp-&gt;next = buffers_head;
+	buffers_head = dsp;
+	spin_unlock(_buffers_lock);
+
+	<span class="hljs-keyword">fs_node_t</span> * out = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">strcpy</span>(out-&gt;name, <span class="hljs-string">"dsp"</span>);
+	out-&gt;device = dsp;
+	out-&gt;mask = <span class="hljs-number">0666</span>;
+	out-&gt;flags = FS_CHARDEVICE;
+	out-&gt;ioctl = snd_dsp_ioctl;
+	out-&gt;<span class="hljs-built_in">write</span> = snd_dsp_write;
+	out-&gt;<span class="hljs-built_in">close</span> = snd_dsp_close;
+
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">finddir_dev_snd</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strcmp</span>(name, <span class="hljs-string">"new"</span>)) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">return</span> new_dsp_channel();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">init_dev_snd</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> * out = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">strcpy</span>(out-&gt;name, <span class="hljs-string">"snd"</span>);
+	out-&gt;mask = <span class="hljs-number">0555</span>;
+	out-&gt;flags = FS_DIRECTORY;
+	out-&gt;length = <span class="hljs-number">1</span>;
+	out-&gt;nlink = <span class="hljs-number">1</span>;
+	out-&gt;ctime = out-&gt;mtime = out-&gt;atime = now();
+	out-&gt;readdir = readdir_dev_snd;
+	out-&gt;finddir = finddir_dev_snd;
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">readlink_dev_dsp</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">char</span> * buf, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-keyword">size_t</span> len = <span class="hljs-built_in">strlen</span>(<span class="hljs-string">"/dev/snd/new"</span>);
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &lt; len) len = <span class="hljs-built_in">size</span>;
+	<span class="hljs-built_in">memcpy</span>(buf, <span class="hljs-string">"/dev/snd/new"</span>, len);
+	<span class="hljs-keyword">return</span> len;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">get_size_dev_dsp</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">strlen</span>(<span class="hljs-string">"/dev/snd/new"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">init_dev_dsp</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> * out = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">strcpy</span>(out-&gt;name, <span class="hljs-string">"dsp"</span>);
+	out-&gt;mask = <span class="hljs-number">0777</span>;
+	out-&gt;flags = FS_FILE | FS_SYMLINK;
+	out-&gt;length = <span class="hljs-number">1</span>;
+	out-&gt;nlink  = <span class="hljs-number">1</span>;
+	out-&gt;ctime = out-&gt;mtime = out-&gt;atime = now();
+	out-&gt;get_size = get_size_dev_dsp;
+	out-&gt;readlink = readlink_dev_dsp;
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">init_dev_mixer</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> * out = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">strcpy</span>(out-&gt;name, <span class="hljs-string">"mixer"</span>);
+	out-&gt;mask = <span class="hljs-number">0666</span>;
+	out-&gt;flags = FS_CHARDEVICE;
+	out-&gt;ioctl = snd_mixer_ioctl;
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">snd_install</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	vfs_mount(<span class="hljs-string">"/dev/dsp"</span>, init_dev_dsp(), <span class="hljs-string">"dsp"</span>, <span class="hljs-string">""</span>);
+	vfs_mount(<span class="hljs-string">"/dev/snd"</span>, init_dev_snd(), <span class="hljs-string">"snd"</span>, <span class="hljs-string">""</span>);
+	vfs_mount(<span class="hljs-string">"/dev/mixer"</span>, init_dev_mixer(), <span class="hljs-string">"mixer"</span>, <span class="hljs-string">""</span>);
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

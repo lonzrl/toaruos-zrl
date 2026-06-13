@@ -1,0 +1,1248 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>roff.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\roff.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>roff.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;termios.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;ctype.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> DEFAULT_INDENTATION = <span class="hljs-number">7</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> MARGIN_SPACE = <span class="hljs-number">5</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">winsize</span> <span class="hljs-title">w</span>;</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * only_section = <span class="hljs-literal">NULL</span>;    <span class="hljs-comment">/* Global option to print a specific section's contents. */</span>
+<span class="hljs-keyword">static</span> FILE * initial_output = <span class="hljs-literal">NULL</span>;  <span class="hljs-comment">/* Where to write output normally; usually stdout, but might be /dev/null if we only want a single section. */</span>
+<span class="hljs-keyword">static</span> FILE * true_output = <span class="hljs-literal">NULL</span>;     <span class="hljs-comment">/* Where to write output when we actually want to print. Probably stdout. */</span>
+<span class="hljs-keyword">static</span> FILE * error_output = <span class="hljs-literal">NULL</span>;    <span class="hljs-comment">/* Where to write error messages; stdout in most cases when we want them visible in a pager. */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> plain_text = <span class="hljs-number">0</span>;            <span class="hljs-comment">/* Whether to skip output of font escapes. */</span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">RoffContext</span> {</span>
+	<span class="hljs-keyword">char</span> * topic_title;          <span class="hljs-comment">/* Storage for the current page title, to be displayed in the footer. */</span>
+	<span class="hljs-keyword">char</span> * topic_section;        <span class="hljs-comment">/* Storage for the current section title, to be displayed in the footer. */</span>
+	<span class="hljs-keyword">char</span> * topic_date;           <span class="hljs-comment">/* Storage for the current date string, to be displayed in the footer. */</span>
+	<span class="hljs-keyword">int</span> current_x;               <span class="hljs-comment">/* Display cursor X offset. */</span>
+	<span class="hljs-keyword">int</span> indent;                  <span class="hljs-comment">/* How much we should indent lines before printing. */</span>
+	<span class="hljs-keyword">int</span> next_indent;             <span class="hljs-comment">/* The level of indentation we should switch to after finishing the current line. */</span>
+	<span class="hljs-keyword">int</span> extra_indent;            <span class="hljs-comment">/* An extra amount of indentation we should add to the above values when we see a new paragraph macro. */</span>
+	<span class="hljs-keyword">int</span> printing_table;          <span class="hljs-comment">/* Whether we should handle whitespace more directly. */</span>
+	<span class="hljs-keyword">int</span> squish_line;             <span class="hljs-comment">/* Whether we should try to squish this line into the next one, eg. for a .TP macro. */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> previous_font;  <span class="hljs-comment">/* The previously set font to act as a one-level undo stack. */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> current_font;   <span class="hljs-comment">/* The current font, to be set once we start printing. */</span>
+	<span class="hljs-keyword">char</span> * topic_footer;         <span class="hljs-comment">/* Extracted footer string from TH */</span>
+	<span class="hljs-keyword">char</span> * topic_header;         <span class="hljs-comment">/* Extracted header string from TH */</span>
+	<span class="hljs-keyword">int</span> padded;                  <span class="hljs-comment">/* State flag to indicate if we've already printed vertical padding. */</span>
+	<span class="hljs-keyword">int</span> just_did_re;             <span class="hljs-comment">/* Flag to indicate whether we just processed an RE to fix indentation if we then start an RS */</span>
+	FILE * output;               <span class="hljs-comment">/* Where we're going to write. Can change as we process the document. */</span>
+	FILE * error_output;         <span class="hljs-comment">/* Where we write errors, as this can be configured. */</span>
+	FILE * next_output;          <span class="hljs-comment">/* When next_indent is set and we switch indents, also switches outputs. */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> active_font;    <span class="hljs-comment">/* Font we think we have the terminal set for. */</span>
+};
+
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">interpret_section</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * section)</span> </span>{
+	<span class="hljs-keyword">if</span> (!section) <span class="hljs-keyword">return</span> <span class="hljs-string">"Unknown"</span>;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strlen</span>(section) == <span class="hljs-number">1</span> &amp;&amp; <span class="hljs-built_in">isdigit</span>(*section)) {
+		<span class="hljs-keyword">switch</span> (atoi(section)) {
+			<span class="hljs-keyword">case</span> <span class="hljs-number">1</span>: <span class="hljs-keyword">return</span> <span class="hljs-string">"General Commands Manual"</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">2</span>: <span class="hljs-keyword">return</span> <span class="hljs-string">"System Calls Manual"</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">3</span>: <span class="hljs-keyword">return</span> <span class="hljs-string">"Library Functions Manual"</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">4</span>: <span class="hljs-keyword">return</span> <span class="hljs-string">"Special Files"</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">5</span>: <span class="hljs-keyword">return</span> <span class="hljs-string">"File Formats"</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">6</span>: <span class="hljs-keyword">return</span> <span class="hljs-string">"Games"</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">7</span>: <span class="hljs-keyword">return</span> <span class="hljs-string">"Miscellaneous"</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">8</span>: <span class="hljs-keyword">return</span> <span class="hljs-string">"System Administration Manual"</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">9</span>: <span class="hljs-keyword">return</span> <span class="hljs-string">"Kernel Programming Manual"</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-number">0</span>: <span class="hljs-keyword">return</span> <span class="hljs-string">"Section Zero"</span>;
+		}
+	}
+	<span class="hljs-keyword">return</span> section; <span class="hljs-comment">/* Must be custom. */</span>
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">formatted_title_and_section</span><span class="hljs-params">(struct RoffContext * ctx, <span class="hljs-keyword">char</span> * title, <span class="hljs-keyword">char</span> * section)</span> </span>{
+	<span class="hljs-keyword">if</span> (!title || !section) {
+		<span class="hljs-built_in">fprintf</span>(ctx-&gt;output, <span class="hljs-string">"??"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+	<span class="hljs-built_in">fprintf</span>(ctx-&gt;output, <span class="hljs-string">"%s%s%s(%s)"</span>,
+		plain_text ? <span class="hljs-string">""</span> : <span class="hljs-string">"\033[4m"</span>,
+		title,
+		plain_text ? <span class="hljs-string">""</span> : <span class="hljs-string">"\033[24m"</span>,
+		section
+	);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">format_title</span><span class="hljs-params">(struct RoffContext * ctx)</span> </span>{
+
+	<span class="hljs-keyword">char</span> * title = ctx-&gt;topic_title;
+	<span class="hljs-keyword">char</span> * section = ctx-&gt;topic_section;
+
+	<span class="hljs-comment">/* XXX Should use display width, but too lazy. */</span>
+	<span class="hljs-keyword">int</span> title_len = title ? <span class="hljs-built_in">strlen</span>(title) : <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> section_len = section ? <span class="hljs-built_in">strlen</span>(section) : <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> * section_name = ctx-&gt;topic_header ? ctx-&gt;topic_header : interpret_section(section);
+	<span class="hljs-keyword">int</span> section_name_len = <span class="hljs-built_in">strlen</span>(section_name);
+
+	<span class="hljs-keyword">int</span> avail = w.ws_col - <span class="hljs-number">1</span>; <span class="hljs-comment">/* A gutter is fine. */</span>
+
+	<span class="hljs-keyword">int</span> space_used = (title_len + section_len + <span class="hljs-number">2</span>) * <span class="hljs-number">2</span> + section_name_len;
+	<span class="hljs-keyword">if</span> (avail &lt; space_used) {
+		<span class="hljs-comment">/* Print a short form and hope it works */</span>
+		formatted_title_and_section(ctx, title, section);
+		<span class="hljs-built_in">fprintf</span>(ctx-&gt;output, <span class="hljs-string">"\n"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-keyword">int</span> space_left = (avail - space_used) / <span class="hljs-number">2</span>;
+	<span class="hljs-keyword">int</span> space_right = avail - space_used - space_left;
+
+	formatted_title_and_section(ctx, title, section);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; space_left; ++i) <span class="hljs-built_in">fprintf</span>(ctx-&gt;output, <span class="hljs-string">" "</span>);
+	<span class="hljs-built_in">fprintf</span>(ctx-&gt;output, <span class="hljs-string">"%s"</span>, section_name);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; space_right; ++i) <span class="hljs-built_in">fprintf</span>(ctx-&gt;output, <span class="hljs-string">" "</span>);
+	formatted_title_and_section(ctx, title, section);
+	<span class="hljs-built_in">fprintf</span>(ctx-&gt;output, <span class="hljs-string">"\n\n"</span>);
+	ctx-&gt;padded = <span class="hljs-number">1</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">format_footer</span><span class="hljs-params">(struct RoffContext * ctx)</span> </span>{
+	<span class="hljs-keyword">int</span> title_len = ctx-&gt;topic_title ? <span class="hljs-built_in">strlen</span>(ctx-&gt;topic_title) : <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> section_len = ctx-&gt;topic_section ? <span class="hljs-built_in">strlen</span>(ctx-&gt;topic_section) : <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> date_len = ctx-&gt;topic_date ? <span class="hljs-built_in">strlen</span>(ctx-&gt;topic_date) : <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> footer_len = ctx-&gt;topic_footer ? <span class="hljs-built_in">strlen</span>(ctx-&gt;topic_footer) : <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">int</span> avail = w.ws_col - <span class="hljs-number">1</span>; <span class="hljs-comment">/* A gutter is fine. */</span>
+	<span class="hljs-keyword">int</span> space_used = title_len + section_len + <span class="hljs-number">2</span> + date_len + footer_len;
+
+	<span class="hljs-keyword">int</span> space_left = (avail - date_len) / <span class="hljs-number">2</span> - footer_len;
+	<span class="hljs-keyword">int</span> space_right = avail - space_used - space_left;
+
+	<span class="hljs-built_in">fprintf</span>(ctx-&gt;output, <span class="hljs-string">"%s"</span>, ctx-&gt;topic_footer ? ctx-&gt;topic_footer : <span class="hljs-string">""</span>);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; space_left; ++i) <span class="hljs-built_in">fprintf</span>(ctx-&gt;output, <span class="hljs-string">" "</span>);
+	<span class="hljs-built_in">fprintf</span>(ctx-&gt;output, <span class="hljs-string">"%s"</span>, ctx-&gt;topic_date ? ctx-&gt;topic_date : <span class="hljs-string">""</span>);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; space_right; ++i) <span class="hljs-built_in">fprintf</span>(ctx-&gt;output, <span class="hljs-string">" "</span>);
+	formatted_title_and_section(ctx, ctx-&gt;topic_title,ctx-&gt;topic_section);
+	<span class="hljs-built_in">fprintf</span>(ctx-&gt;output, <span class="hljs-string">"\n"</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">skip_escape</span><span class="hljs-params">(<span class="hljs-keyword">char</span> *x, <span class="hljs-keyword">size_t</span> *len)</span> </span>{
+	<span class="hljs-keyword">switch</span> (x[<span class="hljs-number">1</span>]) {
+		<span class="hljs-comment">/* Font selection supports both single and multi-character options */</span>
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>:
+			<span class="hljs-keyword">if</span> (x[<span class="hljs-number">2</span>] == <span class="hljs-string">'('</span>) {
+				<span class="hljs-keyword">if</span> (x[<span class="hljs-number">3</span>] == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">3</span>;
+				<span class="hljs-keyword">if</span> (x[<span class="hljs-number">4</span>] == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">4</span>;
+				<span class="hljs-keyword">return</span> <span class="hljs-number">5</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (x[<span class="hljs-number">2</span>] == <span class="hljs-number">0</span>) {
+				<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+			}
+			<span class="hljs-keyword">return</span> <span class="hljs-number">3</span>;
+
+		<span class="hljs-comment">/* Comment */</span>
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'"'</span>: {
+			<span class="hljs-keyword">char</span> *c = x;
+			<span class="hljs-keyword">while</span> (*c) c++;
+			<span class="hljs-keyword">return</span> c - x;
+		}
+
+		<span class="hljs-comment">/* "Italic correction */</span>
+		<span class="hljs-keyword">case</span> <span class="hljs-string">','</span>:
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'/'</span>:
+			<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+			<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Special characters are generally one character, but maybe
+some of them will be wider later.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		<span class="hljs-keyword">case</span> <span class="hljs-string">'('</span>:
+			(*len)++;
+			<span class="hljs-keyword">if</span> (!x[<span class="hljs-number">2</span>]) <span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+			<span class="hljs-keyword">if</span> (!x[<span class="hljs-number">3</span>]) <span class="hljs-keyword">return</span> <span class="hljs-number">3</span>;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">4</span>;
+
+		<span class="hljs-comment">/* Assume other escapes print a single character */</span>
+		<span class="hljs-keyword">default</span>:
+			(*len)++;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+	}
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PAIR(a,b) (((unsigned int)a &lt;&lt; 8) | (unsigned int)b)</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">real_activate_font</span><span class="hljs-params">(struct RoffContext * ctx, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> desired_font)</span> </span>{
+	<span class="hljs-keyword">if</span> (plain_text) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">if</span> (ctx-&gt;active_font == desired_font) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">int</span> want = (desired_font == <span class="hljs-string">'B'</span> ? <span class="hljs-number">1</span> : <span class="hljs-number">0</span>) | (desired_font == <span class="hljs-string">'I'</span> ? <span class="hljs-number">2</span> : <span class="hljs-number">0</span>) | (desired_font == PAIR(<span class="hljs-string">'B'</span>,<span class="hljs-string">'I'</span>) ? <span class="hljs-number">3</span> : <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">int</span> have = (ctx-&gt;active_font == <span class="hljs-string">'B'</span> ? <span class="hljs-number">1</span> : <span class="hljs-number">0</span>) | (ctx-&gt;active_font == <span class="hljs-string">'I'</span> ? <span class="hljs-number">2</span> : <span class="hljs-number">0</span>) | (ctx-&gt;active_font == PAIR(<span class="hljs-string">'B'</span>,<span class="hljs-string">'I'</span>) ? <span class="hljs-number">3</span> : <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">int</span> changed = want ^ have;
+	<span class="hljs-keyword">if</span> (changed) {
+		<span class="hljs-built_in">fprintf</span>(ctx-&gt;output, <span class="hljs-string">"\033[%s%s%sm"</span>,
+			(changed &amp; <span class="hljs-number">1</span>) ? ((want &amp; <span class="hljs-number">1</span>) ? <span class="hljs-string">"1"</span> : <span class="hljs-string">"22"</span>) : <span class="hljs-string">""</span>,
+			(changed == <span class="hljs-number">3</span>) ? <span class="hljs-string">";"</span> : <span class="hljs-string">""</span>,
+			(changed &amp; <span class="hljs-number">2</span>) ? ((want &amp; <span class="hljs-number">2</span>) ? <span class="hljs-string">"4"</span> : <span class="hljs-string">"24"</span>) : <span class="hljs-string">""</span>);
+	}
+	ctx-&gt;active_font = desired_font;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">flush_line</span><span class="hljs-params">(struct RoffContext * ctx, <span class="hljs-keyword">int</span> for_vertical_padding)</span> </span>{
+	<span class="hljs-keyword">if</span> (ctx-&gt;current_x != <span class="hljs-number">0</span>) {
+		ctx-&gt;current_x = <span class="hljs-number">0</span>;
+		real_activate_font(ctx, <span class="hljs-number">0</span>);
+		<span class="hljs-built_in">fprintf</span>(ctx-&gt;output, <span class="hljs-string">"\n%s"</span>,
+			for_vertical_padding ? <span class="hljs-string">"\n"</span> : <span class="hljs-string">""</span>);
+		ctx-&gt;padded = for_vertical_padding;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (for_vertical_padding &amp;&amp; !ctx-&gt;padded) {
+		real_activate_font(ctx, <span class="hljs-number">0</span>);
+		<span class="hljs-built_in">fprintf</span>(ctx-&gt;output, <span class="hljs-string">"\n"</span>);
+		ctx-&gt;padded = <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	ctx-&gt;padded = for_vertical_padding;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">static void switch_font(struct RoffContext * ctx, unsigned int font) {
+	if (font == 'P') {
+		ctx-&gt;current_font = ctx-&gt;previous_font;
+	} else {
+		ctx-&gt;previous_font = ctx-&gt;current_font;
+		ctx-&gt;current_font = font;
+	}
+
+	/* Aliases first */
+	switch (ctx-&gt;current_font) {
+		case '1': ctx-&gt;current_font = 'R'; break;
+		case '2': ctx-&gt;current_font = 'I'; break;
+		case '3': ctx-&gt;current_font = 'B'; break;
+		case '4': ctx-&gt;current_font = PAIR('B','I'); break;
+		case PAIR('C','B'): ctx-&gt;current_font = 'B'; break;
+		case PAIR('C','I'): ctx-&gt;current_font = 'I'; break;
+		case PAIR('C','R'): ctx-&gt;current_font = 'R'; break;
+		case PAIR('C','W'): ctx-&gt;current_font = 'R'; break;
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-10" id="section-10"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">activate_font</span><span class="hljs-params">(struct RoffContext * ctx)</span> </span>{
+	real_activate_font(ctx, ctx-&gt;current_font);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-11" id="section-11"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">do_escape</span><span class="hljs-params">(struct RoffContext * ctx, <span class="hljs-keyword">char</span> *x)</span> </span>{
+	<span class="hljs-keyword">switch</span> (x[<span class="hljs-number">1</span>]) {
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>: <span class="hljs-comment">/* Font selection takes a few more characters */</span>
+			<span class="hljs-keyword">if</span> (x[<span class="hljs-number">2</span>] == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+			<span class="hljs-keyword">if</span> (x[<span class="hljs-number">2</span>] == <span class="hljs-string">'('</span>) {
+				<span class="hljs-keyword">if</span> (x[<span class="hljs-number">3</span>] == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">3</span>;
+				<span class="hljs-keyword">if</span> (x[<span class="hljs-number">4</span>] == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">4</span>;
+				switch_font(ctx, PAIR(x[<span class="hljs-number">3</span>],x[<span class="hljs-number">4</span>]));
+			} <span class="hljs-keyword">else</span> {
+				switch_font(ctx, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)x[<span class="hljs-number">2</span>]);
+			}
+			activate_font(ctx);
+			<span class="hljs-keyword">return</span> x[<span class="hljs-number">2</span>] == <span class="hljs-string">'('</span> ? <span class="hljs-number">5</span> : <span class="hljs-number">3</span>;
+		<span class="hljs-comment">/* Comment */</span>
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'"'</span>: {
+			<span class="hljs-keyword">char</span> *c = x;
+			<span class="hljs-keyword">while</span> (*c) c++;
+			<span class="hljs-keyword">return</span> c - x;
+		}
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'e'</span>:
+			fputc(<span class="hljs-string">'\\'</span>, ctx-&gt;output);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">','</span>: <span class="hljs-comment">/* "left and right italic correction"; ignored. */</span>
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'/'</span>:
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'&amp;'</span>: <span class="hljs-comment">/* "Zero width space, which we just don't print. */</span>
+			<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'('</span>:
+			<span class="hljs-keyword">if</span> (!x[<span class="hljs-number">2</span>]) <span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+			<span class="hljs-keyword">if</span> (!x[<span class="hljs-number">3</span>]) <span class="hljs-keyword">return</span> <span class="hljs-number">3</span>;
+			<span class="hljs-keyword">switch</span> (PAIR(x[<span class="hljs-number">2</span>],x[<span class="hljs-number">3</span>])) {
+				<span class="hljs-function"><span class="hljs-keyword">case</span> <span class="hljs-title">PAIR</span><span class="hljs-params">(<span class="hljs-string">'h'</span>,<span class="hljs-string">'a'</span>)</span>: <span class="hljs-title">fputc</span><span class="hljs-params">(<span class="hljs-string">'^'</span>, ctx-&gt;output)</span></span>; <span class="hljs-keyword">break</span>;
+				<span class="hljs-function"><span class="hljs-keyword">case</span> <span class="hljs-title">PAIR</span><span class="hljs-params">(<span class="hljs-string">'b'</span>,<span class="hljs-string">'u'</span>)</span>: <span class="hljs-title">fprintf</span><span class="hljs-params">(ctx-&gt;output, <span class="hljs-string">"•"</span>)</span></span>; <span class="hljs-keyword">break</span>;
+				<span class="hljs-function"><span class="hljs-keyword">case</span> <span class="hljs-title">PAIR</span><span class="hljs-params">(<span class="hljs-string">'t'</span>,<span class="hljs-string">'i'</span>)</span>: <span class="hljs-title">fputc</span><span class="hljs-params">(<span class="hljs-string">'~'</span>, ctx-&gt;output)</span></span>; <span class="hljs-keyword">break</span>;
+				<span class="hljs-function"><span class="hljs-keyword">case</span> <span class="hljs-title">PAIR</span><span class="hljs-params">(<span class="hljs-string">'a'</span>,<span class="hljs-string">'q'</span>)</span>: <span class="hljs-title">fputc</span><span class="hljs-params">(<span class="hljs-string">'\''</span>, ctx-&gt;output)</span></span>; <span class="hljs-keyword">break</span>;
+				<span class="hljs-function"><span class="hljs-keyword">case</span> <span class="hljs-title">PAIR</span><span class="hljs-params">(<span class="hljs-string">'d'</span>,<span class="hljs-string">'q'</span>)</span>: <span class="hljs-title">fputc</span><span class="hljs-params">(<span class="hljs-string">'"'</span>, ctx-&gt;output)</span></span>; <span class="hljs-keyword">break</span>;
+				<span class="hljs-function"><span class="hljs-keyword">case</span> <span class="hljs-title">PAIR</span><span class="hljs-params">(<span class="hljs-string">'l'</span>,<span class="hljs-string">'q'</span>)</span>: <span class="hljs-title">fprintf</span><span class="hljs-params">(ctx-&gt;output, <span class="hljs-string">"“"</span>)</span></span>; <span class="hljs-keyword">break</span>; <span class="hljs-comment">/* Left double quote */</span>
+				<span class="hljs-function"><span class="hljs-keyword">case</span> <span class="hljs-title">PAIR</span><span class="hljs-params">(<span class="hljs-string">'r'</span>,<span class="hljs-string">'q'</span>)</span>: <span class="hljs-title">fprintf</span><span class="hljs-params">(ctx-&gt;output, <span class="hljs-string">"”"</span>)</span></span>; <span class="hljs-keyword">break</span>; <span class="hljs-comment">/* Right double quote */</span>
+				<span class="hljs-function"><span class="hljs-keyword">case</span> <span class="hljs-title">PAIR</span><span class="hljs-params">(<span class="hljs-string">'o'</span>,<span class="hljs-string">'q'</span>)</span>: <span class="hljs-title">fprintf</span><span class="hljs-params">(ctx-&gt;output, <span class="hljs-string">"‘"</span>)</span></span>; <span class="hljs-keyword">break</span>; <span class="hljs-comment">/* Open single quote */</span>
+				<span class="hljs-function"><span class="hljs-keyword">case</span> <span class="hljs-title">PAIR</span><span class="hljs-params">(<span class="hljs-string">'c'</span>,<span class="hljs-string">'q'</span>)</span>: <span class="hljs-title">fprintf</span><span class="hljs-params">(ctx-&gt;output, <span class="hljs-string">"’"</span>)</span></span>; <span class="hljs-keyword">break</span>; <span class="hljs-comment">/* Close single quote */</span>
+				<span class="hljs-function"><span class="hljs-keyword">case</span> <span class="hljs-title">PAIR</span><span class="hljs-params">(<span class="hljs-string">'l'</span>,<span class="hljs-string">'a'</span>)</span>: <span class="hljs-title">fprintf</span><span class="hljs-params">(ctx-&gt;output, <span class="hljs-string">"⟨"</span>)</span></span>; <span class="hljs-keyword">break</span>; <span class="hljs-comment">/* Left angle bracket */</span>
+				<span class="hljs-function"><span class="hljs-keyword">case</span> <span class="hljs-title">PAIR</span><span class="hljs-params">(<span class="hljs-string">'r'</span>,<span class="hljs-string">'a'</span>)</span>: <span class="hljs-title">fprintf</span><span class="hljs-params">(ctx-&gt;output, <span class="hljs-string">"⟩"</span>)</span></span>; <span class="hljs-keyword">break</span>; <span class="hljs-comment">/* Right angle bracket */</span>
+				<span class="hljs-function"><span class="hljs-keyword">case</span> <span class="hljs-title">PAIR</span><span class="hljs-params">(<span class="hljs-string">'e'</span>,<span class="hljs-string">'n'</span>)</span>: <span class="hljs-title">fprintf</span><span class="hljs-params">(ctx-&gt;output, <span class="hljs-string">"–"</span>)</span></span>; <span class="hljs-keyword">break</span>; <span class="hljs-comment">/* en-dash */</span>
+				<span class="hljs-keyword">default</span>: fputc(<span class="hljs-string">'?'</span>, ctx-&gt;output); <span class="hljs-keyword">break</span>;
+			}
+			<span class="hljs-keyword">return</span> <span class="hljs-number">4</span>;
+		<span class="hljs-keyword">default</span>:
+			fputc(x[<span class="hljs-number">1</span>], ctx-&gt;output);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">is_tab_or_space</span><span class="hljs-params">(<span class="hljs-keyword">char</span> c)</span> </span>{
+	<span class="hljs-keyword">return</span> (c == <span class="hljs-string">' '</span> || c == <span class="hljs-string">'\t'</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-12" id="section-12"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">is_whitespace</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * c)</span> </span>{
+	<span class="hljs-keyword">while</span> (*c &amp;&amp; is_tab_or_space(*c)) c++;
+	<span class="hljs-keyword">if</span> (*c &amp;&amp; !is_tab_or_space(*c))  <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-13" id="section-13"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">print_spaces</span><span class="hljs-params">(struct RoffContext * ctx, <span class="hljs-keyword">int</span> indent)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; indent; ++i) fputc(<span class="hljs-string">' '</span>, ctx-&gt;output);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">do_tab_or_space</span><span class="hljs-params">(struct RoffContext * ctx, <span class="hljs-keyword">char</span> c)</span> </span>{
+	<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'\t'</span>) {
+		<span class="hljs-comment">/* Is this the right tab stop? I have no idea! */</span>
+		fputc(<span class="hljs-string">' '</span>, ctx-&gt;output);
+		ctx-&gt;current_x += <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">while</span> ((ctx-&gt;current_x - ctx-&gt;indent) % <span class="hljs-number">5</span>) {
+			fputc(<span class="hljs-string">' '</span>, ctx-&gt;output);
+			ctx-&gt;current_x += <span class="hljs-number">1</span>;
+		}
+	} <span class="hljs-keyword">else</span> {
+		fputc(<span class="hljs-string">' '</span>, ctx-&gt;output);
+		ctx-&gt;current_x += <span class="hljs-number">1</span>;
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-14" id="section-14"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> <span class="hljs-title">process_word</span><span class="hljs-params">(struct RoffContext * ctx, <span class="hljs-keyword">char</span> * c, <span class="hljs-keyword">int</span> delimited)</span> </span>{
+	<span class="hljs-keyword">char</span> * c_in = c;
+	<span class="hljs-keyword">char</span> * last_word = c;
+	<span class="hljs-keyword">size_t</span> last_len = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Collect word */</span>
+	<span class="hljs-keyword">while</span> (*c &amp;&amp; (ctx-&gt;printing_table || !is_tab_or_space(*c))) {
+		<span class="hljs-keyword">if</span> (*c == <span class="hljs-string">'\\'</span> &amp;&amp; c[<span class="hljs-number">1</span>]) {
+			c += skip_escape(c, &amp;last_len);
+		} <span class="hljs-keyword">else</span> {
+			last_len++;
+			c++;
+		}
+	}
+
+	<span class="hljs-comment">/* Word was empty, done with line. */</span>
+	<span class="hljs-keyword">if</span> (!last_len) {
+		<span class="hljs-keyword">while</span> (*c &amp;&amp; is_tab_or_space(*c)) c++;
+		<span class="hljs-keyword">return</span> c - c_in;
+	}
+
+	<span class="hljs-comment">/* Word would wrap, continue to next line and print indentant. */</span>
+	<span class="hljs-keyword">if</span> (last_len + ctx-&gt;current_x &gt; (<span class="hljs-keyword">size_t</span>)w.ws_col - MARGIN_SPACE) {
+		flush_line(ctx,<span class="hljs-number">0</span>);
+		print_spaces(ctx, ctx-&gt;indent);
+		ctx-&gt;current_x += ctx-&gt;indent;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ctx-&gt;current_x == <span class="hljs-number">0</span>) {
+		print_spaces(ctx, ctx-&gt;indent);
+		ctx-&gt;current_x += ctx-&gt;indent;
+	}
+
+	ctx-&gt;padded = <span class="hljs-number">0</span>;
+
+	activate_font(ctx);
+
+	<span class="hljs-comment">/* Print the word */</span>
+	<span class="hljs-keyword">char</span> *x = last_word;
+	<span class="hljs-keyword">while</span> (*x &amp;&amp; x != c) {
+		<span class="hljs-keyword">if</span> (*x == <span class="hljs-string">'\\'</span> &amp;&amp; x[<span class="hljs-number">1</span>]) {
+			x += do_escape(ctx, x);
+		} <span class="hljs-keyword">else</span> {
+			fputc(*x, ctx-&gt;output);
+			x++;
+		}
+	}
+	ctx-&gt;current_x += last_len;
+
+	<span class="hljs-keyword">if</span> (!*c &amp;&amp; !plain_text) real_activate_font(ctx, <span class="hljs-number">0</span>);
+
+	<span class="hljs-keyword">if</span> (ctx-&gt;printing_table || delimited) {
+		<span class="hljs-keyword">int</span> something = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">while</span> (*c &amp;&amp; is_tab_or_space(*c) &amp;&amp; (<span class="hljs-keyword">size_t</span>)ctx-&gt;current_x &lt; (<span class="hljs-keyword">size_t</span>)w.ws_col - MARGIN_SPACE) {
+			something = <span class="hljs-number">1</span>;
+			do_tab_or_space(ctx, *c);
+			c++;
+		}
+		<span class="hljs-keyword">if</span> (delimited &amp;&amp; !something) do_tab_or_space(ctx, <span class="hljs-string">' '</span>);
+	}
+
+	<span class="hljs-comment">/* Advance through whitespace */</span>
+	<span class="hljs-keyword">while</span> (*c &amp;&amp; is_tab_or_space(*c)) c++;
+
+	<span class="hljs-keyword">return</span> c - c_in;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MAYBE_QUOTES() do { \
+	<span class="hljs-meta-keyword">if</span> (*c == <span class="hljs-meta-string">'"'</span> &amp;&amp; <span class="hljs-meta-keyword">line</span>[len-1] == <span class="hljs-meta-string">'"'</span>) { \
+		<span class="hljs-meta-keyword">line</span>[len-1] = <span class="hljs-meta-string">'\0'</span>; \
+		len--; \
+		c++; \
+	} \
+} while (0)</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">collect_arg</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * c, <span class="hljs-keyword">char</span> **out)</span> </span>{
+	<span class="hljs-keyword">char</span> * value = <span class="hljs-literal">NULL</span>;
+	*out = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">while</span> (*c &amp;&amp; is_tab_or_space(*c)) c++;
+	<span class="hljs-keyword">if</span> (*c) {
+
+		<span class="hljs-keyword">int</span> quoted = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (*c == <span class="hljs-string">'"'</span>) {
+			c++;
+			quoted = <span class="hljs-number">1</span>;
+		}
+
+		value = c;
+
+		<span class="hljs-keyword">if</span> (quoted) {
+			<span class="hljs-keyword">while</span> (*c &amp;&amp; *c != <span class="hljs-string">'"'</span>) c++;
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">while</span> (*c &amp;&amp; !is_tab_or_space(*c)) c++;
+		}
+		<span class="hljs-keyword">if</span> (*c) *c++ = <span class="hljs-string">'\0'</span>;
+
+		<span class="hljs-comment">/* Skip whitespace */</span>
+		<span class="hljs-keyword">while</span> (*c &amp;&amp; is_tab_or_space(*c)) c++;
+	}
+
+	<span class="hljs-keyword">if</span> (value) *out = strdup(value);
+
+	<span class="hljs-keyword">return</span> c;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> <span class="hljs-title">process_arg</span><span class="hljs-params">(struct RoffContext * ctx, <span class="hljs-keyword">char</span> * c, <span class="hljs-keyword">int</span> delimit_last)</span> </span>{
+	<span class="hljs-keyword">char</span> * c_in = c;
+	<span class="hljs-keyword">char</span> * arg = <span class="hljs-literal">NULL</span>;
+	c = collect_arg(c, &amp;arg);
+
+	<span class="hljs-keyword">if</span> (arg) {
+		<span class="hljs-keyword">char</span> * ca = arg;
+
+		<span class="hljs-comment">/* Preserve whitespace within arg */</span>
+		<span class="hljs-keyword">int</span> was_table = ctx-&gt;printing_table;
+		ctx-&gt;printing_table = <span class="hljs-number">1</span>;
+
+		<span class="hljs-keyword">while</span> (*ca) {
+			ca += process_word(ctx, ca, <span class="hljs-number">0</span>);
+		}
+
+		ctx-&gt;printing_table = was_table;
+
+		<span class="hljs-built_in">free</span>(arg);
+	}
+
+	<span class="hljs-keyword">if</span> (delimit_last) {
+		fputc(<span class="hljs-string">' '</span>, ctx-&gt;output);
+		ctx-&gt;current_x += <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">return</span> c - c_in;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-15" id="section-15"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">do_file</span><span class="hljs-params">(<span class="hljs-keyword">char</span> ** argv, <span class="hljs-keyword">int</span> i)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">RoffContext</span> <span class="hljs-title">ctx</span> = {</span><span class="hljs-number">0</span>};
+	ctx.output = initial_output;
+	ctx.error_output = error_output;
+
+	FILE * f = (!<span class="hljs-built_in">strcmp</span>(argv[i],<span class="hljs-string">"-"</span>)) ? <span class="hljs-built_in">stdin</span> : fopen(argv[i], <span class="hljs-string">"r"</span>);
+	<span class="hljs-keyword">if</span> (!f) {
+		<span class="hljs-built_in">fprintf</span>(ctx.error_output, <span class="hljs-string">"%s: %s: %s\n"</span>, argv[<span class="hljs-number">0</span>], argv[i], strerror(errno));
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">line</span> = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">size_t</span> avail = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">ssize_t</span> len;
+
+	ctx.previous_font = <span class="hljs-string">'R'</span>;
+	ctx.current_font = <span class="hljs-string">'R'</span>;
+
+	<span class="hljs-keyword">int</span> ret = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">while</span> ((len = getline(&amp;<span class="hljs-built_in">line</span>, &amp;avail, f)) &gt;= <span class="hljs-number">0</span>) {
+
+		<span class="hljs-comment">/* Discard linefeed to make this simpler */</span>
+		<span class="hljs-keyword">if</span> (len &amp;&amp; <span class="hljs-built_in">line</span>[len<span class="hljs-number">-1</span>] == <span class="hljs-string">'\n'</span>) {
+			<span class="hljs-built_in">line</span>[len<span class="hljs-number">-1</span>] = <span class="hljs-string">'\0'</span>;
+			len--;
+		}
+
+		<span class="hljs-keyword">if</span> (*<span class="hljs-built_in">line</span> == <span class="hljs-string">'\''</span>) <span class="hljs-built_in">line</span>[<span class="hljs-number">0</span>] = <span class="hljs-string">'.'</span>; <span class="hljs-comment">/* single tick is an alias for . at the start of a line. */</span>
+
+		<span class="hljs-comment">/* Skip comment lines */</span>
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".\\\""</span>) == <span class="hljs-built_in">line</span>) <span class="hljs-keyword">continue</span>;
+
+		<span class="hljs-comment">/* Also skip lines that are just the "control character" */</span>
+		<span class="hljs-keyword">if</span> (*<span class="hljs-built_in">line</span> == <span class="hljs-string">'.'</span> &amp;&amp; is_whitespace(&amp;<span class="hljs-built_in">line</span>[<span class="hljs-number">1</span>])) <span class="hljs-keyword">continue</span>;
+
+		<span class="hljs-keyword">char</span> * c = <span class="hljs-built_in">line</span>;
+		<span class="hljs-keyword">int</span> delimited = <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">int</span> force_padded = <span class="hljs-number">0</span>;
+
+		<span class="hljs-keyword">int</span> just_did_re = ctx.just_did_re;
+		ctx.just_did_re = <span class="hljs-number">0</span>;
+
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">line</span>[<span class="hljs-number">0</span>] == <span class="hljs-string">'.'</span>) {
+			<span class="hljs-comment">/* Macro directives */</span>
+
+			<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>,<span class="hljs-string">".TH "</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-keyword">if</span> (ctx.topic_title) {
+					<span class="hljs-built_in">fprintf</span>(ctx.error_output, <span class="hljs-string">"%s: %s: More than one .TH found.\n"</span>, argv[<span class="hljs-number">0</span>], argv[i]);
+					ret = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">goto</span> _cleanup;
+				}
+				<span class="hljs-comment">/* Topic heading */</span>
+				<span class="hljs-keyword">char</span> * c = <span class="hljs-built_in">line</span> + <span class="hljs-number">4</span>;
+				c = collect_arg(c, &amp;ctx.topic_title);
+				c = collect_arg(c, &amp;ctx.topic_section);
+				c = collect_arg(c, &amp;ctx.topic_date);
+				c = collect_arg(c, &amp;ctx.topic_footer);
+				c = collect_arg(c, &amp;ctx.topic_header);
+
+				<span class="hljs-keyword">if</span> (!only_section) format_title(&amp;ctx);
+				<span class="hljs-keyword">continue</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".SH "</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* Section heading */</span>
+				flush_line(&amp;ctx, <span class="hljs-number">1</span>);
+				c = <span class="hljs-built_in">line</span> + <span class="hljs-number">4</span>;
+				MAYBE_QUOTES();
+				<span class="hljs-keyword">if</span> (only_section) {
+					<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(c,only_section)) {
+						ctx.next_output = true_output;
+					} <span class="hljs-keyword">else</span> {
+						ctx.next_output = <span class="hljs-literal">NULL</span>;
+						ctx.output = initial_output;
+					}
+				}
+				switch_font(&amp;ctx,<span class="hljs-string">'B'</span>);
+				ctx.indent = <span class="hljs-number">0</span>;
+				ctx.extra_indent = <span class="hljs-number">0</span>;
+				ctx.next_indent = DEFAULT_INDENTATION;
+				ctx.squish_line = <span class="hljs-number">0</span>;
+				force_padded = <span class="hljs-number">1</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".SS "</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* Sub-section heading */</span>
+				flush_line(&amp;ctx, <span class="hljs-number">1</span>);
+				c = <span class="hljs-built_in">line</span> + <span class="hljs-number">4</span>;
+				MAYBE_QUOTES();
+				switch_font(&amp;ctx,<span class="hljs-string">'B'</span>);
+				ctx.indent = <span class="hljs-number">3</span>;
+				ctx.extra_indent = <span class="hljs-number">0</span>;
+				ctx.next_indent = DEFAULT_INDENTATION;
+				ctx.squish_line = <span class="hljs-number">0</span>;
+				force_padded = <span class="hljs-number">1</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".PP"</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* Paragraph */</span>
+				flush_line(&amp;ctx, <span class="hljs-number">1</span>);
+				ctx.indent = ctx.extra_indent + DEFAULT_INDENTATION;
+				ctx.next_indent = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">continue</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".TP"</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* Tagged paragraph */</span>
+				flush_line(&amp;ctx, <span class="hljs-number">1</span>);
+
+				<span class="hljs-comment">/* Incorrectly support indentation hints */</span>
+				<span class="hljs-keyword">int</span> howmuch = DEFAULT_INDENTATION;
+				<span class="hljs-keyword">char</span> * arg;
+				c = collect_arg(c + <span class="hljs-number">3</span>, &amp;arg);
+				<span class="hljs-keyword">if</span> (arg) {
+					howmuch = atoi(arg);
+					<span class="hljs-built_in">free</span>(arg);
+				}
+				ctx.indent = ctx.extra_indent + DEFAULT_INDENTATION;
+				ctx.next_indent = ctx.extra_indent + DEFAULT_INDENTATION + howmuch;
+				ctx.squish_line = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">continue</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".br"</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* Line break */</span>
+				flush_line(&amp;ctx, <span class="hljs-number">0</span>);
+				<span class="hljs-keyword">continue</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".B "</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* Bold */</span>
+				switch_font(&amp;ctx, <span class="hljs-string">'B'</span>);
+				c = <span class="hljs-built_in">line</span> + <span class="hljs-number">3</span>;
+				MAYBE_QUOTES();
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".I "</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* Italic (actually underlined) */</span>
+				switch_font(&amp;ctx, <span class="hljs-string">'I'</span>);
+				c = <span class="hljs-built_in">line</span> + <span class="hljs-number">3</span>;
+				MAYBE_QUOTES();
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".IR "</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* Italic (actually underlined), then Roman */</span>
+				c = <span class="hljs-built_in">line</span> + <span class="hljs-number">4</span>;
+				<span class="hljs-keyword">while</span> (*c) {
+					switch_font(&amp;ctx, <span class="hljs-string">'I'</span>);
+					c += process_arg(&amp;ctx, c, <span class="hljs-number">0</span>);
+					switch_font(&amp;ctx, <span class="hljs-string">'R'</span>);
+					c += process_arg(&amp;ctx, c, <span class="hljs-number">0</span>);
+				}
+				print_spaces(&amp;ctx, <span class="hljs-number">1</span>);
+				ctx.current_x++;
+				<span class="hljs-keyword">goto</span> _processed_line;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".BR "</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* Bold, then Roman */</span>
+				c = <span class="hljs-built_in">line</span> + <span class="hljs-number">4</span>;
+				<span class="hljs-keyword">while</span> (*c) {
+					switch_font(&amp;ctx, <span class="hljs-string">'B'</span>);
+					c += process_arg(&amp;ctx, c, <span class="hljs-number">0</span>);
+					switch_font(&amp;ctx, <span class="hljs-string">'R'</span>);
+					c += process_arg(&amp;ctx, c, <span class="hljs-number">0</span>);
+				}
+				print_spaces(&amp;ctx, <span class="hljs-number">1</span>);
+				ctx.current_x++;
+				<span class="hljs-keyword">goto</span> _processed_line;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".RI "</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* Roman, then underlined. */</span>
+				c = <span class="hljs-built_in">line</span> + <span class="hljs-number">4</span>;
+				<span class="hljs-keyword">while</span> (*c) {
+					switch_font(&amp;ctx, <span class="hljs-string">'R'</span>);
+					c += process_arg(&amp;ctx, c, <span class="hljs-number">0</span>);
+					switch_font(&amp;ctx, <span class="hljs-string">'I'</span>);
+					c += process_arg(&amp;ctx, c, <span class="hljs-number">0</span>);
+				}
+				switch_font(&amp;ctx, <span class="hljs-string">'R'</span>); <span class="hljs-comment">/* Always switch back to Roman afterwards */</span>
+				print_spaces(&amp;ctx, <span class="hljs-number">1</span>);
+				ctx.current_x++;
+				<span class="hljs-keyword">goto</span> _processed_line;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".RB "</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* Roman, then bold. */</span>
+				c = <span class="hljs-built_in">line</span> + <span class="hljs-number">4</span>;
+				<span class="hljs-keyword">while</span> (*c) {
+					switch_font(&amp;ctx, <span class="hljs-string">'R'</span>);
+					c += process_arg(&amp;ctx, c, <span class="hljs-number">0</span>);
+					switch_font(&amp;ctx, <span class="hljs-string">'B'</span>);
+					c += process_arg(&amp;ctx, c, <span class="hljs-number">0</span>);
+				}
+				switch_font(&amp;ctx, <span class="hljs-string">'R'</span>); <span class="hljs-comment">/* Always switch back to Roman afterwards */</span>
+				print_spaces(&amp;ctx, <span class="hljs-number">1</span>);
+				ctx.current_x++;
+				<span class="hljs-keyword">goto</span> _processed_line;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".IP "</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* Indented paragraph */</span>
+				flush_line(&amp;ctx, <span class="hljs-number">1</span>);
+				ctx.indent = ctx.extra_indent + DEFAULT_INDENTATION;
+				ctx.next_indent = ctx.extra_indent + DEFAULT_INDENTATION * <span class="hljs-number">2</span>;
+				c = <span class="hljs-built_in">line</span> + <span class="hljs-number">4</span>;
+				MAYBE_QUOTES();
+				ctx.squish_line = <span class="hljs-number">1</span>;
+				force_padded = <span class="hljs-number">1</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".IP"</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* Indented paragraph but this line is empty */</span>
+				flush_line(&amp;ctx, <span class="hljs-number">1</span>);
+				ctx.indent = ctx.extra_indent + DEFAULT_INDENTATION;
+				ctx.next_indent = ctx.extra_indent + DEFAULT_INDENTATION;
+				c = <span class="hljs-built_in">line</span> + <span class="hljs-number">3</span>;
+				ctx.squish_line = <span class="hljs-number">1</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".sp"</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* Vertical space */</span>
+				flush_line(&amp;ctx, <span class="hljs-number">0</span>);
+				<span class="hljs-built_in">fprintf</span>(ctx.output, <span class="hljs-string">"\n"</span>);
+				ctx.padded = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">continue</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".RS"</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* Block quote start */</span>
+				ctx.extra_indent += DEFAULT_INDENTATION;
+				flush_line(&amp;ctx, !ctx.padded &amp;&amp; (ctx.indent == ctx.extra_indent + DEFAULT_INDENTATION || just_did_re));
+				ctx.indent = ctx.extra_indent + DEFAULT_INDENTATION;
+				ctx.next_indent = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">continue</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".RE"</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* Block quote end */</span>
+				ctx.extra_indent -= DEFAULT_INDENTATION;
+				ctx.indent = ctx.extra_indent + DEFAULT_INDENTATION;
+				ctx.next_indent = <span class="hljs-number">0</span>;
+				flush_line(&amp;ctx, <span class="hljs-number">0</span>);
+				ctx.just_did_re = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">continue</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".nh"</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* TODO disable hyphenation */</span>
+				<span class="hljs-keyword">continue</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".hy"</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* TODO reenable hyphenation */</span>
+				<span class="hljs-keyword">continue</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".nf"</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* Handle whitespace, including linebreaks, until .fi */</span>
+				flush_line(&amp;ctx, <span class="hljs-number">0</span>);
+				ctx.printing_table = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">continue</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".fi"</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* End of raw whitespace handling */</span>
+				flush_line(&amp;ctx, <span class="hljs-number">0</span>);
+				ctx.printing_table = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">continue</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".TS"</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* Table start (treated the same as .nf) */</span>
+				flush_line(&amp;ctx, <span class="hljs-number">0</span>);
+				ctx.printing_table = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">continue</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(<span class="hljs-built_in">line</span>, <span class="hljs-string">".TE"</span>) == <span class="hljs-built_in">line</span>) {
+				<span class="hljs-comment">/* Table end (treated the same as .fi, but with an extra line break) */</span>
+				flush_line(&amp;ctx, <span class="hljs-number">0</span>);
+				<span class="hljs-built_in">fprintf</span>(ctx.output, <span class="hljs-string">"\n"</span>);
+				ctx.padded = <span class="hljs-number">1</span>;
+				ctx.printing_table = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">continue</span>;
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-built_in">fprintf</span>(ctx.error_output, <span class="hljs-string">"%s: %s: Found an unrecognized directive on this line: %s\n"</span>,
+					argv[<span class="hljs-number">0</span>], argv[i], <span class="hljs-built_in">line</span>);
+				ret = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">goto</span> _cleanup;
+			}
+		}
+
+		<span class="hljs-keyword">if</span> (!*c &amp;&amp; !ctx.printing_table) {
+			flush_line(&amp;ctx, <span class="hljs-number">1</span>);
+		}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-16" id="section-16"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If whitespace appears at the start of the line, treat it as a line break
+and display the literal whitespace</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		<span class="hljs-keyword">if</span> (is_tab_or_space(*c)) {
+			flush_line(&amp;ctx, <span class="hljs-number">0</span>);
+			print_spaces(&amp;ctx, ctx.indent);
+			ctx.current_x += ctx.indent;
+
+			<span class="hljs-keyword">while</span> (is_tab_or_space(*c)) {
+				do_tab_or_space(&amp;ctx, *c);
+				c++;
+			}
+		}
+
+		<span class="hljs-comment">/* Print it! */</span>
+		<span class="hljs-keyword">while</span> (*c) {
+			c += process_word(&amp;ctx, c, delimited);
+		}
+
+_processed_line:
+		<span class="hljs-keyword">if</span> (!plain_text) real_activate_font(&amp;ctx, <span class="hljs-number">0</span>);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-17" id="section-17"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>When in one of the raw whitespace modes, treat the end of a line
+as a forced line break.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		<span class="hljs-keyword">if</span> (ctx.printing_table) {
+			<span class="hljs-built_in">fprintf</span>(ctx.output, <span class="hljs-string">"\n"</span>);
+			ctx.current_x = <span class="hljs-number">0</span>;
+			ctx.padded = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">continue</span>;
+		}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-18" id="section-18"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Should we always be resetting the font to Roman at the end of an input line?
+Probably not, but it's worked so far...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		ctx.current_font = ctx.previous_font = <span class="hljs-string">'R'</span>;
+
+		<span class="hljs-comment">/* Handle macros that want to change indentation after handling one line. */</span>
+		<span class="hljs-keyword">if</span> (ctx.next_indent) {
+			ctx.indent = ctx.next_indent;
+			ctx.next_indent = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">if</span> (ctx.squish_line &amp;&amp; ctx.current_x &lt; (ctx.indent + delimited)) {
+				ctx.squish_line = <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">while</span> (ctx.current_x &lt; ctx.indent) {
+					fputc(<span class="hljs-string">' '</span>, ctx.output);
+					ctx.current_x += <span class="hljs-number">1</span>;
+				}
+			} <span class="hljs-keyword">else</span> {
+				flush_line(&amp;ctx,<span class="hljs-number">0</span>);
+			}
+			<span class="hljs-keyword">if</span> (ctx.next_output) {
+				ctx.output = ctx.next_output;
+				ctx.next_output = <span class="hljs-literal">NULL</span>;
+			}
+		}
+
+		<span class="hljs-keyword">if</span> (ctx.current_x) ctx.padded = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (force_padded) ctx.padded = <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* End of file, print the footer. We made it! */</span>
+	flush_line(&amp;ctx, <span class="hljs-number">1</span>);
+	format_footer(&amp;ctx);
+
+_cleanup:
+	<span class="hljs-keyword">if</span> (ctx.topic_title) <span class="hljs-built_in">free</span>(ctx.topic_title);
+	<span class="hljs-keyword">if</span> (ctx.topic_section) <span class="hljs-built_in">free</span>(ctx.topic_section);
+	<span class="hljs-keyword">if</span> (ctx.topic_date) <span class="hljs-built_in">free</span>(ctx.topic_date);
+
+	<span class="hljs-keyword">if</span> (f != <span class="hljs-built_in">stdin</span>) fclose(f);
+	<span class="hljs-built_in">free</span>(<span class="hljs-built_in">line</span>);
+	<span class="hljs-keyword">return</span> ret;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_S <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_E <span class="hljs-meta-string">"\033[0m"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+		<span class="hljs-string">"usage: %s [-W "</span> X_S <span class="hljs-string">"width"</span> X_E <span class="hljs-string">"] "</span> X_S <span class="hljs-string">"FILE"</span> X_E <span class="hljs-string">"...\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"Parse a very limited subset of ROFF and format it for display on STDOUT, using\n"</span>
+		<span class="hljs-string">"STDERR as the basis for sizing, suitable for passing to '|more -r'.\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"If an unrecognized directive is found, processing will halt and an error will\n"</span>
+		<span class="hljs-string">"be printed indicating the unhandled line.\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"Options:\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" -W "</span> X_S <span class="hljs-string">"width   Format output for the given width, instead of using the"</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"            "</span> X_S <span class="hljs-string">"width of the terminal."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" -S "</span> X_S <span class="hljs-string">"section Print only the contents of the given section. The section"</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"            "</span> X_S <span class="hljs-string">"header will not be included. Name matching is case sensitive."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" -E         "</span> X_S <span class="hljs-string">"Print error messages about missing files or unknown directives"</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"            "</span> X_S <span class="hljs-string">"to standard error, rather than standard output. With -S, this"</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"            "</span> X_S <span class="hljs-string">"is the default behavior."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" -P         "</span> X_S <span class="hljs-string">"Do not output escape sequences to change fonts."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" -I "</span> X_S <span class="hljs-string">"spaces  Set the indentation step (default is 7)."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" --help     "</span> X_S <span class="hljs-string">"Show this help text."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"\n"</span>, argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+	<span class="hljs-keyword">if</span> (isatty(STDERR_FILENO)) ioctl(STDERR_FILENO, TIOCGWINSZ, &amp;w);
+
+	<span class="hljs-comment">/* Normally, we want to write to stdout */</span>
+	initial_output = <span class="hljs-built_in">stdout</span>;
+	true_output = <span class="hljs-built_in">stdout</span>;
+	error_output = <span class="hljs-built_in">stdout</span>; <span class="hljs-comment">/* These are errors we want to show up in a pager */</span>
+
+	<span class="hljs-keyword">int</span> opt;
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"?W:S:EPI:-:"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'W'</span>:
+				w.ws_col = atoi(optarg);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'S'</span>:
+				only_section = optarg;
+				initial_output = fopen(<span class="hljs-string">"/dev/null"</span>,<span class="hljs-string">"w"</span>);
+				error_output = <span class="hljs-built_in">stderr</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'E'</span>:
+				error_output = <span class="hljs-built_in">stderr</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'P'</span>:
+				plain_text = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'I'</span>:
+				DEFAULT_INDENTATION = strtoul(optarg, <span class="hljs-literal">NULL</span>, <span class="hljs-number">10</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'-'</span>:
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(optarg,<span class="hljs-string">"help"</span>)) {
+					usage(argv);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				}
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: '--%s' is not a recognized long option.\n"</span>, argv[<span class="hljs-number">0</span>], optarg);
+				<span class="hljs-comment">/* fallthrough */</span>
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> usage(argv);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (optind == argc) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: no files (see `%s --help` for usage)\n"</span>, argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">int</span> ret = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">for</span> (; optind &lt; argc; optind++) {
+		ret |= do_file(argv, optind);
+	}
+
+	<span class="hljs-keyword">return</span> ret;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

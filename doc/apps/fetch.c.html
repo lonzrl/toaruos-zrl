@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>fetch.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\fetch.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>fetch.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;getopt.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;termios.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/stat.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/socket.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;netinet/in.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;netdb.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;arpa/inet.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/hashmap.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> SIZE 512</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BOUNDARY <span class="hljs-meta-string">"------ToaruOSFetchUploadBoundary"</span></span>
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">http_req</span> {</span>
+	<span class="hljs-keyword">char</span> domain[SIZE];
+	<span class="hljs-keyword">char</span> path[SIZE];
+	<span class="hljs-keyword">int</span> port;
+	<span class="hljs-keyword">int</span> ssl;
+};
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> {</span>
+	<span class="hljs-keyword">int</span> show_headers;
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * output_file;
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * cookie;
+	FILE * out;
+	<span class="hljs-keyword">int</span> prompt_password;
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * upload_file;
+	<span class="hljs-keyword">char</span> * password;
+	<span class="hljs-keyword">int</span> show_progress;
+	<span class="hljs-keyword">size_t</span> content_length;
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timeval</span> <span class="hljs-title">start</span>;</span>
+	<span class="hljs-keyword">int</span> calculate_output;
+	<span class="hljs-keyword">int</span> slow_upload;
+	<span class="hljs-keyword">int</span> machine_readable;
+	<span class="hljs-keyword">int</span> fail_fast;
+	<span class="hljs-keyword">char</span> * label;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">winsize</span> <span class="hljs-title">ws</span>;</span>
+} fetch_options = {<span class="hljs-number">0</span>};
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">parse_url</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * d, struct http_req * r)</span> </span>{
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(d, <span class="hljs-string">"http://"</span>) == d) {
+		d += <span class="hljs-built_in">strlen</span>(<span class="hljs-string">"http://"</span>);
+		r-&gt;port = <span class="hljs-number">80</span>;
+		r-&gt;ssl = <span class="hljs-number">0</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(d, <span class="hljs-string">"https://"</span>) == d) {
+		d += <span class="hljs-built_in">strlen</span>(<span class="hljs-string">"https://"</span>);
+		r-&gt;port = <span class="hljs-number">443</span>;
+		r-&gt;ssl = <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Unrecognized protocol: %s\n"</span>, d);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">char</span> * s = <span class="hljs-built_in">strstr</span>(d, <span class="hljs-string">"/"</span>);
+	<span class="hljs-keyword">if</span> (!s) {
+		<span class="hljs-built_in">strcpy</span>(r-&gt;domain, d);
+		<span class="hljs-built_in">strcpy</span>(r-&gt;path, <span class="hljs-string">""</span>);
+	} <span class="hljs-keyword">else</span> {
+		*s = <span class="hljs-number">0</span>;
+		s++;
+		<span class="hljs-built_in">strcpy</span>(r-&gt;domain, d);
+		<span class="hljs-built_in">strcpy</span>(r-&gt;path, s);
+	}
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strstr</span>(r-&gt;domain,<span class="hljs-string">":"</span>)) {
+		<span class="hljs-keyword">char</span> * port = <span class="hljs-built_in">strstr</span>(r-&gt;domain,<span class="hljs-string">":"</span>);
+		*port = <span class="hljs-string">'\0'</span>;
+		port++;
+		r-&gt;port = atoi(port);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BAR_WIDTH 20</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> bar_perc <span class="hljs-meta-string">"||||||||||||||||||||"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> bar_spac <span class="hljs-meta-string">"                    "</span></span>
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">print_progress</span><span class="hljs-params">(<span class="hljs-keyword">int</span> force)</span> </span>{
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint64_t</span> last_size = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (!fetch_options.show_progress) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">if</span> (!force &amp;&amp; (last_size + <span class="hljs-number">102400</span> &gt; fetch_options.<span class="hljs-built_in">size</span>)) <span class="hljs-keyword">return</span>;
+	last_size = fetch_options.<span class="hljs-built_in">size</span>;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timeval</span> <span class="hljs-title">now</span>;</span>
+	gettimeofday(&amp;now, <span class="hljs-literal">NULL</span>);
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,<span class="hljs-string">"\033[?25l\033[G"</span>);
+	<span class="hljs-keyword">ssize_t</span> written = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (fetch_options.label) {
+		written += <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s "</span>, fetch_options.label);
+	}
+	written += <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,<span class="hljs-string">"%6dkB"</span>,(<span class="hljs-keyword">int</span>)fetch_options.<span class="hljs-built_in">size</span>/<span class="hljs-number">1024</span>);
+
+	<span class="hljs-keyword">char</span> * time_remaining = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">double</span> timediff = (<span class="hljs-keyword">double</span>)(now.tv_sec - fetch_options.start.tv_sec) + (<span class="hljs-keyword">double</span>)(now.tv_usec - fetch_options.start.tv_usec)/<span class="hljs-number">1000000.0</span>;
+	<span class="hljs-keyword">if</span> (timediff &gt; <span class="hljs-number">0.0</span>) {
+		<span class="hljs-keyword">double</span> rate = (<span class="hljs-keyword">double</span>)(fetch_options.<span class="hljs-built_in">size</span>) / timediff;
+		<span class="hljs-keyword">double</span> s = rate/(<span class="hljs-number">1024.0</span>) * <span class="hljs-number">8.0</span>;
+		<span class="hljs-keyword">int</span> use_mb = s &gt; <span class="hljs-number">1024.0</span>;
+		<span class="hljs-keyword">int</span> show_remaining = (!force &amp;&amp; fetch_options.content_length);
+		<span class="hljs-keyword">int</span> show_time = show_remaining ? (rate &gt; <span class="hljs-number">0.0</span>) : <span class="hljs-number">1</span>;
+
+		<span class="hljs-keyword">double</span> remaining = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (show_remaining &amp;&amp; show_time) remaining = (<span class="hljs-keyword">double</span>)(fetch_options.content_length - fetch_options.<span class="hljs-built_in">size</span>) / rate;
+
+		<span class="hljs-keyword">if</span> (show_time) {
+			written += asprintf(&amp;time_remaining,
+				<span class="hljs-string">" %3.2f %cbps (%3.2f sec %s"</span>,
+				use_mb ? s / <span class="hljs-number">1024.0</span> : s,
+				use_mb ? <span class="hljs-string">'M'</span> : <span class="hljs-string">'K'</span>,
+				show_remaining ? remaining : timediff,
+				show_remaining ? <span class="hljs-string">"remaining)"</span>
+				               : <span class="hljs-string">"elapsed)  "</span>);
+		} <span class="hljs-keyword">else</span> {
+			written += asprintf(&amp;time_remaining,
+				<span class="hljs-string">" %3.2f %cbps"</span>,
+				use_mb ? s / <span class="hljs-number">1024.0</span> : s,
+				use_mb ? <span class="hljs-string">'M'</span> : <span class="hljs-string">'K'</span>);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (fetch_options.content_length) {
+		written += <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,<span class="hljs-string">" / %6dkB ["</span>, (<span class="hljs-keyword">int</span>)fetch_options.content_length/<span class="hljs-number">1024</span>);
+		<span class="hljs-keyword">int</span> screen_width = fetch_options.ws.ws_col ? fetch_options.ws.ws_col : <span class="hljs-number">80</span>;
+		<span class="hljs-keyword">int</span> bar_width = screen_width - written - <span class="hljs-number">2</span>; <span class="hljs-comment">/* A little padding */</span>
+		<span class="hljs-keyword">int</span> percent = (fetch_options.<span class="hljs-built_in">size</span> * bar_width) / (fetch_options.content_length);
+		<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">for</span> (; i &lt; percent; ++i) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,<span class="hljs-string">"|"</span>);
+		<span class="hljs-keyword">for</span> (; i &lt; bar_width; ++i) <span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,<span class="hljs-string">" "</span>);
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"]"</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (time_remaining) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s"</span>, time_remaining);
+		<span class="hljs-built_in">free</span>(time_remaining);
+	}
+
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,<span class="hljs-string">"\033[K\033[?25h"</span>);
+	fflush(<span class="hljs-built_in">stderr</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_S <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_E <span class="hljs-meta-string">"\033[0m"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+			<span class="hljs-string">"%s - download files over HTTP\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"usage: %s [-hOvmpf?] [-c "</span> X_S <span class="hljs-string">"cookie "</span> X_E <span class="hljs-string">"] [-o "</span> X_S <span class="hljs-string">"file"</span> X_E <span class="hljs-string">"] [-u "</span> X_S <span class="hljs-string">"file"</span> X_E <span class="hljs-string">"] [-s "</span> X_S <span class="hljs-string">"speed"</span> X_E<span class="hljs-string">"] [-L "</span> X_S <span class="hljs-string">"label"</span> X_E <span class="hljs-string">"] "</span> X_S <span class="hljs-string">"URL"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -h     "</span> X_S <span class="hljs-string">"show headers"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -O     "</span> X_S <span class="hljs-string">"save the file based on the filename in the URL"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -v     "</span> X_S <span class="hljs-string">"show progress"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -m     "</span> X_S <span class="hljs-string">"machine readable output"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -p     "</span> X_S <span class="hljs-string">"prompt for password"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -f     "</span> X_S <span class="hljs-string">"fail if response is not 200"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -c ... "</span> X_S <span class="hljs-string">"set cookies"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -o ... "</span> X_S <span class="hljs-string">"save to the specified file"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -u ... "</span> X_S <span class="hljs-string">"upload the specified file"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -s ... "</span> X_S <span class="hljs-string">"specify the speed for uploading slowly"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -L ... "</span> X_S <span class="hljs-string">"provide a label to show before the download progress"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">" -?     "</span> X_S <span class="hljs-string">"show this help text"</span> X_E <span class="hljs-string">"\n"</span>
+			<span class="hljs-string">"\n"</span>, argv[<span class="hljs-number">0</span>], argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">collect_password</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * password)</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"Password for upload: "</span>);
+	fflush(<span class="hljs-built_in">stdout</span>);
+
+	<span class="hljs-comment">/* Disable echo */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">termios</span> <span class="hljs-title">old</span>, <span class="hljs-title">new</span>;</span>
+	tcgetattr(fileno(<span class="hljs-built_in">stdin</span>), &amp;old);
+	<span class="hljs-keyword">new</span> = old;
+	<span class="hljs-keyword">new</span>.c_lflag &amp;= (~ECHO);
+	tcsetattr(fileno(<span class="hljs-built_in">stdin</span>), TCSAFLUSH, &amp;<span class="hljs-keyword">new</span>);
+
+	fgets(password, <span class="hljs-number">1024</span>, <span class="hljs-built_in">stdin</span>);
+	password[<span class="hljs-built_in">strlen</span>(password)<span class="hljs-number">-1</span>] = <span class="hljs-string">'\0'</span>;
+	tcsetattr(fileno(<span class="hljs-built_in">stdin</span>), TCSAFLUSH, &amp;old);
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>, <span class="hljs-string">"\n"</span>);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MAX_HTTP_LINE 1024</span>
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">read_http_line</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * buf, FILE * f)</span> </span>{
+	<span class="hljs-built_in">memset</span>(buf, <span class="hljs-number">0x00</span>, MAX_HTTP_LINE);
+
+	fgets(buf, MAX_HTTP_LINE<span class="hljs-number">-1</span>, f);
+
+	<span class="hljs-keyword">if</span> (ferror(f)) {
+		<span class="hljs-keyword">if</span> (errno == EAGAIN) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"recieve timed out waiting for headers\n"</span>);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">28</span>;
+		}
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"receive error waiting for headers\n"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">26</span>;
+	}
+
+	<span class="hljs-keyword">char</span> * _r = <span class="hljs-built_in">strchr</span>(buf, <span class="hljs-string">'\r'</span>);
+	<span class="hljs-keyword">if</span> (_r) {
+		*_r = <span class="hljs-string">'\0'</span>;
+	}
+	<span class="hljs-keyword">if</span> (!_r) {
+		_r = <span class="hljs-built_in">strchr</span>(buf, <span class="hljs-string">'\n'</span>); <span class="hljs-comment">/* that's not right, but, whatever */</span>
+		<span class="hljs-keyword">if</span> (_r) {
+			*_r = <span class="hljs-string">'\0'</span>;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">bad_response</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Bad response.\n"</span>);
+	<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">http_fetch</span><span class="hljs-params">(FILE * f)</span> </span>{
+	<span class="hljs-keyword">hashmap_t</span> * headers = hashmap_create(<span class="hljs-number">10</span>);
+
+	<span class="hljs-comment">/* Parse response */</span>
+	{
+		<span class="hljs-keyword">char</span> buf[MAX_HTTP_LINE];
+		<span class="hljs-keyword">int</span> resp = read_http_line(buf, f);
+		<span class="hljs-keyword">if</span> (resp) <span class="hljs-keyword">return</span> resp;
+
+		<span class="hljs-keyword">char</span> * elements[<span class="hljs-number">3</span>];
+
+		elements[<span class="hljs-number">0</span>] = buf;
+		elements[<span class="hljs-number">1</span>] = <span class="hljs-built_in">strchr</span>(elements[<span class="hljs-number">0</span>], <span class="hljs-string">' '</span>);
+		<span class="hljs-keyword">if</span> (!elements[<span class="hljs-number">1</span>]) bad_response();
+		*elements[<span class="hljs-number">1</span>] = <span class="hljs-string">'\0'</span>;
+		elements[<span class="hljs-number">1</span>]++;
+
+		elements[<span class="hljs-number">2</span>] = <span class="hljs-built_in">strchr</span>(elements[<span class="hljs-number">1</span>], <span class="hljs-string">' '</span>);
+		<span class="hljs-keyword">if</span> (!elements[<span class="hljs-number">2</span>]) bad_response();
+		*elements[<span class="hljs-number">2</span>] = <span class="hljs-string">'\0'</span>;
+		elements[<span class="hljs-number">2</span>]++;
+
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strcmp</span>(elements[<span class="hljs-number">1</span>], <span class="hljs-string">"200"</span>) &amp;&amp; fetch_options.fail_fast) <span class="hljs-keyword">return</span> <span class="hljs-number">22</span>;
+	}
+
+	fetch_options.out = <span class="hljs-built_in">stdout</span>;
+	<span class="hljs-keyword">if</span> (fetch_options.output_file) {
+		fetch_options.out = fopen(fetch_options.output_file, <span class="hljs-string">"w+"</span>);
+		<span class="hljs-keyword">if</span> (!fetch_options.out) {
+			perror(<span class="hljs-string">"fopen"</span>);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">25</span>;
+		}
+	}
+
+	<span class="hljs-comment">/* Parse headers */</span>
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">char</span> buf[MAX_HTTP_LINE];
+		read_http_line(buf, f);
+
+		<span class="hljs-keyword">if</span> (!*buf) {
+			<span class="hljs-keyword">break</span>;
+		}
+
+		<span class="hljs-comment">/* Split */</span>
+		<span class="hljs-keyword">char</span> * name = buf;
+		<span class="hljs-keyword">char</span> * value = <span class="hljs-built_in">strstr</span>(buf, <span class="hljs-string">": "</span>);
+		<span class="hljs-keyword">if</span> (!value) bad_response();
+		*value = <span class="hljs-string">'\0'</span>;
+		value += <span class="hljs-number">2</span>;
+
+		hashmap_set(headers, name, strdup(value));
+	}
+
+	<span class="hljs-keyword">if</span> (fetch_options.show_headers) {
+		<span class="hljs-keyword">list_t</span> * hash_keys = hashmap_keys(headers);
+		foreach(_key, hash_keys) {
+			<span class="hljs-keyword">char</span> * key = (<span class="hljs-keyword">char</span> *)_key-&gt;value;
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"[%s] = %s\n"</span>, key, (<span class="hljs-keyword">char</span>*)hashmap_get(headers, key));
+		}
+		list_free(hash_keys);
+		<span class="hljs-built_in">free</span>(hash_keys);
+	}
+
+	<span class="hljs-comment">/* determine how many bytes we should read now */</span>
+	<span class="hljs-keyword">if</span> (!hashmap_has(headers, <span class="hljs-string">"Content-Length"</span>)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Don't know how much to read.\n"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">8</span>;
+	}
+
+	<span class="hljs-keyword">int</span> bytes_to_read = atoi(hashmap_get(headers, <span class="hljs-string">"Content-Length"</span>));
+	fetch_options.content_length = bytes_to_read;
+
+	gettimeofday(&amp;fetch_options.start, <span class="hljs-literal">NULL</span>);
+
+	<span class="hljs-keyword">while</span> (bytes_to_read &gt; <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">char</span> buf[<span class="hljs-number">1024</span>];
+		<span class="hljs-keyword">size_t</span> r = fread(buf, <span class="hljs-number">1</span>, bytes_to_read &lt; <span class="hljs-number">1024</span> ? bytes_to_read : <span class="hljs-number">1024</span>, f);
+		<span class="hljs-keyword">if</span> (ferror(f)) {
+			<span class="hljs-keyword">if</span> (errno == EAGAIN) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"received timed out\n"</span>);
+				<span class="hljs-keyword">return</span> <span class="hljs-number">28</span>;
+			}
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"receive error\n"</span>);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">26</span>;
+		}
+		fwrite(buf, <span class="hljs-number">1</span>, r, fetch_options.out);
+		fetch_options.<span class="hljs-built_in">size</span> += r;
+		print_progress(<span class="hljs-number">0</span>);
+		<span class="hljs-keyword">if</span> (fetch_options.machine_readable &amp;&amp; fetch_options.content_length) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"%zu %zu\n"</span>,fetch_options.<span class="hljs-built_in">size</span>,fetch_options.content_length);
+		}
+		bytes_to_read -= r;
+	}
+	print_progress(<span class="hljs-number">1</span>);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+
+	<span class="hljs-keyword">int</span> opt;
+
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"?c:hmo:Opu:vs:fL:"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> usage(argv);
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'O'</span>:
+				fetch_options.calculate_output = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'c'</span>:
+				fetch_options.cookie = optarg;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'h'</span>:
+				fetch_options.show_headers = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'o'</span>:
+				fetch_options.output_file = optarg;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'u'</span>:
+				fetch_options.upload_file = optarg;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'v'</span>:
+				fetch_options.show_progress = <span class="hljs-number">1</span>;
+				ioctl(STDERR_FILENO, TIOCGWINSZ, &amp;fetch_options.ws);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'m'</span>:
+				fetch_options.machine_readable = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'p'</span>:
+				fetch_options.prompt_password = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'s'</span>:
+				fetch_options.slow_upload = atoi(optarg);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>:
+				fetch_options.fail_fast = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'L'</span>:
+				fetch_options.label = optarg;
+				<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (optind &gt;= argc) {
+		<span class="hljs-keyword">return</span> usage(argv);
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">http_req</span> <span class="hljs-title">my_req</span>;</span>
+	<span class="hljs-keyword">if</span> (parse_url(argv[optind], &amp;my_req)) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (my_req.ssl) {
+		<span class="hljs-comment">/* TODO look for a viable backend. */</span>
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: no tls backend\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (fetch_options.calculate_output) {
+		<span class="hljs-keyword">char</span> * tmp = strdup(my_req.path);
+		<span class="hljs-keyword">char</span> * x = <span class="hljs-built_in">strrchr</span>(tmp,<span class="hljs-string">'/'</span>);
+		<span class="hljs-keyword">if</span> (x) {
+			tmp = x + <span class="hljs-number">1</span>;
+		}
+		fetch_options.output_file = tmp;
+	}
+
+	<span class="hljs-keyword">int</span> sock = socket(AF_INET, SOCK_STREAM, <span class="hljs-number">0</span>);
+	<span class="hljs-keyword">if</span> (sock &lt; <span class="hljs-number">0</span>) {
+		perror(<span class="hljs-string">"socket"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">hostent</span> * <span class="hljs-title">remote</span> = <span class="hljs-title">gethostbyname</span>(<span class="hljs-title">my_req</span>.<span class="hljs-title">domain</span>);</span>
+
+	<span class="hljs-keyword">if</span> (!remote) {
+		perror(<span class="hljs-string">"gethostbyname"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_in</span> <span class="hljs-title">addr</span>;</span>
+	addr.sin_family = AF_INET;
+	<span class="hljs-built_in">memcpy</span>(&amp;addr.sin_addr.s_addr, remote-&gt;h_addr, remote-&gt;h_length);
+	addr.sin_port = htons(my_req.port);
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">connect</span>(sock, (struct sockaddr*)&amp;addr, <span class="hljs-keyword">sizeof</span>(struct sockaddr_in)) &lt; <span class="hljs-number">0</span>) {
+		perror(<span class="hljs-string">"connect"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timeval</span> <span class="hljs-title">tv</span>;</span>
+	tv.tv_sec = <span class="hljs-number">5</span>;
+	tv.tv_usec = <span class="hljs-number">0</span>;
+	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &amp;tv, <span class="hljs-keyword">sizeof</span>(struct timeval));
+
+	FILE * f = fdopen(sock,<span class="hljs-string">"w+"</span>);
+
+	<span class="hljs-keyword">if</span> (!f) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"Nope.\n"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (fetch_options.prompt_password) {
+		fetch_options.password = <span class="hljs-built_in">malloc</span>(<span class="hljs-number">100</span>);
+		collect_password(fetch_options.password);
+	}
+
+	<span class="hljs-keyword">if</span> (fetch_options.upload_file) {
+		FILE * in_file = fopen(fetch_options.upload_file, <span class="hljs-string">"r"</span>);
+
+		srand(time(<span class="hljs-literal">NULL</span>));
+		<span class="hljs-keyword">int</span> boundary_fuzz = rand();
+		<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">512</span>];
+
+		<span class="hljs-keyword">size_t</span> out_size = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (fetch_options.password) {
+			out_size += <span class="hljs-built_in">sprintf</span>(tmp,
+				<span class="hljs-string">"--"</span> BOUNDARY <span class="hljs-string">"%08x\r\n"</span>
+				<span class="hljs-string">"Content-Disposition: form-data; name=\"password\"\r\n"</span>
+				<span class="hljs-string">"\r\n"</span>
+				<span class="hljs-string">"%s\r\n"</span>,boundary_fuzz, fetch_options.password);
+		}
+
+		out_size += <span class="hljs-built_in">strlen</span>(<span class="hljs-string">"--"</span> BOUNDARY <span class="hljs-string">"00000000\r\n"</span>
+				<span class="hljs-string">"Content-Disposition: form-data; name=\"file\"; filename=\"\"\r\n"</span>
+				<span class="hljs-string">"Content-Type: application/octet-stream\r\n"</span>
+				<span class="hljs-string">"\r\n"</span>
+				<span class="hljs-comment">/* Data goes here */</span>
+				<span class="hljs-string">"\r\n"</span>
+				<span class="hljs-string">"--"</span> BOUNDARY <span class="hljs-string">"00000000"</span> <span class="hljs-string">"--\r\n"</span>);
+
+		out_size += <span class="hljs-built_in">strlen</span>(fetch_options.upload_file);
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">stat</span> <span class="hljs-title">sb</span>;</span>
+		fstat(fileno(in_file), &amp;sb);
+		out_size += sb.st_size;
+
+		<span class="hljs-built_in">fprintf</span>(f,
+			<span class="hljs-string">"POST /%s HTTP/1.0\r\n"</span>
+			<span class="hljs-string">"User-Agent: curl/7.35.0\r\n"</span>
+			<span class="hljs-string">"Host: %s\r\n"</span>
+			<span class="hljs-string">"Accept: */*\r\n"</span>
+			<span class="hljs-string">"Content-Length: %d\r\n"</span>
+			<span class="hljs-string">"Content-Type: multipart/form-data; boundary="</span> BOUNDARY <span class="hljs-string">"%08x\r\n"</span>
+			<span class="hljs-string">"\r\n"</span>, my_req.path, my_req.domain, (<span class="hljs-keyword">int</span>)out_size, boundary_fuzz);
+
+		<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"%s"</span>,tmp);
+		<span class="hljs-built_in">fprintf</span>(f,
+				<span class="hljs-string">"--"</span> BOUNDARY <span class="hljs-string">"%08x\r\n"</span>
+				<span class="hljs-string">"Content-Disposition: form-data; name=\"file\"; filename=\"%s\"\r\n"</span>
+				<span class="hljs-string">"Content-Type: application/octet-stream\r\n"</span>
+				<span class="hljs-string">"\r\n"</span>, boundary_fuzz, fetch_options.upload_file);
+
+		<span class="hljs-keyword">while</span> (!feof(in_file)) {
+			<span class="hljs-keyword">char</span> buf[<span class="hljs-number">1024</span>];
+			<span class="hljs-keyword">size_t</span> r = fread(buf, <span class="hljs-number">1</span>, <span class="hljs-number">1024</span>, in_file);
+			fwrite(buf, <span class="hljs-number">1</span>, r, f);
+			<span class="hljs-keyword">if</span> (fetch_options.slow_upload) {
+				usleep(<span class="hljs-number">1000</span> * fetch_options.slow_upload); <span class="hljs-comment">/* TODO fix terrible network stack; hopefully this ensures we send stuff right. */</span>
+			}
+		}
+
+		fclose(in_file);
+
+		<span class="hljs-built_in">fprintf</span>(f,<span class="hljs-string">"\r\n--"</span> BOUNDARY <span class="hljs-string">"%08x--\r\n"</span>, boundary_fuzz);
+		fflush(f);
+
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (fetch_options.cookie) {
+		<span class="hljs-built_in">fprintf</span>(f,
+			<span class="hljs-string">"GET /%s HTTP/1.0\r\n"</span>
+			<span class="hljs-string">"User-Agent: curl/7.35.0\r\n"</span>
+			<span class="hljs-string">"Host: %s\r\n"</span>
+			<span class="hljs-string">"Accept: */*\r\n"</span>
+			<span class="hljs-string">"Cookie: %s\r\n"</span>
+			<span class="hljs-string">"\r\n"</span>, my_req.path, my_req.domain, fetch_options.cookie);
+
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">fprintf</span>(f,
+			<span class="hljs-string">"GET /%s HTTP/1.0\r\n"</span>
+			<span class="hljs-string">"User-Agent: curl/7.35.0\r\n"</span>
+			<span class="hljs-string">"Host: %s\r\n"</span>
+			<span class="hljs-string">"Accept: */*\r\n"</span>
+			<span class="hljs-string">"\r\n"</span>, my_req.path, my_req.domain);
+	}
+
+	<span class="hljs-keyword">int</span> resp;
+	<span class="hljs-keyword">if</span> ((resp = http_fetch(f))) <span class="hljs-keyword">return</span> resp;
+
+	fflush(fetch_options.out);
+
+	<span class="hljs-keyword">if</span> (fetch_options.show_progress) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,<span class="hljs-string">"\n"</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (fetch_options.machine_readable) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stdout</span>,<span class="hljs-string">"done\n"</span>);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

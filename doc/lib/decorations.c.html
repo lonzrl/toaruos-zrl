@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>decorations.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "lib\\decorations.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>decorations.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;math.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;dlfcn.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/time.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/yutani.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/decorations.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/menu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/text.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TEXT_OFFSET_X 10</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TEXT_OFFSET_Y 3</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BORDERCOLOR rgb(59,59,59)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BORDERCOLOR_INACTIVE rgb(30,30,30)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TEXTCOLOR rgb(230,230,230)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TEXTCOLOR_INACTIVE rgb(140,140,140)</span>
+
+<span class="hljs-keyword">void</span> (*decor_render_decorations)(<span class="hljs-keyword">yutani_window_t</span> *, <span class="hljs-keyword">gfx_context_t</span> *, <span class="hljs-keyword">char</span> *, <span class="hljs-keyword">int</span>) = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">int</span>  (*decor_check_button_press)(<span class="hljs-keyword">yutani_window_t</span> *, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y) = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">int</span>  (*decor_get_bounds)(<span class="hljs-keyword">yutani_window_t</span> *, struct decor_bounds *) = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-title">void</span> <span class="hljs-params">(*callback_close)</span><span class="hljs-params">(<span class="hljs-keyword">yutani_window_t</span> *)</span> </span>= <span class="hljs-literal">NULL</span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-title">void</span> <span class="hljs-params">(*callback_resize)</span><span class="hljs-params">(<span class="hljs-keyword">yutani_window_t</span> *)</span> </span>= <span class="hljs-literal">NULL</span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-title">void</span> <span class="hljs-params">(*callback_maximize)</span><span class="hljs-params">(<span class="hljs-keyword">yutani_window_t</span> *)</span> </span>= <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">TT_Font</span> * <span class="hljs-title">tt_font</span> = <span class="hljs-title">NULL</span>;</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">render_decorations_simple</span><span class="hljs-params">(<span class="hljs-keyword">yutani_window_t</span> * window, <span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">char</span> * title, <span class="hljs-keyword">int</span> decors_active)</span> </span>{
+
+	<span class="hljs-keyword">uint32_t</span> color = BORDERCOLOR;
+	<span class="hljs-keyword">if</span> (decors_active == DECOR_INACTIVE) {
+		color = BORDERCOLOR_INACTIVE;
+	}
+
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; (<span class="hljs-keyword">int</span>)window-&gt;<span class="hljs-built_in">height</span>; ++i) {
+		GFX(ctx, <span class="hljs-number">0</span>, i) = color;
+		GFX(ctx, window-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">1</span>, i) = color;
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; i &lt; (<span class="hljs-keyword">int</span>)<span class="hljs-number">24</span>; ++i) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">1</span>; j &lt; (<span class="hljs-keyword">int</span>)window-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">1</span>; ++j) {
+			GFX(ctx, j, i) = color;
+		}
+	}
+
+	tt_set_size(tt_font, <span class="hljs-number">12</span>);
+	<span class="hljs-keyword">uint32_t</span> textcolor = (decors_active == DECOR_INACTIVE) ? TEXTCOLOR_INACTIVE : TEXTCOLOR;
+	tt_draw_string(ctx, tt_font, TEXT_OFFSET_X, TEXT_OFFSET_Y + <span class="hljs-number">12</span>, title, textcolor);
+	tt_draw_string(ctx, tt_font, window-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">20</span>, TEXT_OFFSET_Y + <span class="hljs-number">12</span>, <span class="hljs-string">"x"</span>, textcolor);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">uint32_t</span> i = <span class="hljs-number">0</span>; i &lt; window-&gt;<span class="hljs-built_in">width</span>; ++i) {
+		GFX(ctx, i, <span class="hljs-number">0</span>) = color;
+		GFX(ctx, i, <span class="hljs-number">24</span> - <span class="hljs-number">1</span>) = color;
+		GFX(ctx, i, window-&gt;<span class="hljs-built_in">height</span> - <span class="hljs-number">1</span>) = color;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">check_button_press_simple</span><span class="hljs-params">(<span class="hljs-keyword">yutani_window_t</span> * window, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y)</span> </span>{
+	<span class="hljs-keyword">if</span> (x &gt;= (<span class="hljs-keyword">int</span>)window-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">20</span> &amp;&amp; x &lt;= (<span class="hljs-keyword">int</span>)window-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">2</span> &amp;&amp; y &gt;= <span class="hljs-number">2</span>) {
+		<span class="hljs-keyword">return</span> DECOR_CLOSE;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">get_bounds_simple</span><span class="hljs-params">(<span class="hljs-keyword">yutani_window_t</span> * window, struct decor_bounds * bounds)</span> </span>{
+	<span class="hljs-comment">/* Does not change with window state */</span>
+	bounds-&gt;top_height = <span class="hljs-number">24</span>;
+	bounds-&gt;bottom_height = <span class="hljs-number">1</span>;
+	bounds-&gt;left_width = <span class="hljs-number">1</span>;
+	bounds-&gt;right_width = <span class="hljs-number">1</span>;
+
+	bounds-&gt;<span class="hljs-built_in">width</span> = bounds-&gt;left_width + bounds-&gt;right_width;
+	bounds-&gt;<span class="hljs-built_in">height</span> = bounds-&gt;top_height + bounds-&gt;bottom_height;
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">initialize_simple</span><span class="hljs-params">()</span> </span>{
+	decor_render_decorations = render_decorations_simple;
+	decor_check_button_press = check_button_press_simple;
+	decor_get_bounds         = get_bounds_simple;
+	tt_font = tt_font_from_shm(<span class="hljs-string">"sans-serif"</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">render_decorations</span><span class="hljs-params">(<span class="hljs-keyword">yutani_window_t</span> * window, <span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">char</span> * title)</span> </span>{
+	<span class="hljs-keyword">if</span> (!window) <span class="hljs-keyword">return</span>;
+	window-&gt;decorator_flags |= DECOR_FLAG_DECORATED;
+	<span class="hljs-keyword">if</span> (window-&gt;focused || !hashmap_is_empty(menu_get_windows_hash())) {
+		decor_render_decorations(window, ctx, title, DECOR_ACTIVE);
+	} <span class="hljs-keyword">else</span> {
+		decor_render_decorations(window, ctx, title, DECOR_INACTIVE);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">render_decorations_inactive</span><span class="hljs-params">(<span class="hljs-keyword">yutani_window_t</span> * window, <span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">char</span> * title)</span> </span>{
+	<span class="hljs-keyword">if</span> (!window) <span class="hljs-keyword">return</span>;
+	window-&gt;decorator_flags |= DECOR_FLAG_DECORATED;
+	decor_render_decorations(window, ctx, title, DECOR_INACTIVE);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _decor_maximize(<span class="hljs-keyword">yutani_t</span> * yctx, <span class="hljs-keyword">yutani_window_t</span> * window) {
+	<span class="hljs-keyword">if</span> (callback_maximize) {
+		callback_maximize(window);
+	} <span class="hljs-keyword">else</span> {
+		yutani_special_request(yctx, window, YUTANI_SPECIAL_REQUEST_MAXIMIZE);
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _decor_minimize(<span class="hljs-keyword">yutani_t</span> * yctx, <span class="hljs-keyword">yutani_window_t</span> * window) {
+	yutani_special_request(yctx, window, YUTANI_SPECIAL_REQUEST_MINIMIZE);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_window_t</span> * _decor_menu_owner_window = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuSet</span> * _<span class="hljs-title">decor_menu_set</span> = <span class="hljs-title">NULL</span>;</span>
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * _<span class="hljs-title">decor_menu</span> = <span class="hljs-title">NULL</span>;</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _decor_start_move(struct MenuEntry * self) {
+	<span class="hljs-keyword">if</span> (!_decor_menu_owner_window)
+		<span class="hljs-keyword">return</span>;
+	yutani_focus_window(_decor_menu_owner_window-&gt;ctx, _decor_menu_owner_window-&gt;wid);
+	yutani_window_drag_start(_decor_menu_owner_window-&gt;ctx, _decor_menu_owner_window);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _decor_start_maximize(struct MenuEntry * self) {
+	<span class="hljs-keyword">if</span> (!_decor_menu_owner_window)
+		<span class="hljs-keyword">return</span>;
+	_decor_maximize(_decor_menu_owner_window-&gt;ctx, _decor_menu_owner_window);
+	yutani_focus_window(_decor_menu_owner_window-&gt;ctx, _decor_menu_owner_window-&gt;wid);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _decor_start_minimize(struct MenuEntry * self) {
+	<span class="hljs-keyword">if</span> (!_decor_menu_owner_window)
+		<span class="hljs-keyword">return</span>;
+	_decor_minimize(_decor_menu_owner_window-&gt;ctx, _decor_menu_owner_window);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _decor_close(struct MenuEntry * self) {
+	<span class="hljs-keyword">if</span> (!_decor_menu_owner_window)
+		<span class="hljs-keyword">return</span>;
+
+	yutani_special_request(_decor_menu_owner_window-&gt;ctx, _decor_menu_owner_window, YUTANI_SPECIAL_REQUEST_PLEASE_CLOSE);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">yutani_window_t</span> * <span class="hljs-title">decor_show_default_menu</span><span class="hljs-params">(<span class="hljs-keyword">yutani_window_t</span> * window, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y)</span> </span>{
+	<span class="hljs-keyword">if</span> (_decor_menu-&gt;window) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	_decor_menu_owner_window = window;
+	menu_show_at(_decor_menu, window, x - window-&gt;x, y - window-&gt;y);
+	<span class="hljs-keyword">return</span> _decor_menu-&gt;window;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> tile_menu_func(name, cc, rr, c, r) \
+	static void _decor_tile_ ## name(struct MenuEntry * self) { \
+		<span class="hljs-meta-keyword">if</span> (!_decor_menu_owner_window) return; \
+		yutani_window_tile(_decor_menu_owner_window-&gt;ctx, _decor_menu_owner_window, cc, rr, c, r); \
+	}</span>
+
+tile_menu_func(left,<span class="hljs-number">2</span>,<span class="hljs-number">1</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>)
+tile_menu_func(right,<span class="hljs-number">2</span>,<span class="hljs-number">1</span>,<span class="hljs-number">1</span>,<span class="hljs-number">0</span>)
+tile_menu_func(up,<span class="hljs-number">1</span>,<span class="hljs-number">2</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>)
+tile_menu_func(down,<span class="hljs-number">1</span>,<span class="hljs-number">2</span>,<span class="hljs-number">0</span>,<span class="hljs-number">1</span>)
+
+tile_menu_func(left_third,<span class="hljs-number">3</span>,<span class="hljs-number">1</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>)
+tile_menu_func(center_third,<span class="hljs-number">3</span>,<span class="hljs-number">1</span>,<span class="hljs-number">1</span>,<span class="hljs-number">0</span>)
+tile_menu_func(right_third,<span class="hljs-number">3</span>,<span class="hljs-number">1</span>,<span class="hljs-number">2</span>,<span class="hljs-number">0</span>)
+
+tile_menu_func(up_left,<span class="hljs-number">2</span>,<span class="hljs-number">2</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>)
+tile_menu_func(up_right,<span class="hljs-number">2</span>,<span class="hljs-number">2</span>,<span class="hljs-number">1</span>,<span class="hljs-number">0</span>)
+tile_menu_func(bottom_left,<span class="hljs-number">2</span>,<span class="hljs-number">2</span>,<span class="hljs-number">0</span>,<span class="hljs-number">1</span>)
+tile_menu_func(bottom_right,<span class="hljs-number">2</span>,<span class="hljs-number">2</span>,<span class="hljs-number">1</span>,<span class="hljs-number">1</span>)
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">init_decorations</span><span class="hljs-params">()</span> </span>{
+	<span class="hljs-keyword">char</span> * tmp = getenv(<span class="hljs-string">"WM_THEME"</span>);
+	<span class="hljs-keyword">char</span> * theme = tmp ? strdup(tmp) : <span class="hljs-literal">NULL</span>;
+
+	_decor_menu_set = menu_set_create();
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuList</span> * <span class="hljs-title">m</span> = <span class="hljs-title">menu_create</span>();</span>
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"tile-left"</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"Left"</span>, _decor_tile_left));
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"tile-right"</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"Right"</span>, _decor_tile_right));
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"tile-up"</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"Up"</span>, _decor_tile_up));
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"tile-down"</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"Down"</span>, _decor_tile_down));
+	menu_insert(m, menu_create_separator());
+	menu_insert(m, menu_create_submenu(<span class="hljs-literal">NULL</span>, <span class="hljs-string">"tile-thirds"</span>, <span class="hljs-string">"Thirds..."</span>));
+	menu_insert(m, menu_create_submenu(<span class="hljs-literal">NULL</span>, <span class="hljs-string">"tile-corners"</span>, <span class="hljs-string">"Corners..."</span>));
+	menu_set_insert(_decor_menu_set, <span class="hljs-string">"tile"</span>, m);
+
+	m = menu_create();
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"tile-a"</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"Left third"</span>, _decor_tile_left_third));
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"tile-b"</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"Center third"</span>, _decor_tile_center_third));
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"tile-c"</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"Right third"</span>, _decor_tile_right_third));
+	menu_set_insert(_decor_menu_set, <span class="hljs-string">"tile-thirds"</span>, m);
+
+	m = menu_create();
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"tile-ul"</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"Upper left"</span>, _decor_tile_up_left));
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"tile-ur"</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"Upper right"</span>, _decor_tile_up_right));
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"tile-bl"</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"Bottom left"</span>, _decor_tile_bottom_left));
+	menu_insert(m, menu_create_normal(<span class="hljs-string">"tile-br"</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"Bottom right"</span>, _decor_tile_bottom_right));
+	menu_set_insert(_decor_menu_set, <span class="hljs-string">"tile-corners"</span>, m);
+
+	_decor_menu = menu_create();
+	menu_insert(_decor_menu, menu_create_normal(<span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"Maximize"</span>, _decor_start_maximize));
+	menu_insert(_decor_menu, menu_create_normal(<span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"Minimize"</span>, _decor_start_minimize));
+	menu_insert(_decor_menu, menu_create_normal(<span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"Move"</span>, _decor_start_move));
+	menu_insert(_decor_menu, menu_create_separator());
+	menu_insert(_decor_menu, menu_create_submenu(<span class="hljs-literal">NULL</span>, <span class="hljs-string">"tile"</span>, <span class="hljs-string">"Tile window..."</span>));
+	menu_insert(_decor_menu, menu_create_separator());
+	menu_insert(_decor_menu, menu_create_normal(<span class="hljs-literal">NULL</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-string">"Close"</span>, _decor_close));
+	menu_set_insert(_decor_menu_set, <span class="hljs-string">"__decor"</span>, _decor_menu);
+
+	<span class="hljs-keyword">if</span> (!theme || !<span class="hljs-built_in">strcmp</span>(theme, <span class="hljs-string">"simple"</span>)) {
+		initialize_simple();
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">char</span> * options = <span class="hljs-built_in">strchr</span>(theme,<span class="hljs-string">','</span>);
+		<span class="hljs-keyword">if</span> (options) {
+			*options = <span class="hljs-string">'\0'</span>;
+			options++;
+		}
+		<span class="hljs-keyword">char</span> lib_name[<span class="hljs-number">100</span>];
+		<span class="hljs-built_in">sprintf</span>(lib_name, <span class="hljs-string">"libtoaru_decor-%s.so"</span>, theme);
+		<span class="hljs-keyword">void</span> * theme_lib = dlopen(lib_name, <span class="hljs-number">0</span>);
+		<span class="hljs-keyword">if</span> (!theme_lib) {
+			<span class="hljs-keyword">goto</span> _theme_error;
+		}
+		<span class="hljs-keyword">void</span> (*theme_init)(<span class="hljs-keyword">char</span> *) = dlsym(theme_lib, <span class="hljs-string">"decor_init"</span>);
+		<span class="hljs-keyword">if</span> (!theme_init) {
+			<span class="hljs-keyword">goto</span> _theme_error;
+		}
+		theme_init(options);
+		<span class="hljs-keyword">return</span>;
+
+_theme_error:
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"decorations: could not load theme `%s`: %s\n"</span>, theme, dlerror());
+			initialize_simple();
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">decor_set_close_callback</span><span class="hljs-params">(<span class="hljs-keyword">void</span> (*callback)(<span class="hljs-keyword">yutani_window_t</span> *))</span> </span>{
+	callback_close = callback;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">decor_set_resize_callback</span><span class="hljs-params">(<span class="hljs-keyword">void</span> (*callback)(<span class="hljs-keyword">yutani_window_t</span> *))</span> </span>{
+	callback_resize = callback;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">decor_set_maximize_callback</span><span class="hljs-params">(<span class="hljs-keyword">void</span> (*callback)(<span class="hljs-keyword">yutani_window_t</span> *))</span> </span>{
+	callback_maximize = callback;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">within_decors</span><span class="hljs-params">(<span class="hljs-keyword">yutani_window_t</span> * window, <span class="hljs-keyword">int</span> x, <span class="hljs-keyword">int</span> y)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(window, &amp;bounds);
+
+	<span class="hljs-keyword">if</span> ((x &lt;= (<span class="hljs-keyword">int</span>)bounds.left_width || x &gt;= (<span class="hljs-keyword">int</span>)window-&gt;<span class="hljs-built_in">width</span> - (<span class="hljs-keyword">int</span>)bounds.right_width) &amp;&amp; (x &gt; <span class="hljs-number">0</span> &amp;&amp; x &lt; (<span class="hljs-keyword">int</span>)window-&gt;<span class="hljs-built_in">width</span>)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">if</span> ((y &lt;= (<span class="hljs-keyword">int</span>)bounds.top_height || y &gt;= (<span class="hljs-keyword">int</span>)window-&gt;<span class="hljs-built_in">height</span> - (<span class="hljs-keyword">int</span>)bounds.bottom_height) &amp;&amp; (y &gt; <span class="hljs-number">0</span> &amp;&amp; y &lt; (<span class="hljs-keyword">int</span>)window-&gt;<span class="hljs-built_in">height</span>)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> LEFT_SIDE (me-&gt;new_x &lt;= (int)bounds.left_width)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> RIGHT_SIDE (me-&gt;new_x &gt;= (int)window-&gt;width - (int)bounds.right_width)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TOP_SIDE (me-&gt;new_y &lt;= (int)bounds.top_height)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BOTTOM_SIDE (me-&gt;new_y &gt;= (int)window-&gt;height - (int)bounds.bottom_height)</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_scale_direction_t</span> <span class="hljs-title">check_resize_direction</span><span class="hljs-params">(struct yutani_msg_window_mouse_event * me, <span class="hljs-keyword">yutani_window_t</span> * window)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+	decor_get_bounds(window, &amp;bounds);
+	<span class="hljs-keyword">yutani_scale_direction_t</span> resize_direction = SCALE_NONE;
+
+	<span class="hljs-keyword">if</span> (LEFT_SIDE &amp;&amp; !TOP_SIDE &amp;&amp; !BOTTOM_SIDE) {
+		resize_direction = SCALE_LEFT;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (RIGHT_SIDE &amp;&amp; !TOP_SIDE &amp;&amp; !BOTTOM_SIDE) {
+		resize_direction = SCALE_RIGHT;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (BOTTOM_SIDE &amp;&amp; !LEFT_SIDE &amp;&amp; !RIGHT_SIDE) {
+		resize_direction = SCALE_DOWN;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (BOTTOM_SIDE &amp;&amp; LEFT_SIDE) {
+		resize_direction = SCALE_DOWN_LEFT;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (BOTTOM_SIDE &amp;&amp; RIGHT_SIDE) {
+		resize_direction = SCALE_DOWN_RIGHT;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (TOP_SIDE &amp;&amp; LEFT_SIDE) {
+		resize_direction = SCALE_UP_LEFT;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (TOP_SIDE &amp;&amp; RIGHT_SIDE) {
+		resize_direction = SCALE_UP_RIGHT;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (TOP_SIDE &amp;&amp; (me-&gt;new_y &lt; <span class="hljs-number">5</span>)) {
+		resize_direction = SCALE_UP;
+	}
+	<span class="hljs-keyword">return</span> resize_direction;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_scale_direction_t</span> old_resize_direction = SCALE_NONE;
+<span class="hljs-keyword">int</span> decor_hover_button = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">int</span> decor_down_button  = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">yutani_window_t</span> * decor_hover_window = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint64_t</span> <span class="hljs-title">precise_current_time</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timeval</span> <span class="hljs-title">t</span>;</span>
+	gettimeofday(&amp;t, <span class="hljs-literal">NULL</span>);
+
+	<span class="hljs-keyword">time_t</span> sec_diff = t.tv_sec;
+	<span class="hljs-keyword">suseconds_t</span> usec_diff = t.tv_usec;
+
+	<span class="hljs-keyword">return</span> (<span class="hljs-keyword">uint64_t</span>)((<span class="hljs-keyword">uint64_t</span>)sec_diff * <span class="hljs-number">1000L</span>L + usec_diff / <span class="hljs-number">1000</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint64_t</span> <span class="hljs-title">precise_time_since</span><span class="hljs-params">(<span class="hljs-keyword">uint64_t</span> start_time)</span> </span>{
+
+	<span class="hljs-keyword">uint64_t</span> now = precise_current_time();
+	<span class="hljs-keyword">uint64_t</span> diff = now - start_time; <span class="hljs-comment">/* Milliseconds */</span>
+
+	<span class="hljs-keyword">return</span> diff;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint64_t</span> last_click = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> _decor_max_on_up = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">decor_handle_event_flags</span><span class="hljs-params">(<span class="hljs-keyword">yutani_t</span> * yctx, <span class="hljs-keyword">yutani_msg_t</span> * m, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">if</span> (m) {
+		<span class="hljs-keyword">if</span> (flags &amp; DECOR_HANDLE_MENU_EVENTS) {
+			<span class="hljs-keyword">if</span> (menu_process_event(yctx, m)) <span class="hljs-keyword">return</span> DECOR_REDRAW;
+		}
+		<span class="hljs-keyword">switch</span> (m-&gt;type) {
+			<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_FOCUS_CHANGE:
+				<span class="hljs-keyword">if</span> (flags &amp; DECOR_HANDLE_WINDOW_FOCUS) {
+					<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_focus_change</span> * <span class="hljs-title">wf</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+					<span class="hljs-keyword">yutani_window_t</span> * window = hashmap_get(yctx-&gt;windows, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)wf-&gt;wid);
+					<span class="hljs-keyword">if</span> (!window || !(window-&gt;decorator_flags &amp; DECOR_FLAG_DECORATED)) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+					<span class="hljs-keyword">int</span> ret = window-&gt;focused != wf-&gt;focused;
+					window-&gt;focused = wf-&gt;focused;
+					<span class="hljs-keyword">return</span> ret ? DECOR_REDRAW : <span class="hljs-number">0</span>;
+				}
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_MOUSE_EVENT:
+				{
+					<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_mouse_event</span> * <span class="hljs-title">me</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+					<span class="hljs-keyword">yutani_window_t</span> * window = hashmap_get(yctx-&gt;windows, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)me-&gt;wid);
+					<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">decor_bounds</span> <span class="hljs-title">bounds</span>;</span>
+					decor_get_bounds(window, &amp;bounds);
+					<span class="hljs-keyword">if</span> (!window) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+					<span class="hljs-keyword">if</span> (!(window-&gt;decorator_flags &amp; DECOR_FLAG_DECORATED)) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+					<span class="hljs-keyword">if</span> (me-&gt;command == YUTANI_MOUSE_EVENT_LEAVE &amp;&amp; decor_hover_window == window) {
+						decor_hover_window = <span class="hljs-literal">NULL</span>;
+						decor_hover_button = <span class="hljs-number">0</span>;
+						yutani_internal_refocus(yctx, window);
+						<span class="hljs-keyword">return</span> DECOR_REDRAW;
+					}
+					<span class="hljs-keyword">if</span> (within_decors(window, me-&gt;new_x, me-&gt;new_y)) {
+						<span class="hljs-keyword">int</span> button = decor_check_button_press(window, me-&gt;new_x, me-&gt;new_y);
+						<span class="hljs-keyword">if</span> (decor_down_button != button &amp;&amp; (me-&gt;command == YUTANI_MOUSE_EVENT_CLICK || me-&gt;command == YUTANI_MOUSE_EVENT_RAISE)) {
+							decor_down_button = <span class="hljs-number">0</span>;
+						}
+						<span class="hljs-keyword">if</span> (me-&gt;command == YUTANI_MOUSE_EVENT_DOWN &amp;&amp; me-&gt;buttons &amp; YUTANI_MOUSE_BUTTON_LEFT) {
+							<span class="hljs-keyword">if</span> (!button || button == DECOR_OTHER) {
+								<span class="hljs-comment">/* Resize edges */</span>
+								<span class="hljs-keyword">yutani_scale_direction_t</span> resize_direction = check_resize_direction(me, window);
+
+								<span class="hljs-keyword">if</span> (resize_direction != SCALE_NONE) {
+									yutani_window_resize_start(yctx, window, resize_direction);
+								}
+
+								<span class="hljs-keyword">if</span> (me-&gt;new_y &lt; (<span class="hljs-keyword">int</span>)bounds.top_height &amp;&amp; resize_direction == SCALE_NONE) {
+									<span class="hljs-keyword">if</span> (precise_time_since(last_click) &lt; <span class="hljs-number">400</span>) {
+										<span class="hljs-comment">/* maximize on up */</span>
+										_decor_max_on_up = <span class="hljs-number">1</span>;
+									} <span class="hljs-keyword">else</span> {
+										yutani_window_drag_start(yctx, window);
+										_decor_max_on_up = <span class="hljs-number">0</span>;
+									}
+									last_click = precise_current_time();
+								}
+								<span class="hljs-keyword">return</span> DECOR_OTHER;
+							}
+							<span class="hljs-keyword">if</span> (button &amp;&amp; button != decor_down_button) {
+								decor_down_button = button;
+								yutani_internal_refocus(yctx, window);
+								<span class="hljs-keyword">return</span> DECOR_REDRAW;
+							}
+							decor_down_button = <span class="hljs-number">0</span>;
+						}
+						<span class="hljs-keyword">if</span> (_decor_max_on_up &amp;&amp;
+							(me-&gt;command == YUTANI_MOUSE_EVENT_RAISE || me-&gt;command == YUTANI_MOUSE_EVENT_CLICK))  {
+							_decor_max_on_up = <span class="hljs-number">0</span>;
+							_decor_maximize(yctx, window);
+							<span class="hljs-keyword">return</span> DECOR_OTHER;
+						}
+						<span class="hljs-keyword">if</span> (!button &amp;&amp; (me-&gt;buttons &amp; YUTANI_MOUSE_BUTTON_RIGHT)) {
+							<span class="hljs-keyword">if</span> (flags &amp; DECOR_HANDLE_CONTEXT_MENU) {
+								decor_show_default_menu(window, window-&gt;x + me-&gt;new_x, window-&gt;y + me-&gt;new_y);
+							}
+							<span class="hljs-keyword">return</span> DECOR_RIGHT;
+						}
+						<span class="hljs-keyword">if</span> (me-&gt;command == YUTANI_MOUSE_EVENT_MOVE) {
+							<span class="hljs-keyword">if</span> (!button) {
+								<span class="hljs-comment">/* Resize edges */</span>
+								<span class="hljs-keyword">yutani_scale_direction_t</span> resize_direction = check_resize_direction(me, window);
+								<span class="hljs-keyword">if</span> (resize_direction != old_resize_direction) {
+									<span class="hljs-keyword">if</span> (resize_direction == SCALE_NONE) {
+										yutani_window_show_mouse(yctx, window, YUTANI_CURSOR_TYPE_RESET);
+									} <span class="hljs-keyword">else</span> {
+										<span class="hljs-keyword">switch</span> (resize_direction) {
+											<span class="hljs-keyword">case</span> SCALE_UP:
+											<span class="hljs-keyword">case</span> SCALE_DOWN:
+												yutani_window_show_mouse(yctx, window, YUTANI_CURSOR_TYPE_RESIZE_VERTICAL);
+												<span class="hljs-keyword">break</span>;
+											<span class="hljs-keyword">case</span> SCALE_LEFT:
+											<span class="hljs-keyword">case</span> SCALE_RIGHT:
+												yutani_window_show_mouse(yctx, window, YUTANI_CURSOR_TYPE_RESIZE_HORIZONTAL);
+												<span class="hljs-keyword">break</span>;
+											<span class="hljs-keyword">case</span> SCALE_DOWN_RIGHT:
+											<span class="hljs-keyword">case</span> SCALE_UP_LEFT:
+												yutani_window_show_mouse(yctx, window, YUTANI_CURSOR_TYPE_RESIZE_UP_DOWN);
+												<span class="hljs-keyword">break</span>;
+											<span class="hljs-keyword">case</span> SCALE_DOWN_LEFT:
+											<span class="hljs-keyword">case</span> SCALE_UP_RIGHT:
+												yutani_window_show_mouse(yctx, window, YUTANI_CURSOR_TYPE_RESIZE_DOWN_UP);
+												<span class="hljs-keyword">break</span>;
+											<span class="hljs-keyword">case</span> SCALE_AUTO:
+											<span class="hljs-keyword">case</span> SCALE_NONE:
+												<span class="hljs-keyword">break</span>;
+										}
+									}
+									old_resize_direction = resize_direction;
+								}
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (old_resize_direction != SCALE_NONE) {
+								yutani_window_show_mouse(yctx, window, YUTANI_CURSOR_TYPE_RESET);
+								old_resize_direction = SCALE_NONE;
+							}
+						}
+						<span class="hljs-keyword">if</span> (me-&gt;command == YUTANI_MOUSE_EVENT_CLICK ||
+								(me-&gt;command == YUTANI_MOUSE_EVENT_RAISE &amp;&amp; button &amp;&amp; decor_down_button == button)) {
+							<span class="hljs-comment">/* Determine if we clicked on a button */</span>
+							<span class="hljs-keyword">switch</span> (button) {
+								<span class="hljs-keyword">case</span> DECOR_CLOSE:
+									<span class="hljs-keyword">if</span> (callback_close) callback_close(window);
+									<span class="hljs-keyword">break</span>;
+								<span class="hljs-keyword">case</span> DECOR_RESIZE:
+									<span class="hljs-keyword">if</span> (callback_resize) callback_resize(window);
+									<span class="hljs-keyword">break</span>;
+								<span class="hljs-keyword">case</span> DECOR_MAXIMIZE:
+									_decor_maximize(yctx, window);
+									<span class="hljs-keyword">break</span>;
+								<span class="hljs-keyword">case</span> DECOR_MINIMIZE:
+									_decor_minimize(yctx, window);
+									<span class="hljs-keyword">break</span>;
+								<span class="hljs-keyword">default</span>:
+									<span class="hljs-keyword">break</span>;
+							}
+							decor_hover_window = <span class="hljs-literal">NULL</span>;
+							decor_hover_button = <span class="hljs-number">0</span>;
+							decor_down_button = <span class="hljs-number">0</span>;
+							yutani_internal_refocus(yctx, window);
+							<span class="hljs-keyword">return</span> button;
+						}
+						<span class="hljs-keyword">if</span> (button != decor_hover_button || window != decor_hover_window) {
+							decor_hover_button = button;
+							decor_hover_window = window;
+							yutani_internal_refocus(yctx, window);
+							<span class="hljs-keyword">return</span> DECOR_REDRAW;
+						}
+					} <span class="hljs-keyword">else</span> {
+						<span class="hljs-keyword">if</span> (decor_down_button &amp;&amp; (me-&gt;command == YUTANI_MOUSE_EVENT_CLICK || me-&gt;command == YUTANI_MOUSE_EVENT_RAISE)) {
+							decor_down_button = <span class="hljs-number">0</span>;
+						}
+						<span class="hljs-keyword">if</span> (old_resize_direction != SCALE_NONE) {
+							yutani_window_show_mouse(yctx, window, YUTANI_CURSOR_TYPE_RESET);
+							old_resize_direction = SCALE_NONE;
+						}
+						<span class="hljs-keyword">if</span> (decor_hover_window == window) {
+							decor_hover_button = <span class="hljs-number">0</span>;
+							decor_hover_window = <span class="hljs-literal">NULL</span>;
+							yutani_internal_refocus(yctx, window);
+							<span class="hljs-keyword">return</span> DECOR_REDRAW;
+						}
+					}
+				}
+				<span class="hljs-keyword">break</span>;
+		}
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">decor_handle_event</span><span class="hljs-params">(<span class="hljs-keyword">yutani_t</span> * yctx, <span class="hljs-keyword">yutani_msg_t</span> * m)</span> </span>{
+	<span class="hljs-keyword">return</span> decor_handle_event_flags(yctx, m, <span class="hljs-number">0</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

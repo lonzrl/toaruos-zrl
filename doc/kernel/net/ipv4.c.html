@@ -1,0 +1,1231 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ipv4.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\net\\ipv4.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>ipv4.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/types.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/hashmap.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/misc.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/assert.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/net/netif.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/net/eth.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/net/ipv4.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/socket.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;arpa/inet.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> MISAKA_DEBUG_NET</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> printf(...) <span class="hljs-meta-keyword">if</span> (_debug) printf(__VA_ARGS__)</span>
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<p>#define printf(...)</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DEFAULT_TCP_WINDOW_SIZE 65535</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> _debug __attribute__((unused)) = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">ip_ntoa</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">uint32_t</span> src_addr, <span class="hljs-keyword">char</span> * out)</span> </span>{
+	<span class="hljs-built_in">snprintf</span>(out, <span class="hljs-number">16</span>, <span class="hljs-string">"%d.%d.%d.%d"</span>,
+		(src_addr &amp; <span class="hljs-number">0xFF000000</span>) &gt;&gt; <span class="hljs-number">24</span>,
+		(src_addr &amp; <span class="hljs-number">0xFF0000</span>) &gt;&gt; <span class="hljs-number">16</span>,
+		(src_addr &amp; <span class="hljs-number">0xFF00</span>) &gt;&gt; <span class="hljs-number">8</span>,
+		(src_addr &amp; <span class="hljs-number">0xFF</span>));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">uint16_t</span> <span class="hljs-title">icmp_checksum</span><span class="hljs-params">(struct ipv4_packet * packet)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> sum = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint16_t</span> * s = (<span class="hljs-keyword">uint16_t</span> *)packet-&gt;payload;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; (ntohs(packet-&gt;length) - <span class="hljs-number">20</span>) / <span class="hljs-number">2</span>; ++i) {
+		sum += ntohs(s[i]);
+	}
+	<span class="hljs-keyword">if</span> (sum &gt; <span class="hljs-number">0xFFFF</span>) {
+		sum = (sum &gt;&gt; <span class="hljs-number">16</span>) + (sum &amp; <span class="hljs-number">0xFFFF</span>);
+	}
+	<span class="hljs-keyword">return</span> ~(sum &amp; <span class="hljs-number">0xFFFF</span>) &amp; <span class="hljs-number">0xFFFF</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint16_t</span> <span class="hljs-title">calculate_ipv4_checksum</span><span class="hljs-params">(struct ipv4_packet * p)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> sum = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">uint16_t</span> * s = (<span class="hljs-keyword">uint16_t</span> *)p;
+
+	<span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> Checksums for options? */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">10</span>; ++i) {
+		sum += ntohs(s[i]);
+		<span class="hljs-keyword">if</span> (sum &gt; <span class="hljs-number">0xFFFF</span>) {
+			sum = (sum &gt;&gt; <span class="hljs-number">16</span>) + (sum &amp; <span class="hljs-number">0xFFFF</span>);
+		}
+	}
+
+
+	<span class="hljs-keyword">return</span> ~(sum &amp; <span class="hljs-number">0xFFFF</span>) &amp; <span class="hljs-number">0xFFFF</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">uint16_t</span> <span class="hljs-title">calculate_tcp_checksum</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * p, <span class="hljs-keyword">void</span> * h, <span class="hljs-keyword">void</span> * d, <span class="hljs-keyword">size_t</span> payload_size)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> sum = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> Checksums for options? */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">6</span>; ++i) {
+		<span class="hljs-keyword">uint16_t</span> _s;
+		<span class="hljs-built_in">memcpy</span>(&amp;_s, ((<span class="hljs-keyword">char</span>*)p) + (i * <span class="hljs-number">2</span>), <span class="hljs-number">2</span>);
+		sum += ntohs(_s);
+		<span class="hljs-keyword">if</span> (sum &gt; <span class="hljs-number">0xFFFF</span>) {
+			sum = (sum &gt;&gt; <span class="hljs-number">16</span>) + (sum &amp; <span class="hljs-number">0xFFFF</span>);
+		}
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">10</span>; ++i) {
+		<span class="hljs-keyword">uint16_t</span> _s;
+		<span class="hljs-built_in">memcpy</span>(&amp;_s, ((<span class="hljs-keyword">char</span>*)h) + (i * <span class="hljs-number">2</span>), <span class="hljs-number">2</span>);
+		sum += ntohs(_s);
+		<span class="hljs-keyword">if</span> (sum &gt; <span class="hljs-number">0xFFFF</span>) {
+			sum = (sum &gt;&gt; <span class="hljs-number">16</span>) + (sum &amp; <span class="hljs-number">0xFFFF</span>);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (d) {
+		<span class="hljs-keyword">uint16_t</span> d_words = payload_size / <span class="hljs-number">2</span>;
+
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; d_words; ++i) {
+			<span class="hljs-keyword">uint16_t</span> _s;
+			<span class="hljs-built_in">memcpy</span>(&amp;_s, ((<span class="hljs-keyword">char</span>*)d) + (i * <span class="hljs-number">2</span>), <span class="hljs-number">2</span>);
+			sum += ntohs(_s);
+			<span class="hljs-keyword">if</span> (sum &gt; <span class="hljs-number">0xFFFF</span>) {
+				sum = (sum &gt;&gt; <span class="hljs-number">16</span>) + (sum &amp; <span class="hljs-number">0xFFFF</span>);
+			}
+		}
+
+		<span class="hljs-keyword">if</span> (d_words * <span class="hljs-number">2</span> != payload_size) {
+			<span class="hljs-keyword">uint8_t</span> * t = (<span class="hljs-keyword">uint8_t</span> *)d;
+			<span class="hljs-keyword">uint8_t</span> tmp[<span class="hljs-number">2</span>];
+			tmp[<span class="hljs-number">0</span>] = t[d_words * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint16_t</span>)];
+			tmp[<span class="hljs-number">1</span>] = <span class="hljs-number">0</span>;
+
+			<span class="hljs-keyword">uint16_t</span> * f = (<span class="hljs-keyword">uint16_t</span> *)tmp;
+
+			sum += ntohs(f[<span class="hljs-number">0</span>]);
+			<span class="hljs-keyword">if</span> (sum &gt; <span class="hljs-number">0xFFFF</span>) {
+				sum = (sum &gt;&gt; <span class="hljs-number">16</span>) + (sum &amp; <span class="hljs-number">0xFFFF</span>);
+			}
+		}
+	}
+
+	<span class="hljs-keyword">return</span> ~(sum &amp; <span class="hljs-number">0xFFFF</span>) &amp; <span class="hljs-number">0xFFFF</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">hashmap_t</span> * udp_sockets = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">hashmap_t</span> * tcp_sockets = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">hashmap_t</span> * icmp_sockets = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">ipv4_install</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	udp_sockets = hashmap_create_int(<span class="hljs-number">10</span>);
+	tcp_sockets = hashmap_create_int(<span class="hljs-number">10</span>);
+	icmp_sockets = hashmap_create_int(<span class="hljs-number">10</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">net_ipv4_send</span><span class="hljs-params">(struct ipv4_packet * response, <span class="hljs-keyword">fs_node_t</span> * nic)</span> </span>{
+	<span class="hljs-comment">/* <span class="hljs-doctag">TODO:</span> This should be routing, with a _hint_ about the interface, not the actual nic to send from! */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">EthernetDevice</span> * <span class="hljs-title">enic</span> = <span class="hljs-title">nic</span>-&gt;<span class="hljs-title">device</span>;</span>
+
+	<span class="hljs-comment">/* where are we going? */</span>
+	<span class="hljs-keyword">uint32_t</span> ipdest = response-&gt;destination;
+
+	<span class="hljs-comment">/* Get the ethernet address of the destination */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ArpCacheEntry</span> * <span class="hljs-title">resp</span>;</span>
+
+	<span class="hljs-comment">/* Is this local or should we send it to the gateway? */</span>
+	<span class="hljs-keyword">if</span> (!enic-&gt;ipv4_subnet || ((ipdest &amp; enic-&gt;ipv4_subnet) != (enic-&gt;ipv4_addr &amp; enic-&gt;ipv4_subnet))) {
+		ipdest = enic-&gt;ipv4_gateway;
+		resp = net_arp_cache_get(ipdest);
+	} <span class="hljs-keyword">else</span> {
+		resp = net_arp_cache_get(ipdest);
+		<span class="hljs-keyword">if</span> (!resp) {
+			net_arp_ask(ipdest, nic);
+
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> s, ss;
+			relative_time(<span class="hljs-number">0</span>, <span class="hljs-number">1000</span>, &amp;s, &amp;ss);
+			sleep_until((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, s, ss);
+			switch_task(<span class="hljs-number">0</span>);
+
+			resp = net_arp_cache_get(ipdest);
+		}
+	}
+
+
+	<span class="hljs-comment">/* Pass the packet to the next stage */</span>
+	net_eth_send(enic, ntohs(response-&gt;length), response, ETHERNET_TYPE_IPV4, resp ? resp-&gt;hwaddr : ETHERNET_BROADCAST_MAC);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sock_ipv4_control_common</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock, struct msghdr * msg, struct ipv4_packet * src, <span class="hljs-keyword">int</span> proto)</span> </span>{
+	<span class="hljs-comment">/* TODO Other options; priv32[2] should be for flags? */</span>
+	<span class="hljs-keyword">if</span> (sock-&gt;priv32[<span class="hljs-number">2</span>] &amp;&amp; msg-&gt;msg_controllen &gt; <span class="hljs-keyword">sizeof</span>(struct cmsghdr) + <span class="hljs-number">1</span>) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">cmsghdr</span> * <span class="hljs-title">out</span> = <span class="hljs-title">msg</span>-&gt;<span class="hljs-title">msg_control</span>;</span>
+		out-&gt;cmsg_len = <span class="hljs-keyword">sizeof</span>(struct cmsghdr) + <span class="hljs-number">1</span>;
+		out-&gt;cmsg_level = IPPROTO_IP;
+		out-&gt;cmsg_type = IP_RECVTTL;
+		out-&gt;cmsg_data[<span class="hljs-number">0</span>] = src-&gt;ttl;
+		msg-&gt;msg_controllen = <span class="hljs-keyword">sizeof</span>(struct cmsghdr) + <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> {
+		msg-&gt;msg_controllen = <span class="hljs-number">0</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">icmp_handle</span><span class="hljs-params">(struct ipv4_packet * packet, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * src, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * dest, <span class="hljs-keyword">fs_node_t</span> * nic)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">icmp_header</span> * <span class="hljs-title">header</span> = (<span class="hljs-title">void</span>*)&amp;<span class="hljs-title">packet</span>-&gt;<span class="hljs-title">payload</span>;</span>
+
+	<span class="hljs-comment">/* Is this a PING request? */</span>
+	<span class="hljs-keyword">if</span> (header-&gt;type == <span class="hljs-number">8</span> &amp;&amp; header-&gt;code == <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"net: ping with %d bytes of payload\n"</span>, ntohs(packet-&gt;length));
+		<span class="hljs-keyword">if</span> (ntohs(packet-&gt;length) &amp; <span class="hljs-number">1</span>) {
+			packet-&gt;length = htons(ntohs(packet-&gt;length) + <span class="hljs-number">1</span>);
+		}
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ipv4_packet</span> * <span class="hljs-title">response</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">ntohs</span>(<span class="hljs-title">packet</span>-&gt;<span class="hljs-title">length</span>));</span>
+		<span class="hljs-built_in">memcpy</span>(response, packet, ntohs(packet-&gt;length));
+		response-&gt;length = packet-&gt;length;
+		response-&gt;destination = packet-&gt;source;
+		response-&gt;source = ((struct EthernetDevice*)nic-&gt;device)-&gt;ipv4_addr;
+		response-&gt;ttl = <span class="hljs-number">64</span>;
+		response-&gt;protocol = <span class="hljs-number">1</span>;
+		response-&gt;ident = packet-&gt;ident;
+		response-&gt;flags_fragment = htons(<span class="hljs-number">0x4000</span>);
+		response-&gt;version_ihl = <span class="hljs-number">0x45</span>;
+		response-&gt;dscp_ecn = <span class="hljs-number">0</span>;
+		response-&gt;checksum = <span class="hljs-number">0</span>;
+		response-&gt;checksum = htons(calculate_ipv4_checksum(response));
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">icmp_header</span> * <span class="hljs-title">ping_reply</span> = (<span class="hljs-title">void</span>*)&amp;<span class="hljs-title">response</span>-&gt;<span class="hljs-title">payload</span>;</span>
+		ping_reply-&gt;csum = <span class="hljs-number">0</span>;
+		ping_reply-&gt;type = <span class="hljs-number">0</span>;
+		ping_reply-&gt;csum = htons(icmp_checksum(response));
+
+		<span class="hljs-comment">/* send ipv4... */</span>
+		net_ipv4_send(response,nic);
+		<span class="hljs-built_in">free</span>(response);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (header-&gt;type == <span class="hljs-number">0</span> &amp;&amp; header-&gt;code == <span class="hljs-number">0</span>) {
+		<span class="hljs-comment">/* Did we have a client waiting for this? */</span>
+		<span class="hljs-keyword">sock_t</span> * handler = hashmap_get(icmp_sockets, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)ntohs(header-&gt;identifier));
+		<span class="hljs-keyword">if</span> (handler) {
+			net_sock_add(handler, packet, ntohs(packet-&gt;length));
+		}
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"net: ipv4: %s: %s -&gt; %s ICMP %d (code = %d)\n"</span>, nic-&gt;name, src, dest, header-&gt;type, header-&gt;code);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sock_icmp_close</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock)</span> </span>{
+	hashmap_remove(icmp_sockets, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)sock-&gt;priv32[<span class="hljs-number">0</span>]);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> <span class="hljs-title">sock_icmp_recv</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock, struct msghdr * msg, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_iovlen &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">return</span> -ENOTSUP;
+	}
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_iovlen == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (!sock-&gt;rx_queue-&gt;length &amp;&amp; sock-&gt;nonblocking) <span class="hljs-keyword">return</span> -EAGAIN;
+
+	<span class="hljs-keyword">char</span> * packet = net_sock_get(sock);
+	<span class="hljs-keyword">if</span> (!packet) <span class="hljs-keyword">return</span> -EINTR;
+	<span class="hljs-keyword">size_t</span> packet_size = *(<span class="hljs-keyword">size_t</span>*)packet - <span class="hljs-keyword">sizeof</span>(struct ipv4_packet);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ipv4_packet</span> * <span class="hljs-title">src</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">ipv4_packet</span>*)(<span class="hljs-title">packet</span> + <span class="hljs-title">sizeof</span>(<span class="hljs-title">size_t</span>));</span>
+
+	<span class="hljs-keyword">if</span> (packet_size &gt; msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_len) {
+		dprintf(<span class="hljs-string">"ICMP recv too big for vector\n"</span>);
+		packet_size = msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_len;
+	}
+
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_namelen == <span class="hljs-keyword">sizeof</span>(struct sockaddr_in)) {
+		<span class="hljs-keyword">if</span> (msg-&gt;msg_name) {
+			((struct sockaddr_in*)msg-&gt;msg_name)-&gt;sin_family = AF_INET;
+			((struct sockaddr_in*)msg-&gt;msg_name)-&gt;sin_port = <span class="hljs-number">0</span>;
+			((struct sockaddr_in*)msg-&gt;msg_name)-&gt;sin_addr.s_addr = src-&gt;source;
+		}
+	}
+
+	sock_ipv4_control_common(sock,msg,src,IPPROTO_ICMP);
+
+	<span class="hljs-built_in">memcpy</span>(msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_base, src-&gt;payload, packet_size);
+	<span class="hljs-built_in">free</span>(packet);
+	<span class="hljs-keyword">return</span> packet_size;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> <span class="hljs-title">sock_icmp_send</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock, <span class="hljs-keyword">const</span> struct msghdr *msg, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_iovlen &gt; <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> -ENOTSUP;
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_iovlen == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_namelen != <span class="hljs-keyword">sizeof</span>(struct sockaddr_in)) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_len &lt; <span class="hljs-keyword">sizeof</span>(struct icmp_header)) <span class="hljs-keyword">return</span> -EINVAL;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">icmp_header</span> * <span class="hljs-title">icmp</span> = <span class="hljs-title">msg</span>-&gt;<span class="hljs-title">msg_iov</span>[0].<span class="hljs-title">iov_base</span>;</span>
+	<span class="hljs-keyword">if</span> (icmp-&gt;type != <span class="hljs-number">8</span> || icmp-&gt;code != <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">if</span> (icmp-&gt;identifier != <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> -EINVAL;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_in</span> * <span class="hljs-title">name</span> = <span class="hljs-title">msg</span>-&gt;<span class="hljs-title">msg_name</span>;</span>
+	<span class="hljs-keyword">fs_node_t</span> * nic = net_if_route(name-&gt;sin_addr.s_addr);
+	<span class="hljs-keyword">if</span> (!nic) <span class="hljs-keyword">return</span> -ENONET;
+	<span class="hljs-keyword">size_t</span> total_length = <span class="hljs-keyword">sizeof</span>(struct ipv4_packet) + msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_len;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ipv4_packet</span> * <span class="hljs-title">response</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">total_length</span>);</span>
+	response-&gt;length = htons(total_length);
+	response-&gt;destination = name-&gt;sin_addr.s_addr;
+	response-&gt;source = ((struct EthernetDevice*)nic-&gt;device)-&gt;ipv4_addr;
+	response-&gt;ttl = <span class="hljs-number">64</span>;
+	response-&gt;protocol = <span class="hljs-number">1</span>;
+	response-&gt;ident = <span class="hljs-number">0</span>;
+	response-&gt;flags_fragment = htons(<span class="hljs-number">0x4000</span>);
+	response-&gt;version_ihl = <span class="hljs-number">0x45</span>;
+	response-&gt;dscp_ecn = <span class="hljs-number">0</span>;
+	response-&gt;checksum = <span class="hljs-number">0</span>;
+	response-&gt;checksum = htons(calculate_ipv4_checksum(response));
+
+	<span class="hljs-built_in">memcpy</span>(response-&gt;payload, msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_base, msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_len);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">icmp_header</span> * <span class="hljs-title">micmp</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">icmp_header</span>*)<span class="hljs-title">response</span>-&gt;<span class="hljs-title">payload</span>;</span>
+	micmp-&gt;identifier = htons(sock-&gt;priv32[<span class="hljs-number">0</span>]);
+	micmp-&gt;csum = <span class="hljs-number">0</span>;
+	micmp-&gt;csum = htons(icmp_checksum(response));
+
+	net_ipv4_send(response,nic);
+	<span class="hljs-built_in">free</span>(response);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">icmp_socket</span><span class="hljs-params">(<span class="hljs-keyword">int</span> flags, <span class="hljs-keyword">int</span> nb)</span> </span>{
+	<span class="hljs-keyword">if</span> (hashmap_has(icmp_sockets, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)this_core-&gt;current_process-&gt;id)) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">sock_t</span> * sock = net_sock_create();
+	sock-&gt;sock_recv = sock_icmp_recv;
+	sock-&gt;sock_send = sock_icmp_send;
+	sock-&gt;sock_close = sock_icmp_close;
+	sock-&gt;priv32[<span class="hljs-number">0</span>] = this_core-&gt;current_process-&gt;id;
+	sock-&gt;nonblocking = nb;
+	hashmap_set(icmp_sockets, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)sock-&gt;priv32[<span class="hljs-number">0</span>], sock);
+
+	<span class="hljs-keyword">return</span> process_append_fd((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, (<span class="hljs-keyword">fs_node_t</span> *)sock, flags | PROC_FD_MODE__RW);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_FLAGS_FIN (1 &lt;&lt; 0)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_FLAGS_SYN (1 &lt;&lt; 1)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_FLAGS_RST (1 &lt;&lt; 2)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_FLAGS_PSH (1 &lt;&lt; 3)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_FLAGS_ACK (1 &lt;&lt; 4)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_FLAGS_URG (1 &lt;&lt; 5)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_FLAGS_ECE (1 &lt;&lt; 6)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_FLAGS_CWR (1 &lt;&lt; 7)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> TCP_FLAGS_NS  (1 &lt;&lt; 8)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DATA_OFFSET_5 (0x5 &lt;&lt; 12)</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">tcp_ack</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * nic, <span class="hljs-keyword">sock_t</span> * sock, struct ipv4_packet * packet, <span class="hljs-keyword">int</span> isSynAck, <span class="hljs-keyword">size_t</span> payload_len)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tcp_header</span> * <span class="hljs-title">tcp</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tcp_header</span>*)&amp;<span class="hljs-title">packet</span>-&gt;<span class="hljs-title">payload</span>;</span>
+	<span class="hljs-keyword">int</span> retval = <span class="hljs-number">1</span>;
+	<span class="hljs-keyword">int</span> window_size = DEFAULT_TCP_WINDOW_SIZE;
+	<span class="hljs-keyword">int</span> send_thrice = <span class="hljs-number">0</span>;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+	<span class="hljs-comment">/* <span class="hljs-doctag">XXX:</span> This means the header is bigger than we expect... */</span>
+	<span class="hljs-keyword">if</span> ((ntohs(tcp-&gt;flags) &amp; <span class="hljs-number">0xF000</span>) != <span class="hljs-number">0x5000</span>) {
+		<span class="hljs-keyword">int</span> _debug __attribute__((unused)) = <span class="hljs-number">1</span>;
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp: uh, weird flags? %#4x\n"</span>, ntohs(tcp-&gt;flags));
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	<span class="hljs-keyword">if</span> (sock-&gt;priv32[<span class="hljs-number">1</span>] != <span class="hljs-number">0</span> &amp;&amp; !isSynAck &amp;&amp;
+		sock-&gt;priv32[<span class="hljs-number">1</span>] != ntohl(tcp-&gt;seq_number)) {
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+		<span class="hljs-keyword">int</span> _debug __attribute__((unused)) = <span class="hljs-number">1</span>;
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp: suspicious of their seq number?\n"</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp: their seq = %u our ack = %u\n"</span>,
+			ntohl(tcp-&gt;seq_number), sock-&gt;priv32[<span class="hljs-number">1</span>]);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<p>window_size = 300;</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">		
+		retval = <span class="hljs-number">0</span>;
+		send_thrice = <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">else</span> {
+		sock-&gt;priv32[<span class="hljs-number">0</span>] = isSynAck ? <span class="hljs-number">1</span> : sock-&gt;priv32[<span class="hljs-number">0</span>];
+		sock-&gt;priv32[<span class="hljs-number">1</span>] = (ntohl(tcp-&gt;seq_number) + payload_len) &amp; <span class="hljs-number">0xFFFFFFFF</span>;
+		sock-&gt;priv[<span class="hljs-number">1</span>] = <span class="hljs-number">2</span>;
+	}
+
+	sock-&gt;priv[<span class="hljs-number">2</span>]++;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">if</span> 0</span>
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp: their ack = %u our seq = %u\n"</span>,
+		ntohl(tcp-&gt;ack_number), sock-&gt;priv32[<span class="hljs-number">0</span>]);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp: their seq = %u our ack = %u\n"</span>,
+		ntohl(tcp-&gt;seq_number), sock-&gt;priv32[<span class="hljs-number">1</span>]);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+
+	<span class="hljs-keyword">size_t</span> total_length = <span class="hljs-keyword">sizeof</span>(struct ipv4_packet) + <span class="hljs-keyword">sizeof</span>(struct tcp_header);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ipv4_packet</span> * <span class="hljs-title">response</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">total_length</span>);</span>
+	response-&gt;length = htons(total_length);
+	response-&gt;destination = packet-&gt;source;
+	response-&gt;source = ((struct EthernetDevice*)nic-&gt;device)-&gt;ipv4_addr;
+	response-&gt;ttl = <span class="hljs-number">64</span>;
+	response-&gt;protocol = IPV4_PROT_TCP;
+	response-&gt;ident = htons(sock-&gt;priv[<span class="hljs-number">2</span>]);
+	response-&gt;flags_fragment = htons(<span class="hljs-number">0x0</span>);
+	response-&gt;version_ihl = <span class="hljs-number">0x45</span>;
+	response-&gt;dscp_ecn = <span class="hljs-number">0</span>;
+	response-&gt;checksum = <span class="hljs-number">0</span>;
+	response-&gt;checksum = htons(calculate_ipv4_checksum(response));
+
+	<span class="hljs-keyword">int</span> flags = TCP_FLAGS_ACK;
+	<span class="hljs-keyword">if</span> (ntohs(tcp-&gt;flags) &amp; TCP_FLAGS_FIN) {
+		<span class="hljs-comment">/* Other side is closed now */</span>
+		sock-&gt;priv32[<span class="hljs-number">1</span>]++;
+		sock-&gt;priv[<span class="hljs-number">1</span>] = <span class="hljs-number">3</span>;
+	}
+
+	<span class="hljs-comment">/* Stick TCP header into payload */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tcp_header</span> * <span class="hljs-title">tcp_header</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tcp_header</span>*)&amp;<span class="hljs-title">response</span>-&gt;<span class="hljs-title">payload</span>;</span>
+	tcp_header-&gt;source_port = htons(sock-&gt;priv[<span class="hljs-number">0</span>]);
+	tcp_header-&gt;destination_port = tcp-&gt;source_port;
+	tcp_header-&gt;seq_number = htonl(sock-&gt;priv32[<span class="hljs-number">0</span>]);
+	tcp_header-&gt;ack_number = htonl(sock-&gt;priv32[<span class="hljs-number">1</span>]);
+	tcp_header-&gt;flags = htons(flags | <span class="hljs-number">0x5000</span>);
+	tcp_header-&gt;window_size = htons(window_size);
+	tcp_header-&gt;checksum = <span class="hljs-number">0</span>;
+	tcp_header-&gt;urgent = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Calculate checksum */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tcp_check_header</span> <span class="hljs-title">check_hd</span> = {</span>
+		.source = response-&gt;source,
+		.destination = response-&gt;destination,
+		.zeros = <span class="hljs-number">0</span>,
+		.protocol = IPV4_PROT_TCP,
+		.tcp_len = htons(<span class="hljs-keyword">sizeof</span>(struct tcp_header)),
+	};
+
+	tcp_header-&gt;checksum = htons(calculate_tcp_checksum(&amp;check_hd, tcp_header, <span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>));
+	net_ipv4_send(response,nic);
+	<span class="hljs-keyword">if</span> (send_thrice) {
+		net_ipv4_send(response,nic);
+		net_ipv4_send(response,nic);
+	}
+	<span class="hljs-built_in">free</span>(response);
+	<span class="hljs-keyword">return</span> retval;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">net_ipv4_handle</span><span class="hljs-params">(struct ipv4_packet * packet, <span class="hljs-keyword">fs_node_t</span> * nic, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &lt; <span class="hljs-keyword">sizeof</span>(struct ipv4_packet)) {
+		dprintf(<span class="hljs-string">"ipv4: Incoming packet is too small.\n"</span>);
+	}
+
+	<span class="hljs-keyword">char</span> dest[<span class="hljs-number">16</span>];
+	<span class="hljs-keyword">char</span> src[<span class="hljs-number">16</span>];
+
+	ip_ntoa(ntohl(packet-&gt;destination), dest);
+	ip_ntoa(ntohl(packet-&gt;source), src);
+
+	<span class="hljs-keyword">switch</span> (packet-&gt;protocol) {
+		<span class="hljs-keyword">case</span> <span class="hljs-number">1</span>:
+			icmp_handle(packet, src, dest, nic);
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> IPV4_PROT_UDP: {
+			<span class="hljs-keyword">uint16_t</span> dest_port = ntohs(((<span class="hljs-keyword">uint16_t</span>*)&amp;packet-&gt;payload)[<span class="hljs-number">1</span>]);
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"net: ipv4: %s: %s -&gt; %s udp %d to %d\n"</span>, nic-&gt;name, src, dest, ntohs(((<span class="hljs-keyword">uint16_t</span>*)&amp;packet-&gt;payload)[<span class="hljs-number">0</span>]), dest_port);
+			<span class="hljs-keyword">if</span> (hashmap_has(udp_sockets, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)dest_port)) {
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"net: udp: received and have a waiting endpoint!\n"</span>);
+				<span class="hljs-keyword">sock_t</span> * sock = hashmap_get(udp_sockets, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)dest_port);
+				net_sock_add(sock, packet, ntohs(packet-&gt;length));
+			}
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">case</span> IPV4_PROT_TCP: {
+			<span class="hljs-keyword">uint16_t</span> dest_port = ntohs(((<span class="hljs-keyword">uint16_t</span>*)&amp;packet-&gt;payload)[<span class="hljs-number">1</span>]);
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"net: ipv4: %s: %s -&gt; %s tcp %d to %d\n"</span>, nic-&gt;name, src, dest, ntohs(((<span class="hljs-keyword">uint16_t</span>*)&amp;packet-&gt;payload)[<span class="hljs-number">0</span>]), dest_port);
+			<span class="hljs-keyword">sock_t</span> * sock = hashmap_get(tcp_sockets, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)dest_port);
+			<span class="hljs-keyword">if</span> (sock) {
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"net: tcp: received and have a waiting endpoint!\n"</span>);
+				<span class="hljs-comment">/* What kind of packet is this? Is it something we were expecting? */</span>
+				<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tcp_header</span> * <span class="hljs-title">tcp</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tcp_header</span>*)&amp;<span class="hljs-title">packet</span>-&gt;<span class="hljs-title">payload</span>;</span>
+
+				<span class="hljs-keyword">if</span> (sock-&gt;priv[<span class="hljs-number">1</span>] == <span class="hljs-number">1</span>) {
+					<span class="hljs-comment">/* Awaiting SYN ACK, is this one? */</span>
+					<span class="hljs-keyword">if</span> ((ntohs(tcp-&gt;flags) &amp; (TCP_FLAGS_SYN | TCP_FLAGS_ACK)) == (TCP_FLAGS_SYN | TCP_FLAGS_ACK)) {
+						<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp: synack\n"</span>);
+						<span class="hljs-keyword">if</span> (tcp_ack(nic, sock, packet, <span class="hljs-number">1</span>, <span class="hljs-number">1</span>)) {
+							net_sock_add(sock, packet, ntohs(packet-&gt;length));
+						}
+					} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> ((ntohs(tcp-&gt;flags) &amp; (TCP_FLAGS_RST))) {
+						sock-&gt;priv[<span class="hljs-number">1</span>] = <span class="hljs-number">0</span>;
+						net_sock_alert(sock);
+					}
+				} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (sock-&gt;priv[<span class="hljs-number">1</span>] == <span class="hljs-number">2</span>) {
+					<span class="hljs-keyword">size_t</span> packet_len = ntohs(packet-&gt;length) - <span class="hljs-keyword">sizeof</span>(struct ipv4_packet);
+					<span class="hljs-keyword">size_t</span> hlen = ((ntohs(tcp-&gt;flags) &amp; <span class="hljs-number">0xF000</span>) &gt;&gt; <span class="hljs-number">12</span>) * <span class="hljs-number">4</span>;
+					<span class="hljs-keyword">size_t</span> payload_len = packet_len - hlen;
+					<span class="hljs-keyword">if</span> (payload_len) {
+						<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp: acking because payload_len = %zu (hlen=%zu, packet_len=%zu)\n"</span>, payload_len, hlen, packet_len);
+						<span class="hljs-keyword">if</span> (tcp_ack(nic, sock, packet, <span class="hljs-number">0</span>, payload_len)) {
+							net_sock_add(sock, packet, ntohs(packet-&gt;length));
+						}
+					} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ntohs(tcp-&gt;flags) &amp; TCP_FLAGS_FIN) {
+						tcp_ack(nic, sock, packet, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>);
+					}
+				}
+			}
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> udp_port_lock = {<span class="hljs-number">0</span>};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> next_port = <span class="hljs-number">12345</span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">udp_get_port</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock)</span> </span>{
+	spin_lock(udp_port_lock);
+	<span class="hljs-keyword">int</span> out = next_port++;
+	hashmap_set(udp_sockets, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)out, sock);
+	sock-&gt;priv[<span class="hljs-number">0</span>] = out;
+	spin_unlock(udp_port_lock);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sock_udp_getsockname</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock, struct sockaddr *addr, <span class="hljs-keyword">socklen_t</span> * addrlen)</span> </span>{
+	<span class="hljs-keyword">if</span> (!sock-&gt;priv[<span class="hljs-number">0</span>]) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-comment">/* TODO do we even record the "bound" address? */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_in</span> <span class="hljs-title">out</span> = {</span>
+		AF_INET, htons(sock-&gt;priv[<span class="hljs-number">0</span>]), { <span class="hljs-number">0</span> }, {<span class="hljs-number">0</span>},
+	};
+
+	<span class="hljs-built_in">memcpy</span>(addr, &amp;out, *addrlen &lt; <span class="hljs-keyword">sizeof</span>(struct sockaddr_in) ? *addrlen : <span class="hljs-keyword">sizeof</span>(struct sockaddr_in));
+	<span class="hljs-keyword">if</span> (*addrlen &lt; <span class="hljs-keyword">sizeof</span>(struct sockaddr_in)) *addrlen = <span class="hljs-keyword">sizeof</span>(struct sockaddr_in);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> <span class="hljs-title">sock_udp_send</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock, <span class="hljs-keyword">const</span> struct msghdr *msg, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"udp: send called\n"</span>);
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_iovlen &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"net: todo: can't send multiple iovs\n"</span>);
+		<span class="hljs-keyword">return</span> -ENOTSUP;
+	}
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_iovlen == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_namelen != <span class="hljs-keyword">sizeof</span>(struct sockaddr_in)) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"udp: invalid destination address size %ld\n"</span>, msg-&gt;msg_namelen);
+		<span class="hljs-keyword">return</span> -EINVAL;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_in</span> * <span class="hljs-title">name</span> = <span class="hljs-title">msg</span>-&gt;<span class="hljs-title">msg_name</span>;</span>
+
+	<span class="hljs-keyword">if</span> (!name-&gt;sin_port) <span class="hljs-keyword">return</span> -EADDRNOTAVAIL; <span class="hljs-comment">/* 0 is still 0 in both endians */</span>
+
+	<span class="hljs-keyword">if</span> (sock-&gt;priv[<span class="hljs-number">0</span>] == <span class="hljs-number">0</span>) {
+		udp_get_port(sock);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"udp: assigning port %d to socket\n"</span>, sock-&gt;priv[<span class="hljs-number">0</span>]);
+	}
+
+
+	<span class="hljs-keyword">char</span> dest[<span class="hljs-number">16</span>];
+	ip_ntoa(ntohl(name-&gt;sin_addr.s_addr), dest);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"udp: want to send to %s\n"</span>, dest);
+
+	<span class="hljs-comment">/* Routing: We need a device to send this on... */</span>
+	<span class="hljs-keyword">fs_node_t</span> * nic = net_if_route(name-&gt;sin_addr.s_addr);
+	<span class="hljs-keyword">if</span> (!nic) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">size_t</span> total_length = <span class="hljs-keyword">sizeof</span>(struct ipv4_packet) + msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_len + <span class="hljs-keyword">sizeof</span>(struct udp_packet);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ipv4_packet</span> * <span class="hljs-title">response</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">total_length</span>);</span>
+	response-&gt;length = htons(total_length);
+	response-&gt;destination = name-&gt;sin_addr.s_addr;
+	response-&gt;source = ((struct EthernetDevice*)nic-&gt;device)-&gt;ipv4_addr;
+	response-&gt;ttl = <span class="hljs-number">64</span>;
+	response-&gt;protocol = IPV4_PROT_UDP;
+	response-&gt;ident = <span class="hljs-number">0</span>;
+	response-&gt;flags_fragment = htons(<span class="hljs-number">0x4000</span>);
+	response-&gt;version_ihl = <span class="hljs-number">0x45</span>;
+	response-&gt;dscp_ecn = <span class="hljs-number">0</span>;
+	response-&gt;checksum = <span class="hljs-number">0</span>;
+	response-&gt;checksum = htons(calculate_ipv4_checksum(response));
+
+	<span class="hljs-comment">/* Stick UDP header into payload */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">udp_packet</span> * <span class="hljs-title">udp_packet</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">udp_packet</span>*)&amp;<span class="hljs-title">response</span>-&gt;<span class="hljs-title">payload</span>;</span>
+	udp_packet-&gt;source_port = htons(sock-&gt;priv[<span class="hljs-number">0</span>]);
+	udp_packet-&gt;destination_port = name-&gt;sin_port;
+	udp_packet-&gt;length = htons(<span class="hljs-keyword">sizeof</span>(struct udp_packet) + msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_len);
+	udp_packet-&gt;checksum = <span class="hljs-number">0</span>;
+
+	<span class="hljs-built_in">memcpy</span>(response-&gt;payload + <span class="hljs-keyword">sizeof</span>(struct udp_packet), msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_base, msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_len);
+	net_ipv4_send(response,nic);
+	<span class="hljs-built_in">free</span>(response);
+
+	<span class="hljs-keyword">return</span> msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_len;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> <span class="hljs-title">sock_udp_recv</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock, struct msghdr * msg, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"udp: recv called\n"</span>);
+	<span class="hljs-keyword">if</span> (!sock-&gt;priv[<span class="hljs-number">0</span>]) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"udp: recv() but socket has no port\n"</span>);
+		<span class="hljs-keyword">return</span> -EINVAL;
+	}
+
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_iovlen &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"net: todo: can't recv multiple iovs\n"</span>);
+		<span class="hljs-keyword">return</span> -ENOTSUP;
+	}
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_iovlen == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (!sock-&gt;rx_queue-&gt;length &amp;&amp; sock-&gt;nonblocking) <span class="hljs-keyword">return</span> -EAGAIN;
+
+	<span class="hljs-keyword">char</span> * packet = net_sock_get(sock);
+	<span class="hljs-keyword">if</span> (!packet) <span class="hljs-keyword">return</span> -EINTR;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ipv4_packet</span> * <span class="hljs-title">data</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">ipv4_packet</span>*)(<span class="hljs-title">packet</span> + <span class="hljs-title">sizeof</span>(<span class="hljs-title">size_t</span>));</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">udp_packet</span> * <span class="hljs-title">udp_packet</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">udp_packet</span>*)&amp;<span class="hljs-title">data</span>-&gt;<span class="hljs-title">payload</span>;</span>
+
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"udp: got response, size is %u - sizeof(ipv4) - sizeof(udp) = %lu\n"</span>,
+		ntohs(data-&gt;length), ntohs(data-&gt;length) - <span class="hljs-keyword">sizeof</span>(struct ipv4_packet) - <span class="hljs-keyword">sizeof</span>(struct udp_packet));
+	<span class="hljs-built_in">memcpy</span>(msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_base, udp_packet-&gt;payload, ntohs(data-&gt;length) - <span class="hljs-keyword">sizeof</span>(struct ipv4_packet) - <span class="hljs-keyword">sizeof</span>(struct udp_packet));
+
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_namelen == <span class="hljs-keyword">sizeof</span>(struct sockaddr_in)) {
+		<span class="hljs-keyword">if</span> (msg-&gt;msg_name) {
+			((struct sockaddr_in*)msg-&gt;msg_name)-&gt;sin_family = AF_INET;
+			((struct sockaddr_in*)msg-&gt;msg_name)-&gt;sin_port = udp_packet-&gt;source_port;
+			((struct sockaddr_in*)msg-&gt;msg_name)-&gt;sin_addr.s_addr = data-&gt;source;
+		}
+	}
+
+	sock_ipv4_control_common(sock,msg,data,IPPROTO_UDP);
+
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"udp: data copied to iov 0, return length?\n"</span>);
+
+	<span class="hljs-keyword">long</span> resp = ntohs(data-&gt;length) - <span class="hljs-keyword">sizeof</span>(struct ipv4_packet) - <span class="hljs-keyword">sizeof</span>(struct udp_packet);
+	<span class="hljs-built_in">free</span>(packet);
+	<span class="hljs-keyword">return</span> resp;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sock_udp_close</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock)</span> </span>{
+	<span class="hljs-keyword">if</span> (sock-&gt;priv[<span class="hljs-number">0</span>]) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"udp: removing port %d from bound map\n"</span>, sock-&gt;priv[<span class="hljs-number">0</span>]);
+		spin_lock(udp_port_lock);
+		hashmap_remove(udp_sockets, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)sock-&gt;priv[<span class="hljs-number">0</span>]);
+		spin_unlock(udp_port_lock);
+	}
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> <span class="hljs-title">sock_udp_bind</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock, <span class="hljs-keyword">const</span> struct sockaddr *addr, <span class="hljs-keyword">socklen_t</span> addrlen)</span> </span>{
+	<span class="hljs-keyword">if</span> (sock-&gt;priv[<span class="hljs-number">0</span>]) <span class="hljs-keyword">return</span> -EINVAL; <span class="hljs-comment">/* Already bound */</span>
+
+	<span class="hljs-comment">/* Get port */</span>
+	<span class="hljs-keyword">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_in</span> * <span class="hljs-title">addr_in</span> = (<span class="hljs-title">const</span> <span class="hljs-title">struct</span> <span class="hljs-title">sockaddr_in</span> *)<span class="hljs-title">addr</span>;</span>
+	<span class="hljs-keyword">int</span> port = ntohs(addr_in-&gt;sin_port);
+
+	<span class="hljs-keyword">if</span> (port == <span class="hljs-number">0</span>) {
+		<span class="hljs-comment">/* Pick one */</span>
+		spin_lock(udp_port_lock);
+		port = next_port++;
+		spin_unlock(udp_port_lock);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (port &lt; <span class="hljs-number">1024</span> &amp;&amp; this_core-&gt;current_process-&gt;user != <span class="hljs-number">0</span>) {
+		<span class="hljs-comment">/* Only superuser can bind to lower ports */</span>
+		<span class="hljs-keyword">return</span> -EACCES;
+	}
+
+	spin_lock(udp_port_lock);
+	<span class="hljs-keyword">if</span> (hashmap_has(udp_sockets, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)port)) {
+		spin_unlock(udp_port_lock);
+		<span class="hljs-keyword">return</span> -EADDRINUSE;
+	}
+	hashmap_set(udp_sockets, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)port, sock);
+	sock-&gt;priv[<span class="hljs-number">0</span>] = port;
+	spin_unlock(udp_port_lock);
+
+	<span class="hljs-comment">/* Totally ignore the NIC stuff */</span>
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">udp_socket</span><span class="hljs-params">(<span class="hljs-keyword">int</span> flags, <span class="hljs-keyword">int</span> nb)</span> </span>{
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"udp socket...\n"</span>);
+	<span class="hljs-keyword">sock_t</span> * sock = net_sock_create();
+	sock-&gt;sock_recv = sock_udp_recv;
+	sock-&gt;sock_send = sock_udp_send;
+	sock-&gt;sock_close = sock_udp_close;
+	sock-&gt;sock_bind = sock_udp_bind;
+	sock-&gt;sock_getsockname = sock_udp_getsockname;
+	sock-&gt;nonblocking = nb;
+
+	<span class="hljs-keyword">return</span> process_append_fd((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, (<span class="hljs-keyword">fs_node_t</span> *)sock, flags | PROC_FD_MODE__RW);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">spin_lock_t</span> tcp_port_lock = {<span class="hljs-number">0</span>};
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sock_tcp_close</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock)</span> </span>{
+	<span class="hljs-keyword">if</span> (sock-&gt;priv[<span class="hljs-number">0</span>]) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp: removing port %d from bound map\n"</span>, sock-&gt;priv[<span class="hljs-number">0</span>]);
+		spin_lock(tcp_port_lock);
+		hashmap_remove(tcp_sockets, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)sock-&gt;priv[<span class="hljs-number">0</span>]);
+		spin_unlock(tcp_port_lock);
+
+		<span class="hljs-keyword">size_t</span> total_length = <span class="hljs-keyword">sizeof</span>(struct ipv4_packet) + <span class="hljs-keyword">sizeof</span>(struct tcp_header);
+		<span class="hljs-keyword">fs_node_t</span> * nic = net_if_route(((struct sockaddr_in*)&amp;sock-&gt;dest)-&gt;sin_addr.s_addr);
+		<span class="hljs-keyword">if</span> (!nic) <span class="hljs-keyword">return</span>;
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ipv4_packet</span> * <span class="hljs-title">response</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">total_length</span>);</span>
+		response-&gt;length = htons(total_length);
+		response-&gt;destination = ((struct sockaddr_in*)&amp;sock-&gt;dest)-&gt;sin_addr.s_addr;
+		response-&gt;source = ((struct EthernetDevice*)nic-&gt;device)-&gt;ipv4_addr;
+		response-&gt;ttl = <span class="hljs-number">64</span>;
+		response-&gt;protocol = IPV4_PROT_TCP;
+		sock-&gt;priv[<span class="hljs-number">2</span>]++;
+		response-&gt;ident = htons(sock-&gt;priv[<span class="hljs-number">2</span>]);
+		response-&gt;flags_fragment = htons(<span class="hljs-number">0x0</span>);
+		response-&gt;version_ihl = <span class="hljs-number">0x45</span>;
+		response-&gt;dscp_ecn = <span class="hljs-number">0</span>;
+		response-&gt;checksum = <span class="hljs-number">0</span>;
+		response-&gt;checksum = htons(calculate_ipv4_checksum(response));
+
+		<span class="hljs-comment">/* Stick TCP header into payload */</span>
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tcp_header</span> * <span class="hljs-title">tcp_header</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tcp_header</span>*)&amp;<span class="hljs-title">response</span>-&gt;<span class="hljs-title">payload</span>;</span>
+		tcp_header-&gt;source_port = htons(sock-&gt;priv[<span class="hljs-number">0</span>]);
+		tcp_header-&gt;destination_port = ((struct sockaddr_in*)&amp;sock-&gt;dest)-&gt;sin_port;
+		tcp_header-&gt;seq_number = htonl(sock-&gt;priv32[<span class="hljs-number">0</span>]);
+		tcp_header-&gt;ack_number = htonl(sock-&gt;priv32[<span class="hljs-number">1</span>]);
+		tcp_header-&gt;flags = htons(TCP_FLAGS_FIN | TCP_FLAGS_ACK | <span class="hljs-number">0x5000</span>);
+		tcp_header-&gt;window_size = htons(DEFAULT_TCP_WINDOW_SIZE);
+		tcp_header-&gt;checksum = <span class="hljs-number">0</span>;
+		tcp_header-&gt;urgent = <span class="hljs-number">0</span>;
+
+		<span class="hljs-comment">/* Calculate checksum */</span>
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tcp_check_header</span> <span class="hljs-title">check_hd</span> = {</span>
+			.source = response-&gt;source,
+			.destination = response-&gt;destination,
+			.zeros = <span class="hljs-number">0</span>,
+			.protocol = IPV4_PROT_TCP,
+			.tcp_len = htons(<span class="hljs-keyword">sizeof</span>(struct tcp_header)),
+		};
+
+		tcp_header-&gt;checksum = htons(calculate_tcp_checksum(&amp;check_hd, tcp_header, tcp_header-&gt;payload, <span class="hljs-number">0</span>));
+		net_ipv4_send(response,nic);
+		<span class="hljs-built_in">free</span>(response);
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> next_tcp_port = <span class="hljs-number">49152</span>;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">tcp_get_port</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock)</span> </span>{
+	spin_lock(tcp_port_lock);
+	<span class="hljs-keyword">int</span> out = next_tcp_port++;
+	hashmap_set(tcp_sockets, (<span class="hljs-keyword">void</span>*)(<span class="hljs-keyword">uintptr_t</span>)out, sock);
+	sock-&gt;priv[<span class="hljs-number">0</span>] = out;
+	spin_unlock(tcp_port_lock);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> <span class="hljs-title">sock_tcp_recv</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock, struct msghdr * msg, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">if</span> (!sock-&gt;priv[<span class="hljs-number">0</span>]) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp: recv() but socket has no port\n"</span>);
+		<span class="hljs-keyword">return</span> -EINVAL;
+	}
+
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_iovlen &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"net: todo: can't recv multiple iovs\n"</span>);
+		<span class="hljs-keyword">return</span> -ENOTSUP;
+	}
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_iovlen == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (sock-&gt;unread) {
+		<span class="hljs-keyword">if</span> (sock-&gt;unread &gt; msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_len) {
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> out = msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_len;
+			sock-&gt;unread -= out;
+			<span class="hljs-built_in">memcpy</span>(msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_base, sock-&gt;buf, out);
+			<span class="hljs-keyword">char</span> * x = <span class="hljs-built_in">malloc</span>(sock-&gt;unread);
+			<span class="hljs-built_in">memcpy</span>(x, sock-&gt;buf + out, sock-&gt;unread);
+			<span class="hljs-built_in">free</span>(sock-&gt;buf);
+			sock-&gt;buf = x;
+			<span class="hljs-keyword">return</span> out;
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> out = sock-&gt;unread;
+			sock-&gt;unread = <span class="hljs-number">0</span>;
+			<span class="hljs-built_in">memcpy</span>(msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_base, sock-&gt;buf, out);
+			<span class="hljs-built_in">free</span>(sock-&gt;buf);
+			sock-&gt;buf = <span class="hljs-literal">NULL</span>;
+			<span class="hljs-keyword">return</span> out;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!sock-&gt;rx_queue-&gt;length &amp;&amp; sock-&gt;priv[<span class="hljs-number">1</span>] == <span class="hljs-number">3</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>; <span class="hljs-comment">/* EOF */</span>
+	}
+
+	<span class="hljs-keyword">if</span> (!sock-&gt;rx_queue-&gt;length &amp;&amp; sock-&gt;nonblocking) <span class="hljs-keyword">return</span> -EAGAIN;
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> s = <span class="hljs-number">0</span>, ss = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> ns = <span class="hljs-number">0</span>, nss = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (sock-&gt;timeout_s || sock-&gt;timeout_us) {
+		relative_time(sock-&gt;timeout_s,sock-&gt;timeout_us,&amp;s,&amp;ss);
+	}
+
+	<span class="hljs-keyword">while</span> (!sock-&gt;rx_queue-&gt;length) {
+		<span class="hljs-keyword">int</span> r = process_wait_nodes((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, (<span class="hljs-keyword">fs_node_t</span>*[]){(<span class="hljs-keyword">fs_node_t</span>*)sock,<span class="hljs-literal">NULL</span>}, <span class="hljs-number">200</span>);
+		<span class="hljs-keyword">if</span> (r &gt; <span class="hljs-number">0</span> &amp;&amp; (s || ss)) {
+			relative_time(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,&amp;ns,&amp;nss);
+			<span class="hljs-keyword">if</span> (ns &gt; s || (ns == s &amp;&amp; nss &gt; ss)) {
+				<span class="hljs-keyword">return</span> -EAGAIN;
+			}
+		}
+		<span class="hljs-keyword">if</span> (r == -EINTR) <span class="hljs-keyword">return</span> -ERESTARTSYS;
+		<span class="hljs-keyword">if</span> (!sock-&gt;rx_queue-&gt;length) {
+			<span class="hljs-keyword">if</span> (sock-&gt;priv[<span class="hljs-number">1</span>] == <span class="hljs-number">3</span>) {
+				<span class="hljs-comment">/* Socket was closed while waiting */</span>
+				<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+			}
+		}
+	}
+
+	<span class="hljs-keyword">char</span> * packet = net_sock_get(sock);
+	<span class="hljs-keyword">if</span> (!packet) <span class="hljs-keyword">return</span> -EINTR;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ipv4_packet</span> * <span class="hljs-title">data</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">ipv4_packet</span>*)(<span class="hljs-title">packet</span> + <span class="hljs-title">sizeof</span>(<span class="hljs-title">size_t</span>));</span>
+	<span class="hljs-keyword">size_t</span> packet_size = *(<span class="hljs-keyword">size_t</span>*)packet;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> resp = ntohs(data-&gt;length);
+
+	<span class="hljs-keyword">if</span> (resp != packet_size) {
+		dprintf(<span class="hljs-string">"packet size does not match: %zu %zu\n"</span>, resp, packet_size);
+		resp = packet_size;
+	}
+
+	<span class="hljs-keyword">if</span> (resp &lt; <span class="hljs-keyword">sizeof</span>(struct ipv4_packet) + <span class="hljs-keyword">sizeof</span>(struct tcp_header)) {
+		dprintf(<span class="hljs-string">"Invalid receive data?\n"</span>);
+		assert(<span class="hljs-number">0</span>);
+	}
+
+	resp -=  <span class="hljs-keyword">sizeof</span>(struct ipv4_packet) + <span class="hljs-keyword">sizeof</span>(struct tcp_header);
+
+	<span class="hljs-keyword">if</span> (resp &gt; (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span>)msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_len) {
+		<span class="hljs-built_in">memcpy</span>(msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_base, data-&gt;payload + <span class="hljs-keyword">sizeof</span>(struct tcp_header),msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_len);
+		resp -= msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_len;
+		<span class="hljs-keyword">if</span> (resp == <span class="hljs-number">0xFFFFffffFFFFffff</span>) <span class="hljs-built_in">printf</span>(<span class="hljs-string">"what\n"</span>);
+		sock-&gt;unread = resp;
+		sock-&gt;buf = <span class="hljs-built_in">malloc</span>(resp);
+		<span class="hljs-built_in">memcpy</span>(sock-&gt;buf, data-&gt;payload + <span class="hljs-keyword">sizeof</span>(struct tcp_header) + msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_len, resp);
+		<span class="hljs-built_in">free</span>(packet);
+		<span class="hljs-keyword">return</span> msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_len;
+	}
+
+	<span class="hljs-built_in">memcpy</span>(msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_base, data-&gt;payload + <span class="hljs-keyword">sizeof</span>(struct tcp_header), resp);
+	<span class="hljs-built_in">free</span>(packet);
+	<span class="hljs-keyword">return</span> resp;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">uint32_t</span> <span class="hljs-title">rand</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> <span class="hljs-title">sock_tcp_connect</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock, <span class="hljs-keyword">const</span> struct sockaddr *addr, <span class="hljs-keyword">socklen_t</span> addrlen)</span> </span>{
+	<span class="hljs-keyword">const</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_in</span> * <span class="hljs-title">dest</span> = (<span class="hljs-title">const</span> <span class="hljs-title">struct</span> <span class="hljs-title">sockaddr_in</span> *)<span class="hljs-title">addr</span>;</span>
+	<span class="hljs-keyword">char</span> deststr[<span class="hljs-number">16</span>];
+	ip_ntoa(ntohl(dest-&gt;sin_addr.s_addr), deststr);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp: connect requested to %s port %d\n"</span>, deststr, ntohs(dest-&gt;sin_port));
+
+	<span class="hljs-keyword">if</span> (sock-&gt;priv[<span class="hljs-number">1</span>] != <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp: socket is already connected?\n"</span>);
+		<span class="hljs-keyword">return</span> -EINVAL;
+	}
+
+	<span class="hljs-keyword">if</span> (!dest-&gt;sin_port) <span class="hljs-keyword">return</span> -EADDRNOTAVAIL; <span class="hljs-comment">/* 0 is still 0 in both endians */</span>
+
+	<span class="hljs-comment">/* Get a port */</span>
+	tcp_get_port(sock);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp: connecting from ephemeral port %d\n"</span>, (<span class="hljs-keyword">int</span>)sock-&gt;priv[<span class="hljs-number">0</span>]);
+
+	<span class="hljs-comment">/* Mark as awaiting connection, send initial SYN */</span>
+	sock-&gt;priv[<span class="hljs-number">1</span>] = <span class="hljs-number">1</span>;
+
+	<span class="hljs-built_in">memcpy</span>(&amp;sock-&gt;dest, addr, addrlen);
+
+	<span class="hljs-keyword">fs_node_t</span> * nic = net_if_route(dest-&gt;sin_addr.s_addr);
+	<span class="hljs-keyword">if</span> (!nic) <span class="hljs-keyword">return</span> -ENONET;
+
+	<span class="hljs-keyword">size_t</span> total_length = <span class="hljs-keyword">sizeof</span>(struct ipv4_packet) + <span class="hljs-keyword">sizeof</span>(struct tcp_header);
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ipv4_packet</span> * <span class="hljs-title">response</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">total_length</span>);</span>
+	response-&gt;length = htons(total_length);
+	response-&gt;destination = dest-&gt;sin_addr.s_addr;
+	response-&gt;source = ((struct EthernetDevice*)nic-&gt;device)-&gt;ipv4_addr;
+	response-&gt;ttl = <span class="hljs-number">64</span>;
+	response-&gt;protocol = IPV4_PROT_TCP;
+	sock-&gt;priv[<span class="hljs-number">2</span>] = rand();
+	response-&gt;ident = htons(sock-&gt;priv[<span class="hljs-number">2</span>]);
+	response-&gt;flags_fragment = htons(<span class="hljs-number">0x0</span>);
+	response-&gt;version_ihl = <span class="hljs-number">0x45</span>;
+	response-&gt;dscp_ecn = <span class="hljs-number">0</span>;
+	response-&gt;checksum = <span class="hljs-number">0</span>;
+	response-&gt;checksum = htons(calculate_ipv4_checksum(response));
+
+	<span class="hljs-comment">/* Stick TCP header into payload */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tcp_header</span> * <span class="hljs-title">tcp_header</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tcp_header</span>*)&amp;<span class="hljs-title">response</span>-&gt;<span class="hljs-title">payload</span>;</span>
+	tcp_header-&gt;source_port = htons(sock-&gt;priv[<span class="hljs-number">0</span>]);
+	tcp_header-&gt;destination_port = dest-&gt;sin_port;
+	tcp_header-&gt;seq_number = <span class="hljs-number">0</span>;
+	tcp_header-&gt;ack_number = <span class="hljs-number">0</span>;
+	tcp_header-&gt;flags = htons((<span class="hljs-number">1</span> &lt;&lt; <span class="hljs-number">1</span>) | <span class="hljs-number">0x5000</span>);
+	tcp_header-&gt;window_size = htons(DEFAULT_TCP_WINDOW_SIZE);
+	tcp_header-&gt;checksum = <span class="hljs-number">0</span>;
+	tcp_header-&gt;urgent = <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Calculate checksum */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tcp_check_header</span> <span class="hljs-title">check_hd</span> = {</span>
+		.source = response-&gt;source,
+		.destination = response-&gt;destination,
+		.zeros = <span class="hljs-number">0</span>,
+		.protocol = IPV4_PROT_TCP,
+		.tcp_len = htons(<span class="hljs-keyword">sizeof</span>(struct tcp_header)),
+	};
+
+	tcp_header-&gt;checksum = htons(calculate_tcp_checksum(&amp;check_hd, tcp_header, <span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>));
+
+	net_ipv4_send(response,nic);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<p>int _debug <strong>attribute</strong>((unused)) = 1;</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp: waiting for connect to finish; queue = %ld\n"</span>, sock-&gt;rx_queue-&gt;length);
+
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> s, ss;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> ns, nss;
+	relative_time(<span class="hljs-number">1</span>,<span class="hljs-number">0</span>,&amp;s,&amp;ss);
+	<span class="hljs-keyword">int</span> attempts = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">while</span> (!sock-&gt;rx_queue-&gt;length) {
+		<span class="hljs-keyword">int</span> result = process_wait_nodes((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, (<span class="hljs-keyword">fs_node_t</span>*[]){(<span class="hljs-keyword">fs_node_t</span>*)sock,<span class="hljs-literal">NULL</span>}, <span class="hljs-number">200</span>);
+		<span class="hljs-keyword">if</span> (result == -EINTR) {
+			<span class="hljs-built_in">free</span>(response);
+			<span class="hljs-keyword">return</span> -EINTR;
+		}
+		relative_time(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,&amp;ns,&amp;nss);
+		<span class="hljs-keyword">if</span> (sock-&gt;priv[<span class="hljs-number">1</span>] == <span class="hljs-number">0</span>) {
+			<span class="hljs-built_in">free</span>(response);
+			<span class="hljs-keyword">return</span> -ECONNREFUSED;
+		}
+		<span class="hljs-keyword">if</span> (result != <span class="hljs-number">0</span> &amp;&amp; (ns &gt; s || (ns == s &amp;&amp; nss &gt; ss))) {
+			<span class="hljs-keyword">if</span> (attempts++ == <span class="hljs-number">3</span>) {
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp: connect timed out\n"</span>);
+				<span class="hljs-built_in">free</span>(response);
+				<span class="hljs-keyword">return</span> -ETIMEDOUT;
+			}
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp: retrying...\n"</span>);
+			net_ipv4_send(response,nic);
+			relative_time(<span class="hljs-number">1</span>,<span class="hljs-number">0</span>,&amp;s,&amp;ss);
+		}
+	}
+
+	<span class="hljs-built_in">free</span>(response);
+
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp: queue should have data now (len = %lu), trying to read\n"</span>, sock-&gt;rx_queue-&gt;length);
+
+	<span class="hljs-comment">/* wait for signal that we connected or timed out */</span>
+	<span class="hljs-keyword">char</span> * packet = net_sock_get(sock);
+	<span class="hljs-keyword">if</span> (!packet) <span class="hljs-keyword">return</span> -EINTR;
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<p>struct ipv4_packet * data = packet + sizeof(size_t);</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp: connect complete\n"</span>);
+	<span class="hljs-built_in">free</span>(packet);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">ssize_t</span> <span class="hljs-title">sock_tcp_read</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp: read into buffer of %zu bytes\n"</span>, <span class="hljs-built_in">size</span>);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">iovec</span> _<span class="hljs-title">iovec</span> = {</span>
+		<span class="hljs-built_in">buffer</span>, <span class="hljs-built_in">size</span>
+	};
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">msghdr</span> _<span class="hljs-title">header</span> = {</span>
+		.msg_name = <span class="hljs-literal">NULL</span>,
+		.msg_namelen = <span class="hljs-number">0</span>,
+		.msg_iov = &amp;_iovec,
+		.msg_iovlen = <span class="hljs-number">1</span>,
+		.msg_control = <span class="hljs-literal">NULL</span>,
+		.msg_controllen = <span class="hljs-number">0</span>,
+		.msg_flags = <span class="hljs-number">0</span>,
+	};
+	<span class="hljs-keyword">return</span> sock_tcp_recv((<span class="hljs-keyword">sock_t</span>*)node, &amp;_header, <span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">delay_yield</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> subticks)</span> </span>{
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> s, ss;
+	relative_time(<span class="hljs-number">0</span>, subticks, &amp;s, &amp;ss);
+	sleep_until((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, s, ss);
+	switch_task(<span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> <span class="hljs-title">sock_tcp_send</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock, <span class="hljs-keyword">const</span> struct msghdr *msg, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp: send called\n"</span>);
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_iovlen &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"net: todo: can't send multiple iovs\n"</span>);
+		<span class="hljs-keyword">return</span> -ENOTSUP;
+	}
+	<span class="hljs-keyword">if</span> (msg-&gt;msg_iovlen == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">size_t</span> size_into = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> size_remaining = msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_len;
+
+	<span class="hljs-keyword">size_t</span> last = arch_perf_timer();
+	<span class="hljs-keyword">while</span> (size_remaining) {
+		<span class="hljs-keyword">size_t</span> size_to_send = size_remaining &gt; <span class="hljs-number">1024</span> ? <span class="hljs-number">1024</span> : size_remaining;
+		<span class="hljs-keyword">size_t</span> total_length = <span class="hljs-keyword">sizeof</span>(struct ipv4_packet) + <span class="hljs-keyword">sizeof</span>(struct tcp_header) + size_to_send;
+
+		<span class="hljs-keyword">fs_node_t</span> * nic = net_if_route(((struct sockaddr_in*)&amp;sock-&gt;dest)-&gt;sin_addr.s_addr);
+		<span class="hljs-keyword">if</span> (!nic) <span class="hljs-keyword">return</span> -ENONET;
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ipv4_packet</span> * <span class="hljs-title">response</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">total_length</span>);</span>
+		response-&gt;length = htons(total_length);
+		response-&gt;destination = ((struct sockaddr_in*)&amp;sock-&gt;dest)-&gt;sin_addr.s_addr;
+		response-&gt;source = ((struct EthernetDevice*)nic-&gt;device)-&gt;ipv4_addr;
+		response-&gt;ttl = <span class="hljs-number">64</span>;
+		response-&gt;protocol = IPV4_PROT_TCP;
+		sock-&gt;priv[<span class="hljs-number">2</span>]++;
+		response-&gt;ident = htons(sock-&gt;priv[<span class="hljs-number">2</span>]);
+		response-&gt;flags_fragment = htons(<span class="hljs-number">0x0</span>);
+		response-&gt;version_ihl = <span class="hljs-number">0x45</span>;
+		response-&gt;dscp_ecn = <span class="hljs-number">0</span>;
+		response-&gt;checksum = <span class="hljs-number">0</span>;
+		response-&gt;checksum = htons(calculate_ipv4_checksum(response));
+
+		<span class="hljs-comment">/* Stick TCP header into payload */</span>
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tcp_header</span> * <span class="hljs-title">tcp_header</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">tcp_header</span>*)&amp;<span class="hljs-title">response</span>-&gt;<span class="hljs-title">payload</span>;</span>
+		tcp_header-&gt;source_port = htons(sock-&gt;priv[<span class="hljs-number">0</span>]);
+		tcp_header-&gt;destination_port = ((struct sockaddr_in*)&amp;sock-&gt;dest)-&gt;sin_port;
+		tcp_header-&gt;seq_number = htonl(sock-&gt;priv32[<span class="hljs-number">0</span>]);
+		tcp_header-&gt;ack_number = htonl(sock-&gt;priv32[<span class="hljs-number">1</span>]);
+		tcp_header-&gt;flags = htons(TCP_FLAGS_PSH | TCP_FLAGS_ACK | <span class="hljs-number">0x5000</span>);
+		tcp_header-&gt;window_size = htons(DEFAULT_TCP_WINDOW_SIZE);
+		tcp_header-&gt;checksum = <span class="hljs-number">0</span>;
+		tcp_header-&gt;urgent = <span class="hljs-number">0</span>;
+
+		sock-&gt;priv32[<span class="hljs-number">0</span>] += size_to_send;
+
+		<span class="hljs-comment">/* Calculate checksum */</span>
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">tcp_check_header</span> <span class="hljs-title">check_hd</span> = {</span>
+			.source = response-&gt;source,
+			.destination = response-&gt;destination,
+			.zeros = <span class="hljs-number">0</span>,
+			.protocol = IPV4_PROT_TCP,
+			.tcp_len = htons(<span class="hljs-keyword">sizeof</span>(struct tcp_header) + size_to_send),
+		};
+
+		<span class="hljs-built_in">memcpy</span>(tcp_header-&gt;payload, (<span class="hljs-keyword">char</span>*)msg-&gt;msg_iov[<span class="hljs-number">0</span>].iov_base + size_into, size_to_send);
+		tcp_header-&gt;checksum = htons(calculate_tcp_checksum(&amp;check_hd, tcp_header, tcp_header-&gt;payload, size_to_send));
+		net_ipv4_send(response,nic);
+		<span class="hljs-built_in">free</span>(response);
+
+		size_remaining -= size_to_send;
+		size_into += size_to_send;
+
+		<span class="hljs-keyword">if</span> (size_remaining) {
+			<span class="hljs-comment">/* Keep us away from the BSP... */</span>
+			<span class="hljs-keyword">if</span> (processor_count &gt; <span class="hljs-number">1</span>) {
+				<span class="hljs-keyword">if</span> (this_core-&gt;cpu_id == <span class="hljs-number">0</span>) {
+					delay_yield(<span class="hljs-number">0</span>);
+				}
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">if</span> (arch_perf_timer() - last &gt; <span class="hljs-number">10000U</span>L * arch_cpu_mhz()) {
+					delay_yield(<span class="hljs-number">0</span>);
+					last = arch_perf_timer();
+				}
+			}
+		}
+	}
+
+	<span class="hljs-keyword">return</span> size_into;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">ssize_t</span> <span class="hljs-title">sock_tcp_write</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp: write of %zu bytes\n"</span>, <span class="hljs-built_in">size</span>);
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">iovec</span> _<span class="hljs-title">iovec</span> = {</span>
+		(<span class="hljs-keyword">void</span>*)<span class="hljs-built_in">buffer</span>, <span class="hljs-built_in">size</span>
+	};
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">msghdr</span> _<span class="hljs-title">header</span> = {</span>
+		.msg_name = <span class="hljs-literal">NULL</span>,
+		.msg_namelen = <span class="hljs-number">0</span>,
+		.msg_iov = &amp;_iovec,
+		.msg_iovlen = <span class="hljs-number">1</span>,
+		.msg_control = <span class="hljs-literal">NULL</span>,
+		.msg_controllen = <span class="hljs-number">0</span>,
+		.msg_flags = <span class="hljs-number">0</span>,
+	};
+	<span class="hljs-keyword">return</span> sock_tcp_send((<span class="hljs-keyword">sock_t</span>*)node, &amp;_header, <span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sock_tcp_getsockname</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock, struct sockaddr *addr, <span class="hljs-keyword">socklen_t</span> * addrlen)</span> </span>{
+	<span class="hljs-keyword">in_addr_t</span> ip4_addr = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">fs_node_t</span> * nic = net_if_route(((struct sockaddr_in*)&amp;sock-&gt;dest)-&gt;sin_addr.s_addr);
+	<span class="hljs-keyword">if</span> (nic) {
+		ip4_addr = ((struct EthernetDevice*)nic-&gt;device)-&gt;ipv4_addr;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_in</span> <span class="hljs-title">out</span> = {</span>
+		AF_INET, htons(sock-&gt;priv[<span class="hljs-number">0</span>]), { ip4_addr }, {<span class="hljs-number">0</span>},
+	};
+
+	<span class="hljs-built_in">memcpy</span>(addr, &amp;out, *addrlen &lt; <span class="hljs-keyword">sizeof</span>(struct sockaddr_in) ? *addrlen : <span class="hljs-keyword">sizeof</span>(struct sockaddr_in));
+	<span class="hljs-keyword">if</span> (*addrlen &lt; <span class="hljs-keyword">sizeof</span>(struct sockaddr_in)) *addrlen = <span class="hljs-keyword">sizeof</span>(struct sockaddr_in);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">sock_tcp_getpeername</span><span class="hljs-params">(<span class="hljs-keyword">sock_t</span> * sock, struct sockaddr *addr, <span class="hljs-keyword">socklen_t</span> * addrlen)</span> </span>{
+	<span class="hljs-keyword">in_addr_t</span> ip4_addr = ((struct sockaddr_in*)&amp;sock-&gt;dest)-&gt;sin_addr.s_addr;
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">sockaddr_in</span> <span class="hljs-title">out</span> = {</span>
+		AF_INET, ((struct sockaddr_in*)&amp;sock-&gt;dest)-&gt;sin_port, { ip4_addr }, {<span class="hljs-number">0</span>},
+	};
+	<span class="hljs-built_in">memcpy</span>(addr, &amp;out, *addrlen &lt; <span class="hljs-keyword">sizeof</span>(struct sockaddr_in) ? *addrlen : <span class="hljs-keyword">sizeof</span>(struct sockaddr_in));
+	<span class="hljs-keyword">if</span> (*addrlen &lt; <span class="hljs-keyword">sizeof</span>(struct sockaddr_in)) *addrlen = <span class="hljs-keyword">sizeof</span>(struct sockaddr_in);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">tcp_socket</span><span class="hljs-params">(<span class="hljs-keyword">int</span> flags, <span class="hljs-keyword">int</span> nb)</span> </span>{
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"tcp socket...\n"</span>);
+	<span class="hljs-keyword">sock_t</span> * sock = net_sock_create();
+	sock-&gt;sock_recv = sock_tcp_recv;
+	sock-&gt;sock_send = sock_tcp_send;
+	sock-&gt;sock_close = sock_tcp_close;
+	sock-&gt;sock_connect = sock_tcp_connect;
+	sock-&gt;sock_getsockname = sock_tcp_getsockname;
+	sock-&gt;sock_getpeername = sock_tcp_getpeername;
+	sock-&gt;_fnode.<span class="hljs-built_in">read</span> = sock_tcp_read;
+	sock-&gt;_fnode.<span class="hljs-built_in">write</span> = sock_tcp_write;
+
+	<span class="hljs-keyword">return</span> process_append_fd((<span class="hljs-keyword">process_t</span> *)this_core-&gt;current_process, (<span class="hljs-keyword">fs_node_t</span> *)sock, flags | PROC_FD_MODE__RW);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">net_ipv4_socket</span><span class="hljs-params">(<span class="hljs-keyword">int</span> type, <span class="hljs-keyword">int</span> protocol, <span class="hljs-keyword">int</span> flags, <span class="hljs-keyword">int</span> nb)</span> </span>{
+	<span class="hljs-comment">/* Ignore protocol, make socket for 'type' only... */</span>
+	<span class="hljs-keyword">switch</span> (type) {
+		<span class="hljs-keyword">case</span> SOCK_DGRAM:
+			<span class="hljs-keyword">if</span> (!protocol || protocol == IPPROTO_UDP)
+				<span class="hljs-keyword">return</span> udp_socket(flags, nb);
+			<span class="hljs-keyword">if</span> (protocol == IPPROTO_ICMP)
+				<span class="hljs-keyword">return</span> icmp_socket(flags, nb);
+			<span class="hljs-keyword">return</span> -EINVAL;
+		<span class="hljs-keyword">case</span> SOCK_STREAM:
+			<span class="hljs-keyword">return</span> tcp_socket(flags, nb);
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> -EINVAL;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">long</span> <span class="hljs-title">net_so_ipv4_socket</span><span class="hljs-params">(struct SockData * sock, <span class="hljs-keyword">int</span> optname, <span class="hljs-keyword">const</span> <span class="hljs-keyword">void</span> *optval, <span class="hljs-keyword">socklen_t</span> optlen)</span> </span>{
+	<span class="hljs-keyword">switch</span> (optname) {
+		<span class="hljs-keyword">case</span> IP_RECVTTL:
+			<span class="hljs-keyword">if</span> (optlen != <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">int</span>)) <span class="hljs-keyword">return</span> -EINVAL;
+			<span class="hljs-comment">/* TODO ugh bad */</span>
+			sock-&gt;priv32[<span class="hljs-number">2</span>] = *(<span class="hljs-keyword">int</span>*)optval;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> -ENOPROTOOPT;
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

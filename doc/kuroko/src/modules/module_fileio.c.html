@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>module_fileio.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../../doc-style.css" />
+  <script src="../../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../../";
+    var thisFile = "kuroko\\src\\modules\\module_fileio.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>module_fileio.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;assert.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;dirent.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/value.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/object.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/memory.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+
+
+<span class="hljs-keyword">static</span> KrkClass * fileio_File;
+<span class="hljs-keyword">static</span> KrkClass * fileio_BinaryFile;
+<span class="hljs-keyword">static</span> KrkClass * fileio_Directory;
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">File</span> {</span>
+	KrkInstance inst;
+	FILE * filePtr;
+	<span class="hljs-keyword">int</span> unowned;
+};
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> IS_File(o) (krk_isInstanceOf(o, fileio_File))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AS_File(o) ((struct File*)AS_OBJECT(o))</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> IS_BinaryFile(o) (krk_isInstanceOf(o, fileio_BinaryFile))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AS_BinaryFile(o) ((struct File*)AS_OBJECT(o))</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Directory</span> {</span>
+	KrkInstance inst;
+	DIR * dirPtr;
+};
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> IS_Directory(o) (krk_isInstanceOf(o, fileio_Directory))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AS_Directory(o) ((struct Directory*)AS_OBJECT(o))</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE struct File *</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_NAME  self</span>
+
+KRK_Function(<span class="hljs-built_in">open</span>) {
+	FUNCTION_TAKES_AT_LEAST(<span class="hljs-number">1</span>);
+	FUNCTION_TAKES_AT_MOST(<span class="hljs-number">2</span>);
+	CHECK_ARG(<span class="hljs-number">0</span>,str,KrkString*,filename);
+	<span class="hljs-keyword">if</span> (argc == <span class="hljs-number">2</span> &amp;&amp; !IS_STRING(argv[<span class="hljs-number">1</span>])) <span class="hljs-keyword">return</span> TYPE_ERROR(str,argv[<span class="hljs-number">1</span>]);
+	KrkValue arg;
+	<span class="hljs-keyword">int</span> isBinary = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (argc == <span class="hljs-number">1</span>) {
+		arg = OBJECT_VAL(S(<span class="hljs-string">"r"</span>));
+		krk_push(arg); <span class="hljs-comment">/* Will be peeked to find arg string for fopen */</span>
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-comment">/* Check mode against allowable modes */</span>
+		<span class="hljs-keyword">if</span> (AS_STRING(argv[<span class="hljs-number">1</span>])-&gt;length == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"open: mode string must not be empty"</span>);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; AS_STRING(argv[<span class="hljs-number">1</span>])-&gt;length<span class="hljs-number">-1</span>; ++i) {
+			<span class="hljs-keyword">if</span> (AS_CSTRING(argv[<span class="hljs-number">1</span>])[i] == <span class="hljs-string">'b'</span>) {
+				<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"open: 'b' mode indicator must appear at end of mode string"</span>);
+			}
+		}
+		arg = argv[<span class="hljs-number">1</span>];
+		<span class="hljs-keyword">if</span> (AS_CSTRING(argv[<span class="hljs-number">1</span>])[AS_STRING(argv[<span class="hljs-number">1</span>])-&gt;length<span class="hljs-number">-1</span>] == <span class="hljs-string">'b'</span>) {
+			KrkValue tmp = OBJECT_VAL(krk_copyString(AS_CSTRING(argv[<span class="hljs-number">1</span>]), AS_STRING(argv[<span class="hljs-number">1</span>])-&gt;length<span class="hljs-number">-1</span>));
+			krk_push(tmp);
+			isBinary = <span class="hljs-number">1</span>;
+		} <span class="hljs-keyword">else</span> {
+			krk_push(arg);
+		}
+	}
+
+	FILE * file = fopen(filename-&gt;chars, AS_CSTRING(krk_peek(<span class="hljs-number">0</span>)));
+	<span class="hljs-keyword">if</span> (!file) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;ioError, <span class="hljs-string">"open: failed to open file; system returned: %s"</span>, strerror(errno));
+
+	<span class="hljs-comment">/* Now let's build an object to hold it */</span>
+	KrkInstance * fileObject = krk_newInstance(isBinary ? fileio_BinaryFile : fileio_File);
+	krk_push(OBJECT_VAL(fileObject));
+
+	<span class="hljs-comment">/* Let's put the filename in there somewhere... */</span>
+	krk_attachNamedValue(&amp;fileObject-&gt;fields, <span class="hljs-string">"filename"</span>, OBJECT_VAL(filename));
+	krk_attachNamedValue(&amp;fileObject-&gt;fields, <span class="hljs-string">"modestr"</span>, arg);
+
+	((struct <span class="hljs-built_in">File</span>*)fileObject)-&gt;filePtr = file;
+
+	krk_pop();
+	krk_pop();
+	<span class="hljs-keyword">return</span> OBJECT_VAL(fileObject);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BLOCK_SIZE 1024</span>
+
+KRK_Method(<span class="hljs-built_in">File</span>,__repr__) {
+	METHOD_TAKES_NONE();
+	KrkValue filename;
+	KrkValue modestr;
+	<span class="hljs-keyword">if</span> (!krk_tableGet(&amp;self-&gt;inst.fields, OBJECT_VAL(S(<span class="hljs-string">"filename"</span>)), &amp;filename) || !IS_STRING(filename)) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;baseException, <span class="hljs-string">"Corrupt File"</span>);
+	<span class="hljs-keyword">if</span> (!krk_tableGet(&amp;self-&gt;inst.fields, OBJECT_VAL(S(<span class="hljs-string">"modestr"</span>)), &amp;modestr) || !IS_STRING(modestr)) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;baseException, <span class="hljs-string">"Corrupt File"</span>);
+
+	<span class="hljs-keyword">return</span> krk_stringFromFormat(<span class="hljs-string">"&lt;%s file '%S', mode '%S' at %p&gt;"</span>, self-&gt;filePtr ? <span class="hljs-string">"open"</span> : <span class="hljs-string">"closed"</span>, AS_STRING(filename), AS_STRING(modestr), (<span class="hljs-keyword">void</span>*)self);
+}
+
+KRK_Method(<span class="hljs-built_in">File</span>,readline) {
+	METHOD_TAKES_NONE();
+	FILE * file = self-&gt;filePtr;
+
+	<span class="hljs-keyword">if</span> (!file || feof(file)) {
+		<span class="hljs-keyword">return</span> NONE_VAL();
+	}
+
+	<span class="hljs-keyword">size_t</span> sizeRead = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> spaceAvailable = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">buffer</span> = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">do</span> {
+		<span class="hljs-keyword">if</span> (spaceAvailable &lt; sizeRead + BLOCK_SIZE) {
+			spaceAvailable = (spaceAvailable ? spaceAvailable * <span class="hljs-number">2</span> : (<span class="hljs-number">2</span> * BLOCK_SIZE));
+			<span class="hljs-built_in">buffer</span> = <span class="hljs-built_in">realloc</span>(<span class="hljs-built_in">buffer</span>, spaceAvailable);
+		}
+
+		<span class="hljs-keyword">char</span> * target = &amp;<span class="hljs-built_in">buffer</span>[sizeRead];
+		<span class="hljs-keyword">while</span> (sizeRead &lt; spaceAvailable) {
+			<span class="hljs-keyword">int</span> c = fgetc(file);
+			<span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_SIGNALLED) <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">if</span> (c &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">break</span>;
+			sizeRead++;
+			*target++ = c;
+			<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'\n'</span>) <span class="hljs-keyword">goto</span> _finish_line;
+		}
+
+		<span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_SIGNALLED) <span class="hljs-keyword">break</span>;
+	} <span class="hljs-keyword">while</span> (!feof(file));
+
+_finish_line: (<span class="hljs-keyword">void</span>)<span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (sizeRead == <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">free</span>(<span class="hljs-built_in">buffer</span>);
+		<span class="hljs-keyword">return</span> NONE_VAL();
+	}
+
+	<span class="hljs-comment">/* Make a new string to fit our output. */</span>
+	KrkString * out = krk_copyString(<span class="hljs-built_in">buffer</span>,sizeRead);
+	<span class="hljs-built_in">free</span>(<span class="hljs-built_in">buffer</span>);
+	<span class="hljs-keyword">return</span> OBJECT_VAL(out);
+}
+
+KRK_Method(<span class="hljs-built_in">File</span>,readlines) {
+	METHOD_TAKES_NONE();
+	KrkValue myList = krk_list_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	krk_push(myList);
+
+	<span class="hljs-keyword">for</span> (;;) {
+		KrkValue <span class="hljs-built_in">line</span> = FUNC_NAME(<span class="hljs-built_in">File</span>,readline)(<span class="hljs-number">1</span>, argv, <span class="hljs-number">0</span>);
+		<span class="hljs-keyword">if</span> (IS_NONE(<span class="hljs-built_in">line</span>)) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_SIGNALLED) <span class="hljs-keyword">break</span>;
+
+		krk_push(<span class="hljs-built_in">line</span>);
+		krk_writeValueArray(AS_LIST(myList), <span class="hljs-built_in">line</span>);
+		krk_pop(); <span class="hljs-comment">/* line */</span>
+	}
+
+	krk_pop(); <span class="hljs-comment">/* myList */</span>
+	<span class="hljs-keyword">return</span> myList;
+}
+
+KRK_Method(<span class="hljs-built_in">File</span>,<span class="hljs-built_in">read</span>) {
+	METHOD_TAKES_AT_MOST(<span class="hljs-number">1</span>);
+
+	krk_integer_type sizeToRead = <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) {
+		CHECK_ARG(<span class="hljs-number">1</span>,<span class="hljs-keyword">int</span>,krk_integer_type,sizeFromArg);
+		<span class="hljs-keyword">if</span> (sizeFromArg &lt; <span class="hljs-number">-1</span>) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-string">"size must be &gt;= -1"</span>);
+		sizeToRead = sizeFromArg;
+	}
+
+	<span class="hljs-comment">/* Get the file ptr reference */</span>
+	FILE * file = self-&gt;filePtr;
+
+	<span class="hljs-keyword">if</span> (!file || feof(file)) {
+		<span class="hljs-keyword">return</span> NONE_VAL();
+	}
+
+	<span class="hljs-comment">/* We'll do our read entirely with some native buffers and manage them here. */</span>
+	<span class="hljs-keyword">size_t</span> sizeRead = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> spaceAvailable = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">buffer</span> = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">if</span> (sizeToRead == <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">do</span> {
+			<span class="hljs-keyword">if</span> (spaceAvailable &lt; sizeRead + BLOCK_SIZE) {
+				spaceAvailable = (spaceAvailable ? spaceAvailable * <span class="hljs-number">2</span> : (<span class="hljs-number">2</span> * BLOCK_SIZE));
+				<span class="hljs-built_in">buffer</span> = <span class="hljs-built_in">realloc</span>(<span class="hljs-built_in">buffer</span>, spaceAvailable);
+			}
+
+			<span class="hljs-keyword">char</span> * target = &amp;<span class="hljs-built_in">buffer</span>[sizeRead];
+			<span class="hljs-keyword">size_t</span> newlyRead = fread(target, <span class="hljs-number">1</span>, BLOCK_SIZE, file);
+			<span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_SIGNALLED) <span class="hljs-keyword">break</span>;
+
+			<span class="hljs-keyword">if</span> (newlyRead &lt; BLOCK_SIZE) {
+				<span class="hljs-keyword">if</span> (ferror(file)) {
+					<span class="hljs-built_in">free</span>(<span class="hljs-built_in">buffer</span>);
+					<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;ioError, <span class="hljs-string">"Read error."</span>);
+				}
+			}
+
+			sizeRead += newlyRead;
+		} <span class="hljs-keyword">while</span> (!feof(file));
+	} <span class="hljs-keyword">else</span> {
+		spaceAvailable = sizeToRead;
+		<span class="hljs-built_in">buffer</span> = <span class="hljs-built_in">realloc</span>(<span class="hljs-built_in">buffer</span>, spaceAvailable);
+		sizeRead = fread(<span class="hljs-built_in">buffer</span>, <span class="hljs-number">1</span>, sizeToRead, file);
+	}
+
+	<span class="hljs-comment">/* Make a new string to fit our output. */</span>
+	KrkString * out = krk_copyString(<span class="hljs-built_in">buffer</span>,sizeRead);
+	<span class="hljs-built_in">free</span>(<span class="hljs-built_in">buffer</span>);
+	<span class="hljs-keyword">return</span> OBJECT_VAL(out);
+}
+
+KRK_Method(<span class="hljs-built_in">File</span>,<span class="hljs-built_in">write</span>) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (!IS_STRING(argv[<span class="hljs-number">1</span>])) <span class="hljs-keyword">return</span> TYPE_ERROR(str,argv[<span class="hljs-number">1</span>]);
+	<span class="hljs-comment">/* Find the file ptr reference */</span>
+	FILE * file = self-&gt;filePtr;
+
+	<span class="hljs-keyword">if</span> (!file || feof(file)) {
+		<span class="hljs-keyword">return</span> NONE_VAL();
+	}
+
+	<span class="hljs-keyword">return</span> krk_int_from_ull(fwrite(AS_CSTRING(argv[<span class="hljs-number">1</span>]), <span class="hljs-number">1</span>, AS_STRING(argv[<span class="hljs-number">1</span>])-&gt;length, file));
+}
+
+KRK_Method(<span class="hljs-built_in">File</span>,<span class="hljs-built_in">close</span>) {
+	METHOD_TAKES_NONE();
+	FILE * file = self-&gt;filePtr;
+	<span class="hljs-keyword">if</span> (file) fclose(file);
+	self-&gt;filePtr = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(<span class="hljs-built_in">File</span>,<span class="hljs-built_in">flush</span>) {
+	METHOD_TAKES_NONE();
+	FILE * file = self-&gt;filePtr;
+	<span class="hljs-keyword">if</span> (file) fflush(file);
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(<span class="hljs-built_in">File</span>,__init__) {
+	<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"File objects can not be instantiated; use fileio.open() to obtain File objects."</span>);
+}
+
+KRK_Method(<span class="hljs-built_in">File</span>,__enter__) {
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+KRK_Method(<span class="hljs-built_in">File</span>,__exit__) {
+	<span class="hljs-keyword">return</span> FUNC_NAME(<span class="hljs-built_in">File</span>,<span class="hljs-built_in">close</span>)(<span class="hljs-number">1</span>,argv,<span class="hljs-number">0</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">makeFileInstance</span><span class="hljs-params">(KrkInstance * <span class="hljs-keyword">module</span>, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> name[], FILE * file, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> mode[])</span> </span>{
+	KrkInstance * fileObject = krk_newInstance(fileio_File);
+	krk_push(OBJECT_VAL(fileObject));
+	KrkValue filename = OBJECT_VAL(krk_copyString(name,<span class="hljs-built_in">strlen</span>(name)));
+	krk_push(filename);
+	KrkValue modestr = OBJECT_VAL(krk_copyString(mode,<span class="hljs-built_in">strlen</span>(mode)));
+	krk_push(modestr);
+
+	krk_attachNamedValue(&amp;fileObject-&gt;fields, <span class="hljs-string">"filename"</span>, filename);
+	krk_attachNamedValue(&amp;fileObject-&gt;fields, <span class="hljs-string">"modestr"</span>, modestr);
+	((struct <span class="hljs-built_in">File</span>*)fileObject)-&gt;filePtr = file;
+	((struct <span class="hljs-built_in">File</span>*)fileObject)-&gt;unowned = <span class="hljs-number">1</span>;
+
+	krk_attachNamedObject(&amp;<span class="hljs-keyword">module</span>-&gt;fields, name, (KrkObj*)fileObject);
+
+	krk_pop(); <span class="hljs-comment">/* modestr */</span>
+	krk_pop(); <span class="hljs-comment">/* filename */</span>
+	krk_pop(); <span class="hljs-comment">/* fileObject */</span>
+}
+
+KRK_Method(BinaryFile,readline) {
+	METHOD_TAKES_NONE();
+	FILE * file = self-&gt;filePtr;
+
+	<span class="hljs-keyword">if</span> (!file || feof(file)) {
+		<span class="hljs-keyword">return</span> NONE_VAL();
+	}
+
+	<span class="hljs-keyword">size_t</span> sizeRead = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> spaceAvailable = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">buffer</span> = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">do</span> {
+		<span class="hljs-keyword">if</span> (spaceAvailable &lt; sizeRead + BLOCK_SIZE) {
+			spaceAvailable = (spaceAvailable ? spaceAvailable * <span class="hljs-number">2</span> : (<span class="hljs-number">2</span> * BLOCK_SIZE));
+			<span class="hljs-built_in">buffer</span> = <span class="hljs-built_in">realloc</span>(<span class="hljs-built_in">buffer</span>, spaceAvailable);
+		}
+
+		<span class="hljs-keyword">char</span> * target = &amp;<span class="hljs-built_in">buffer</span>[sizeRead];
+		<span class="hljs-keyword">while</span> (sizeRead &lt; spaceAvailable) {
+			<span class="hljs-keyword">int</span> c = fgetc(file);
+			<span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_SIGNALLED) <span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">if</span> (c &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">break</span>;
+			sizeRead++;
+			*target++ = c;
+			<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'\n'</span>) <span class="hljs-keyword">goto</span> _finish_line;
+		}
+
+		<span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_SIGNALLED) <span class="hljs-keyword">break</span>;
+	} <span class="hljs-keyword">while</span> (!feof(file));
+
+_finish_line: (<span class="hljs-keyword">void</span>)<span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (sizeRead == <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">free</span>(<span class="hljs-built_in">buffer</span>);
+		<span class="hljs-keyword">return</span> NONE_VAL();
+	}
+
+	<span class="hljs-comment">/* Make a new string to fit our output. */</span>
+	KrkBytes * out = krk_newBytes(sizeRead, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span>*)<span class="hljs-built_in">buffer</span>);
+	<span class="hljs-built_in">free</span>(<span class="hljs-built_in">buffer</span>);
+	<span class="hljs-keyword">return</span> OBJECT_VAL(out);
+}
+
+KRK_Method(BinaryFile,readlines) {
+	METHOD_TAKES_NONE();
+	KrkValue myList = krk_list_of(<span class="hljs-number">0</span>,<span class="hljs-literal">NULL</span>,<span class="hljs-number">0</span>);
+	krk_push(myList);
+
+	<span class="hljs-keyword">for</span> (;;) {
+		KrkValue <span class="hljs-built_in">line</span> = FUNC_NAME(BinaryFile,readline)(<span class="hljs-number">1</span>, argv, <span class="hljs-number">0</span>);
+		<span class="hljs-keyword">if</span> (IS_NONE(<span class="hljs-built_in">line</span>)) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_SIGNALLED) <span class="hljs-keyword">break</span>;
+
+		krk_push(<span class="hljs-built_in">line</span>);
+		krk_writeValueArray(AS_LIST(myList), <span class="hljs-built_in">line</span>);
+		krk_pop(); <span class="hljs-comment">/* line */</span>
+	}
+
+	krk_pop(); <span class="hljs-comment">/* myList */</span>
+	<span class="hljs-keyword">return</span> myList;
+}
+
+KRK_Method(BinaryFile,<span class="hljs-built_in">read</span>) {
+	METHOD_TAKES_AT_MOST(<span class="hljs-number">1</span>);
+
+	krk_integer_type sizeToRead = <span class="hljs-number">-1</span>;
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) {
+		CHECK_ARG(<span class="hljs-number">1</span>,<span class="hljs-keyword">int</span>,krk_integer_type,sizeFromArg);
+		<span class="hljs-keyword">if</span> (sizeFromArg &lt; <span class="hljs-number">-1</span>) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-string">"size must be &gt;= -1"</span>);
+		sizeToRead = sizeFromArg;
+	}
+
+	<span class="hljs-comment">/* Get the file ptr reference */</span>
+	FILE * file = self-&gt;filePtr;
+
+	<span class="hljs-keyword">if</span> (!file || feof(file)) {
+		<span class="hljs-keyword">return</span> NONE_VAL();
+	}
+
+	<span class="hljs-comment">/* We'll do our read entirely with some native buffers and manage them here. */</span>
+	<span class="hljs-keyword">size_t</span> sizeRead = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> spaceAvailable = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">char</span> * <span class="hljs-built_in">buffer</span> = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">if</span> (sizeToRead == <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">do</span> {
+			<span class="hljs-keyword">if</span> (spaceAvailable &lt; sizeRead + BLOCK_SIZE) {
+				spaceAvailable = (spaceAvailable ? spaceAvailable * <span class="hljs-number">2</span> : (<span class="hljs-number">2</span> * BLOCK_SIZE));
+				<span class="hljs-built_in">buffer</span> = <span class="hljs-built_in">realloc</span>(<span class="hljs-built_in">buffer</span>, spaceAvailable);
+			}
+
+			<span class="hljs-keyword">char</span> * target = &amp;<span class="hljs-built_in">buffer</span>[sizeRead];
+			<span class="hljs-keyword">size_t</span> newlyRead = fread(target, <span class="hljs-number">1</span>, BLOCK_SIZE, file);
+
+			<span class="hljs-keyword">if</span> (krk_currentThread.flags &amp; KRK_THREAD_SIGNALLED) <span class="hljs-keyword">break</span>;
+
+			<span class="hljs-keyword">if</span> (newlyRead &lt; BLOCK_SIZE) {
+				<span class="hljs-keyword">if</span> (ferror(file)) {
+					<span class="hljs-built_in">free</span>(<span class="hljs-built_in">buffer</span>);
+					<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;ioError, <span class="hljs-string">"Read error."</span>);
+				}
+			}
+
+			sizeRead += newlyRead;
+		} <span class="hljs-keyword">while</span> (!feof(file));
+	} <span class="hljs-keyword">else</span> {
+		spaceAvailable = sizeToRead;
+		<span class="hljs-built_in">buffer</span> = <span class="hljs-built_in">realloc</span>(<span class="hljs-built_in">buffer</span>, spaceAvailable);
+		sizeRead = fread(<span class="hljs-built_in">buffer</span>, <span class="hljs-number">1</span>, sizeToRead, file);
+	}
+
+	<span class="hljs-comment">/* Make a new string to fit our output. */</span>
+	KrkBytes * out = krk_newBytes(sizeRead, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span>*)<span class="hljs-built_in">buffer</span>);
+	<span class="hljs-built_in">free</span>(<span class="hljs-built_in">buffer</span>);
+	<span class="hljs-keyword">return</span> OBJECT_VAL(out);
+}
+
+KRK_Method(BinaryFile,<span class="hljs-built_in">write</span>) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (!IS_BYTES(argv[<span class="hljs-number">1</span>])) <span class="hljs-keyword">return</span> TYPE_ERROR(bytes,argv[<span class="hljs-number">1</span>]);
+	<span class="hljs-comment">/* Find the file ptr reference */</span>
+	FILE * file = self-&gt;filePtr;
+
+	<span class="hljs-keyword">if</span> (!file || feof(file)) {
+		<span class="hljs-keyword">return</span> NONE_VAL();
+	}
+
+	<span class="hljs-keyword">return</span> krk_int_from_ull(fwrite(AS_BYTES(argv[<span class="hljs-number">1</span>])-&gt;bytes, <span class="hljs-number">1</span>, AS_BYTES(argv[<span class="hljs-number">1</span>])-&gt;length, file));
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> CURRENT_CTYPE</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _file_sweep(KrkInstance * self) {
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">File</span> * <span class="hljs-title">me</span> = (<span class="hljs-title">void</span> *)<span class="hljs-title">self</span>;</span>
+	<span class="hljs-keyword">if</span> (me-&gt;filePtr &amp;&amp; !me-&gt;unowned) {
+		fclose(me-&gt;filePtr);
+		me-&gt;filePtr = <span class="hljs-literal">NULL</span>;
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> _dir_sweep(KrkInstance * self) {
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Directory</span> * <span class="hljs-title">me</span> = (<span class="hljs-title">void</span> *)<span class="hljs-title">self</span>;</span>
+	<span class="hljs-keyword">if</span> (me-&gt;dirPtr) {
+		closedir(me-&gt;dirPtr);
+		me-&gt;dirPtr = <span class="hljs-literal">NULL</span>;
+	}
+}
+
+KRK_Function(opendir) {
+	FUNCTION_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	CHECK_ARG(<span class="hljs-number">0</span>,str,KrkString*,path);
+
+	DIR * dir = opendir(path-&gt;chars);
+	<span class="hljs-keyword">if</span> (!dir) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;ioError, <span class="hljs-string">"opendir: %s"</span>, strerror(errno));
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">Directory</span> * <span class="hljs-title">dirObj</span> = (<span class="hljs-title">void</span> *)<span class="hljs-title">krk_newInstance</span>(<span class="hljs-title">fileio_Directory</span>);</span>
+	krk_push(OBJECT_VAL(dirObj));
+
+	krk_attachNamedValue(&amp;dirObj-&gt;inst.fields, <span class="hljs-string">"path"</span>, OBJECT_VAL(path));
+	dirObj-&gt;dirPtr = dir;
+
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE struct Directory *</span>
+
+KRK_Method(Directory,__call__) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">if</span> (!self-&gt;dirPtr) <span class="hljs-keyword">return</span> argv[<span class="hljs-number">0</span>];
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dirent</span> * <span class="hljs-title">entry</span> = <span class="hljs-title">readdir</span>(<span class="hljs-title">self</span>-&gt;<span class="hljs-title">dirPtr</span>);</span>
+	<span class="hljs-keyword">if</span> (!entry) <span class="hljs-keyword">return</span> argv[<span class="hljs-number">0</span>];
+
+	KrkValue outDict = krk_dict_of(<span class="hljs-number">0</span>, <span class="hljs-literal">NULL</span>, <span class="hljs-number">0</span>);
+	krk_push(outDict);
+
+	krk_attachNamedValue(AS_DICT(outDict), <span class="hljs-string">"name"</span>, OBJECT_VAL(krk_copyString(entry-&gt;d_name,<span class="hljs-built_in">strlen</span>(entry-&gt;d_name))));
+	krk_attachNamedValue(AS_DICT(outDict), <span class="hljs-string">"inode"</span>, krk_int_from_ull(entry-&gt;d_ino));
+
+	<span class="hljs-keyword">return</span> krk_pop();
+}
+
+KRK_Method(Directory,__iter__) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">return</span> argv[<span class="hljs-number">0</span>];
+}
+
+KRK_Method(Directory,<span class="hljs-built_in">close</span>) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">if</span> (self-&gt;dirPtr) {
+		closedir(self-&gt;dirPtr);
+		self-&gt;dirPtr = <span class="hljs-literal">NULL</span>;
+	}
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(Directory,__repr__) {
+	METHOD_TAKES_NONE();
+	KrkValue path;
+	<span class="hljs-keyword">if</span> (!krk_tableGet(&amp;self-&gt;inst.fields, OBJECT_VAL(S(<span class="hljs-string">"path"</span>)), &amp;path) || !IS_STRING(path))
+		<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-string">"corrupt Directory"</span>);
+
+	<span class="hljs-keyword">return</span> krk_stringFromFormat(<span class="hljs-string">"&lt;%s directory '%S' at %p&gt;"</span>, self-&gt;dirPtr ? <span class="hljs-string">"open"</span> : <span class="hljs-string">"closed"</span>, AS_STRING(path), (<span class="hljs-keyword">void</span>*)self);
+}
+
+KRK_Method(Directory,__enter__) {
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+KRK_Method(Directory,__exit__) {
+	<span class="hljs-keyword">return</span> FUNC_NAME(Directory,<span class="hljs-built_in">close</span>)(<span class="hljs-number">1</span>,argv,<span class="hljs-number">0</span>);
+}
+
+KRK_Module(fileio) {
+	KRK_DOC(<span class="hljs-keyword">module</span>,
+		<span class="hljs-string">"@brief Provides access to C &lt;stdio&gt; buffered file I/O functions.\n\n"</span>
+		<span class="hljs-string">"The @c fileio module provides classes and functions for reading "</span>
+		<span class="hljs-string">"and writing files using the system's buffer I/O interfaces, as "</span>
+		<span class="hljs-string">"well as classes for listing the contents of directories."</span>
+	);
+
+	<span class="hljs-comment">/* Define a class to represent files. (Should this be a helper method?) */</span>
+	KrkClass * <span class="hljs-built_in">File</span> = krk_makeClass(<span class="hljs-keyword">module</span>, &amp;fileio_File, <span class="hljs-string">"File"</span>, KRK_BASE_CLASS(object));
+	KRK_DOC(<span class="hljs-built_in">File</span>,<span class="hljs-string">"Interface to a buffered file stream."</span>);
+	<span class="hljs-built_in">File</span>-&gt;allocSize = <span class="hljs-keyword">sizeof</span>(struct <span class="hljs-built_in">File</span>);
+	<span class="hljs-built_in">File</span>-&gt;_ongcsweep = _file_sweep;
+
+	<span class="hljs-comment">/* Add methods to it... */</span>
+	KRK_DOC(BIND_METHOD(<span class="hljs-built_in">File</span>,<span class="hljs-built_in">read</span>), <span class="hljs-string">"@brief Read from the stream.\n"</span>
+		<span class="hljs-string">"@arguments bytes=-1\n\n"</span>
+		<span class="hljs-string">"Reads up to @p bytes bytes from the stream. If @p bytes is @c -1 then reading "</span>
+		<span class="hljs-string">"will continue until the system returns _end of file_."</span>);
+	KRK_DOC(BIND_METHOD(<span class="hljs-built_in">File</span>,readline), <span class="hljs-string">"@brief Read one line from the stream."</span>);
+	KRK_DOC(BIND_METHOD(<span class="hljs-built_in">File</span>,readlines), <span class="hljs-string">"@brief Read the entire stream and return a list of lines."</span>);
+	KRK_DOC(BIND_METHOD(<span class="hljs-built_in">File</span>,<span class="hljs-built_in">write</span>), <span class="hljs-string">"@brief Write to the stream.\n"</span>
+		<span class="hljs-string">"@arguments data\n\n"</span>
+		<span class="hljs-string">"Writes the contents of @p data to the stream."</span>);
+	KRK_DOC(BIND_METHOD(<span class="hljs-built_in">File</span>,<span class="hljs-built_in">close</span>), <span class="hljs-string">"@brief Close the stream and flush any remaining buffered writes."</span>);
+	KRK_DOC(BIND_METHOD(<span class="hljs-built_in">File</span>,<span class="hljs-built_in">flush</span>), <span class="hljs-string">"@brief Flush unbuffered writes to the stream."</span>);
+	BIND_METHOD(<span class="hljs-built_in">File</span>,__repr__);
+	KRK_DOC(BIND_METHOD(<span class="hljs-built_in">File</span>,__init__), <span class="hljs-string">"@bsnote{%File objects can not be initialized using this constructor. "</span>
+		<span class="hljs-string">"Use the &lt;a class=\"el\" href=\"#open\"&gt;open()&lt;/a&gt; function instead.}"</span>);
+	BIND_METHOD(<span class="hljs-built_in">File</span>,__enter__);
+	BIND_METHOD(<span class="hljs-built_in">File</span>,__exit__);
+	krk_finalizeClass(<span class="hljs-built_in">File</span>);
+
+	KrkClass * BinaryFile = krk_makeClass(<span class="hljs-keyword">module</span>, &amp;fileio_BinaryFile, <span class="hljs-string">"BinaryFile"</span>, <span class="hljs-built_in">File</span>);
+	KRK_DOC(BinaryFile,
+		<span class="hljs-string">"Equivalent to @ref File but using @ref bytes instead of string @ref str."</span>
+	);
+	BIND_METHOD(BinaryFile,<span class="hljs-built_in">read</span>);
+	BIND_METHOD(BinaryFile,readline);
+	BIND_METHOD(BinaryFile,readlines);
+	BIND_METHOD(BinaryFile,<span class="hljs-built_in">write</span>);
+	krk_finalizeClass(BinaryFile);
+
+	KrkClass * Directory = krk_makeClass(<span class="hljs-keyword">module</span>, &amp;fileio_Directory, <span class="hljs-string">"Directory"</span>, KRK_BASE_CLASS(object));
+	KRK_DOC(Directory,
+		<span class="hljs-string">"Represents an opened file system directory."</span>
+	);
+	Directory-&gt;allocSize = <span class="hljs-keyword">sizeof</span>(struct Directory);
+	Directory-&gt;_ongcsweep = _dir_sweep;
+	BIND_METHOD(Directory,__repr__);
+	KRK_DOC(BIND_METHOD(Directory,__iter__), <span class="hljs-string">"@brief Iterates over the contents of the directory.\n\n"</span>
+		<span class="hljs-string">"Each iteration returns @ref dict with two entries: &lt;i&gt;\"name\"&lt;/i&gt; and &lt;i&gt;\"inode\"&lt;/i&gt;."</span>);
+	KRK_DOC(BIND_METHOD(Directory,__call__), <span class="hljs-string">"@brief Yields one iteration through the directory."</span>);
+	BIND_METHOD(Directory,__enter__);
+	KRK_DOC(BIND_METHOD(Directory,__exit__), <span class="hljs-string">"@brief Closes the directory upon exit from a @c with block."</span>);
+	KRK_DOC(BIND_METHOD(Directory,<span class="hljs-built_in">close</span>), <span class="hljs-string">"@brief Close the directory.\n\nFurther reads can not be made after the directory has been closed."</span>);
+	krk_finalizeClass(Directory);
+
+	<span class="hljs-comment">/* Make an instance for stdout, stderr, and stdin */</span>
+	makeFileInstance(<span class="hljs-keyword">module</span>, <span class="hljs-string">"stdin"</span>, <span class="hljs-built_in">stdin</span>, <span class="hljs-string">"r"</span>);
+	makeFileInstance(<span class="hljs-keyword">module</span>, <span class="hljs-string">"stdout"</span>, <span class="hljs-built_in">stdout</span>, <span class="hljs-string">"w"</span>);
+	makeFileInstance(<span class="hljs-keyword">module</span>, <span class="hljs-string">"stderr"</span>, <span class="hljs-built_in">stderr</span>, <span class="hljs-string">"w"</span>);
+
+	<span class="hljs-comment">/* Our base will be the open method */</span>
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,<span class="hljs-built_in">open</span>), <span class="hljs-string">"@brief Open a file.\n"</span>
+		<span class="hljs-string">"@arguments path,mode=\"r\"\n\n"</span>
+		<span class="hljs-string">"Opens @p path using the modestring @p mode. Supported modestring characters depend on the system implementation. "</span>
+		<span class="hljs-string">"If the last character of @p mode is @c 'b' a @ref BinaryFile will be returned. If the file could not be opened, "</span>
+		<span class="hljs-string">"an @ref IOError will be raised."</span>);
+	KRK_DOC(BIND_FUNC(<span class="hljs-keyword">module</span>,opendir), <span class="hljs-string">"@brief Open a directory for scanning.\n"</span>
+		<span class="hljs-string">"@arguments path\n\n"</span>
+		<span class="hljs-string">"Opens the directory at @p path and returns a @ref Directory object. If @p path could not be opened or is not "</span>
+		<span class="hljs-string">"a directory, @ref IOError will be raised."</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

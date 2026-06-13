@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>procfs.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\vfs\\procfs.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>procfs.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stddef.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/version.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/pci.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/procfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/hashmap.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/syscall.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/mmu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/misc.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/module.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/ksym.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PROCFS_STANDARD_ENTRIES (sizeof(std_entries) / sizeof(struct procfs_entry))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PROCFS_PROCDIR_ENTRIES  (sizeof(procdir_entries) / sizeof(struct procfs_entry))</span>
+
+<span class="hljs-keyword">typedef</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">procfs_entry_node</span> {</span>
+	<span class="hljs-keyword">fs_node_t</span> fnode;
+	<span class="hljs-keyword">char</span> * buf;
+	<span class="hljs-keyword">size_t</span> avail;
+	<span class="hljs-keyword">size_t</span> used;
+	<span class="hljs-keyword">procfs_populate_t</span> func;
+} <span class="hljs-keyword">procfs_entry_t</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">procfs_entry_read</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">procfs_entry_t</span> * entry = (<span class="hljs-keyword">void</span>*)node;
+	<span class="hljs-keyword">if</span> ((<span class="hljs-keyword">size_t</span>)offset &gt; entry-&gt;used) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &gt; entry-&gt;used - offset) <span class="hljs-built_in">size</span> = entry-&gt;used - offset;
+	<span class="hljs-built_in">memcpy</span>(<span class="hljs-built_in">buffer</span>, (<span class="hljs-keyword">uint8_t</span>*)entry-&gt;buf + offset, <span class="hljs-built_in">size</span>);
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">size</span>;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Dynamic reallocating printf thingy</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">procfs_cb</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * user, <span class="hljs-keyword">char</span> c)</span> </span>{
+	<span class="hljs-keyword">procfs_entry_t</span> * entry = user;
+
+	<span class="hljs-keyword">if</span> (entry-&gt;used &gt;= entry-&gt;avail) {
+		entry-&gt;avail += <span class="hljs-number">64</span>;
+		entry-&gt;buf = <span class="hljs-built_in">realloc</span>(entry-&gt;buf, entry-&gt;avail);
+	}
+
+	entry-&gt;buf[entry-&gt;used] = c;
+	entry-&gt;used++;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">procfs_printf</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * fmt, ...)</span> </span>{
+	va_list args;
+	va_start(args, fmt);
+	<span class="hljs-keyword">int</span> out = xvasprintf(procfs_cb, node, fmt, args);
+	va_end(args);
+	<span class="hljs-keyword">return</span> out;
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">procfs_entry_open</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">procfs_entry_t</span> * entry = (<span class="hljs-keyword">void</span>*)node;
+	entry-&gt;func(node);
+	node-&gt;length = entry-&gt;used;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">procfs_entry_close</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node)</span> </span>{
+	<span class="hljs-keyword">procfs_entry_t</span> * entry = (<span class="hljs-keyword">void</span>*)node;
+	<span class="hljs-keyword">if</span> (entry-&gt;avail) <span class="hljs-built_in">free</span>(entry-&gt;buf);
+	entry-&gt;buf = <span class="hljs-literal">NULL</span>;
+	entry-&gt;avail = <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">procfs_entry_readlink</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">char</span> * buf, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>)</span> </span>{
+	<span class="hljs-keyword">procfs_entry_t</span> * entry = (<span class="hljs-keyword">void</span>*)node;
+
+	<span class="hljs-keyword">size_t</span> len = entry-&gt;used;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &lt; len) len = <span class="hljs-built_in">size</span>;
+	<span class="hljs-built_in">memcpy</span>(buf, entry-&gt;buf, len);
+	<span class="hljs-keyword">return</span> len;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">procfs_generic_create</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name, <span class="hljs-keyword">procfs_populate_t</span> read_func, <span class="hljs-keyword">int</span> flags)</span> </span>{
+	<span class="hljs-keyword">procfs_entry_t</span> * entry = <span class="hljs-built_in">calloc</span>(<span class="hljs-number">1</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">procfs_entry_t</span>));
+	entry-&gt;fnode.inode = <span class="hljs-number">0</span>;
+	<span class="hljs-built_in">strcpy</span>(entry-&gt;fnode.name, name);
+
+	entry-&gt;buf = <span class="hljs-literal">NULL</span>;
+	entry-&gt;avail = <span class="hljs-number">0</span>;
+	entry-&gt;used = <span class="hljs-number">0</span>;
+	entry-&gt;func = read_func;
+
+	entry-&gt;fnode.uid = <span class="hljs-number">0</span>;
+	entry-&gt;fnode.gid = <span class="hljs-number">0</span>;
+	entry-&gt;fnode.mask    = <span class="hljs-number">0444</span>;
+
+	<span class="hljs-keyword">if</span> (flags == FS_SYMLINK) {
+		entry-&gt;fnode.flags   = FS_FILE | FS_SYMLINK;
+		entry-&gt;fnode.readlink = procfs_entry_readlink;
+	} <span class="hljs-keyword">else</span> {
+		entry-&gt;fnode.flags   = FS_FILE;
+		entry-&gt;fnode.<span class="hljs-built_in">read</span>    = procfs_entry_read;
+	}
+
+	entry-&gt;fnode.<span class="hljs-built_in">open</span>    = procfs_entry_open;
+	entry-&gt;fnode.<span class="hljs-built_in">close</span>   = procfs_entry_close;
+
+	entry-&gt;fnode.ctime   = now();
+	entry-&gt;fnode.mtime   = now();
+	entry-&gt;fnode.atime   = now();
+	<span class="hljs-keyword">return</span> &amp;entry-&gt;fnode;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">proc_cmdline_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+	<span class="hljs-keyword">process_t</span> * proc = process_from_pid(node-&gt;inode);
+
+	<span class="hljs-keyword">if</span> (!proc) {
+		<span class="hljs-comment">/* wat */</span>
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (!proc-&gt;cmdline) {
+		procfs_printf(node, <span class="hljs-string">"%s"</span>, proc-&gt;name);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-keyword">char</span> ** args = proc-&gt;cmdline;
+	<span class="hljs-keyword">while</span> (*args) {
+		procfs_printf(node, <span class="hljs-string">"%s"</span>, *args);
+		<span class="hljs-keyword">if</span> (*(args+<span class="hljs-number">1</span>)) {
+			procfs_printf(node, <span class="hljs-string">"\036"</span>);
+		}
+		args++;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">process_acquire_big_lock</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span></span>;
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-keyword">void</span> <span class="hljs-title">process_release_big_lock</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">proc_status_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+	process_acquire_big_lock();
+	<span class="hljs-keyword">process_t</span> * proc = process_from_pid(node-&gt;inode);
+
+	<span class="hljs-keyword">if</span> (!proc) {
+		process_release_big_lock();
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-keyword">process_t</span> * parent = process_get_parent(proc-&gt;<span class="hljs-built_in">process</span>);
+
+	<span class="hljs-keyword">char</span> state = <span class="hljs-string">'S'</span>;
+
+	<span class="hljs-comment">/* Base state */</span>
+	<span class="hljs-keyword">if</span> ((proc-&gt;flags &amp; PROC_FLAG_RUNNING) || process_is_ready(proc)) {
+		state = <span class="hljs-string">'R'</span>; <span class="hljs-comment">/* Running or runnable */</span>
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> ((proc-&gt;flags &amp; PROC_FLAG_FINISHED)) {
+		state = <span class="hljs-string">'Z'</span>; <span class="hljs-comment">/* Zombie - exited but not yet reaped */</span>
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> ((proc-&gt;flags &amp; PROC_FLAG_SUSPENDED)) {
+		state = <span class="hljs-string">'T'</span>; <span class="hljs-comment">/* Stopped; TODO can we differentiate stopped tracees correctly? */</span>
+	}
+
+	<span class="hljs-keyword">char</span> * name = proc-&gt;name + <span class="hljs-built_in">strlen</span>(proc-&gt;name) - <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">if</span> (*name == <span class="hljs-string">'/'</span>) {
+			name++;
+			<span class="hljs-keyword">break</span>;
+		}
+		<span class="hljs-keyword">if</span> (name == proc-&gt;name) <span class="hljs-keyword">break</span>;
+		name--;
+	}
+
+	<span class="hljs-comment">/* Calculate process memory usage */</span>
+	spin_lock(proc-&gt;thread.page_directory-&gt;lock);
+	<span class="hljs-keyword">long</span> mem_usage = mmu_count_user(proc-&gt;thread.page_directory-&gt;directory) * <span class="hljs-number">4</span>;
+	<span class="hljs-keyword">long</span> shm_usage = mmu_count_shm(proc-&gt;thread.page_directory-&gt;directory) * <span class="hljs-number">4</span>;
+	<span class="hljs-keyword">long</span> mem_permille = <span class="hljs-number">1000</span> * (mem_usage + shm_usage) / mmu_total_memory();
+	spin_unlock(proc-&gt;thread.page_directory-&gt;lock);
+
+	<span class="hljs-keyword">char</span> tty_name[<span class="hljs-number">101</span>] = {<span class="hljs-number">0</span>};
+	process_get_tty(proc, <span class="hljs-number">100</span>, tty_name);
+
+	<span class="hljs-keyword">sigset_t</span> ignored = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">sigset_t</span> caught = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; i &lt; NUMSIGNALS; ++i) {
+		<span class="hljs-keyword">if</span> (proc-&gt;signals[i].handler == <span class="hljs-number">1</span>) ignored |= (<span class="hljs-number">1U</span>L &lt;&lt; (i<span class="hljs-number">-1</span>));
+		<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (proc-&gt;signals[i].handler) caught |= (<span class="hljs-number">1U</span>L &lt;&lt; (i<span class="hljs-number">-1</span>));
+	}
+
+	procfs_printf(node,
+			<span class="hljs-string">"Name:\t%s\n"</span>  <span class="hljs-comment">/* name */</span>
+			<span class="hljs-string">"State:\t%c\n"</span>
+			<span class="hljs-string">"Tgid:\t%d\n"</span>  <span class="hljs-comment">/* group ? group : pid */</span>
+			<span class="hljs-string">"Pid:\t%d\n"</span>   <span class="hljs-comment">/* pid */</span>
+			<span class="hljs-string">"PPid:\t%d\n"</span>  <span class="hljs-comment">/* parent pid */</span>
+			<span class="hljs-string">"Pgid:\t%d\n"</span>  <span class="hljs-comment">/* progress group id (job) */</span>
+			<span class="hljs-string">"Sid:\t%d\n"</span>   <span class="hljs-comment">/* session id */</span>
+			<span class="hljs-string">"Uid:\t%d\n"</span>
+			<span class="hljs-string">"Ueip:\t%#zx\n"</span>
+			<span class="hljs-string">"SCid:\t%zu\n"</span>
+			<span class="hljs-string">"SC0:\t%#zx\n"</span>
+			<span class="hljs-string">"SC1:\t%#zx\n"</span>
+			<span class="hljs-string">"SC2:\t%#zx\n"</span>
+			<span class="hljs-string">"SC3:\t%#zx\n"</span>
+			<span class="hljs-string">"SC4:\t%#zx\n"</span>
+			<span class="hljs-string">"SC5:\t%#zx\n"</span>
+			<span class="hljs-string">"UserStack:\t%#zx\n"</span>
+			<span class="hljs-string">"Path:\t%s\n"</span>
+			<span class="hljs-string">"VmSize:\t %ld kB\n"</span>
+			<span class="hljs-string">"RssShmem:\t %ld kB\n"</span>
+			<span class="hljs-string">"MemPermille:\t %ld\n"</span>
+			<span class="hljs-string">"LastCore:\t %d\n"</span>
+			<span class="hljs-string">"TotalTime:\t %ld us\n"</span>
+			<span class="hljs-string">"SysTime:\t %ld us\n"</span>
+			<span class="hljs-string">"CpuPermille:\t %d %d %d %d\n"</span>
+			<span class="hljs-string">"UserBrk:\t%#zx\n"</span>
+			<span class="hljs-string">"SigPnd:\t%016zx\n"</span>
+			<span class="hljs-string">"SigBlk:\t%016zx\n"</span>
+			<span class="hljs-string">"SigIgn:\t%016zx\n"</span>
+			<span class="hljs-string">"SigCgt:\t%016zx\n"</span>
+			<span class="hljs-string">"Tty:\t%s\n"</span>
+			,
+			name,
+			state,
+			proc-&gt;tgid,
+			proc-&gt;id,
+			parent ? parent-&gt;id : <span class="hljs-number">0</span>,
+			proc-&gt;job,
+			proc-&gt;session,
+			proc-&gt;user,
+			proc-&gt;syscall_registers ? arch_user_ip(proc-&gt;syscall_registers) : <span class="hljs-number">0</span>,
+			proc-&gt;syscall_registers ? arch_syscall_number(proc-&gt;syscall_registers) : <span class="hljs-number">0</span>,
+			proc-&gt;syscall_registers ? arch_syscall_arg0(proc-&gt;syscall_registers) : <span class="hljs-number">0</span>,
+			proc-&gt;syscall_registers ? arch_syscall_arg1(proc-&gt;syscall_registers) : <span class="hljs-number">0</span>,
+			proc-&gt;syscall_registers ? arch_syscall_arg2(proc-&gt;syscall_registers) : <span class="hljs-number">0</span>,
+			proc-&gt;syscall_registers ? arch_syscall_arg3(proc-&gt;syscall_registers) : <span class="hljs-number">0</span>,
+			proc-&gt;syscall_registers ? arch_syscall_arg4(proc-&gt;syscall_registers) : <span class="hljs-number">0</span>,
+			proc-&gt;syscall_registers ? arch_syscall_arg5(proc-&gt;syscall_registers) : <span class="hljs-number">0</span>,
+			proc-&gt;syscall_registers ? arch_stack_pointer(proc-&gt;syscall_registers) : <span class="hljs-number">0</span>,
+			proc-&gt;cmdline ? proc-&gt;cmdline[<span class="hljs-number">0</span>] : <span class="hljs-string">"(none)"</span>,
+			mem_usage, shm_usage, mem_permille,
+			proc-&gt;owner,
+			proc-&gt;time_total / arch_cpu_mhz(),
+			proc-&gt;time_sys / arch_cpu_mhz(),
+			proc-&gt;usage[<span class="hljs-number">0</span>], proc-&gt;usage[<span class="hljs-number">1</span>], proc-&gt;usage[<span class="hljs-number">2</span>], proc-&gt;usage[<span class="hljs-number">3</span>],
+			proc-&gt;<span class="hljs-built_in">image</span>.heap,
+			proc-&gt;pending_signals,
+			proc-&gt;blocked_signals,
+			ignored,
+			caught,
+			tty_name
+			);
+
+	process_release_big_lock();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">proc_cwd_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+	<span class="hljs-keyword">process_t</span> * proc = process_from_pid(node-&gt;inode);
+	procfs_printf(node,<span class="hljs-string">"%s"</span>, proc-&gt;wd_name);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">procfs_entry</span> <span class="hljs-title">procdir_entries</span>[] = {</span>
+	{<span class="hljs-number">1</span>, <span class="hljs-string">"cmdline"</span>, proc_cmdline_func, <span class="hljs-number">0</span>},
+	{<span class="hljs-number">2</span>, <span class="hljs-string">"status"</span>,  proc_status_func, <span class="hljs-number">0</span>},
+	{<span class="hljs-number">3</span>, <span class="hljs-string">"cwd"</span>,     proc_cwd_func, FS_SYMLINK},
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">readdir_procfs_procdir</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">uint64_t</span> index, struct dirent * out)</span> </span>{
+	<span class="hljs-keyword">if</span> (index == <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+		out-&gt;d_ino = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">strcpy</span>(out-&gt;d_name, <span class="hljs-string">"."</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (index == <span class="hljs-number">1</span>) {
+		<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+		out-&gt;d_ino = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">strcpy</span>(out-&gt;d_name, <span class="hljs-string">".."</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	index -= <span class="hljs-number">2</span>;
+
+	<span class="hljs-keyword">if</span> (index &lt; PROCFS_PROCDIR_ENTRIES) {
+		<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+		out-&gt;d_ino = procdir_entries[index].id;
+		<span class="hljs-built_in">strcpy</span>(out-&gt;d_name, procdir_entries[index].name);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">finddir_procfs_procdir</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-keyword">if</span> (!name) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; PROCFS_PROCDIR_ENTRIES; ++i) {
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(name, procdir_entries[i].name)) {
+			<span class="hljs-keyword">fs_node_t</span> * out = procfs_generic_create(procdir_entries[i].name, procdir_entries[i].func, procdir_entries[i].flags);
+			out-&gt;inode = node-&gt;inode;
+			<span class="hljs-keyword">return</span> out;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">procfs_procdir_create</span><span class="hljs-params">(<span class="hljs-keyword">process_t</span> * <span class="hljs-built_in">process</span>)</span> </span>{
+	<span class="hljs-keyword">pid_t</span> pid = <span class="hljs-built_in">process</span>-&gt;id;
+	<span class="hljs-keyword">fs_node_t</span> * fnode = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">memset</span>(fnode, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	fnode-&gt;inode = pid;
+	<span class="hljs-built_in">snprintf</span>(fnode-&gt;name, <span class="hljs-number">100</span>, <span class="hljs-string">"%d"</span>, pid);
+	fnode-&gt;uid = <span class="hljs-number">0</span>;
+	fnode-&gt;gid = <span class="hljs-number">0</span>;
+	fnode-&gt;mask = <span class="hljs-number">0555</span>;
+	fnode-&gt;flags   = FS_DIRECTORY;
+	fnode-&gt;<span class="hljs-built_in">read</span>    = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;<span class="hljs-built_in">write</span>   = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;<span class="hljs-built_in">open</span>    = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;<span class="hljs-built_in">close</span>   = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;readdir = readdir_procfs_procdir;
+	fnode-&gt;finddir = finddir_procfs_procdir;
+	fnode-&gt;nlink   = <span class="hljs-number">1</span>;
+	fnode-&gt;ctime   = <span class="hljs-built_in">process</span>-&gt;start.tv_sec;
+	fnode-&gt;mtime   = <span class="hljs-built_in">process</span>-&gt;start.tv_sec;
+	fnode-&gt;atime   = <span class="hljs-built_in">process</span>-&gt;start.tv_sec;
+	<span class="hljs-keyword">return</span> fnode;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">cpuinfo_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __x86_64__</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; processor_count; ++i) {
+		procfs_printf(node,
+				<span class="hljs-string">"Processor: %d\n"</span>
+				<span class="hljs-string">"Manufacturer: %s\n"</span>
+				<span class="hljs-string">"MHz: %zd\n"</span>
+				<span class="hljs-string">"Family: %d\n"</span>
+				<span class="hljs-string">"Model: %d\n"</span>
+				<span class="hljs-string">"Model name: %s\n"</span>
+				<span class="hljs-string">"LAPIC id: %d\n"</span>
+				<span class="hljs-string">"\n"</span>,
+				processor_local_data[i].cpu_id,
+				processor_local_data[i].cpu_manufacturer,
+				arch_cpu_mhz(), <span class="hljs-comment">/* TODO Should this be per-cpu? */</span>
+				processor_local_data[i].cpu_family,
+				processor_local_data[i].cpu_model,
+				processor_local_data[i].cpu_model_name,
+				processor_local_data[i].lapic_id
+				);
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">elif</span> defined(__aarch64__)</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; processor_count; ++i) {
+		procfs_printf(node,
+			<span class="hljs-string">"Processor: %d\n"</span>
+			<span class="hljs-string">"Implementer: %#x\n"</span>
+			<span class="hljs-string">"Variant: %#x\n"</span>
+			<span class="hljs-string">"Architecture: %#x\n"</span>
+			<span class="hljs-string">"PartNum: %#x\n"</span>
+			<span class="hljs-string">"Revision: %#x\n"</span>
+			<span class="hljs-string">"\n"</span>,
+			processor_local_data[i].cpu_id,
+			(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)(processor_local_data[i].midr &gt;&gt; <span class="hljs-number">24</span>) &amp; <span class="hljs-number">0xFF</span>,
+			(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)(processor_local_data[i].midr &gt;&gt; <span class="hljs-number">20</span>) &amp; <span class="hljs-number">0xF</span>,
+			(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)(processor_local_data[i].midr &gt;&gt; <span class="hljs-number">16</span>) &amp; <span class="hljs-number">0xF</span>,
+			(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)(processor_local_data[i].midr &gt;&gt; <span class="hljs-number">4</span>)  &amp; <span class="hljs-number">0xFFF</span>,
+			(<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)(processor_local_data[i].midr &gt;&gt; <span class="hljs-number">0</span>)  &amp; <span class="hljs-number">0xF</span>
+			);
+	}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">meminfo_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+	<span class="hljs-keyword">size_t</span> total = mmu_total_memory();
+	<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">free</span>  = total - mmu_used_memory();
+	<span class="hljs-keyword">size_t</span> kheap = ((<span class="hljs-keyword">uintptr_t</span>)sbrk(<span class="hljs-number">0</span>) - <span class="hljs-number">0xffffff0000000000</span>UL) / <span class="hljs-number">1024</span>;
+
+	procfs_printf(node,
+		<span class="hljs-string">"MemTotal: %zu kB\n"</span>
+		<span class="hljs-string">"MemFree: %zu kB\n"</span>
+		<span class="hljs-string">"KHeapUse: %zu kB\n"</span>
+		, total, <span class="hljs-built_in">free</span>, kheap);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __x86_64__</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">pat_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+	<span class="hljs-keyword">uint32_t</span> pat_value_low, pat_value_high;
+	<span class="hljs-function"><span class="hljs-keyword">asm</span> <span class="hljs-title">volatile</span> <span class="hljs-params">( <span class="hljs-string">"rdmsr"</span> : <span class="hljs-string">"=a"</span> (pat_value_low), <span class="hljs-string">"=d"</span> (pat_value_high): <span class="hljs-string">"c"</span> (<span class="hljs-number">0x277</span>) )</span></span>;
+	<span class="hljs-keyword">uint64_t</span> pat_values = ((<span class="hljs-keyword">uint64_t</span>)pat_value_high &lt;&lt; <span class="hljs-number">32</span>) | (pat_value_low);
+
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * pat_names[] = {
+		<span class="hljs-string">"uncacheable (UC)"</span>,
+		<span class="hljs-string">"write combining (WC)"</span>,
+		<span class="hljs-string">"Reserved"</span>,
+		<span class="hljs-string">"Reserved"</span>,
+		<span class="hljs-string">"write through (WT)"</span>,
+		<span class="hljs-string">"write protected (WP)"</span>,
+		<span class="hljs-string">"write back (WB)"</span>,
+		<span class="hljs-string">"uncached (UC-)"</span>
+	};
+
+	<span class="hljs-keyword">int</span> pa_0 = (pat_values &gt;&gt;  <span class="hljs-number">0</span>) &amp; <span class="hljs-number">0x7</span>;
+	<span class="hljs-keyword">int</span> pa_1 = (pat_values &gt;&gt;  <span class="hljs-number">8</span>) &amp; <span class="hljs-number">0x7</span>;
+	<span class="hljs-keyword">int</span> pa_2 = (pat_values &gt;&gt; <span class="hljs-number">16</span>) &amp; <span class="hljs-number">0x7</span>;
+	<span class="hljs-keyword">int</span> pa_3 = (pat_values &gt;&gt; <span class="hljs-number">24</span>) &amp; <span class="hljs-number">0x7</span>;
+	<span class="hljs-keyword">int</span> pa_4 = (pat_values &gt;&gt; <span class="hljs-number">32</span>) &amp; <span class="hljs-number">0x7</span>;
+	<span class="hljs-keyword">int</span> pa_5 = (pat_values &gt;&gt; <span class="hljs-number">40</span>) &amp; <span class="hljs-number">0x7</span>;
+	<span class="hljs-keyword">int</span> pa_6 = (pat_values &gt;&gt; <span class="hljs-number">48</span>) &amp; <span class="hljs-number">0x7</span>;
+	<span class="hljs-keyword">int</span> pa_7 = (pat_values &gt;&gt; <span class="hljs-number">56</span>) &amp; <span class="hljs-number">0x7</span>;
+
+	procfs_printf(node,
+			<span class="hljs-string">"PA0: %d %s\n"</span>
+			<span class="hljs-string">"PA1: %d %s\n"</span>
+			<span class="hljs-string">"PA2: %d %s\n"</span>
+			<span class="hljs-string">"PA3: %d %s\n"</span>
+			<span class="hljs-string">"PA4: %d %s\n"</span>
+			<span class="hljs-string">"PA5: %d %s\n"</span>
+			<span class="hljs-string">"PA6: %d %s\n"</span>
+			<span class="hljs-string">"PA7: %d %s\n"</span>,
+			pa_0, pat_names[pa_0],
+			pa_1, pat_names[pa_1],
+			pa_2, pat_names[pa_2],
+			pa_3, pat_names[pa_3],
+			pa_4, pat_names[pa_4],
+			pa_5, pat_names[pa_5],
+			pa_6, pat_names[pa_6],
+			pa_7, pat_names[pa_7]
+	);
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">uptime_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> timer_ticks, timer_subticks;
+	relative_time(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,&amp;timer_ticks,&amp;timer_subticks);
+	procfs_printf(node, <span class="hljs-string">"%lu.%06lu\n"</span>, timer_ticks, timer_subticks);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">cmdline_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * cmdline = arch_get_cmdline();
+	procfs_printf(node, <span class="hljs-string">"%s\n"</span>, cmdline ? cmdline : <span class="hljs-string">""</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">version_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+	procfs_printf(node, <span class="hljs-string">"%s "</span>, __kernel_name);
+	procfs_printf(node, __kernel_version_format,
+			__kernel_version_major,
+			__kernel_version_minor,
+			__kernel_version_lower,
+			__kernel_version_suffix);
+	procfs_printf(node, <span class="hljs-string">" %s %s %s %s\n"</span>,
+			__kernel_version_codename,
+			__kernel_build_date,
+			__kernel_build_time,
+			__kernel_arch);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">compiler_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+	procfs_printf(node, <span class="hljs-string">"%s\n"</span>, __kernel_compiler_version);
+}
+
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">tree_t</span> * fs_tree; <span class="hljs-comment">/* kernel/fs/vfs.c */</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">mount_recurse</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * pnode, <span class="hljs-keyword">tree_node_t</span> * node, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">height</span>, <span class="hljs-keyword">char</span> * prefix, <span class="hljs-keyword">char</span> *p)</span> </span>{
+	<span class="hljs-comment">/* End recursion on a blank entry */</span>
+	<span class="hljs-keyword">if</span> (!node) <span class="hljs-keyword">return</span>;
+
+	<span class="hljs-comment">/* Get the current process */</span>
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">vfs_entry</span> * <span class="hljs-title">fnode</span> = (<span class="hljs-title">struct</span> <span class="hljs-title">vfs_entry</span> *)<span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+	<span class="hljs-comment">/* Print the process name */</span>
+
+	<span class="hljs-comment">/* Set up name */</span>
+	<span class="hljs-keyword">if</span> (node != fs_tree-&gt;root) {
+		*p++ = <span class="hljs-string">'/'</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">char</span> * n = fnode-&gt;name; *n; ++n) {
+			*p++ = *n;
+		}
+		*p = <span class="hljs-string">'\0'</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (fnode-&gt;file) procfs_printf(pnode, <span class="hljs-string">"%s %s %s\n"</span>, prefix, fnode-&gt;fs_type, fnode-&gt;device);
+
+	foreach(child, node-&gt;children) {
+		<span class="hljs-comment">/* Recursively print the children */</span>
+		mount_recurse(pnode, child-&gt;value, <span class="hljs-built_in">height</span> + <span class="hljs-number">1</span>, prefix, p);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">mounts_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+	<span class="hljs-keyword">char</span> prefix[<span class="hljs-number">1024</span>] = {<span class="hljs-string">'/'</span>,<span class="hljs-number">0</span>};
+	mount_recurse(node, fs_tree-&gt;root, <span class="hljs-number">0</span>, prefix, prefix);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">modules_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+	<span class="hljs-keyword">list_t</span> * hash_keys = hashmap_keys(modules_get_list());
+	<span class="hljs-keyword">if</span> (!hash_keys) <span class="hljs-keyword">return</span>;
+	foreach(_key, hash_keys) {
+		<span class="hljs-keyword">char</span> * key = (<span class="hljs-keyword">char</span> *)_key-&gt;value;
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">LoadedModule</span> * <span class="hljs-title">mod_info</span> = <span class="hljs-title">hashmap_get</span>(<span class="hljs-title">modules_get_list</span>(), <span class="hljs-title">key</span>);</span>
+		procfs_printf(node, <span class="hljs-string">"%#zx %zu %zu %s\n"</span>,
+			this_core-&gt;current_process-&gt;user == USER_ROOT_UID ? mod_info-&gt;baseAddress : (<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-number">0</span>,
+			mod_info-&gt;fileSize,
+			mod_info-&gt;loadedSize,
+			key);
+	}
+	<span class="hljs-built_in">free</span>(hash_keys);
+}
+
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">hashmap_t</span> * fs_types; <span class="hljs-comment">/* from kernel/fs/vfs.c */</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">filesystems_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+	<span class="hljs-keyword">list_t</span> * hash_keys = hashmap_keys(fs_types);
+	<span class="hljs-keyword">if</span> (!hash_keys) <span class="hljs-keyword">return</span>;
+	foreach(_key, hash_keys) {
+		<span class="hljs-keyword">char</span> * key = (<span class="hljs-keyword">char</span> *)_key-&gt;value;
+		procfs_printf(node, <span class="hljs-string">"%s\n"</span>, key);
+	}
+	<span class="hljs-built_in">free</span>(hash_keys);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">loader_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+	procfs_printf(node, <span class="hljs-string">"%s\n"</span>, arch_get_loader());
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __x86_64__</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/irq.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/arch/x86_64/ports.h&gt;</span></span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">irq_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">16</span>; ++i) {
+		procfs_printf(node, <span class="hljs-string">"irq %d: "</span>, i);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> j = <span class="hljs-number">0</span>; j &lt; <span class="hljs-number">4</span>; ++j) {
+			<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * t = get_irq_handler(i, j);
+			<span class="hljs-keyword">if</span> (!t) <span class="hljs-keyword">break</span>;
+			procfs_printf(node, <span class="hljs-string">"%s%s"</span>, j ? <span class="hljs-string">","</span> : <span class="hljs-string">""</span>, t);
+		}
+		procfs_printf(node, <span class="hljs-string">"\n"</span>);
+	}
+
+	outportb(<span class="hljs-number">0x20</span>, <span class="hljs-number">0x0b</span>);
+	outportb(<span class="hljs-number">0xa0</span>, <span class="hljs-number">0x0b</span>);
+	procfs_printf(node, <span class="hljs-string">"isr=0x%04x\n"</span>, (inportb(<span class="hljs-number">0xA0</span>) &lt;&lt; <span class="hljs-number">8</span>) | inportb(<span class="hljs-number">0x20</span>));
+
+	outportb(<span class="hljs-number">0x20</span>, <span class="hljs-number">0x0a</span>);
+	outportb(<span class="hljs-number">0xa0</span>, <span class="hljs-number">0x0a</span>);
+	procfs_printf(node, <span class="hljs-string">"irr=0x%04x\n"</span>, (inportb(<span class="hljs-number">0xA0</span>) &lt;&lt; <span class="hljs-number">8</span>) | inportb(<span class="hljs-number">0x20</span>));
+
+	procfs_printf(node, <span class="hljs-string">"imr=0x%04x\n"</span>, (inportb(<span class="hljs-number">0xA1</span>) &lt;&lt; <span class="hljs-number">8</span>) | inportb(<span class="hljs-number">0x21</span>));
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Basically the same as the kdebug <code>pci</code> command.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">scan_hit_list</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> device, <span class="hljs-keyword">uint16_t</span> vendorid, <span class="hljs-keyword">uint16_t</span> deviceid, <span class="hljs-keyword">void</span> * extra)</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> * node = extra;
+
+	procfs_printf(node, <span class="hljs-string">"%02x:%02x.%d (%04x, %04x:%04x)\n"</span>,
+			(<span class="hljs-keyword">int</span>)pci_extract_bus(device),
+			(<span class="hljs-keyword">int</span>)pci_extract_slot(device),
+			(<span class="hljs-keyword">int</span>)pci_extract_func(device),
+			(<span class="hljs-keyword">int</span>)pci_find_type(device),
+			vendorid,
+			deviceid);
+
+	procfs_printf(node, <span class="hljs-string">" BAR0: 0x%08x"</span>, pci_read_field(device, PCI_BAR0, <span class="hljs-number">4</span>));
+	procfs_printf(node, <span class="hljs-string">" BAR1: 0x%08x"</span>, pci_read_field(device, PCI_BAR1, <span class="hljs-number">4</span>));
+	procfs_printf(node, <span class="hljs-string">" BAR2: 0x%08x"</span>, pci_read_field(device, PCI_BAR2, <span class="hljs-number">4</span>));
+	procfs_printf(node, <span class="hljs-string">" BAR3: 0x%08x"</span>, pci_read_field(device, PCI_BAR3, <span class="hljs-number">4</span>));
+	procfs_printf(node, <span class="hljs-string">" BAR4: 0x%08x"</span>, pci_read_field(device, PCI_BAR4, <span class="hljs-number">4</span>));
+	procfs_printf(node, <span class="hljs-string">" BAR5: 0x%08x\n"</span>, pci_read_field(device, PCI_BAR5, <span class="hljs-number">4</span>));
+
+	procfs_printf(node, <span class="hljs-string">" IRQ Line: %d"</span>, pci_read_field(device, <span class="hljs-number">0x3C</span>, <span class="hljs-number">1</span>));
+	procfs_printf(node, <span class="hljs-string">" IRQ Pin: %d"</span>, pci_read_field(device, <span class="hljs-number">0x3D</span>, <span class="hljs-number">1</span>));
+	procfs_printf(node, <span class="hljs-string">" Interrupt: %d"</span>, pci_get_interrupt(device));
+	procfs_printf(node, <span class="hljs-string">" Status: 0x%04x\n"</span>, pci_read_field(device, PCI_STATUS, <span class="hljs-number">2</span>));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">pci_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+	pci_scan(&amp;scan_hit_list, <span class="hljs-number">-1</span>, node);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">idle_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; processor_count; ++i) {
+		procfs_printf(node, <span class="hljs-string">"%d: %4d %4d %4d %4d\n"</span>,
+			i,
+			processor_local_data[i].kernel_idle_task-&gt;usage[<span class="hljs-number">0</span>],
+			processor_local_data[i].kernel_idle_task-&gt;usage[<span class="hljs-number">1</span>],
+			processor_local_data[i].kernel_idle_task-&gt;usage[<span class="hljs-number">2</span>],
+			processor_local_data[i].kernel_idle_task-&gt;usage[<span class="hljs-number">3</span>]
+		);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">kallsyms_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *fnode)</span> </span>{
+	<span class="hljs-comment">/* This doesn't include module symbols at the moment... */</span>
+	<span class="hljs-keyword">list_t</span> * syms = ksym_list();
+
+	foreach(node, syms) {
+		procfs_printf(fnode, <span class="hljs-string">"%016zx %s\n"</span>, this_core-&gt;current_process-&gt;user == USER_ROOT_UID ? (<span class="hljs-keyword">uintptr_t</span>)ksym_lookup(node-&gt;value) : (<span class="hljs-keyword">uintptr_t</span>)<span class="hljs-number">0</span>, (<span class="hljs-keyword">char</span>*)node-&gt;value);
+	}
+
+	list_free(syms);
+	<span class="hljs-built_in">free</span>(syms);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">self_func</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *fnode)</span> </span>{
+	procfs_printf(fnode, <span class="hljs-string">"%d"</span>, this_core-&gt;current_process-&gt;id);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">procfs_entry</span> <span class="hljs-title">std_entries</span>[] = {</span>
+	{<span class="hljs-number">-1</span>, <span class="hljs-string">"cpuinfo"</span>,  cpuinfo_func, <span class="hljs-number">0</span>},
+	{<span class="hljs-number">-2</span>, <span class="hljs-string">"meminfo"</span>,  meminfo_func, <span class="hljs-number">0</span>},
+	{<span class="hljs-number">-3</span>, <span class="hljs-string">"uptime"</span>,   uptime_func, <span class="hljs-number">0</span>},
+	{<span class="hljs-number">-4</span>, <span class="hljs-string">"cmdline"</span>,  cmdline_func, <span class="hljs-number">0</span>},
+	{<span class="hljs-number">-5</span>, <span class="hljs-string">"version"</span>,  version_func, <span class="hljs-number">0</span>},
+	{<span class="hljs-number">-6</span>, <span class="hljs-string">"compiler"</span>, compiler_func, <span class="hljs-number">0</span>},
+	{<span class="hljs-number">-7</span>, <span class="hljs-string">"mounts"</span>,   mounts_func, <span class="hljs-number">0</span>},
+	{<span class="hljs-number">-8</span>, <span class="hljs-string">"modules"</span>,  modules_func, <span class="hljs-number">0</span>},
+	{<span class="hljs-number">-9</span>, <span class="hljs-string">"filesystems"</span>, filesystems_func, <span class="hljs-number">0</span>},
+	{<span class="hljs-number">-10</span>,<span class="hljs-string">"loader"</span>,   loader_func, <span class="hljs-number">0</span>},
+	{<span class="hljs-number">-11</span>,<span class="hljs-string">"idle"</span>,     idle_func, <span class="hljs-number">0</span>},
+	{<span class="hljs-number">-12</span>,<span class="hljs-string">"kallsyms"</span>, kallsyms_func, <span class="hljs-number">0</span>},
+	{<span class="hljs-number">-13</span>,<span class="hljs-string">"pci"</span>,      pci_func, <span class="hljs-number">0</span>},
+	{<span class="hljs-number">-14</span>,<span class="hljs-string">"self"</span>,     self_func, FS_SYMLINK},
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __x86_64__</span>
+	{<span class="hljs-number">-15</span>,<span class="hljs-string">"irq"</span>,      irq_func, <span class="hljs-number">0</span>},
+	{<span class="hljs-number">-16</span>,<span class="hljs-string">"pat"</span>,      pat_func, <span class="hljs-number">0</span>},
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+};
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">list_t</span> * extended_entries = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">long</span> next_id = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">procfs_install</span><span class="hljs-params">(struct procfs_entry * entry)</span> </span>{
+	<span class="hljs-keyword">if</span> (!extended_entries) {
+		extended_entries = list_create(<span class="hljs-string">"procfs entries"</span>,<span class="hljs-literal">NULL</span>);
+		next_id = -PROCFS_STANDARD_ENTRIES - <span class="hljs-number">1</span>;
+	}
+
+	entry-&gt;id = next_id--;
+	list_insert(extended_entries, entry);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">readdir_procfs_root</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> *node, <span class="hljs-keyword">uint64_t</span> index, struct dirent * out)</span> </span>{
+	<span class="hljs-keyword">if</span> (index == <span class="hljs-number">0</span>) {
+		<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+		out-&gt;d_ino = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">strcpy</span>(out-&gt;d_name, <span class="hljs-string">"."</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (index == <span class="hljs-number">1</span>) {
+		<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+		out-&gt;d_ino = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">strcpy</span>(out-&gt;d_name, <span class="hljs-string">".."</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	index -= <span class="hljs-number">2</span>;
+
+	<span class="hljs-keyword">if</span> (index &lt; PROCFS_STANDARD_ENTRIES) {
+		<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+		out-&gt;d_ino = std_entries[index].id;
+		<span class="hljs-built_in">strcpy</span>(out-&gt;d_name, std_entries[index].name);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	index -= PROCFS_STANDARD_ENTRIES;
+
+	<span class="hljs-keyword">if</span> (extended_entries) {
+		<span class="hljs-keyword">if</span> (index &lt; extended_entries-&gt;length) {
+			<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">node_t</span> * n = extended_entries-&gt;head;
+			<span class="hljs-keyword">while</span> (i &lt; index) {
+				n = n-&gt;next;
+				i++;
+			}
+
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">procfs_entry</span> * <span class="hljs-title">e</span> = <span class="hljs-title">n</span>-&gt;<span class="hljs-title">value</span>;</span>
+			<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+			out-&gt;d_ino = e-&gt;id;
+			<span class="hljs-built_in">strcpy</span>(out-&gt;d_name, e-&gt;name);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+		index -=  extended_entries-&gt;length;
+	}
+
+	<span class="hljs-keyword">int</span> i = index + <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">pid_t</span> pid = <span class="hljs-number">0</span>;
+
+	foreach(lnode, process_list) {
+		i--;
+		<span class="hljs-keyword">if</span> (i == <span class="hljs-number">0</span>) {
+			<span class="hljs-keyword">process_t</span> * proc = (<span class="hljs-keyword">process_t</span> *)lnode-&gt;value;
+			pid = proc-&gt;id;
+			<span class="hljs-keyword">break</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (pid == <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(struct dirent));
+	out-&gt;d_ino  = pid;
+	<span class="hljs-built_in">snprintf</span>(out-&gt;d_name, <span class="hljs-number">100</span>, <span class="hljs-string">"%d"</span>, pid);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">finddir_procfs_root</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-keyword">if</span> (!name) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">strlen</span>(name) &lt; <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">if</span> (name[<span class="hljs-number">0</span>] &gt;= <span class="hljs-string">'0'</span> &amp;&amp; name[<span class="hljs-number">0</span>] &lt;= <span class="hljs-string">'9'</span>) {
+		<span class="hljs-comment">/* XXX process entries */</span>
+		<span class="hljs-keyword">pid_t</span> pid = atoi(name);
+		<span class="hljs-keyword">process_t</span> * proc = process_from_pid(pid);
+		<span class="hljs-keyword">if</span> (!proc) {
+			<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+		}
+		<span class="hljs-keyword">fs_node_t</span> * out = procfs_procdir_create(proc);
+		<span class="hljs-keyword">return</span> out;
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; PROCFS_STANDARD_ENTRIES; ++i) {
+		<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(name, std_entries[i].name)) {
+			<span class="hljs-keyword">fs_node_t</span> * out = procfs_generic_create(std_entries[i].name, std_entries[i].func, std_entries[i].flags);
+			<span class="hljs-keyword">return</span> out;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (extended_entries) {
+		foreach(node, extended_entries) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">procfs_entry</span> * <span class="hljs-title">e</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+			<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(name, e-&gt;name)) {
+				<span class="hljs-keyword">fs_node_t</span> * out = procfs_generic_create(e-&gt;name, e-&gt;func, e-&gt;flags);
+				<span class="hljs-keyword">return</span> out;
+			}
+		}
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">procfs_create</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> * fnode = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">memset</span>(fnode, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	fnode-&gt;inode = <span class="hljs-number">0</span>;
+	<span class="hljs-built_in">strcpy</span>(fnode-&gt;name, <span class="hljs-string">"proc"</span>);
+	fnode-&gt;mask = <span class="hljs-number">0555</span>;
+	fnode-&gt;uid  = <span class="hljs-number">0</span>;
+	fnode-&gt;gid  = <span class="hljs-number">0</span>;
+	fnode-&gt;flags   = FS_DIRECTORY;
+	fnode-&gt;<span class="hljs-built_in">read</span>    = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;<span class="hljs-built_in">write</span>   = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;<span class="hljs-built_in">open</span>    = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;<span class="hljs-built_in">close</span>   = <span class="hljs-literal">NULL</span>;
+	fnode-&gt;readdir = readdir_procfs_root;
+	fnode-&gt;finddir = finddir_procfs_root;
+	fnode-&gt;nlink   = <span class="hljs-number">1</span>;
+	fnode-&gt;ctime   = now();
+	fnode-&gt;mtime   = now();
+	fnode-&gt;atime   = now();
+	<span class="hljs-keyword">return</span> fnode;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">procfs_initialize</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-comment">/* TODO Move this to some sort of config */</span>
+	vfs_mount(<span class="hljs-string">"/proc"</span>, procfs_create(), <span class="hljs-string">"procfs"</span>, <span class="hljs-string">""</span>);
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<p>debug_print_vfs_tree();</p>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

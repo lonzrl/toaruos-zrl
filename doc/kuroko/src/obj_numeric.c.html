@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>obj_numeric.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kuroko\\src\\obj_numeric.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>obj_numeric.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/vm.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/value.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/memory.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kuroko/util.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">"private.h"</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> bool</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> IS_NoneType(o) (IS_NONE(o))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AS_NoneType(o) ((char)0)</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE krk_integer_type</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_NAME  self</span>
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> KrkValue <span class="hljs-title">krk_int_from_float</span><span class="hljs-params">(<span class="hljs-keyword">double</span> val)</span></span>;
+
+KRK_StaticMethod(<span class="hljs-keyword">int</span>,__new__) {
+	KrkObj *cls;
+	<span class="hljs-keyword">int</span> has_x = <span class="hljs-number">0</span>;
+	KrkValue x = NONE_VAL();
+	<span class="hljs-keyword">int</span> has_base = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> base = <span class="hljs-number">10</span>;
+
+	<span class="hljs-comment">/* Most common case */</span>
+	<span class="hljs-keyword">if</span> (!hasKw &amp;&amp; argc == <span class="hljs-number">2</span>) {
+		x = argv[<span class="hljs-number">1</span>];
+		<span class="hljs-keyword">goto</span> _just_x;
+	}
+
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">"O|V?i?:int"</span>, (<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">""</span>,<span class="hljs-string">""</span>,<span class="hljs-string">"base"</span>},
+		&amp;cls, &amp;has_x, &amp;x, &amp;has_base, &amp;base)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-keyword">if</span> (has_base &amp;&amp; (base &lt; <span class="hljs-number">2</span> || base &gt; <span class="hljs-number">36</span>) &amp;&amp; base != <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-string">"base must be 0 or between 2 and 36"</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (!has_x &amp;&amp; has_base) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"missing str argument"</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (!has_x) {
+		<span class="hljs-keyword">return</span> INTEGER_VAL(<span class="hljs-number">0</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (has_base &amp;&amp; !IS_STRING(x)) {
+		<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"can not convert non-str with explicit base"</span>);
+	}
+
+_just_x:
+
+	<span class="hljs-keyword">if</span> (IS_INTEGER(x)) <span class="hljs-keyword">return</span> INTEGER_VAL(AS_INTEGER(x));
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_NO_FLOAT</span>
+	<span class="hljs-keyword">if</span> (IS_FLOATING(x)) <span class="hljs-keyword">return</span> krk_int_from_float(AS_FLOATING(x));
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	<span class="hljs-keyword">if</span> (IS_STRING(x)) {
+		KrkValue result = krk_parse_int(AS_CSTRING(x), AS_STRING(x)-&gt;length, base);
+		<span class="hljs-keyword">if</span> (IS_NONE(result)) {
+			<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;valueError,
+				<span class="hljs-string">"invalid literal for int() with base %zd: %R"</span>, (<span class="hljs-keyword">ssize_t</span>)base, x);
+		}
+		<span class="hljs-keyword">return</span> result;
+	}
+
+	<span class="hljs-keyword">if</span> (krk_isInstanceOf(x, KRK_BASE_CLASS(<span class="hljs-keyword">long</span>))) <span class="hljs-keyword">return</span> x;
+	<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"%s() argument must be a string or a number, not '%T'"</span>, <span class="hljs-string">"int"</span>, x);
+}
+
+KRK_Method(<span class="hljs-keyword">int</span>,__repr__) {
+	<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">100</span>];
+	<span class="hljs-keyword">size_t</span> l = <span class="hljs-built_in">snprintf</span>(tmp, <span class="hljs-number">100</span>, PRIkrk_int, self);
+	<span class="hljs-keyword">return</span> OBJECT_VAL(krk_copyString(tmp, l));
+}
+
+KRK_Method(<span class="hljs-keyword">int</span>,__int__) { <span class="hljs-keyword">return</span> argv[<span class="hljs-number">0</span>]; }
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_NO_FLOAT</span>
+KRK_Method(<span class="hljs-keyword">int</span>,__float__) { <span class="hljs-keyword">return</span> FLOATING_VAL(self); }
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+KRK_Method(<span class="hljs-keyword">int</span>,__chr__) {
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">char</span> bytes[<span class="hljs-number">5</span>] = {<span class="hljs-number">0</span>};
+	<span class="hljs-keyword">size_t</span> len = krk_codepointToBytes(self, bytes);
+	<span class="hljs-keyword">return</span> OBJECT_VAL(krk_copyString((<span class="hljs-keyword">char</span>*)bytes, len));
+}
+
+KRK_Method(<span class="hljs-keyword">int</span>,__eq__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (likely(IS_INTEGER(argv[<span class="hljs-number">1</span>]))) <span class="hljs-keyword">return</span> BOOLEAN_VAL(self == AS_INTEGER(argv[<span class="hljs-number">1</span>]));
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_NO_FLOAT</span>
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_FLOATING(argv[<span class="hljs-number">1</span>])) <span class="hljs-keyword">return</span> BOOLEAN_VAL(self == AS_FLOATING(argv[<span class="hljs-number">1</span>]));
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	<span class="hljs-keyword">return</span> NOTIMPL_VAL();
+}
+
+KRK_Method(<span class="hljs-keyword">int</span>,__hash__) {
+	<span class="hljs-keyword">return</span> INTEGER_VAL((<span class="hljs-keyword">uint32_t</span>)AS_INTEGER(argv[<span class="hljs-number">0</span>]));
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">inline</span> <span class="hljs-keyword">int</span> <span class="hljs-title">matches</span><span class="hljs-params">(<span class="hljs-keyword">char</span> c, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * options)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * o = options; *o; ++o) {
+		<span class="hljs-keyword">if</span> (*o == c) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">krk_parseCommonFormatSpec</span><span class="hljs-params">(struct ParsedFormatSpec *result, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * spec, <span class="hljs-keyword">size_t</span> length)</span> </span>{
+	result-&gt;<span class="hljs-built_in">fill</span> = <span class="hljs-string">" "</span>;
+	result-&gt;fillSize = <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">if</span> (length &gt; <span class="hljs-number">1</span>) {
+		<span class="hljs-comment">/* How wide is the first character? */</span>
+		<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">if</span> ((spec[<span class="hljs-number">0</span>] &amp; <span class="hljs-number">0xC0</span>) == <span class="hljs-number">0xC0</span>) { <span class="hljs-comment">/* wider than one byte */</span>
+			<span class="hljs-keyword">while</span> ((spec[i] &amp; <span class="hljs-number">0xc0</span>) == <span class="hljs-number">0x80</span>) i++; <span class="hljs-comment">/* count continuation bytes */</span>
+		}
+		<span class="hljs-comment">/* Is the character after it an alignment? */</span>
+		<span class="hljs-keyword">if</span> (matches(spec[i],<span class="hljs-string">"&lt;&gt;=^"</span>)) {
+			result-&gt;<span class="hljs-built_in">fill</span> = spec;
+			result-&gt;fillSize = i;
+			spec += i;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (matches(*spec,<span class="hljs-string">"&lt;&gt;=^"</span>)) {
+		result-&gt;align = *spec;
+		spec++;
+	}
+
+	<span class="hljs-keyword">if</span> (matches(*spec,<span class="hljs-string">"+- "</span>)) {
+		result-&gt;sign = *spec;
+		spec++;
+	}
+
+	<span class="hljs-keyword">if</span> (*spec == <span class="hljs-string">'#'</span>) {
+		result-&gt;alt = <span class="hljs-number">1</span>;
+		spec++;
+	}
+
+	<span class="hljs-keyword">if</span> (!result-&gt;align &amp;&amp; *spec == <span class="hljs-string">'0'</span>) {
+		result-&gt;align = <span class="hljs-string">'='</span>;
+		result-&gt;<span class="hljs-built_in">fill</span> = <span class="hljs-string">"0"</span>;
+		result-&gt;fillSize = <span class="hljs-number">1</span>;
+		spec++;
+	}
+
+	<span class="hljs-keyword">if</span> (matches(*spec,<span class="hljs-string">"0123456789"</span>)) {
+		result-&gt;hasWidth = <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">do</span> {
+			result-&gt;<span class="hljs-built_in">width</span> *= <span class="hljs-number">10</span>;
+			result-&gt;<span class="hljs-built_in">width</span> += (*spec - <span class="hljs-string">'0'</span>);
+			spec++;
+		} <span class="hljs-keyword">while</span> (matches(*spec,<span class="hljs-string">"0123456789"</span>));
+	}
+
+	<span class="hljs-keyword">if</span> (matches(*spec, <span class="hljs-string">"_,"</span>)) {
+		result-&gt;sep = *spec;
+		spec++;
+	}
+
+	<span class="hljs-keyword">if</span> (*spec == <span class="hljs-string">'.'</span>) {
+		spec++;
+		<span class="hljs-keyword">if</span> (!matches(*spec,<span class="hljs-string">"0123456789"</span>)) {
+			krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-string">"Format specifier missing precision"</span>);
+			<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+		}
+		result-&gt;hasPrecision = <span class="hljs-number">1</span>;
+		<span class="hljs-keyword">while</span> (matches(*spec,<span class="hljs-string">"0123456789"</span>)) {
+			result-&gt;prec *= <span class="hljs-number">10</span>;
+			result-&gt;prec += (*spec - <span class="hljs-string">'0'</span>);
+			spec++;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (*spec &amp;&amp; spec[<span class="hljs-number">1</span>] != <span class="hljs-number">0</span>) {
+		krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-string">"Invalid format specifier"</span>);
+		<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+	}
+
+	<span class="hljs-keyword">return</span> spec;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">typedef</span> <span class="hljs-title">int</span> <span class="hljs-params">(*fmtCallback)</span><span class="hljs-params">(<span class="hljs-keyword">void</span> *, <span class="hljs-keyword">int</span>, <span class="hljs-keyword">int</span> *)</span></span>;
+<span class="hljs-function">KrkValue <span class="hljs-title">krk_doFormatString</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * typeName, KrkString * format_spec, <span class="hljs-keyword">int</span> positive, <span class="hljs-keyword">void</span> * <span class="hljs-built_in">abs</span>, fmtCallback callback, fmtCallback (*prepCallback)(<span class="hljs-keyword">void</span>*,<span class="hljs-keyword">int</span>))</span> </span>{
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ParsedFormatSpec</span> <span class="hljs-title">opts</span> = {</span><span class="hljs-number">0</span>};
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * spec = krk_parseCommonFormatSpec(&amp;opts, format_spec-&gt;chars, format_spec-&gt;length);
+	<span class="hljs-keyword">if</span> (!spec) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * altPrefix = <span class="hljs-literal">NULL</span>;
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * conversions = <span class="hljs-string">"0123456789abcdef"</span>;
+	<span class="hljs-keyword">int</span> base = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">switch</span> (*spec) {
+		<span class="hljs-keyword">case</span> <span class="hljs-number">0</span>:   <span class="hljs-comment">/* unspecified */</span>
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'d'</span>: <span class="hljs-comment">/* decimal integer */</span>
+			base = <span class="hljs-number">10</span>;
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'b'</span>: <span class="hljs-comment">/* binary */</span>
+			base = <span class="hljs-number">2</span>;
+			altPrefix = <span class="hljs-string">"0b"</span>;
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'o'</span>: <span class="hljs-comment">/* octal */</span>
+			base = <span class="hljs-number">8</span>;
+			altPrefix = <span class="hljs-string">"0o"</span>;
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'x'</span>: <span class="hljs-comment">/* hex */</span>
+			base = <span class="hljs-number">16</span>;
+			altPrefix = <span class="hljs-string">"0x"</span>;
+			<span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'X'</span>: <span class="hljs-comment">/* HEX */</span>
+			base = <span class="hljs-number">16</span>;
+			conversions = <span class="hljs-string">"0123456789ABCDEF"</span>;
+			altPrefix = <span class="hljs-string">"0X"</span>;
+			<span class="hljs-keyword">break</span>;
+
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'c'</span>: <span class="hljs-comment">/* unicode codepoint */</span>
+			<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;notImplementedError,
+				<span class="hljs-string">"TODO: 'c' format specifier"</span>);
+
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'n'</span>: <span class="hljs-comment">/* use local-specific separators (TODO) */</span>
+			<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;notImplementedError,
+				<span class="hljs-string">"TODO: 'n' format specifier"</span>);
+
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;valueError,
+				<span class="hljs-string">"Unknown format code '%c' for object of type '%s'"</span>,
+				*spec,
+				typeName);
+	}
+
+	<span class="hljs-keyword">if</span> (!opts.sign)  opts.sign = <span class="hljs-string">'-'</span>;
+	<span class="hljs-keyword">if</span> (!opts.align) opts.align = <span class="hljs-string">'&gt;'</span>;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">width</span> = opts.<span class="hljs-built_in">width</span>;
+	<span class="hljs-keyword">int</span> l = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (opts.alt &amp;&amp; altPrefix &amp;&amp; <span class="hljs-built_in">width</span> &gt; <span class="hljs-number">2</span>) <span class="hljs-built_in">width</span> -= <span class="hljs-number">2</span>;
+	<span class="hljs-keyword">if</span> ((!positive || opts.sign == <span class="hljs-string">'+'</span>) &amp;&amp; <span class="hljs-built_in">width</span> &gt; <span class="hljs-number">1</span>) <span class="hljs-built_in">width</span>--;
+
+	<span class="hljs-keyword">int</span> digits = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> sepcount = (opts.sep == <span class="hljs-string">','</span> || base == <span class="hljs-number">10</span>) ? <span class="hljs-number">3</span> : <span class="hljs-number">4</span>;
+	<span class="hljs-keyword">int</span> more = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (prepCallback) callback = prepCallback(<span class="hljs-built_in">abs</span>, base);
+
+	<span class="hljs-keyword">do</span> {
+		<span class="hljs-keyword">int</span> digit = callback(<span class="hljs-built_in">abs</span>, base, &amp;more);
+
+		<span class="hljs-keyword">if</span> (unlikely(krk_currentThread.flags &amp; KRK_THREAD_HAS_EXCEPTION)) {
+			discardStringBuilder(&amp;sb);
+			<span class="hljs-keyword">return</span> NONE_VAL();
+		}
+
+		<span class="hljs-keyword">if</span> (digits &amp;&amp; !more &amp;&amp; digit == <span class="hljs-number">0</span>) {
+			<span class="hljs-comment">/* Add backwards */</span>
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; opts.fillSize; ++i) {
+				pushStringBuilder(&amp;sb, opts.<span class="hljs-built_in">fill</span>[opts.fillSize<span class="hljs-number">-1</span>-i]);
+			}
+		} <span class="hljs-keyword">else</span> {
+			pushStringBuilder(&amp;sb, conversions[digit]);
+		}
+		l++;
+		digits++;
+
+		<span class="hljs-keyword">if</span> (opts.sep &amp;&amp; !(digits % sepcount) &amp;&amp; (more || (opts.align == <span class="hljs-string">'='</span> &amp;&amp; l &lt; <span class="hljs-built_in">width</span>))) {
+			pushStringBuilder(&amp;sb, opts.sep);
+			l++;
+			<span class="hljs-keyword">if</span> (opts.align == <span class="hljs-string">'='</span> &amp;&amp; l == <span class="hljs-built_in">width</span>) {
+				<span class="hljs-comment">/* Add backwards */</span>
+				<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; opts.fillSize; ++i) {
+					pushStringBuilder(&amp;sb, opts.<span class="hljs-built_in">fill</span>[opts.fillSize<span class="hljs-number">-1</span>-i]);
+				}
+			}
+		}
+	} <span class="hljs-keyword">while</span> (more || (opts.align == <span class="hljs-string">'='</span> &amp;&amp; l &lt; <span class="hljs-built_in">width</span>));
+
+	<span class="hljs-keyword">if</span> (opts.alt &amp;&amp; altPrefix) {
+		pushStringBuilder(&amp;sb, altPrefix[<span class="hljs-number">1</span>]);
+		pushStringBuilder(&amp;sb, altPrefix[<span class="hljs-number">0</span>]);
+	}
+
+	<span class="hljs-keyword">if</span> (!positive || opts.sign == <span class="hljs-string">'+'</span>) {
+		pushStringBuilder(&amp;sb, positive ? <span class="hljs-string">'+'</span> : <span class="hljs-string">'-'</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (opts.align == <span class="hljs-string">'&gt;'</span>) {
+		<span class="hljs-keyword">while</span> (l &lt; <span class="hljs-built_in">width</span>) {
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; opts.fillSize; ++i) {
+				pushStringBuilder(&amp;sb, opts.<span class="hljs-built_in">fill</span>[opts.fillSize<span class="hljs-number">-1</span>-i]);
+			}
+			l++;
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (opts.align == <span class="hljs-string">'^'</span>) {
+		<span class="hljs-keyword">int</span> remaining = (<span class="hljs-built_in">width</span> - l) / <span class="hljs-number">2</span>;
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; remaining; ++i) {
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; opts.fillSize; ++i) {
+				pushStringBuilder(&amp;sb, opts.<span class="hljs-built_in">fill</span>[opts.fillSize<span class="hljs-number">-1</span>-i]);
+			}
+			l++;
+		}
+	}
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; sb.length / <span class="hljs-number">2</span>; ++i) {
+		<span class="hljs-keyword">char</span> t = sb.bytes[i];
+		sb.bytes[i] = sb.bytes[sb.length - i - <span class="hljs-number">1</span>];
+		sb.bytes[sb.length - i - <span class="hljs-number">1</span>] = t;
+	}
+
+	<span class="hljs-keyword">if</span> (opts.align == <span class="hljs-string">'&lt;'</span> || opts.align == <span class="hljs-string">'^'</span>) {
+		<span class="hljs-keyword">while</span> (l &lt; <span class="hljs-built_in">width</span>) {
+			pushStringBuilderStr(&amp;sb, opts.<span class="hljs-built_in">fill</span>, opts.fillSize);
+			l++;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> finishStringBuilder(&amp;sb);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">formatIntCallback</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * a, <span class="hljs-keyword">int</span> base, <span class="hljs-keyword">int</span> *more)</span> </span>{
+	krk_integer_type v = *(krk_integer_type*)a;
+	<span class="hljs-keyword">int</span> digit = v % base;
+	v /= base;
+	*(krk_integer_type*)a = v;
+	*more = v &gt; <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> digit;
+}
+
+
+KRK_Method(<span class="hljs-keyword">int</span>,__format__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,str,KrkString*,format_spec);
+
+	krk_integer_type <span class="hljs-built_in">abs</span> = self &lt; <span class="hljs-number">0</span> ? -self : self;
+
+	<span class="hljs-keyword">return</span> krk_doFormatString(krk_typeName(argv[<span class="hljs-number">0</span>]), format_spec,
+		self &gt;= <span class="hljs-number">0</span>,
+		&amp;<span class="hljs-built_in">abs</span>,
+		formatIntCallback, <span class="hljs-literal">NULL</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>We <em>could</em> use the __builtin_XXX_overflow(_p) functions gcc+clang provide,
+but let's just do this ourselves, I guess?</p>
+</div>
+<div class="body">
+<p>We cheat: We only bother calculating + checking if both values would fit
+in int32_t's. This ensures multiplication works fine.</p>
+<p>For any case where an int32_t would overflow, we do the 'long' operation
+and then reduce if that still yields something that would fit in our 'int48'.</p>
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> OVERFLOW_CHECKED_INT_OPERATION(name,operator) \
+	extern KrkValue krk_long_coerced_ ## name (krk_integer_type a, krk_integer_type b); \
+	_noexport \
+	KrkValue krk_int_op_ ## name (krk_integer_type a, krk_integer_type b) { \
+		<span class="hljs-meta-keyword">if</span> (likely((int32_t)a == a &amp;&amp; (int32_t)b == b)) { \
+			int32_t result_one = a operator b; \
+			int64_t result_two = a operator b; \
+			<span class="hljs-meta-keyword">if</span> (likely(result_one == result_two)) return INTEGER_VAL(result_two); \
+		} \
+		return krk_long_coerced_ ## name (a, b); \
+	}</span>
+
+OVERFLOW_CHECKED_INT_OPERATION(add,+)
+OVERFLOW_CHECKED_INT_OPERATION(sub,-)
+OVERFLOW_CHECKED_INT_OPERATION(mul,*)
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_NO_FLOAT</span>
+<span class="hljs-meta"># <span class="hljs-meta-keyword">define</span> MAYBE_FLOAT(x) x</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+<span class="hljs-meta"># <span class="hljs-meta-keyword">define</span> MAYBE_FLOAT(x) krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-meta-string">"no float support"</span>)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BASIC_BIN_OP(name,operator) \
+	KRK_Method(int,__ ## name ## __) { \
+		<span class="hljs-meta-keyword">if</span> (likely(IS_INTEGER(argv[1]))) return krk_int_op_ ## name(self, AS_INTEGER(argv[1])); \
+		<span class="hljs-meta-keyword">else</span> <span class="hljs-meta-keyword">if</span> (likely(IS_FLOATING(argv[1]))) return MAYBE_FLOAT(FLOATING_VAL((double)self operator AS_FLOATING(argv[1]))); \
+		return NOTIMPL_VAL(); \
+	} \
+	KRK_Method(int,__r ## name ## __) { \
+		<span class="hljs-meta-keyword">if</span> (likely(IS_INTEGER(argv[1]))) return krk_int_op_ ## name(AS_INTEGER(argv[1]), self); \
+		<span class="hljs-meta-keyword">else</span> <span class="hljs-meta-keyword">if</span> (likely(IS_FLOATING(argv[1]))) return MAYBE_FLOAT(FLOATING_VAL(AS_FLOATING(argv[1]) operator (double)self)); \
+		return NOTIMPL_VAL(); \
+	}</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> INT_ONLY_BIN_OP(name,operator) \
+	KRK_Method(int,__ ## name ## __) { \
+		<span class="hljs-meta-keyword">if</span> (likely(IS_INTEGER(argv[1]))) return INTEGER_VAL(self operator AS_INTEGER(argv[1])); \
+		return NOTIMPL_VAL(); \
+	} \
+	KRK_Method(int,__r ## name ## __) { \
+		<span class="hljs-meta-keyword">if</span> (likely(IS_INTEGER(argv[1]))) return INTEGER_VAL(AS_INTEGER(argv[1]) operator self); \
+		return NOTIMPL_VAL(); \
+	}</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> COMPARE_OP(name,operator) \
+	KRK_Method(int,__ ## name ## __) { \
+		<span class="hljs-meta-keyword">if</span> (likely(IS_INTEGER(argv[1]))) return BOOLEAN_VAL(self operator AS_INTEGER(argv[1])); \
+		<span class="hljs-meta-keyword">else</span> <span class="hljs-meta-keyword">if</span> (likely(IS_FLOATING(argv[1]))) return MAYBE_FLOAT(BOOLEAN_VAL((double)self operator AS_FLOATING(argv[1]))); \
+		return NOTIMPL_VAL(); \
+	}</span>
+
+BASIC_BIN_OP(add,+)
+BASIC_BIN_OP(sub,-)
+BASIC_BIN_OP(mul,*)
+INT_ONLY_BIN_OP(<span class="hljs-keyword">or</span>,|)
+INT_ONLY_BIN_OP(<span class="hljs-keyword">xor</span>,^)
+INT_ONLY_BIN_OP(<span class="hljs-keyword">and</span>,&amp;)
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DEFER_TO_LONG(name) \
+	extern KrkValue krk_long_coerced_ ## name (krk_integer_type a, krk_integer_type b); \
+	KRK_Method(int,__ ## name ## __) { \
+		<span class="hljs-meta-keyword">if</span> (likely(IS_INTEGER(argv[1]))) return krk_long_coerced_ ## name (self, AS_INTEGER(argv[1])); \
+		return NOTIMPL_VAL(); \
+	} \
+	KRK_Method(int,__r ## name ## __) { \
+		<span class="hljs-meta-keyword">if</span> (likely(IS_INTEGER(argv[1]))) return krk_long_coerced_ ## name (AS_INTEGER(argv[1]), self); \
+		return NOTIMPL_VAL(); \
+	}</span>
+
+DEFER_TO_LONG(lshift)
+DEFER_TO_LONG(rshift)
+DEFER_TO_LONG(<span class="hljs-built_in">pow</span>)
+
+COMPARE_OP(lt, &lt;)
+COMPARE_OP(gt, &gt;)
+COMPARE_OP(le, &lt;=)
+COMPARE_OP(ge, &gt;=)
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> BASIC_BIN_OP</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> INT_ONLY_BIN_OP</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> COMPARE_OP</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_NO_FLOAT</span>
+KRK_Method(<span class="hljs-keyword">int</span>,__truediv__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (likely(IS_INTEGER(argv[<span class="hljs-number">1</span>]))) {
+		krk_integer_type b = AS_INTEGER(argv[<span class="hljs-number">1</span>]);
+		<span class="hljs-keyword">if</span> (unlikely(b == <span class="hljs-number">0</span>)) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;zeroDivisionError, <span class="hljs-string">"integer division by zero"</span>);
+		<span class="hljs-keyword">return</span> FLOATING_VAL((<span class="hljs-keyword">double</span>)self / (<span class="hljs-keyword">double</span>)b);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (likely(IS_FLOATING(argv[<span class="hljs-number">1</span>]))) {
+		<span class="hljs-keyword">double</span> b = AS_FLOATING(argv[<span class="hljs-number">1</span>]);
+		<span class="hljs-keyword">if</span> (unlikely(b == <span class="hljs-number">0.0</span>)) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;zeroDivisionError, <span class="hljs-string">"float division by zero"</span>);
+		<span class="hljs-keyword">return</span> FLOATING_VAL((<span class="hljs-keyword">double</span>)self / b);
+	}
+	<span class="hljs-keyword">return</span> NOTIMPL_VAL();
+}
+
+KRK_Method(<span class="hljs-keyword">int</span>,__rtruediv__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (unlikely(self == <span class="hljs-number">0</span>)) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;zeroDivisionError, <span class="hljs-string">"integer division by zero"</span>);
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (likely(IS_INTEGER(argv[<span class="hljs-number">1</span>]))) <span class="hljs-keyword">return</span> FLOATING_VAL((<span class="hljs-keyword">double</span>)AS_INTEGER(argv[<span class="hljs-number">1</span>]) / (<span class="hljs-keyword">double</span>)self);
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (likely(IS_FLOATING(argv[<span class="hljs-number">1</span>]))) <span class="hljs-keyword">return</span> FLOATING_VAL(AS_FLOATING(argv[<span class="hljs-number">1</span>]) / (<span class="hljs-keyword">double</span>)self);
+	<span class="hljs-keyword">return</span> NOTIMPL_VAL();
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __TINYC__</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;math.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> __builtin_floor floor</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>These have been corrected to match the behavior with negatives
+that Python produces, for compatibility, and also because that's
+what our 'long' type does...</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-keyword">static</span> KrkValue _krk_int_div(krk_integer_type a, krk_integer_type b) {
+	<span class="hljs-keyword">if</span> (unlikely(b == <span class="hljs-number">0</span>)) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;zeroDivisionError, <span class="hljs-string">"integer division or modulo by zero"</span>);
+	<span class="hljs-keyword">if</span> (a == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> INTEGER_VAL(<span class="hljs-number">0</span>);
+	<span class="hljs-keyword">int64_t</span> abs_a = a &lt; <span class="hljs-number">0</span> ? -a : a;
+	<span class="hljs-keyword">int64_t</span> abs_b = b &lt; <span class="hljs-number">0</span> ? -b : b;
+	<span class="hljs-keyword">if</span> ((a &lt; <span class="hljs-number">0</span>) != (b &lt; <span class="hljs-number">0</span>)) {
+		<span class="hljs-comment">/* If signs don't match, the result is negative, and rounding down means away from 0... */</span>
+		<span class="hljs-keyword">int64_t</span> res = <span class="hljs-number">-1</span> - (abs_a - <span class="hljs-number">1</span>) / abs_b;
+		<span class="hljs-keyword">return</span> INTEGER_VAL(res);
+	}
+	<span class="hljs-keyword">return</span> INTEGER_VAL((abs_a / abs_b));
+}
+
+<span class="hljs-keyword">static</span> KrkValue _krk_int_mod(krk_integer_type a, krk_integer_type b) {
+	<span class="hljs-keyword">if</span> (unlikely(b == <span class="hljs-number">0</span>)) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;zeroDivisionError, <span class="hljs-string">"integer division or modulo by zero"</span>);
+	<span class="hljs-keyword">if</span> (a == <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> INTEGER_VAL(<span class="hljs-number">0</span>);
+	<span class="hljs-keyword">int64_t</span> abs_a = a &lt; <span class="hljs-number">0</span> ? -a : a;
+	<span class="hljs-keyword">int64_t</span> abs_b = b &lt; <span class="hljs-number">0</span> ? -b : b;
+	<span class="hljs-keyword">int64_t</span> res;
+	<span class="hljs-keyword">if</span> ((a &lt; <span class="hljs-number">0</span>) != (b &lt; <span class="hljs-number">0</span>)) {
+		<span class="hljs-comment">/* If quotient would be negative, then remainder is inverted against the divisor. */</span>
+		res = (abs_b - <span class="hljs-number">1</span> - (abs_a - <span class="hljs-number">1</span>) % abs_b);
+	} <span class="hljs-keyword">else</span> {
+		res = abs_a % abs_b;
+	}
+	<span class="hljs-comment">/* Negative divisor always yields negative remainder, except when it's 0... */</span>
+	<span class="hljs-keyword">return</span> INTEGER_VAL((b &lt; <span class="hljs-number">0</span>) ? -res : res);
+
+}
+
+KRK_Method(<span class="hljs-keyword">int</span>,__mod__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (likely(IS_INTEGER(argv[<span class="hljs-number">1</span>]))) <span class="hljs-keyword">return</span> _krk_int_mod(self, AS_INTEGER(argv[<span class="hljs-number">1</span>]));
+	<span class="hljs-keyword">return</span> NOTIMPL_VAL();
+}
+
+KRK_Method(<span class="hljs-keyword">int</span>,__rmod__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (likely(IS_INTEGER(argv[<span class="hljs-number">1</span>]))) <span class="hljs-keyword">return</span> _krk_int_mod(AS_INTEGER(argv[<span class="hljs-number">1</span>]), self);
+	<span class="hljs-keyword">return</span> NOTIMPL_VAL();
+}
+
+
+KRK_Method(<span class="hljs-keyword">int</span>,__floordiv__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (likely(IS_INTEGER(argv[<span class="hljs-number">1</span>]))) {
+		<span class="hljs-keyword">return</span> _krk_int_div(self,AS_INTEGER(argv[<span class="hljs-number">1</span>]));
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (likely(IS_FLOATING(argv[<span class="hljs-number">1</span>]))) {
+#ifndef KRK_NO_FLOAT
+		<span class="hljs-keyword">double</span> b = AS_FLOATING(argv[<span class="hljs-number">1</span>]);
+		<span class="hljs-keyword">if</span> (unlikely(b == <span class="hljs-number">0.0</span>)) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;zeroDivisionError, <span class="hljs-string">"float division by zero"</span>);
+		<span class="hljs-keyword">return</span> FLOATING_VAL(__builtin_floor((<span class="hljs-keyword">double</span>)self / b));
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+		<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-string">"no float support"</span>);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	}
+	<span class="hljs-keyword">return</span> NOTIMPL_VAL();
+}
+
+KRK_Method(<span class="hljs-keyword">int</span>,__rfloordiv__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (unlikely(self == <span class="hljs-number">0</span>)) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;zeroDivisionError, <span class="hljs-string">"integer division by zero"</span>);
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (likely(IS_INTEGER(argv[<span class="hljs-number">1</span>]))) <span class="hljs-keyword">return</span> _krk_int_div(AS_INTEGER(argv[<span class="hljs-number">1</span>]), self);
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (likely(IS_FLOATING(argv[<span class="hljs-number">1</span>]))) <span class="hljs-keyword">return</span> MAYBE_FLOAT(FLOATING_VAL(__builtin_floor(AS_FLOATING(argv[<span class="hljs-number">1</span>]) / (<span class="hljs-keyword">double</span>)self)));
+	<span class="hljs-keyword">return</span> NOTIMPL_VAL();
+}
+
+KRK_Method(<span class="hljs-keyword">int</span>,__hex__) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">20</span>];
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> <span class="hljs-keyword">long</span> val = self &lt; <span class="hljs-number">0</span> ? -self : self;
+	<span class="hljs-keyword">size_t</span> len = <span class="hljs-built_in">snprintf</span>(tmp, <span class="hljs-number">20</span>, <span class="hljs-string">"%s0x%llx"</span>, self &lt; <span class="hljs-number">0</span> ? <span class="hljs-string">"-"</span> : <span class="hljs-string">""</span>, val);
+	<span class="hljs-keyword">return</span> OBJECT_VAL(krk_copyString(tmp,len));
+}
+
+KRK_Method(<span class="hljs-keyword">int</span>,__oct__) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">20</span>];
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> <span class="hljs-keyword">long</span> val = self &lt; <span class="hljs-number">0</span> ? -self : self;
+	<span class="hljs-keyword">size_t</span> len = <span class="hljs-built_in">snprintf</span>(tmp, <span class="hljs-number">20</span>, <span class="hljs-string">"%s0o%llo"</span>, self &lt; <span class="hljs-number">0</span> ? <span class="hljs-string">"-"</span> : <span class="hljs-string">""</span>, val);
+	<span class="hljs-keyword">return</span> OBJECT_VAL(krk_copyString(tmp,len));
+}
+
+KRK_Method(<span class="hljs-keyword">int</span>,__bin__) {
+	METHOD_TAKES_NONE();
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> <span class="hljs-keyword">long</span> val = self;
+	<span class="hljs-keyword">if</span> (self &lt; <span class="hljs-number">0</span>) val = -val;
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+
+	<span class="hljs-keyword">if</span> (!val) pushStringBuilder(&amp;sb, <span class="hljs-string">'0'</span>);
+	<span class="hljs-keyword">while</span> (val) {
+		pushStringBuilder(&amp;sb, (val &amp; <span class="hljs-number">1</span>) ? <span class="hljs-string">'1'</span> : <span class="hljs-string">'0'</span>);
+		val = val &gt;&gt; <span class="hljs-number">1</span>;
+	}
+
+	pushStringBuilder(&amp;sb, <span class="hljs-string">'b'</span>);
+	pushStringBuilder(&amp;sb, <span class="hljs-string">'0'</span>);
+	<span class="hljs-keyword">if</span> (self&lt; <span class="hljs-number">0</span>) pushStringBuilder(&amp;sb,<span class="hljs-string">'-'</span>);
+
+	<span class="hljs-comment">/* Flip it */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; sb.length / <span class="hljs-number">2</span>; ++i) {
+		<span class="hljs-keyword">char</span> t = sb.bytes[i];
+		sb.bytes[i] = sb.bytes[sb.length - i - <span class="hljs-number">1</span>];
+		sb.bytes[sb.length - i - <span class="hljs-number">1</span>] = t;
+	}
+
+	<span class="hljs-keyword">return</span> finishStringBuilder(&amp;sb);
+}
+
+KRK_Method(<span class="hljs-keyword">int</span>,__invert__) {
+	<span class="hljs-keyword">return</span> INTEGER_VAL(~self);
+}
+
+KRK_Method(<span class="hljs-keyword">int</span>,__neg__) {
+	<span class="hljs-keyword">return</span> INTEGER_VAL(-self);
+}
+
+KRK_Method(<span class="hljs-keyword">int</span>,__abs__) {
+	<span class="hljs-keyword">return</span> self &lt; <span class="hljs-number">0</span> ? INTEGER_VAL(-self) : INTEGER_VAL(self);
+}
+
+KRK_Method(<span class="hljs-keyword">int</span>,__pos__) {
+	<span class="hljs-keyword">return</span> argv[<span class="hljs-number">0</span>];
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> CURRENT_CTYPE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE double</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> trySlowMethod(name) do { \
+	KrkClass * type = krk_getType(argv[1]); \
+	KrkValue method; \
+	while (type) { \
+		<span class="hljs-meta-keyword">if</span> (krk_tableGet(&amp;type-&gt;methods, name, &amp;method)) { \
+			krk_push(method); \
+			krk_push(argv[1]); \
+			return krk_callStack(1); \
+		} \
+		type = type-&gt;base; \
+	} \
+} while (0)</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_NO_FLOAT</span>
+KRK_StaticMethod(<span class="hljs-keyword">float</span>,__new__) {
+	FUNCTION_TAKES_AT_MOST(<span class="hljs-number">2</span>);
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">2</span>) <span class="hljs-keyword">return</span> FLOATING_VAL(<span class="hljs-number">0.0</span>);
+	<span class="hljs-keyword">if</span> (IS_FLOATING(argv[<span class="hljs-number">1</span>])) <span class="hljs-keyword">return</span> argv[<span class="hljs-number">1</span>];
+	<span class="hljs-keyword">if</span> (IS_INTEGER(argv[<span class="hljs-number">1</span>])) <span class="hljs-keyword">return</span> FLOATING_VAL(AS_INTEGER(argv[<span class="hljs-number">1</span>]));
+	<span class="hljs-keyword">if</span> (IS_BOOLEAN(argv[<span class="hljs-number">1</span>])) <span class="hljs-keyword">return</span> FLOATING_VAL(AS_BOOLEAN(argv[<span class="hljs-number">1</span>]));
+
+	trySlowMethod(vm.specialMethodNames[METHOD_FLOAT]);
+
+	<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;typeError, <span class="hljs-string">"%s() argument must be a string or a number, not '%T'"</span>, <span class="hljs-string">"float"</span>, argv[<span class="hljs-number">1</span>]);
+}
+
+KRK_Method(<span class="hljs-keyword">float</span>,__int__) { <span class="hljs-keyword">return</span> krk_int_from_float(self); }
+KRK_Method(<span class="hljs-keyword">float</span>,__float__) { <span class="hljs-keyword">return</span> argv[<span class="hljs-number">0</span>]; }
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> KrkValue <span class="hljs-title">krk_double_to_string</span><span class="hljs-params">(<span class="hljs-keyword">double</span>,<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>,<span class="hljs-keyword">char</span>,<span class="hljs-keyword">int</span>,<span class="hljs-keyword">int</span>)</span></span>;
+KRK_Method(<span class="hljs-keyword">float</span>,__repr__) {
+	<span class="hljs-keyword">return</span> krk_double_to_string(self,<span class="hljs-number">16</span>,<span class="hljs-string">' '</span>,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>);
+}
+
+KRK_Method(<span class="hljs-keyword">float</span>,__format__) {
+	<span class="hljs-keyword">char</span> * format_spec;
+	<span class="hljs-keyword">size_t</span> format_spec_length;
+	<span class="hljs-keyword">if</span> (!krk_parseArgs(<span class="hljs-string">".s#"</span>, (<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span>*[]){<span class="hljs-string">"format_spec"</span>}, &amp;format_spec, &amp;format_spec_length)) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">ParsedFormatSpec</span> <span class="hljs-title">opts</span> = {</span><span class="hljs-number">0</span>};
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * spec = krk_parseCommonFormatSpec(&amp;opts, format_spec, format_spec_length);
+	<span class="hljs-keyword">if</span> (!spec) <span class="hljs-keyword">return</span> NONE_VAL();
+
+	<span class="hljs-keyword">char</span> formatter = <span class="hljs-string">'g'</span>;
+	<span class="hljs-keyword">int</span> digits = <span class="hljs-number">16</span>;
+	<span class="hljs-keyword">int</span> forcedigits = opts.alt;
+
+	<span class="hljs-keyword">switch</span> (*spec) {
+		<span class="hljs-keyword">case</span> <span class="hljs-number">0</span>:
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'g'</span>:
+			<span class="hljs-comment">/* defaults */</span>
+			<span class="hljs-keyword">break</span>;
+
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'G'</span>:
+			formatter = <span class="hljs-string">'G'</span>;
+			<span class="hljs-keyword">break</span>;
+
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'f'</span>:
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'F'</span>:
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'e'</span>:
+		<span class="hljs-keyword">case</span> <span class="hljs-string">'E'</span>:
+			digits = <span class="hljs-number">6</span>;
+			formatter = *spec;
+			forcedigits = (opts.hasPrecision &amp;&amp; opts.prec == <span class="hljs-number">0</span>) ? <span class="hljs-number">0</span> : <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">break</span>;
+
+		<span class="hljs-keyword">default</span>:
+			<span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;valueError,
+				<span class="hljs-string">"Unknown format code '%c' for object of type '%s'"</span>,
+				*spec,
+				<span class="hljs-string">"float"</span>);
+	}
+
+	<span class="hljs-keyword">if</span> (opts.sep) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;valueError, <span class="hljs-string">"unsupported option for float"</span>);
+	<span class="hljs-keyword">if</span> (opts.hasPrecision) digits = opts.prec;
+	<span class="hljs-keyword">if</span> (!opts.align) opts.align = <span class="hljs-string">'&gt;'</span>;
+
+	KrkValue result = krk_double_to_string(self, digits, formatter, opts.sign == <span class="hljs-string">'+'</span>, forcedigits);
+	<span class="hljs-keyword">if</span> (!IS_STRING(result) || !opts.<span class="hljs-built_in">width</span>) <span class="hljs-keyword">return</span> result;
+
+	krk_push(result);
+
+	<span class="hljs-comment">/* Calculate how much padding we need to add. */</span>
+	<span class="hljs-keyword">size_t</span> avail = (<span class="hljs-keyword">size_t</span>)opts.<span class="hljs-built_in">width</span> &gt; AS_STRING(result)-&gt;length ? (<span class="hljs-keyword">size_t</span>)opts.<span class="hljs-built_in">width</span> - AS_STRING(result)-&gt;length : <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* If there's no available space for padding, just return the string we already have. */</span>
+	<span class="hljs-keyword">if</span> (!avail) <span class="hljs-keyword">return</span> krk_pop();
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">StringBuilder</span> <span class="hljs-title">sb</span> = {</span><span class="hljs-number">0</span>};
+	<span class="hljs-keyword">size_t</span> before = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">size_t</span> after = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> hassign = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">if</span> (opts.align == <span class="hljs-string">'&lt;'</span>) {
+		after = avail;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (opts.align == <span class="hljs-string">'&gt;'</span>) {
+		before = avail;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (opts.align == <span class="hljs-string">'^'</span>) {
+		after = avail / <span class="hljs-number">2</span>;
+		before = avail - after;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (opts.align == <span class="hljs-string">'='</span>) {
+		before = avail;
+		<span class="hljs-keyword">if</span> (avail &amp;&amp; AS_STRING(result)-&gt;length &amp;&amp; (AS_CSTRING(result)[<span class="hljs-number">0</span>] == <span class="hljs-string">'-'</span> || AS_CSTRING(result)[<span class="hljs-number">0</span>] == <span class="hljs-string">'+'</span>)) {
+			krk_pushStringBuilder(&amp;sb, AS_CSTRING(result)[<span class="hljs-number">0</span>]);
+			hassign = <span class="hljs-number">1</span>;
+		}
+	}
+
+	<span class="hljs-comment">/* Fill in padding with a new string builder. */</span>
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; before; ++i) krk_pushStringBuilderStr(&amp;sb, opts.<span class="hljs-built_in">fill</span>, opts.fillSize);
+	krk_pushStringBuilderStr(&amp;sb, AS_CSTRING(result) + hassign, AS_STRING(result)-&gt;length - hassign);
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">size_t</span> i = <span class="hljs-number">0</span>; i &lt; after; ++i) krk_pushStringBuilderStr(&amp;sb, opts.<span class="hljs-built_in">fill</span>, opts.fillSize);
+
+	krk_pop();
+	<span class="hljs-keyword">return</span> krk_finishStringBuilder(&amp;sb);
+}
+
+KRK_Method(<span class="hljs-keyword">float</span>,__eq__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (IS_INTEGER(argv[<span class="hljs-number">1</span>])) <span class="hljs-keyword">return</span> BOOLEAN_VAL(self == (<span class="hljs-keyword">double</span>)AS_INTEGER(argv[<span class="hljs-number">1</span>]));
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_FLOATING(argv[<span class="hljs-number">1</span>])) <span class="hljs-keyword">return</span> BOOLEAN_VAL(self == AS_FLOATING(argv[<span class="hljs-number">1</span>]));
+	<span class="hljs-keyword">return</span> NOTIMPL_VAL();
+}
+
+KRK_Method(<span class="hljs-keyword">float</span>,__hash__) {
+	<span class="hljs-keyword">return</span> INTEGER_VAL((<span class="hljs-keyword">uint32_t</span>)self);
+}
+
+KRK_Method(<span class="hljs-keyword">float</span>,__neg__) {
+	<span class="hljs-keyword">return</span> FLOATING_VAL(-self);
+}
+
+KRK_Method(<span class="hljs-keyword">float</span>,__abs__) {
+	<span class="hljs-keyword">return</span> self &lt; <span class="hljs-number">0.0</span> ? FLOATING_VAL(-self) : INTEGER_VAL(self);
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BASIC_BIN_OP(name,operator) \
+	KRK_Method(float,__ ## name ## __) { \
+		METHOD_TAKES_EXACTLY(1); \
+		<span class="hljs-meta-keyword">if</span> (likely(IS_FLOATING(argv[1]))) return FLOATING_VAL(self operator AS_FLOATING(argv[1])); \
+		<span class="hljs-meta-keyword">else</span> <span class="hljs-meta-keyword">if</span> (likely(IS_INTEGER(argv[1]))) return FLOATING_VAL(self operator (double)AS_INTEGER(argv[1])); \
+		return NOTIMPL_VAL(); \
+	} \
+	KRK_Method(float,__r ## name ## __) { \
+		METHOD_TAKES_EXACTLY(1); \
+		<span class="hljs-meta-keyword">if</span> (likely(IS_FLOATING(argv[1]))) return FLOATING_VAL(AS_FLOATING(argv[1]) operator self); \
+		<span class="hljs-meta-keyword">else</span> <span class="hljs-meta-keyword">if</span> (likely(IS_INTEGER(argv[1]))) return FLOATING_VAL((double)AS_INTEGER(argv[1]) operator self); \
+		return NOTIMPL_VAL(); \
+	}</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> COMPARE_OP(name,operator) \
+	KRK_Method(float,__ ## name ## __) { \
+		METHOD_TAKES_EXACTLY(1); \
+		<span class="hljs-meta-keyword">if</span> (likely(IS_FLOATING(argv[1]))) return BOOLEAN_VAL(self operator AS_FLOATING(argv[1])); \
+		<span class="hljs-meta-keyword">else</span> <span class="hljs-meta-keyword">if</span> (likely(IS_INTEGER(argv[1]))) return BOOLEAN_VAL(self operator (double)AS_INTEGER(argv[1])); \
+		return NOTIMPL_VAL(); \
+	}</span>
+
+BASIC_BIN_OP(add,+)
+BASIC_BIN_OP(sub,-)
+BASIC_BIN_OP(mul,*)
+COMPARE_OP(lt, &lt;)
+COMPARE_OP(gt, &gt;)
+COMPARE_OP(le, &lt;=)
+COMPARE_OP(ge, &gt;=)
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> BASIC_BIN_OP</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> COMPARE_OP</span>
+
+KRK_Method(<span class="hljs-keyword">float</span>,__truediv__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (likely(IS_FLOATING(argv[<span class="hljs-number">1</span>]))) {
+		<span class="hljs-keyword">double</span> b = AS_FLOATING(argv[<span class="hljs-number">1</span>]);
+		<span class="hljs-keyword">if</span> (unlikely(b == <span class="hljs-number">0.0</span>)) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;zeroDivisionError, <span class="hljs-string">"float division by zero"</span>);
+		<span class="hljs-keyword">return</span> FLOATING_VAL(self / b);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (likely(IS_INTEGER(argv[<span class="hljs-number">1</span>]))) {
+		krk_integer_type b = AS_INTEGER(argv[<span class="hljs-number">1</span>]);
+		<span class="hljs-keyword">if</span> (unlikely(b == <span class="hljs-number">0</span>)) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;zeroDivisionError, <span class="hljs-string">"integer division by zero"</span>);
+		<span class="hljs-keyword">return</span> FLOATING_VAL(self / (<span class="hljs-keyword">double</span>)b);
+	}
+	<span class="hljs-keyword">return</span> NOTIMPL_VAL();
+}
+
+KRK_Method(<span class="hljs-keyword">float</span>,__rtruediv__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (unlikely(self == <span class="hljs-number">0.0</span>)) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;zeroDivisionError, <span class="hljs-string">"float division by zero"</span>);
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (likely(IS_FLOATING(argv[<span class="hljs-number">1</span>]))) <span class="hljs-keyword">return</span> FLOATING_VAL(AS_FLOATING(argv[<span class="hljs-number">1</span>]) / self);
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (likely(IS_INTEGER(argv[<span class="hljs-number">1</span>]))) <span class="hljs-keyword">return</span> FLOATING_VAL((<span class="hljs-keyword">double</span>)AS_INTEGER(argv[<span class="hljs-number">1</span>]) / self);
+	<span class="hljs-keyword">return</span> NOTIMPL_VAL();
+}
+
+KRK_Method(<span class="hljs-keyword">float</span>,__floordiv__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (likely(IS_INTEGER(argv[<span class="hljs-number">1</span>]))) {
+		krk_integer_type b = AS_INTEGER(argv[<span class="hljs-number">1</span>]);
+		<span class="hljs-keyword">if</span> (unlikely(b == <span class="hljs-number">0</span>)) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;zeroDivisionError, <span class="hljs-string">"integer division by zero"</span>);
+		<span class="hljs-keyword">return</span> FLOATING_VAL(__builtin_floor(self / (<span class="hljs-keyword">double</span>)b));
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_FLOATING(argv[<span class="hljs-number">1</span>])) {
+		<span class="hljs-keyword">double</span> b = AS_FLOATING(argv[<span class="hljs-number">1</span>]);
+		<span class="hljs-keyword">if</span> (unlikely(b == <span class="hljs-number">0.0</span>)) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;zeroDivisionError, <span class="hljs-string">"float division by zero"</span>);
+		<span class="hljs-keyword">return</span> FLOATING_VAL(__builtin_floor(self / b));
+	}
+	<span class="hljs-keyword">return</span> NOTIMPL_VAL();
+}
+
+KRK_Method(<span class="hljs-keyword">float</span>,__rfloordiv__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (unlikely(self == <span class="hljs-number">0.0</span>)) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;zeroDivisionError, <span class="hljs-string">"float division by zero"</span>);
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (likely(IS_INTEGER(argv[<span class="hljs-number">1</span>]))) <span class="hljs-keyword">return</span> FLOATING_VAL((<span class="hljs-keyword">double</span>)AS_INTEGER(argv[<span class="hljs-number">1</span>]) / self);
+	<span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (IS_FLOATING(argv[<span class="hljs-number">1</span>])) <span class="hljs-keyword">return</span> FLOATING_VAL(__builtin_floor(AS_FLOATING(argv[<span class="hljs-number">1</span>]) / self));
+	<span class="hljs-keyword">return</span> NOTIMPL_VAL();
+}
+
+KRK_Method(<span class="hljs-keyword">float</span>,__pos__) {
+	<span class="hljs-keyword">return</span> argv[<span class="hljs-number">0</span>];
+}
+
+<span class="hljs-function"><span class="hljs-keyword">extern</span> KrkValue <span class="hljs-title">krk_float_to_fraction</span><span class="hljs-params">(<span class="hljs-keyword">double</span> d)</span></span>;
+KRK_Method(<span class="hljs-keyword">float</span>,as_integer_ratio) {
+	<span class="hljs-keyword">return</span> krk_float_to_fraction(self);
+}
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> CURRENT_CTYPE</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> CURRENT_CTYPE krk_integer_type</span>
+
+KRK_StaticMethod(<span class="hljs-keyword">bool</span>,__new__) {
+	FUNCTION_TAKES_AT_MOST(<span class="hljs-number">2</span>);
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">2</span>) <span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">0</span>);
+	<span class="hljs-keyword">return</span> BOOLEAN_VAL(!krk_isFalsey(argv[<span class="hljs-number">1</span>]));
+}
+
+KRK_Method(<span class="hljs-keyword">bool</span>,__repr__) {
+	<span class="hljs-keyword">return</span> OBJECT_VAL((self ? S(<span class="hljs-string">"True"</span>) : S(<span class="hljs-string">"False"</span>)));
+}
+
+KRK_Method(<span class="hljs-keyword">bool</span>,__format__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	CHECK_ARG(<span class="hljs-number">1</span>,str,KrkString*,format_spec);
+
+	<span class="hljs-keyword">if</span> (!format_spec-&gt;length) {
+		<span class="hljs-keyword">return</span> FUNC_NAME(<span class="hljs-keyword">bool</span>,__repr__)(argc,argv,hasKw);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">return</span> FUNC_NAME(<span class="hljs-keyword">int</span>,__format__)(argc,argv,hasKw);
+	}
+}
+
+KRK_StaticMethod(NoneType,__new__) {
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;argumentError, <span class="hljs-string">"%s takes no arguments"</span>, <span class="hljs-string">"NoneType"</span>);
+	<span class="hljs-keyword">return</span> NONE_VAL();
+}
+
+KRK_Method(NoneType,__repr__) {
+	<span class="hljs-keyword">return</span> OBJECT_VAL(S(<span class="hljs-string">"None"</span>));
+}
+
+KRK_Method(NoneType,__hash__) {
+	<span class="hljs-keyword">return</span> INTEGER_VAL((<span class="hljs-keyword">uint32_t</span>)AS_INTEGER(argv[<span class="hljs-number">0</span>]));
+}
+
+KRK_Method(NoneType,__eq__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (IS_NONE(argv[<span class="hljs-number">1</span>])) <span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">return</span> NOTIMPL_VAL();
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> IS_NotImplementedType(o) IS_NOTIMPL(o)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> AS_NotImplementedType(o) (1)</span>
+
+KRK_StaticMethod(NotImplementedType,__new__) {
+	<span class="hljs-keyword">if</span> (argc &gt; <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> krk_runtimeError(vm.exceptions-&gt;argumentError, <span class="hljs-string">"%s takes no arguments"</span>, <span class="hljs-string">"NotImplementedType"</span>);
+	<span class="hljs-keyword">return</span> NOTIMPL_VAL();
+}
+
+KRK_Method(NotImplementedType,__repr__) {
+	<span class="hljs-keyword">return</span> OBJECT_VAL(S(<span class="hljs-string">"NotImplemented"</span>));
+}
+
+KRK_Method(NotImplementedType,__hash__) {
+	<span class="hljs-keyword">return</span> INTEGER_VAL(<span class="hljs-number">0</span>);
+}
+
+KRK_Method(NotImplementedType,__eq__) {
+	METHOD_TAKES_EXACTLY(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">if</span> (IS_NOTIMPL(argv[<span class="hljs-number">1</span>])) <span class="hljs-keyword">return</span> BOOLEAN_VAL(<span class="hljs-number">1</span>);
+	<span class="hljs-keyword">return</span> NOTIMPL_VAL();
+}
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> BIND_METHOD</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">undef</span> BIND_STATICMETHOD</span>
+<span class="hljs-comment">/* These class names conflict with C types, so we need to cheat a bit */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BIND_METHOD(klass,method) do { krk_defineNative(&amp; _ ## klass-&gt;methods, #method, _ ## klass ## _ ## method); } while (0)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BIND_STATICMETHOD(klass,method) do { krk_defineNativeStaticMethod(&amp; _ ## klass-&gt;methods, #method, _ ## klass ## _ ## method); } while (0)</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> BIND_TRIPLET(klass,name) \
+	BIND_METHOD(klass,__ ## name ## __); \
+	BIND_METHOD(klass,__r ## name ## __); \
+	krk_defineNative(&amp;_ ## klass-&gt;methods,<span class="hljs-meta-string">"__i"</span> #name <span class="hljs-meta-string">"__"</span>,_ ## klass ## ___ ## name ## __);</span>
+_noexport
+<span class="hljs-keyword">void</span> _createAndBind_numericClasses(<span class="hljs-keyword">void</span>) {
+	KrkClass * _int = ADD_BASE_CLASS(vm.baseClasses-&gt;intClass, <span class="hljs-string">"int"</span>, vm.baseClasses-&gt;objectClass);
+	_int-&gt;obj.flags |= KRK_OBJ_FLAGS_NO_INHERIT;
+	_int-&gt;allocSize = <span class="hljs-number">0</span>;
+	BIND_STATICMETHOD(<span class="hljs-keyword">int</span>,__new__);
+	BIND_METHOD(<span class="hljs-keyword">int</span>,__repr__);
+	BIND_METHOD(<span class="hljs-keyword">int</span>,__int__);
+	BIND_METHOD(<span class="hljs-keyword">int</span>,__chr__);
+	BIND_METHOD(<span class="hljs-keyword">int</span>,__eq__);
+	BIND_METHOD(<span class="hljs-keyword">int</span>,__hash__);
+	BIND_METHOD(<span class="hljs-keyword">int</span>,__format__);
+
+	BIND_TRIPLET(<span class="hljs-keyword">int</span>,add);
+	BIND_TRIPLET(<span class="hljs-keyword">int</span>,sub);
+	BIND_TRIPLET(<span class="hljs-keyword">int</span>,mul);
+	BIND_TRIPLET(<span class="hljs-keyword">int</span>,<span class="hljs-keyword">or</span>);
+	BIND_TRIPLET(<span class="hljs-keyword">int</span>,<span class="hljs-keyword">xor</span>);
+	BIND_TRIPLET(<span class="hljs-keyword">int</span>,<span class="hljs-keyword">and</span>);
+	BIND_TRIPLET(<span class="hljs-keyword">int</span>,lshift);
+	BIND_TRIPLET(<span class="hljs-keyword">int</span>,rshift);
+	BIND_TRIPLET(<span class="hljs-keyword">int</span>,mod);
+	BIND_TRIPLET(<span class="hljs-keyword">int</span>,floordiv);
+	BIND_TRIPLET(<span class="hljs-keyword">int</span>,<span class="hljs-built_in">pow</span>);
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_NO_FLOAT</span>
+	BIND_METHOD(<span class="hljs-keyword">int</span>,__float__);
+	BIND_TRIPLET(<span class="hljs-keyword">int</span>,truediv);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	BIND_METHOD(<span class="hljs-keyword">int</span>,__lt__);
+	BIND_METHOD(<span class="hljs-keyword">int</span>,__gt__);
+	BIND_METHOD(<span class="hljs-keyword">int</span>,__le__);
+	BIND_METHOD(<span class="hljs-keyword">int</span>,__ge__);
+
+	BIND_METHOD(<span class="hljs-keyword">int</span>,__hex__);
+	BIND_METHOD(<span class="hljs-keyword">int</span>,__oct__);
+	BIND_METHOD(<span class="hljs-keyword">int</span>,__bin__);
+	BIND_METHOD(<span class="hljs-keyword">int</span>,__invert__);
+	BIND_METHOD(<span class="hljs-keyword">int</span>,__neg__);
+	BIND_METHOD(<span class="hljs-keyword">int</span>,__abs__);
+	BIND_METHOD(<span class="hljs-keyword">int</span>,__pos__);
+
+	krk_finalizeClass(_int);
+	KRK_DOC(_int, <span class="hljs-string">"Convert a number or string type to an integer representation."</span>);
+
+	KrkClass * _float = ADD_BASE_CLASS(vm.baseClasses-&gt;floatClass, <span class="hljs-string">"float"</span>, vm.baseClasses-&gt;objectClass);
+	_float-&gt;obj.flags |= KRK_OBJ_FLAGS_NO_INHERIT;
+	_float-&gt;allocSize = <span class="hljs-number">0</span>;
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifndef</span> KRK_NO_FLOAT</span>
+	BIND_STATICMETHOD(<span class="hljs-keyword">float</span>,__new__);
+	BIND_METHOD(<span class="hljs-keyword">float</span>,__int__);
+	BIND_METHOD(<span class="hljs-keyword">float</span>,__float__);
+	BIND_METHOD(<span class="hljs-keyword">float</span>,__repr__);
+	BIND_METHOD(<span class="hljs-keyword">float</span>,__eq__);
+	BIND_METHOD(<span class="hljs-keyword">float</span>,__hash__);
+	BIND_TRIPLET(<span class="hljs-keyword">float</span>,add);
+	BIND_TRIPLET(<span class="hljs-keyword">float</span>,sub);
+	BIND_TRIPLET(<span class="hljs-keyword">float</span>,mul);
+	BIND_TRIPLET(<span class="hljs-keyword">float</span>,truediv);
+	BIND_TRIPLET(<span class="hljs-keyword">float</span>,floordiv);
+	BIND_METHOD(<span class="hljs-keyword">float</span>,__lt__);
+	BIND_METHOD(<span class="hljs-keyword">float</span>,__gt__);
+	BIND_METHOD(<span class="hljs-keyword">float</span>,__le__);
+	BIND_METHOD(<span class="hljs-keyword">float</span>,__ge__);
+	BIND_METHOD(<span class="hljs-keyword">float</span>,__neg__);
+	BIND_METHOD(<span class="hljs-keyword">float</span>,__abs__);
+	BIND_METHOD(<span class="hljs-keyword">float</span>,__pos__);
+	BIND_METHOD(<span class="hljs-keyword">float</span>,__format__);
+	BIND_METHOD(<span class="hljs-keyword">float</span>,as_integer_ratio);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+	krk_finalizeClass(_float);
+	KRK_DOC(_float, <span class="hljs-string">"Convert a number or string type to a float representation."</span>);
+
+	KrkClass * _bool = ADD_BASE_CLASS(vm.baseClasses-&gt;boolClass, <span class="hljs-string">"bool"</span>, vm.baseClasses-&gt;intClass);
+	_bool-&gt;obj.flags |= KRK_OBJ_FLAGS_NO_INHERIT;
+	BIND_STATICMETHOD(<span class="hljs-keyword">bool</span>,__new__);
+	BIND_METHOD(<span class="hljs-keyword">bool</span>,__repr__);
+	BIND_METHOD(<span class="hljs-keyword">bool</span>,__format__);
+	krk_finalizeClass(_bool);
+	KRK_DOC(_bool, <span class="hljs-string">"Returns False if the argument is 'falsey', otherwise True."</span>);
+
+	KrkClass * _NoneType = ADD_BASE_CLASS(vm.baseClasses-&gt;noneTypeClass, <span class="hljs-string">"NoneType"</span>, vm.baseClasses-&gt;objectClass);
+	_NoneType-&gt;obj.flags |= KRK_OBJ_FLAGS_NO_INHERIT;
+	_NoneType-&gt;allocSize = <span class="hljs-number">0</span>;
+	BIND_STATICMETHOD(NoneType, __new__);
+	BIND_METHOD(NoneType, __repr__);
+	BIND_METHOD(NoneType, __hash__);
+	BIND_METHOD(NoneType, __eq__);
+	krk_finalizeClass(_NoneType);
+
+	KrkClass * _NotImplementedType = ADD_BASE_CLASS(vm.baseClasses-&gt;notImplClass, <span class="hljs-string">"NotImplementedType"</span>, vm.baseClasses-&gt;objectClass);
+	_NotImplementedType-&gt;obj.flags |= KRK_OBJ_FLAGS_NO_INHERIT;
+	_NotImplementedType-&gt;allocSize = <span class="hljs-number">0</span>;
+	BIND_STATICMETHOD(NotImplementedType, __new__);
+	BIND_METHOD(NotImplementedType, __repr__);
+	BIND_METHOD(NotImplementedType, __hash__);
+	BIND_METHOD(NotImplementedType, __eq__);
+	krk_finalizeClass(_NotImplementedType);
+
+	krk_attachNamedValue(&amp;vm.builtins-&gt;fields, <span class="hljs-string">"NotImplemented"</span>, NOTIMPL_VAL());
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>more.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\more.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>more.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> _XOPEN_SOURCE 700</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdint.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdio.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;wchar.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;locale.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;ctype.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;termios.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/ioctl.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/decodeutf8.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> term_width = <span class="hljs-number">80</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> term_height = <span class="hljs-number">25</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> term_x = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> term_yish = <span class="hljs-number">1</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> handle_escapes = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> stop_asking = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> exit_if_fits = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> prompted = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * promptstring = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> no_quit = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> use_alt_screen = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> no_scrollback = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * search_string = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> search_size = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> search_avail = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> searching = <span class="hljs-number">0</span>;
+
+<span class="hljs-comment">/* Line builder */</span>
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * lineBuf = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> lineLen = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> lineCap = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">line_add_chr</span><span class="hljs-params">(<span class="hljs-keyword">char</span> c)</span> </span>{
+	<span class="hljs-keyword">if</span> (no_scrollback) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">if</span> (lineLen == lineCap) {
+		lineCap = (lineCap &lt; <span class="hljs-number">5</span>) ? <span class="hljs-number">5</span> : lineCap * <span class="hljs-number">2</span>;
+		lineBuf = <span class="hljs-built_in">realloc</span>(lineBuf, lineCap);
+	}
+	lineBuf[lineLen++] = c;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">line_add_str</span><span class="hljs-params">(<span class="hljs-keyword">char</span> *s)</span> </span>{
+	<span class="hljs-keyword">while</span> (*s) {
+		line_add_chr(*s);
+		s++;
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> ** lines = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> linesLen = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> linesCap = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">lines_add</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * <span class="hljs-built_in">line</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (linesLen == linesCap) {
+		linesCap = (linesCap &lt; <span class="hljs-number">5</span>) ? <span class="hljs-number">5</span> : linesCap * <span class="hljs-number">2</span>;
+		lines = <span class="hljs-built_in">realloc</span>(lines, linesCap * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">char</span>*));
+	}
+	lines[linesLen++] = <span class="hljs-built_in">line</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">to_eight</span><span class="hljs-params">(<span class="hljs-keyword">uint32_t</span> codepoint, <span class="hljs-keyword">char</span> * out)</span> </span>{
+	<span class="hljs-built_in">memset</span>(out, <span class="hljs-number">0x00</span>, <span class="hljs-number">7</span>);
+
+	<span class="hljs-keyword">if</span> (codepoint &lt; <span class="hljs-number">0x0080</span>) {
+		out[<span class="hljs-number">0</span>] = (<span class="hljs-keyword">char</span>)codepoint;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (codepoint &lt; <span class="hljs-number">0x0800</span>) {
+		out[<span class="hljs-number">0</span>] = <span class="hljs-number">0xC0</span> | (codepoint &gt;&gt; <span class="hljs-number">6</span>);
+		out[<span class="hljs-number">1</span>] = <span class="hljs-number">0x80</span> | (codepoint &amp; <span class="hljs-number">0x3F</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (codepoint &lt; <span class="hljs-number">0x10000</span>) {
+		out[<span class="hljs-number">0</span>] = <span class="hljs-number">0xE0</span> | (codepoint &gt;&gt; <span class="hljs-number">12</span>);
+		out[<span class="hljs-number">1</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">6</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">2</span>] = <span class="hljs-number">0x80</span> | (codepoint &amp; <span class="hljs-number">0x3F</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (codepoint &lt; <span class="hljs-number">0x200000</span>) {
+		out[<span class="hljs-number">0</span>] = <span class="hljs-number">0xF0</span> | (codepoint &gt;&gt; <span class="hljs-number">18</span>);
+		out[<span class="hljs-number">1</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">12</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">2</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">6</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">3</span>] = <span class="hljs-number">0x80</span> | ((codepoint) &amp; <span class="hljs-number">0x3F</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (codepoint &lt; <span class="hljs-number">0x4000000</span>) {
+		out[<span class="hljs-number">0</span>] = <span class="hljs-number">0xF8</span> | (codepoint &gt;&gt; <span class="hljs-number">24</span>);
+		out[<span class="hljs-number">1</span>] = <span class="hljs-number">0x80</span> | (codepoint &gt;&gt; <span class="hljs-number">18</span>);
+		out[<span class="hljs-number">2</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">12</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">3</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">6</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">4</span>] = <span class="hljs-number">0x80</span> | ((codepoint) &amp; <span class="hljs-number">0x3F</span>);
+	} <span class="hljs-keyword">else</span> {
+		out[<span class="hljs-number">0</span>] = <span class="hljs-number">0xF8</span> | (codepoint &gt;&gt; <span class="hljs-number">30</span>);
+		out[<span class="hljs-number">1</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">24</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">2</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">18</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">3</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">12</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">4</span>] = <span class="hljs-number">0x80</span> | ((codepoint &gt;&gt; <span class="hljs-number">6</span>) &amp; <span class="hljs-number">0x3F</span>);
+		out[<span class="hljs-number">5</span>] = <span class="hljs-number">0x80</span> | ((codepoint) &amp; <span class="hljs-number">0x3F</span>);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">strlen</span>(out);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">char_draw</span><span class="hljs-params">(<span class="hljs-keyword">int</span> c)</span> </span>{
+	<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">32</span>] = {<span class="hljs-number">0</span>};
+	<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'\t'</span>) {
+		<span class="hljs-keyword">int</span> count = <span class="hljs-number">8</span> - (term_x % <span class="hljs-number">8</span>);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; count; ++i) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">" "</span>);
+			line_add_chr(<span class="hljs-string">' '</span>);
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (c &lt; <span class="hljs-number">32</span> || c == <span class="hljs-number">0x7F</span>) {
+		<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"\033[7m^%c\033[0m"</span>, (c &lt; <span class="hljs-number">32</span>) ? (<span class="hljs-string">'@'</span> + c) : <span class="hljs-string">'?'</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (c &gt; <span class="hljs-number">0x7f</span> &amp;&amp; c &lt; <span class="hljs-number">0xa0</span>) {
+		<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"\033[7m&lt;%02x&gt;\033[0m"</span>, c);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (c == <span class="hljs-number">0xa0</span>) {
+		<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"\033[7m \033[0m"</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (c &gt; <span class="hljs-number">127</span>) {
+		<span class="hljs-keyword">if</span> (wcwidth(c) &gt;= <span class="hljs-number">1</span>) {
+			to_eight(c,tmp);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">if</span> (c &lt; <span class="hljs-number">0x10000</span>) {
+				<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"\033[7m[U+%04x]\033[0m"</span>, c);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"\033[7m[U+%06x]\033[0m"</span>, c);
+			}
+		}
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-built_in">sprintf</span>(tmp, <span class="hljs-string">"%c"</span>, c);
+	}
+
+	line_add_str(tmp);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s"</span>, tmp);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">char_width</span><span class="hljs-params">(<span class="hljs-keyword">int</span> c)</span> </span>{
+	<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'\t'</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">8</span> - (term_x % <span class="hljs-number">8</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (c &lt; <span class="hljs-number">32</span> || c == <span class="hljs-number">0x7F</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">2</span>; <span class="hljs-comment">/* ^@ */</span>
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (c &gt; <span class="hljs-number">0x7f</span> &amp;&amp; c &lt; <span class="hljs-number">0xa0</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">4</span>; <span class="hljs-comment">/* &lt;XX&gt; */</span>
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (c == <span class="hljs-number">0xa0</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>; <span class="hljs-comment">/* nbsp */</span>
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (c &gt; <span class="hljs-number">127</span>) {
+		<span class="hljs-keyword">int</span> out = wcwidth(c);
+		<span class="hljs-keyword">if</span> (out &gt;= <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span> out;
+		<span class="hljs-keyword">return</span> (c &lt; <span class="hljs-number">0x10000</span>) ? <span class="hljs-number">8</span> : <span class="hljs-number">10</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">termios</span> <span class="hljs-title">old</span>;</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">get_initial_termios</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	tcgetattr(STDOUT_FILENO, &amp;old);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">set_unbuffered</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">termios</span> <span class="hljs-title">new</span> = <span class="hljs-title">old</span>;</span>
+	<span class="hljs-keyword">new</span>.c_iflag &amp;= (~ICRNL) &amp; (~IXON);
+	<span class="hljs-keyword">new</span>.c_lflag &amp;= (~ICANON) &amp; (~ECHO);
+	tcsetattr(STDOUT_FILENO, TCSAFLUSH, &amp;<span class="hljs-keyword">new</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">set_buffered</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	tcsetattr(STDOUT_FILENO, TCSAFLUSH, &amp;old);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">clear_line</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\r\033[K"</span>);
+	fflush(<span class="hljs-built_in">stdout</span>);
+	term_x = <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">cleanup</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (use_alt_screen) <span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[?1007l\033[?1049l"</span>);
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[?25h"</span>);
+	set_buffered();
+	fflush(<span class="hljs-built_in">stdout</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">quit_cleanly</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sig)</span> </span>{
+	cleanup();
+	signal(sig, SIG_DFL);
+	raise(sig);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * <span class="hljs-title">escape_skipping_search</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * haystack, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * needle, <span class="hljs-keyword">size_t</span> needle_len, <span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> ** <span class="hljs-built_in">end</span>)</span> </span>{
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * start = haystack;
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * h = haystack;
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * n = needle;
+	<span class="hljs-keyword">size_t</span> c = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">int</span> is_escaped = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> maybe_escaped = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">for</span> (; *h &amp;&amp; c &lt; needle_len; ++h) {
+		<span class="hljs-keyword">if</span> (is_escaped) {
+			<span class="hljs-keyword">if</span> (*h &gt;= <span class="hljs-string">'A'</span> &amp;&amp; *h &lt;= <span class="hljs-string">'z'</span>) is_escaped = <span class="hljs-number">0</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (maybe_escaped) {
+			<span class="hljs-keyword">if</span> (*h == <span class="hljs-string">'['</span>) {
+				maybe_escaped = <span class="hljs-number">0</span>;
+				is_escaped = <span class="hljs-number">1</span>;
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (*h == <span class="hljs-string">'\033'</span>) {
+			maybe_escaped = <span class="hljs-number">1</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (<span class="hljs-built_in">tolower</span>(*h) != <span class="hljs-built_in">tolower</span>(*n)) {
+				start = h;
+				c = <span class="hljs-number">0</span>;
+				n = needle;
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">if</span> (c == <span class="hljs-number">0</span>) start = h;
+			n++;
+			c++;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (c == needle_len) {
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">end</span>) *<span class="hljs-built_in">end</span> = h;
+		<span class="hljs-keyword">return</span> start;
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Redraw a line from scrollback, possibly highlighting
+search results, if found. We try to highlight more
+than one result in a line, but only if the don't overlap.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">draw_line</span><span class="hljs-params">(<span class="hljs-keyword">ssize_t</span> <span class="hljs-built_in">line</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (search_string &amp;&amp; *search_string) {
+		<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * c = lines[<span class="hljs-built_in">line</span>];
+		<span class="hljs-keyword">do</span> {
+			<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * <span class="hljs-built_in">stop</span> = <span class="hljs-literal">NULL</span>;
+			<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * start = escape_skipping_search(c,search_string,search_size,&amp;<span class="hljs-built_in">stop</span>);
+			<span class="hljs-keyword">if</span> (start) {
+				<span class="hljs-keyword">while</span> (c != start) fputc(*(c++), <span class="hljs-built_in">stdout</span>);
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[7m"</span>);
+				<span class="hljs-keyword">while</span> (c != <span class="hljs-built_in">stop</span>) fputc(*(c++), <span class="hljs-built_in">stdout</span>);
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[27m"</span>);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">while</span> (*c) fputc(*(c++), <span class="hljs-built_in">stdout</span>);
+				<span class="hljs-keyword">break</span>;
+			}
+		} <span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>);
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-comment">/* No active search, so just print the line */</span>
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s"</span>,lines[<span class="hljs-built_in">line</span>]);
+	}
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[K\n"</span>);
+}
+
+<span class="hljs-comment">/* Quick dumb line editor. */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">lineedit</span><span class="hljs-params">(<span class="hljs-keyword">char</span> **<span class="hljs-built_in">buffer</span>, <span class="hljs-keyword">size_t</span> *bufsize)</span> </span>{
+	<span class="hljs-keyword">size_t</span> c = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">int</span> i;
+		<span class="hljs-keyword">char</span> ch;
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[?25h"</span>);
+		fflush(<span class="hljs-built_in">stdout</span>);
+		<span class="hljs-keyword">if</span> (<span class="hljs-built_in">read</span>(STDERR_FILENO, &amp;ch, <span class="hljs-number">1</span>) == <span class="hljs-number">0</span>) {
+			i = <span class="hljs-number">0x04</span>; <span class="hljs-comment">/* Ctrl-D */</span>
+		} <span class="hljs-keyword">else</span> {
+			i = ch;
+		}
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[?25l"</span>);
+		fflush(<span class="hljs-built_in">stdout</span>);
+
+		<span class="hljs-keyword">if</span> (i == <span class="hljs-number">0x08</span> || i == <span class="hljs-number">127</span>) { <span class="hljs-comment">/* Backspace */</span>
+			<span class="hljs-keyword">if</span> (c) {
+				(*<span class="hljs-built_in">buffer</span>)[c--] = <span class="hljs-string">'\0'</span>;
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\b\033[K"</span>);
+				fflush(<span class="hljs-built_in">stdout</span>);
+			} <span class="hljs-keyword">else</span> {
+				<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+			}
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">if</span> (*bufsize &lt;= c + <span class="hljs-number">1</span>) {
+				<span class="hljs-keyword">ssize_t</span> nn = *bufsize &lt; <span class="hljs-number">10</span> ? <span class="hljs-number">10</span> : (*bufsize * <span class="hljs-number">2</span>);
+				<span class="hljs-keyword">char</span> * nbuf = <span class="hljs-built_in">realloc</span>(*<span class="hljs-built_in">buffer</span>, nn);
+				*bufsize = nn;
+				*<span class="hljs-built_in">buffer</span> = nbuf;
+			}
+
+			<span class="hljs-keyword">if</span> (i == <span class="hljs-number">0x04</span>) { <span class="hljs-comment">/* Ctrl-D which we'll treat as EOF */</span>
+				(*<span class="hljs-built_in">buffer</span>)[c] = <span class="hljs-string">'\0'</span>;
+				<span class="hljs-keyword">if</span> (c) <span class="hljs-keyword">return</span> c;
+				<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+			}
+
+			<span class="hljs-keyword">if</span> (i == <span class="hljs-string">'\n'</span> || i == <span class="hljs-string">'\r'</span>) <span class="hljs-keyword">break</span>; <span class="hljs-comment">/* unlike getline, we won't include this in the string */</span>
+			fputc(i, <span class="hljs-built_in">stdout</span>);
+			fflush(<span class="hljs-built_in">stdout</span>);
+			(*<span class="hljs-built_in">buffer</span>)[c++] = i;
+		}
+	}
+
+	(*<span class="hljs-built_in">buffer</span>)[c] = <span class="hljs-string">'\0'</span>;
+	<span class="hljs-keyword">return</span> c;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">do_search</span><span class="hljs-params">(<span class="hljs-keyword">ssize_t</span> offset, <span class="hljs-keyword">int</span> direction)</span> </span>{
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\r/\033[K"</span>);
+	fflush(<span class="hljs-built_in">stdout</span>);
+
+	<span class="hljs-keyword">if</span> (direction == <span class="hljs-number">0</span>) {
+		<span class="hljs-keyword">if</span> ((search_size = lineedit(&amp;search_string, &amp;search_avail)) == <span class="hljs-number">-1</span>) <span class="hljs-keyword">return</span> offset;
+	}
+
+	<span class="hljs-keyword">if</span> (search_string &amp;&amp; *search_string) {
+		<span class="hljs-keyword">if</span> (direction &gt;= <span class="hljs-number">0</span>) {
+			<span class="hljs-comment">/* Search forward. */</span>
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">ssize_t</span> i = linesLen - term_height - offset + <span class="hljs-number">1</span> + direction; i &lt; linesLen; ++i) {
+				<span class="hljs-keyword">if</span> (i &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">continue</span>;
+				<span class="hljs-keyword">if</span> (escape_skipping_search(lines[i], search_string,search_size,<span class="hljs-literal">NULL</span>)) {
+					<span class="hljs-keyword">return</span> linesLen - i - term_height + <span class="hljs-number">1</span>;
+				}
+			}
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-3" id="section-3"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>No result so set things up so we continue reading input to see
+if the search string appears in a line we haven't processed yet.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			searching = linesLen - term_height - offset;
+			stop_asking = <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">-1</span>;
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-comment">/* Search backwards */</span>
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">ssize_t</span> i = linesLen - term_height - offset; i &gt;= <span class="hljs-number">0</span>; --i) {
+				<span class="hljs-keyword">if</span> (escape_skipping_search(lines[i], search_string, search_size,<span class="hljs-literal">NULL</span>)) {
+					<span class="hljs-keyword">return</span> linesLen - i - term_height + <span class="hljs-number">1</span>;
+				}
+			}
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-4" id="section-4"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>We were already showing the last match; keep the screen
+where it is, rather than scrolling it to the top.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			<span class="hljs-keyword">return</span> offset;
+		}
+	}
+
+	<span class="hljs-keyword">return</span> offset;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">do_history_mode</span><span class="hljs-params">(<span class="hljs-keyword">int</span> mode, <span class="hljs-keyword">char</span> * title)</span> </span>{
+	<span class="hljs-comment">/* Enter history mode; scroll up one line */</span>
+	<span class="hljs-keyword">ssize_t</span> offset = <span class="hljs-number">1</span>;
+
+	<span class="hljs-keyword">if</span> (mode == <span class="hljs-number">2</span>) {
+		<span class="hljs-comment">/* Enter history and scroll to top. */</span>
+		offset = linesLen;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (mode == <span class="hljs-number">3</span>) {
+		<span class="hljs-comment">/* Enter history and "page up" once. */</span>
+		offset = term_height;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (mode == <span class="hljs-number">4</span>) {
+		<span class="hljs-comment">/* Enter history and begin search with prompt. */</span>
+		offset = do_search(<span class="hljs-number">0</span>, <span class="hljs-number">0</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (mode == <span class="hljs-number">5</span>) {
+		<span class="hljs-comment">/* Return to history mode from a successful forward search of fresh content */</span>
+		searching = <span class="hljs-number">0</span>;
+		stop_asking = <span class="hljs-number">0</span>;
+		offset = <span class="hljs-number">0</span>;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (mode == <span class="hljs-number">6</span>) {
+		<span class="hljs-comment">/* Enter history mode from pressing 'n' in non-history mode. (Search next.) */</span>
+		offset = do_search(<span class="hljs-number">0</span>, <span class="hljs-number">1</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (mode == <span class="hljs-number">7</span>) {
+		<span class="hljs-comment">/* Enter history mode from pressing 'N' in non-history mode. (Search previous.) */</span>
+		offset = do_search(<span class="hljs-number">0</span>, <span class="hljs-number">-1</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (mode == <span class="hljs-number">8</span>) {
+		<span class="hljs-comment">/* Enter history mode from failing to find a forward result and hitting EOF. */</span>
+		offset = linesLen - searching - term_height;
+		stop_asking = <span class="hljs-number">0</span>;
+		searching = <span class="hljs-number">0</span>;
+	}
+
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-keyword">if</span> (linesLen - term_height + <span class="hljs-number">1</span> &lt; offset) {
+			offset = linesLen - term_height + <span class="hljs-number">1</span>;
+		}
+
+		<span class="hljs-keyword">int</span> break_here = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (offset &lt; <span class="hljs-number">0</span>) {
+			term_yish = term_height + offset;
+			offset = <span class="hljs-number">0</span>;
+			break_here = <span class="hljs-number">1</span>;
+		}
+
+		<span class="hljs-comment">/* We're going to do this the slow way because actually scrolling is a bit scary. */</span>
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[H"</span>);
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">ssize_t</span> <span class="hljs-built_in">line</span> = <span class="hljs-number">1</span>; <span class="hljs-built_in">line</span> &lt; term_height; ++<span class="hljs-built_in">line</span>) {
+			<span class="hljs-keyword">ssize_t</span> <span class="hljs-keyword">this</span> = linesLen - term_height - offset + <span class="hljs-built_in">line</span>;
+			<span class="hljs-keyword">if</span> (<span class="hljs-keyword">this</span> &gt;= <span class="hljs-number">0</span> &amp;&amp; <span class="hljs-keyword">this</span> &lt; linesLen) draw_line(<span class="hljs-keyword">this</span>);
+		}
+
+		<span class="hljs-keyword">if</span> (offset == <span class="hljs-number">0</span> &amp;&amp; break_here) {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[J"</span>);
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		}
+
+		<span class="hljs-keyword">int</span> attop = (offset == linesLen - term_height + <span class="hljs-number">1</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\r\033[K\033[7m%s%s\033[0m"</span>, title, attop ? <span class="hljs-string">" (TOP)"</span> : <span class="hljs-string">""</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[?25h"</span>);
+		fflush(<span class="hljs-built_in">stdout</span>);
+
+		<span class="hljs-keyword">char</span> c;
+		<span class="hljs-built_in">read</span>(STDERR_FILENO, &amp;c, <span class="hljs-number">1</span>);
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[?25l"</span>);
+		fflush(<span class="hljs-built_in">stdout</span>);
+
+		<span class="hljs-keyword">switch</span> (c) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'~'</span>:
+				<span class="hljs-comment">/* ignore */</span>
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'k'</span>:
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'A'</span>:
+				clear_line();
+				offset += <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">' '</span>:
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'6'</span>:
+				clear_line();
+				offset -= term_height - <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'5'</span>:
+				clear_line();
+				offset += term_height - <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'H'</span>:
+				clear_line();
+				offset = linesLen;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'F'</span>:
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'G'</span>:
+				offset = <span class="hljs-number">-1</span>;
+				clear_line();
+				stop_asking = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'B'</span>:
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'j'</span>:
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\n'</span>:
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'\r'</span>:
+				clear_line();
+				offset -= <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'/'</span>:
+				offset = do_search(offset, <span class="hljs-number">0</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'n'</span>:
+				offset = do_search(offset, <span class="hljs-number">1</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'N'</span>:
+				offset = do_search(offset, <span class="hljs-number">-1</span>);
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'q'</span>:
+				clear_line();
+				<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-5" id="section-5"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>This pattern of checking for scrollback, going to history mode
+with a particular mode, returning if that said to, and then
+clearing the line to display another prompt is used repeatedly.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> enter_history_mode(n) { \
+	<span class="hljs-meta-keyword">if</span> (no_scrollback) goto _no_scrollback; \
+	<span class="hljs-meta-keyword">if</span> (do_history_mode(n, title)) return 1; \
+	clear_line(); \
+	<span class="hljs-meta-keyword">if</span> (forced) goto _reprint_prompt; \
+}</span>
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">next_line</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * title, <span class="hljs-keyword">int</span> forced, <span class="hljs-keyword">int</span> atend)</span> </span>{
+	term_yish++;
+
+	<span class="hljs-comment">/* Whenever we hit "next_line", store the line we were just building */</span>
+	<span class="hljs-keyword">if</span> (!forced &amp;&amp; !no_scrollback) {
+		<span class="hljs-keyword">if</span> (!lineLen) {
+			lines_add(strdup(<span class="hljs-string">""</span>));
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">char</span> * c = <span class="hljs-built_in">malloc</span>(lineLen + <span class="hljs-number">1</span>);
+			<span class="hljs-built_in">memcpy</span>(c, lineBuf, lineLen);
+			c[lineLen] = <span class="hljs-number">0</span>;
+			lines_add(c);
+		}
+		lineLen = <span class="hljs-number">0</span>;
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-6" id="section-6"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If we were actively searching forward in new data, see
+if this newly printed line was a match.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (searching) {
+		<span class="hljs-keyword">if</span> (linesLen &amp;&amp; escape_skipping_search(lines[linesLen<span class="hljs-number">-1</span>],search_string,search_size,<span class="hljs-literal">NULL</span>)) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-7" id="section-7"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Search did match, go back to history mode so it
+can redraw the new line with highlighting</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			<span class="hljs-keyword">if</span> (do_history_mode(<span class="hljs-number">5</span>,title)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (forced) {
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-8" id="section-8"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>We reached a forced prompt without a search having matched,
+which means we reached EOF; go back to history mode as a
+failed search. This attempts to restore the scroll
+offset from the last search location.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">			<span class="hljs-keyword">if</span> (do_history_mode(<span class="hljs-number">8</span>,title)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (!forced &amp;&amp; (term_yish &lt; term_height || stop_asking)) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\n"</span>);
+		term_x = <span class="hljs-number">0</span>;
+	} <span class="hljs-keyword">else</span> {
+		prompted = <span class="hljs-number">1</span>;
+_reprint_prompt:
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s\033[7m%s%s\033[0m"</span>, forced ? <span class="hljs-string">""</span> : <span class="hljs-string">"\n"</span>, title, atend ? <span class="hljs-string">" (END)"</span> : <span class="hljs-string">""</span>);
+		<span class="hljs-keyword">do</span> {
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[?25h"</span>);
+			fflush(<span class="hljs-built_in">stdout</span>);
+			<span class="hljs-keyword">char</span> c;
+			<span class="hljs-built_in">read</span>(STDERR_FILENO, &amp;c, <span class="hljs-number">1</span>);
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[?25l"</span>);
+			fflush(<span class="hljs-built_in">stdout</span>);
+			<span class="hljs-keyword">switch</span> (c) {
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'~'</span>:
+					<span class="hljs-comment">/* ignore */</span>
+					<span class="hljs-keyword">break</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'6'</span>:
+				<span class="hljs-keyword">case</span> <span class="hljs-string">' '</span>:
+					term_yish = <span class="hljs-number">1</span>;
+					<span class="hljs-comment">/* fallthrough */</span>
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'B'</span>: <span class="hljs-comment">/* Means down generally ends up here */</span>
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'j'</span>: <span class="hljs-comment">/* For the vi users. */</span>
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'\n'</span>:
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'\r'</span>:
+					clear_line();
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'q'</span>:
+					clear_line();
+					<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'F'</span>:
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'G'</span>:
+					clear_line();
+					stop_asking = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'A'</span>:
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'k'</span>: <span class="hljs-comment">/* Scroll up one */</span>
+					enter_history_mode(<span class="hljs-number">1</span>);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'H'</span>: <span class="hljs-comment">/* Scroll to top */</span>
+					enter_history_mode(<span class="hljs-number">2</span>);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'5'</span>: <span class="hljs-comment">/* Page up once */</span>
+					enter_history_mode(<span class="hljs-number">3</span>);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'/'</span>: <span class="hljs-comment">/* Enter search mode, show search prompt */</span>
+					enter_history_mode(<span class="hljs-number">4</span>);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'n'</span>: <span class="hljs-comment">/* Find next search result */</span>
+					enter_history_mode(<span class="hljs-number">6</span>);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">case</span> <span class="hljs-string">'N'</span>: <span class="hljs-comment">/* Find previous search result */</span>
+					enter_history_mode(<span class="hljs-number">7</span>);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				<span class="hljs-keyword">default</span>:
+					<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\r\033[K\033[7munrecognized command:\033[0m %c"</span>, c);
+					fflush(<span class="hljs-built_in">stdout</span>);
+					<span class="hljs-keyword">break</span>;
+			}
+
+			<span class="hljs-keyword">continue</span>;
+_no_scrollback:
+			clear_line();
+			<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\r\033[K\033[7mScrollback is disabled.\033[0m"</span>);
+			fflush(<span class="hljs-built_in">stdout</span>);
+		} <span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>);
+	}
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">handle_one</span><span class="hljs-params">(<span class="hljs-keyword">int</span> code, <span class="hljs-keyword">char</span> * name)</span> </span>{
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">width</span> = char_width(code);
+	<span class="hljs-keyword">if</span> (term_x + <span class="hljs-built_in">width</span> &gt; term_width) {
+		<span class="hljs-keyword">if</span> (next_line(promptstring ? promptstring : name, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	char_draw(code);
+	term_x += <span class="hljs-built_in">width</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">do_file</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * name, FILE * f, <span class="hljs-keyword">int</span> opti, <span class="hljs-keyword">int</span> argc)</span> </span>{
+	<span class="hljs-keyword">if</span> (linesLen) {
+		<span class="hljs-keyword">while</span> (linesLen) {
+			linesLen--;
+			<span class="hljs-built_in">free</span>(lines[linesLen]);
+		}
+		linesLen = <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">if</span> (lineLen) lineLen = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (!f) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s: %s\n"</span>, name, strerror(errno));
+		<span class="hljs-keyword">return</span> next_line(<span class="hljs-string">"Press RETURN to continue, q to exit."</span>, <span class="hljs-number">1</span>, <span class="hljs-number">0</span>);
+	}
+	<span class="hljs-keyword">int</span> is_escaped = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> maybe_escaped = <span class="hljs-number">0</span>;
+
+	term_x = <span class="hljs-number">0</span>;
+	searching = <span class="hljs-number">0</span>;
+	stop_asking = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">uint32_t</span> code, state = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (!feof(f)) {
+		<span class="hljs-keyword">int</span> c = fgetc(f);
+		<span class="hljs-keyword">if</span> (c &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">if</span> (!decode(&amp;state, &amp;code, c)) {
+			<span class="hljs-keyword">if</span> (code == <span class="hljs-string">'\n'</span>) {
+				<span class="hljs-keyword">if</span> (next_line(promptstring ? promptstring : name, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (is_escaped) {
+				<span class="hljs-keyword">if</span> (code &gt;= <span class="hljs-string">'A'</span> &amp;&amp; code &lt;= <span class="hljs-string">'z'</span>) {
+					is_escaped = <span class="hljs-number">0</span>;
+				}
+				<span class="hljs-keyword">char</span> tmp[<span class="hljs-number">8</span>] = {<span class="hljs-number">0</span>};
+				to_eight(code,tmp);
+				<span class="hljs-built_in">printf</span>(<span class="hljs-string">"%s"</span>, tmp);
+				line_add_str(tmp);
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (maybe_escaped) {
+				<span class="hljs-keyword">if</span> (code == <span class="hljs-string">'['</span>) {
+					maybe_escaped = <span class="hljs-number">0</span>;
+					is_escaped = <span class="hljs-number">1</span>;
+					<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033["</span>);
+					line_add_str(<span class="hljs-string">"\033["</span>);
+				} <span class="hljs-keyword">else</span> {
+					handle_one(<span class="hljs-string">'\033'</span>,name);
+					handle_one(code,name);
+				}
+			} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (handle_escapes) {
+				<span class="hljs-keyword">if</span> (code == <span class="hljs-string">'\033'</span>) {
+					maybe_escaped = <span class="hljs-number">1</span>;
+				} <span class="hljs-keyword">else</span> {
+					handle_one(code,name);
+				}
+			} <span class="hljs-keyword">else</span> {
+				handle_one(code,name);
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (state == UTF8_REJECT) {
+			state = <span class="hljs-number">0</span>;
+		}
+	}
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-9" id="section-9"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If we never prompted, the file fit on the screen. If this is the last (only) file,
+and we had the -F option, we can skip printing the forced END prompt.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (!prompted &amp;&amp; exit_if_fits &amp;&amp; opti + <span class="hljs-number">1</span> &gt;= argc) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">do</span> {
+		stop_asking = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">if</span> (next_line(promptstring ? promptstring : name, <span class="hljs-number">1</span>, <span class="hljs-number">1</span>)) <span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	} <span class="hljs-keyword">while</span> (no_quit);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">usage</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_S <span class="hljs-meta-string">"\033[3m"</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> X_E <span class="hljs-meta-string">"\033[0m"</span></span>
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+		<span class="hljs-string">"usage: %s [-r] [-F] [-P "</span> X_S <span class="hljs-string">"str"</span> X_E <span class="hljs-string">"] ["</span> X_S <span class="hljs-string">"file"</span> X_E <span class="hljs-string">"...]\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"Print files one screenful at a time. If no files are provided,\n"</span>
+		<span class="hljs-string">"attempts to read from stdin only if it is not a terminal.\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"Options:\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" -r       "</span> X_S <span class="hljs-string">"Try to parse some escape sequences to support, eg., color."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"          "</span> X_S <span class="hljs-string">"Only 'm' sequences are likely to work; this option is meant"</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"          "</span> X_S <span class="hljs-string">"for things like manpages or 'bim -c'."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" -F       "</span> X_S <span class="hljs-string">"If the file fits on one screen, exit after printing."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"          "</span> X_S <span class="hljs-string">"This option only works if there is only one file."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" -P "</span> X_S <span class="hljs-string">"str   Instead of showing file names as the command prompt, use the"</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"          "</span> X_S <span class="hljs-string">"provided string, eg. '-P man' will display the prompt 'man'."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" --stay   "</span> X_S <span class="hljs-string">"Normally, more will quit when asked to advance when at the end"</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"          "</span> X_S <span class="hljs-string">"of a file, but with this option it will stay running until a"</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"          "</span> X_S <span class="hljs-string">"more explicit quit command (eg. 'q') is issued."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" --alt    "</span> X_S <span class="hljs-string">"Switch to the alternate buffer and clear the screen on startup."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" --scroll "</span> X_S <span class="hljs-string">"Disable scrollback."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" --help   "</span> X_S <span class="hljs-string">"Show this help text."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"Command input is received on stderr. The following commands are accepted when\n"</span>
+		<span class="hljs-string">"prompted during viewing of a file:\n"</span>
+		<span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" RETURN   "</span> X_S <span class="hljs-string">"Proceed to the next line, or the next file if at the end."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"          "</span> X_S <span class="hljs-string">"'B' and 'j' are also accepted as aliases."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" SPACE    "</span> X_S <span class="hljs-string">"Proceed to the next screenful of text."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" G        "</span> X_S <span class="hljs-string">"Continue outputting this file until reaching the end."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">" q        "</span> X_S <span class="hljs-string">"Quit immediately, ignoring all other files."</span> X_E <span class="hljs-string">"\n"</span>
+		<span class="hljs-string">"\n"</span>, argv[<span class="hljs-number">0</span>]);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span><span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> * argv[])</span> </span>{
+<span class="hljs-meta">#<span class="hljs-meta-keyword">ifdef</span> __APPLE__</span>
+	<span class="hljs-comment">/* TODO figure out a better way to do this; maybe just LC_CTYPE? */</span>
+	setlocale(LC_ALL, <span class="hljs-string">"en_US.UTF-8"</span>);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">else</span></span>
+	setlocale(LC_ALL, <span class="hljs-string">""</span>);
+<span class="hljs-meta">#<span class="hljs-meta-keyword">endif</span></span>
+
+	<span class="hljs-keyword">int</span> opt;
+
+	<span class="hljs-keyword">while</span> ((opt = getopt(argc, argv, <span class="hljs-string">"rFP:-:"</span>)) != <span class="hljs-number">-1</span>) {
+		<span class="hljs-keyword">switch</span> (opt) {
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'r'</span>:
+				handle_escapes = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'F'</span>:
+				exit_if_fits = <span class="hljs-number">1</span>;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'P'</span>:
+				promptstring = optarg;
+				<span class="hljs-keyword">break</span>;
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'-'</span>:
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(optarg,<span class="hljs-string">"help"</span>)) {
+					usage(argv);
+					<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+				}
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(optarg,<span class="hljs-string">"stay"</span>)) {
+					no_quit = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">break</span>;
+				}
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(optarg,<span class="hljs-string">"alt"</span>)) {
+					use_alt_screen = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">break</span>;
+				}
+				<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>(optarg,<span class="hljs-string">"scroll"</span>)) {
+					no_scrollback = <span class="hljs-number">1</span>;
+					<span class="hljs-keyword">break</span>;
+				}
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: '--%s' is not a recognized long option\n"</span>, argv[<span class="hljs-number">0</span>], optarg);
+				<span class="hljs-comment">/* fallthrough */</span>
+			<span class="hljs-keyword">case</span> <span class="hljs-string">'?'</span>:
+				<span class="hljs-keyword">return</span> usage(argv);
+		}
+	}
+
+	<span class="hljs-keyword">if</span> (optind == argc &amp;&amp; isatty(STDIN_FILENO)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: stdin is a TTY and no file names were provided.\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-keyword">if</span> (!isatty(STDOUT_FILENO)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"%s: This implementation refuses to write to a non-terminal.\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">winsize</span> <span class="hljs-title">w</span>;</span>
+	ioctl(STDOUT_FILENO, TIOCGWINSZ, &amp;w);
+	term_width  = w.ws_col;
+	term_height = w.ws_row;
+	get_initial_termios();
+	set_unbuffered();
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[?25l"</span>);
+
+	signal(SIGINT, quit_cleanly);
+	signal(SIGQUIT, quit_cleanly);
+
+	<span class="hljs-keyword">if</span> (use_alt_screen) <span class="hljs-built_in">printf</span>(<span class="hljs-string">"\033[?1049h\033[?1007h\033[H\033[2J"</span>);
+
+	<span class="hljs-keyword">if</span> (optind == argc) {
+		do_file(<span class="hljs-string">"stdin"</span>,<span class="hljs-built_in">stdin</span>, optind, argc);
+	}
+
+	<span class="hljs-keyword">for</span> (; optind &lt; argc; optind++) {
+		FILE * f = fopen(argv[optind], <span class="hljs-string">"r"</span>);
+		<span class="hljs-keyword">if</span> (do_file(argv[optind], f, optind, argc)) <span class="hljs-keyword">break</span>;
+		<span class="hljs-keyword">if</span> (f) fclose(f);
+	}
+
+	cleanup();
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

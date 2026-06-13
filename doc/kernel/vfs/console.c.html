@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>console.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../../doc-style.css" />
+  <script src="../../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../../";
+    var thisFile = "kernel\\vfs\\console.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>console.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdarg.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;bits/errno.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/process.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/vfs.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/string.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/printf.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;kernel/time.h&gt;</span></span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * console_dev = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-comment">/** Things we use to determine if the clock is ready. */</span>
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">uint64_t</span> arch_boot_time;
+
+<span class="hljs-comment">/** Things we use for framebuffer output. */</span>
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">uint16_t</span> lfb_resolution_x;
+<span class="hljs-function"><span class="hljs-keyword">extern</span> <span class="hljs-title">size_t</span> <span class="hljs-params">(*printf_output)</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span>, <span class="hljs-keyword">uint8_t</span> *)</span></span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-title">size_t</span> <span class="hljs-params">(*console_write)</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span>, <span class="hljs-keyword">uint8_t</span> *)</span> </span>= <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint8_t</span> tmp_buffer[<span class="hljs-number">4096</span>] __attribute__((aligned(<span class="hljs-number">4096</span>)));
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">uint8_t</span> * buffer_start = tmp_buffer;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">write_console</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> *<span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (console_write) <span class="hljs-keyword">return</span> console_write(<span class="hljs-built_in">size</span>,<span class="hljs-built_in">buffer</span>);
+
+	<span class="hljs-keyword">if</span> (buffer_start + <span class="hljs-built_in">size</span> &gt;= tmp_buffer + <span class="hljs-keyword">sizeof</span>(tmp_buffer)) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>; <span class="hljs-comment">/* uh oh */</span>
+	}
+
+	<span class="hljs-built_in">memcpy</span>(buffer_start, <span class="hljs-built_in">buffer</span>, <span class="hljs-built_in">size</span>);
+	buffer_start += <span class="hljs-built_in">size</span>;
+
+	<span class="hljs-keyword">return</span> <span class="hljs-built_in">size</span>;
+}
+
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dprintf_data</span> {</span>
+	<span class="hljs-keyword">int</span> prev_was_lf;
+	<span class="hljs-keyword">int</span> left_width;
+};
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">cb_printf</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * user, <span class="hljs-keyword">char</span> c)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dprintf_data</span> * <span class="hljs-title">data</span> = <span class="hljs-title">user</span>;</span>
+	<span class="hljs-keyword">if</span> (data-&gt;prev_was_lf) {
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; data-&gt;left_width; ++i) write_console(<span class="hljs-number">1</span>, (<span class="hljs-keyword">uint8_t</span>*)<span class="hljs-string">" "</span>);
+		data-&gt;prev_was_lf = <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">if</span> (c == <span class="hljs-string">'\n'</span>) data-&gt;prev_was_lf = <span class="hljs-number">1</span>;
+	write_console(<span class="hljs-number">1</span>, (<span class="hljs-keyword">uint8_t</span>*)&amp;c);
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">console_set_output</span><span class="hljs-params">(<span class="hljs-keyword">size_t</span> (*output)(<span class="hljs-keyword">size_t</span>,<span class="hljs-keyword">uint8_t</span>*))</span> </span>{
+	console_write = output;
+
+	<span class="hljs-keyword">if</span> (buffer_start != tmp_buffer) {
+		console_write(buffer_start - tmp_buffer, tmp_buffer);
+		buffer_start = tmp_buffer;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">dprintf</span><span class="hljs-params">(<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * fmt, ...)</span> </span>{
+	va_list args;
+	va_start(args, fmt);
+
+	<span class="hljs-comment">/* Is this a FATAL message? */</span>
+
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>If it's ready now but wasn't ready previously, are there
+things in the queue to dump?</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">
+	<span class="hljs-comment">/* Is this a fresh message for this core that we need to assign a timestamp to? */</span>
+
+
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">dprintf_data</span> _<span class="hljs-title">data</span> = {</span><span class="hljs-number">0</span>,<span class="hljs-number">0</span>};
+
+	<span class="hljs-keyword">if</span> (*fmt == <span class="hljs-string">'\a'</span>) {
+		fmt++;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-keyword">char</span> timestamp[<span class="hljs-number">32</span>];
+		<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">long</span> timer_ticks, timer_subticks;
+		relative_time(<span class="hljs-number">0</span>,<span class="hljs-number">0</span>,&amp;timer_ticks,&amp;timer_subticks);
+		<span class="hljs-keyword">size_t</span> ts_len = <span class="hljs-built_in">snprintf</span>(timestamp, <span class="hljs-number">31</span>, <span class="hljs-string">"[%5lu.%06lu] "</span>, timer_ticks, timer_subticks);
+		_data.left_width = ts_len;
+		write_console(ts_len, (<span class="hljs-keyword">uint8_t</span>*)timestamp);
+	}
+
+	<span class="hljs-keyword">int</span> out = xvasprintf(cb_printf, &amp;_data, fmt, args);
+	va_end(args);
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">ssize_t</span> <span class="hljs-title">write_fs_console</span><span class="hljs-params">(<span class="hljs-keyword">fs_node_t</span> * node, <span class="hljs-keyword">off_t</span> offset, <span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span>, <span class="hljs-keyword">uint8_t</span> * <span class="hljs-built_in">buffer</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &gt; <span class="hljs-number">0x1000</span>) <span class="hljs-keyword">return</span> -EINVAL;
+	<span class="hljs-keyword">size_t</span> size_in = <span class="hljs-built_in">size</span>;
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span> &amp;&amp; *<span class="hljs-built_in">buffer</span> == <span class="hljs-string">'\r'</span>) {
+		write_console(<span class="hljs-number">1</span>,(<span class="hljs-keyword">uint8_t</span>*)<span class="hljs-string">"\r"</span>);
+		<span class="hljs-built_in">buffer</span>++;
+		<span class="hljs-built_in">size</span>--;
+	}
+	<span class="hljs-keyword">if</span> (<span class="hljs-built_in">size</span>) dprintf(<span class="hljs-string">"%*s"</span>, (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)<span class="hljs-built_in">size</span>, <span class="hljs-built_in">buffer</span>);
+	<span class="hljs-keyword">return</span> size_in;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">fs_node_t</span> * <span class="hljs-title">console_device_create</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">fs_node_t</span> * fnode = <span class="hljs-built_in">malloc</span>(<span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	<span class="hljs-built_in">memset</span>(fnode, <span class="hljs-number">0x00</span>, <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">fs_node_t</span>));
+	fnode-&gt;inode = <span class="hljs-number">0</span>;
+	<span class="hljs-built_in">strcpy</span>(fnode-&gt;name, <span class="hljs-string">"console"</span>);
+	fnode-&gt;uid = <span class="hljs-number">0</span>;
+	fnode-&gt;gid = <span class="hljs-number">0</span>;
+	fnode-&gt;mask = <span class="hljs-number">0660</span>;
+	fnode-&gt;flags   = FS_CHARDEVICE;
+	fnode-&gt;<span class="hljs-built_in">write</span>   = write_fs_console;
+	<span class="hljs-keyword">return</span> fnode;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">console_initialize</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	console_dev = console_device_create();
+	vfs_mount(<span class="hljs-string">"/dev/console"</span>, console_dev, <span class="hljs-string">"console"</span>, <span class="hljs-string">""</span>);
+}
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>panel.c</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="../doc-style.css" />
+  <script src="../doc-filelist.js"></script>
+  <script>
+    var relativeDir = "../";
+    var thisFile = "apps\\panel.c";
+    var defaultSidebar = true;
+  </script>
+  <script src="../doc-script.js"></script>
+
+</head>
+<body>
+  <div id="sidebar_wrapper">
+    <div id="sidebar_switch">
+      <span class="tree">Files</span>
+      <span class="headings">Headings</span>
+    </div>
+    <div id="tree"></div>
+    <div id="headings">
+
+    </div>
+  </div>
+  <div id="sidebar-toggle"></div>
+  <div id="container">
+    <div class="background highlight"></div>
+<table cellpadding="0" cellspacing="0">
+  <tbody>
+    
+      <tr>
+        <td class="docs">
+          <h1>panel.c</h1>
+        </td>
+        <td class="code highlight"></td>
+      </tr>
+    
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-1" id="section-1"></a>
+</div>
+<div class="dox">
+<div class="summary">
+</div>
+<div class="body">
+</div>
+<div class="details">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c"><span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;stdlib.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;assert.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;limits.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;math.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;unistd.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;signal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;pthread.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/time.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/wait.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/fswait.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;sys/shm.h&gt;</span></span>
+
+<span class="hljs-comment">/* auto-dep: export-dynamic */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;dlfcn.h&gt;</span></span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/yutani.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/yutani-internal.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/graphics.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/hashmap.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/icon_cache.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/menu.h&gt;</span></span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/text.h&gt;</span></span>
+
+<span class="hljs-comment">/* Several theming defines are in here */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">include</span> <span class="hljs-meta-string">&lt;toaru/panel.h&gt;</span></span>
+
+<span class="hljs-comment">/* These are local to the core panel, so we don't need to put them in the header */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ALTTAB_WIDTH  250</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ALTTAB_HEIGHT 200</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ALTTAB_BACKGROUND premultiply(rgba(0,0,0,150))</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ALTTAB_OFFSET 10</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ALTTAB_WIN_SIZE 140</span>
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ALTF2_WIDTH 400</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ALTF2_HEIGHT 200</span>
+
+<span class="hljs-comment">/* How many windows we can support in the advertisement lift before truncating it */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MAX_WINDOW_COUNT 100</span>
+<span class="hljs-comment">/* Height of the panel window */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> PANEL_HEIGHT 27</span>
+<span class="hljs-comment">/* How far down dropdown menus should be shown */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> DROPDOWN_OFFSET PANEL_HEIGHT</span>
+<span class="hljs-comment">/* How much padding should be assured on the left and right of the screen for menus */</span>
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> MENU_PAD 4</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">PanelContext</span> <span class="hljs-title">panel_context</span>;</span>
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">gfx_context_t</span> * ctx = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_window_t</span> * panel = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">gfx_context_t</span> * actx = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_window_t</span> * alttab = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">gfx_context_t</span> * a2ctx = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">yutani_window_t</span> * alt_f2 = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">size_t</span> bg_size;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> * bg_blob;
+
+<span class="hljs-comment">/* External interface for widgets */</span>
+<span class="hljs-keyword">list_t</span> * window_list = <span class="hljs-literal">NULL</span>;
+<span class="hljs-keyword">yutani_t</span> * yctx;
+<span class="hljs-keyword">int</span> <span class="hljs-built_in">width</span>;
+<span class="hljs-keyword">int</span> <span class="hljs-built_in">height</span>;
+
+<span class="hljs-keyword">list_t</span> * widgets_enabled = <span class="hljs-literal">NULL</span>;
+
+<span class="hljs-comment">/* Windows, indexed by z-order */</span>
+<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">window_ad</span> * <span class="hljs-title">ads_by_z</span>[<span class="hljs-title">MAX_WINDOW_COUNT</span>+1] = {</span><span class="hljs-literal">NULL</span>};
+
+<span class="hljs-keyword">int</span> active_window = <span class="hljs-number">-1</span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> was_tabbing = <span class="hljs-number">0</span>;
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> new_focused = <span class="hljs-number">-1</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">widgets_layout</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span></span>;
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> _close_enough(struct yutani_msg_window_mouse_event * me) {
+	<span class="hljs-keyword">if</span> (me-&gt;command == YUTANI_MOUSE_EVENT_RAISE &amp;&amp; <span class="hljs-built_in">sqrt</span>(<span class="hljs-built_in">pow</span>(me-&gt;new_x - me-&gt;old_x, <span class="hljs-number">2</span>) + <span class="hljs-built_in">pow</span>(me-&gt;new_y - me-&gt;old_y, <span class="hljs-number">2</span>)) &lt; <span class="hljs-number">10</span>) {
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">center_x</span><span class="hljs-params">(<span class="hljs-keyword">int</span> x)</span> </span>{
+	<span class="hljs-keyword">return</span> (<span class="hljs-built_in">width</span> - x) / <span class="hljs-number">2</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">center_y</span><span class="hljs-params">(<span class="hljs-keyword">int</span> y)</span> </span>{
+	<span class="hljs-keyword">return</span> (<span class="hljs-built_in">height</span> - y) / <span class="hljs-number">2</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">center_x_a</span><span class="hljs-params">(<span class="hljs-keyword">int</span> x)</span> </span>{
+	<span class="hljs-keyword">return</span> (alttab-&gt;<span class="hljs-built_in">width</span> - x) / <span class="hljs-number">2</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">center_x_a2</span><span class="hljs-params">(<span class="hljs-keyword">int</span> x)</span> </span>{
+	<span class="hljs-keyword">return</span> (ALTF2_WIDTH - x) / <span class="hljs-number">2</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">volatile</span> <span class="hljs-keyword">int</span> _continue = <span class="hljs-number">1</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">toggle_hide_panel</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> panel_hidden = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">if</span> (panel_hidden) {
+		<span class="hljs-comment">/* Unhide the panel */</span>
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = PANEL_HEIGHT<span class="hljs-number">-1</span>; i &gt;= <span class="hljs-number">0</span>; i--) {
+			yutani_window_move(yctx, panel, <span class="hljs-number">0</span>, -i);
+			usleep(<span class="hljs-number">3000</span>);
+		}
+		panel_hidden = <span class="hljs-number">0</span>;
+	} <span class="hljs-keyword">else</span> {
+		<span class="hljs-comment">/* Hide the panel */</span>
+		<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">1</span>; i &lt;= PANEL_HEIGHT<span class="hljs-number">-1</span>; i++) {
+			yutani_window_move(yctx, panel, <span class="hljs-number">0</span>, -i);
+			usleep(<span class="hljs-number">3000</span>);
+		}
+		panel_hidden = <span class="hljs-number">1</span>;
+	}
+}
+
+<span class="hljs-comment">/* Handle SIGINT by telling other threads (clock) to shut down */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sig_int</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sig)</span> </span>{
+	<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Received shutdown signal in panel!\n"</span>);
+	_continue = <span class="hljs-number">0</span>;
+	signal(SIGINT, sig_int);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">launch_application</span><span class="hljs-params">(<span class="hljs-keyword">char</span> * app)</span> </span>{
+	<span class="hljs-keyword">if</span> (!fork()) {
+		<span class="hljs-built_in">printf</span>(<span class="hljs-string">"Starting %s\n"</span>, app);
+		<span class="hljs-keyword">char</span> * args[] = {<span class="hljs-string">"/bin/sh"</span>, <span class="hljs-string">"-c"</span>, app, <span class="hljs-literal">NULL</span>};
+		execvp(args[<span class="hljs-number">0</span>], args);
+		<span class="hljs-built_in">exit</span>(<span class="hljs-number">1</span>);
+	}
+}
+
+<span class="hljs-comment">/* Callback for mouse events */</span>
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">panel_check_click</span><span class="hljs-params">(struct yutani_msg_window_mouse_event * evt)</span> </span>{
+	<span class="hljs-keyword">static</span> <span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">PanelWidget</span> * <span class="hljs-title">old_target</span> = <span class="hljs-title">NULL</span>;</span>
+
+	<span class="hljs-keyword">if</span> (evt-&gt;wid == panel-&gt;wid) {
+
+		<span class="hljs-comment">/* Figure out what widget this belongs to */</span>
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">PanelWidget</span> * <span class="hljs-title">target</span> = <span class="hljs-title">NULL</span>;</span>
+		<span class="hljs-keyword">if</span> (evt-&gt;new_y &gt;= <span class="hljs-number">0</span> &amp;&amp; evt-&gt;new_y &lt; PANEL_HEIGHT) {
+			foreach(widget_node, widgets_enabled) {
+				<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">PanelWidget</span> * <span class="hljs-title">widget</span> = <span class="hljs-title">widget_node</span>-&gt;<span class="hljs-title">value</span>;</span>
+				<span class="hljs-keyword">if</span> (evt-&gt;new_x &gt;= widget-&gt;left &amp;&amp; evt-&gt;new_x &lt; widget-&gt;left + widget-&gt;<span class="hljs-built_in">width</span>) {
+					target = widget;
+					<span class="hljs-keyword">break</span>;
+				}
+			}
+		}
+
+		<span class="hljs-keyword">int</span> needs_redraw = <span class="hljs-number">0</span>;
+
+		<span class="hljs-keyword">if</span> (evt-&gt;command == YUTANI_MOUSE_EVENT_CLICK || _close_enough(evt)) {
+			<span class="hljs-keyword">if</span> (target) needs_redraw |= target-&gt;<span class="hljs-built_in">click</span>(target, evt);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (evt-&gt;buttons &amp; YUTANI_MOUSE_BUTTON_RIGHT) {
+			<span class="hljs-keyword">if</span> (target) needs_redraw |= target-&gt;right_click(target, evt);
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (evt-&gt;command == YUTANI_MOUSE_EVENT_MOVE || evt-&gt;command == YUTANI_MOUSE_EVENT_ENTER) {
+			<span class="hljs-keyword">if</span> (old_target &amp;&amp; target != old_target) needs_redraw |= old_target-&gt;leave(old_target, evt);
+			<span class="hljs-keyword">if</span> (target &amp;&amp; target != old_target) needs_redraw |= target-&gt;enter(target, evt);
+			<span class="hljs-keyword">if</span> (target) needs_redraw |= target-&gt;<span class="hljs-built_in">move</span>(target, evt);
+			old_target = target;
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (evt-&gt;command == YUTANI_MOUSE_EVENT_LEAVE) {
+			<span class="hljs-keyword">if</span> (old_target) needs_redraw |= old_target-&gt;leave(old_target, evt);
+			old_target = <span class="hljs-literal">NULL</span>;
+		}
+
+		<span class="hljs-keyword">if</span> (needs_redraw) redraw();
+	}
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">char</span> altf2_buffer[<span class="hljs-number">1024</span>] = {<span class="hljs-number">0</span>};
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> altf2_collected = <span class="hljs-number">0</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">close_altf2</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-built_in">free</span>(a2ctx-&gt;backbuffer);
+	<span class="hljs-built_in">free</span>(a2ctx);
+
+	altf2_buffer[<span class="hljs-number">0</span>] = <span class="hljs-number">0</span>;
+	altf2_collected = <span class="hljs-number">0</span>;
+
+	yutani_close(yctx, alt_f2);
+	alt_f2 = <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">redraw_altf2</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	draw_fill(a2ctx, <span class="hljs-number">0</span>);
+	draw_rounded_rectangle(a2ctx,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>, ALTF2_WIDTH, ALTF2_HEIGHT, <span class="hljs-number">11</span>, premultiply(rgba(<span class="hljs-number">60</span>,<span class="hljs-number">100</span>,<span class="hljs-number">160</span>,<span class="hljs-number">150</span>)));
+	draw_rounded_rectangle(a2ctx,<span class="hljs-number">1</span>,<span class="hljs-number">1</span>, ALTF2_WIDTH<span class="hljs-number">-2</span>, ALTF2_HEIGHT<span class="hljs-number">-2</span>, <span class="hljs-number">10</span>, ALTTAB_BACKGROUND);
+
+	tt_set_size(panel_context.font, <span class="hljs-number">20</span>);
+	<span class="hljs-keyword">int</span> t = tt_string_width(panel_context.font, altf2_buffer);
+	tt_draw_string(a2ctx, panel_context.font, center_x_a2(t), <span class="hljs-number">80</span>, altf2_buffer, rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>));
+
+	flip(a2ctx);
+	yutani_flip(yctx, alt_f2);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">redraw_alttab</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">if</span> (!actx) <span class="hljs-keyword">return</span>;
+	<span class="hljs-keyword">while</span> (new_focused &gt; <span class="hljs-number">-1</span> &amp;&amp; !ads_by_z[new_focused]) {
+		new_focused--;
+	}
+	<span class="hljs-keyword">if</span> (new_focused == <span class="hljs-number">-1</span>) {
+		<span class="hljs-comment">/* Stop tabbing */</span>
+		was_tabbing = <span class="hljs-number">0</span>;
+		<span class="hljs-built_in">free</span>(actx-&gt;backbuffer);
+		<span class="hljs-built_in">free</span>(actx);
+		actx = <span class="hljs-literal">NULL</span>;
+		yutani_close(yctx, alttab);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-comment">/* How many windows do we have? */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> window_count = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (ads_by_z[window_count]) window_count++;
+
+<span class="hljs-meta">#<span class="hljs-meta-keyword">define</span> ALTTAB_COLUMNS 5</span>
+
+	<span class="hljs-comment">/* How many rows should that be? */</span>
+	<span class="hljs-keyword">int</span> rows = (window_count - <span class="hljs-number">1</span>) / ALTTAB_COLUMNS + <span class="hljs-number">1</span>;
+
+	<span class="hljs-comment">/* How many columns? */</span>
+	<span class="hljs-keyword">int</span> columns = (rows == <span class="hljs-number">1</span>) ? window_count : ALTTAB_COLUMNS;
+
+	<span class="hljs-comment">/* How much padding on the last row? */</span>
+	<span class="hljs-keyword">int</span> last_row = (window_count % columns) ? ((ALTTAB_WIN_SIZE + <span class="hljs-number">20</span>) * (columns - (window_count % columns))) / <span class="hljs-number">2</span>  : <span class="hljs-number">0</span>;
+
+	<span class="hljs-comment">/* Is the window the right size? */</span>
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> expected_width = columns * (ALTTAB_WIN_SIZE + <span class="hljs-number">20</span>) + <span class="hljs-number">40</span>;
+	<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> expected_height = rows * (ALTTAB_WIN_SIZE + <span class="hljs-number">20</span>) + <span class="hljs-number">60</span>;
+
+	<span class="hljs-keyword">if</span> (alttab-&gt;<span class="hljs-built_in">width</span> != expected_width || alttab-&gt;<span class="hljs-built_in">height</span> != expected_height) {
+		yutani_window_resize(yctx, alttab, expected_width, expected_height);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-comment">/* Draw the background, right now just a dark semi-transparent box */</span>
+	draw_fill(actx, <span class="hljs-number">0</span>);
+	draw_rounded_rectangle(actx,<span class="hljs-number">0</span>,<span class="hljs-number">0</span>, alttab-&gt;<span class="hljs-built_in">width</span>, alttab-&gt;<span class="hljs-built_in">height</span>, <span class="hljs-number">11</span>, premultiply(rgba(<span class="hljs-number">60</span>,<span class="hljs-number">100</span>,<span class="hljs-number">160</span>,<span class="hljs-number">150</span>)));
+	draw_rounded_rectangle(actx,<span class="hljs-number">1</span>,<span class="hljs-number">1</span>, alttab-&gt;<span class="hljs-built_in">width</span><span class="hljs-number">-2</span>, alttab-&gt;<span class="hljs-built_in">height</span><span class="hljs-number">-2</span>, <span class="hljs-number">10</span>, ALTTAB_BACKGROUND);
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; window_count; ++i) {
+		<span class="hljs-keyword">if</span> (!ads_by_z[i]) <span class="hljs-keyword">continue</span>;
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">window_ad</span> * <span class="hljs-title">ad</span> = <span class="hljs-title">ads_by_z</span>[<span class="hljs-title">i</span>];</span>
+
+		<span class="hljs-comment">/* Figure out grid alignment for this element */</span>
+		<span class="hljs-keyword">int</span> pos_x = ((window_count - i - <span class="hljs-number">1</span>) % ALTTAB_COLUMNS) * (ALTTAB_WIN_SIZE + <span class="hljs-number">20</span>) + <span class="hljs-number">20</span>;
+		<span class="hljs-keyword">int</span> pos_y = ((window_count - i - <span class="hljs-number">1</span>) / ALTTAB_COLUMNS) * (ALTTAB_WIN_SIZE + <span class="hljs-number">20</span>) + <span class="hljs-number">20</span>;
+
+		<span class="hljs-keyword">if</span> ((window_count - i - <span class="hljs-number">1</span>) / ALTTAB_COLUMNS == (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)rows - <span class="hljs-number">1</span>) {
+			pos_x += last_row;
+		}
+
+		<span class="hljs-keyword">if</span> (i == (<span class="hljs-keyword">unsigned</span> <span class="hljs-keyword">int</span>)new_focused) {
+			draw_rounded_rectangle(actx, pos_x, pos_y, ALTTAB_WIN_SIZE + <span class="hljs-number">20</span>, ALTTAB_WIN_SIZE + <span class="hljs-number">20</span>, <span class="hljs-number">7</span>, premultiply(rgba(<span class="hljs-number">80</span>,<span class="hljs-number">150</span>,<span class="hljs-number">220</span>,<span class="hljs-number">180</span>)));
+		}
+
+		<span class="hljs-comment">/* try very hard to get a window texture */</span>
+		<span class="hljs-keyword">char</span> key[<span class="hljs-number">1024</span>];
+		YUTANI_SHMKEY_EXP(yctx-&gt;server_ident, key, <span class="hljs-number">1024</span>, ad-&gt;bufid);
+		<span class="hljs-keyword">size_t</span> <span class="hljs-built_in">size</span> = <span class="hljs-number">0</span>;
+		<span class="hljs-keyword">uint32_t</span> * buf =  shm_obtain(key, &amp;<span class="hljs-built_in">size</span>);
+
+		<span class="hljs-keyword">if</span> (buf &amp;&amp; <span class="hljs-built_in">size</span> &gt;= ad-&gt;<span class="hljs-built_in">width</span> * ad-&gt;<span class="hljs-built_in">height</span> * <span class="hljs-number">4</span>) {
+			<span class="hljs-keyword">sprite_t</span> tmp;
+			tmp.<span class="hljs-built_in">width</span> = ad-&gt;<span class="hljs-built_in">width</span>;
+			tmp.<span class="hljs-built_in">height</span> = ad-&gt;<span class="hljs-built_in">height</span>;
+			tmp.bitmap = buf;
+
+			<span class="hljs-keyword">int</span> ox = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">int</span> oy = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">int</span> sw, sh;
+			<span class="hljs-keyword">if</span> (tmp.<span class="hljs-built_in">width</span> &gt; tmp.<span class="hljs-built_in">height</span>) {
+				sw = ALTTAB_WIN_SIZE;
+				sh = tmp.<span class="hljs-built_in">height</span> * ALTTAB_WIN_SIZE / tmp.<span class="hljs-built_in">width</span>;
+				oy = (ALTTAB_WIN_SIZE - sh) / <span class="hljs-number">2</span>;
+			} <span class="hljs-keyword">else</span> {
+				sh = ALTTAB_WIN_SIZE;
+				sw = tmp.<span class="hljs-built_in">width</span> * ALTTAB_WIN_SIZE / tmp.<span class="hljs-built_in">height</span>;
+				ox = (ALTTAB_WIN_SIZE - sw) / <span class="hljs-number">2</span>;
+			}
+			draw_sprite_scaled(actx, &amp;tmp,
+				pos_x + ox + <span class="hljs-number">10</span>,
+				pos_y + oy + <span class="hljs-number">10</span>,
+				sw, sh);
+
+			shm_release(key);
+
+			<span class="hljs-keyword">sprite_t</span> * icon = icon_get_48(ad-&gt;icon);
+			draw_sprite(actx, icon, pos_x + <span class="hljs-number">10</span> + ALTTAB_WIN_SIZE - <span class="hljs-number">50</span>, pos_y + <span class="hljs-number">10</span> + ALTTAB_WIN_SIZE - <span class="hljs-number">50</span>);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">sprite_t</span> * icon = icon_get_48(ad-&gt;icon);
+			draw_sprite(actx, icon, pos_x + <span class="hljs-number">10</span> + (ALTTAB_WIN_SIZE - <span class="hljs-number">48</span>) / <span class="hljs-number">2</span>, pos_y + <span class="hljs-number">10</span> + (ALTTAB_WIN_SIZE - <span class="hljs-number">48</span>) / <span class="hljs-number">2</span>);
+		}
+
+	}
+
+	{
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">window_ad</span> * <span class="hljs-title">ad</span> = <span class="hljs-title">ads_by_z</span>[<span class="hljs-title">new_focused</span>];</span>
+		<span class="hljs-keyword">int</span> t;
+		<span class="hljs-keyword">char</span> * title = tt_ellipsify(ad-&gt;name, <span class="hljs-number">16</span>, panel_context.font, alttab-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">20</span>, &amp;t);
+		tt_set_size(panel_context.font, <span class="hljs-number">16</span>);
+		tt_draw_string(actx, panel_context.font, center_x_a(t), rows * (ALTTAB_WIN_SIZE + <span class="hljs-number">20</span>) + <span class="hljs-number">44</span>, title, rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>));
+		<span class="hljs-built_in">free</span>(title);
+	}
+
+	flip(actx);
+	yutani_window_move(yctx, alttab, center_x(alttab-&gt;<span class="hljs-built_in">width</span>), center_y(alttab-&gt;<span class="hljs-built_in">height</span>));
+	yutani_flip(yctx, alttab);
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-keyword">pthread_t</span> _waiter_thread;
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> * <span class="hljs-title">logout_prompt_waiter</span><span class="hljs-params">(<span class="hljs-keyword">void</span> * arg)</span> </span>{
+	<span class="hljs-keyword">if</span> (system(<span class="hljs-string">"showdialog --title '\xe6\xb3\xa8\xe9\x94\x80' --icon exit '\xe7\xa1\xae\xe5\xae\x9a\xe8\xa6\x81\xe6\xb3\xa8\xe9\x94\x80\xe5\x90\x97\xef\xbc\x9f'"</span>) == <span class="hljs-number">0</span>) {
+		yutani_session_end(yctx);
+		_continue = <span class="hljs-number">0</span>;
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-literal">NULL</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">launch_application_menu</span><span class="hljs-params">(struct MenuEntry * self)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">MenuEntry_Normal</span> * _<span class="hljs-title">self</span> = (<span class="hljs-title">void</span> *)<span class="hljs-title">self</span>;</span>
+
+	<span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>((<span class="hljs-keyword">char</span> *)_self-&gt;action,<span class="hljs-string">"log-out"</span>)) {
+		<span class="hljs-comment">/* Spin off a thread for this */</span>
+		pthread_create(&amp;_waiter_thread, <span class="hljs-literal">NULL</span>, logout_prompt_waiter, <span class="hljs-literal">NULL</span>);
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>((<span class="hljs-keyword">char</span> *)_self-&gt;action,<span class="hljs-string">"reboot"</span>)) {
+		<span class="hljs-keyword">if</span> (system(<span class="hljs-string">"showdialog --title '\xe9\x87\x8d\xe5\x90\xaf' --icon exit '\xe7\xa1\xae\xe5\xae\x9a\xe8\xa6\x81\xe9\x87\x8d\xe5\x90\xaf\xe7\xb3\xbb\xe7\xbb\x9f\xe5\x90\x97\xef\xbc\x9f'"</span>) == <span class="hljs-number">0</span>) {
+			system(<span class="hljs-string">"reboot"</span>);
+		}
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">strcmp</span>((<span class="hljs-keyword">char</span> *)_self-&gt;action,<span class="hljs-string">"poweroff"</span>)) {
+		<span class="hljs-keyword">if</span> (system(<span class="hljs-string">"showdialog --title '\xe5\x85\xb3\xe6\x9c\xba' --icon exit '\xe7\xa1\xae\xe5\xae\x9a\xe8\xa6\x81\xe5\x85\xb3\xe6\x9c\xba\xe7\xb3\xbb\xe7\xbb\x9f\xe5\x90\x97\xef\xbc\x9f'"</span>) == <span class="hljs-number">0</span>) {
+			system(<span class="hljs-string">"poweroff"</span>);
+		}
+	} <span class="hljs-keyword">else</span> {
+		launch_application((<span class="hljs-keyword">char</span> *)_self-&gt;action);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">handle_key_event</span><span class="hljs-params">(struct yutani_msg_key_event * ke)</span> </span>{
+</pre>
+        </td>
+      </tr>
+    
+      <tr>
+        <td class="docs">
+          <div class="pilwrap">
+  <a class="pilcrow" href="#section-2" id="section-2"></a>
+</div>
+<div class="dox">
+<div class="summary">
+<p>Is the Alt+F2 command entry window open?
+Then we should capture all typing and use
+direct it to the 'input box'.</p>
+</div>
+<div class="body">
+</div>
+</div>
+
+        </td>
+        <td class="code highlight">
+          <pre class="c">	<span class="hljs-keyword">if</span> (alt_f2 &amp;&amp; ke-&gt;wid == alt_f2-&gt;wid) {
+		<span class="hljs-keyword">if</span> (ke-&gt;event.action == KEY_ACTION_DOWN) {
+			<span class="hljs-comment">/* Escape = cancel */</span>
+			<span class="hljs-keyword">if</span> (ke-&gt;event.keycode == KEY_ESCAPE) {
+				close_altf2();
+				<span class="hljs-keyword">return</span>;
+			}
+
+			<span class="hljs-comment">/* Backspace */</span>
+			<span class="hljs-keyword">if</span> (ke-&gt;event.key == <span class="hljs-string">'\b'</span>) {
+				<span class="hljs-keyword">if</span> (altf2_collected) {
+					altf2_buffer[altf2_collected<span class="hljs-number">-1</span>] = <span class="hljs-string">'\0'</span>;
+					altf2_collected--;
+					redraw_altf2();
+				}
+				<span class="hljs-keyword">return</span>;
+			}
+
+			<span class="hljs-comment">/* Enter */</span>
+			<span class="hljs-keyword">if</span> (ke-&gt;event.key == <span class="hljs-string">'\n'</span>) {
+				<span class="hljs-comment">/* execute */</span>
+				launch_application(altf2_buffer);
+				close_altf2();
+				<span class="hljs-keyword">return</span>;
+			}
+
+			<span class="hljs-comment">/* Some other key */</span>
+			<span class="hljs-keyword">if</span> (!ke-&gt;event.key) {
+				<span class="hljs-keyword">return</span>;
+			}
+
+			<span class="hljs-comment">/* Try to add it */</span>
+			<span class="hljs-keyword">if</span> (altf2_collected &lt; <span class="hljs-keyword">sizeof</span>(altf2_buffer) - <span class="hljs-number">1</span>) {
+				altf2_buffer[altf2_collected] = ke-&gt;event.key;
+				altf2_collected++;
+				altf2_buffer[altf2_collected] = <span class="hljs-number">0</span>;
+				redraw_altf2();
+			}
+		}
+	}
+
+	<span class="hljs-comment">/* Ctrl-Alt-T = Open a new terminal */</span>
+	<span class="hljs-keyword">if</span> ((ke-&gt;event.modifiers &amp; KEY_MOD_LEFT_CTRL) &amp;&amp;
+		(ke-&gt;event.modifiers &amp; KEY_MOD_LEFT_ALT) &amp;&amp;
+		(ke-&gt;event.keycode == <span class="hljs-string">'t'</span>) &amp;&amp;
+		(ke-&gt;event.action == KEY_ACTION_DOWN)) {
+
+		launch_application(<span class="hljs-string">"exec terminal"</span>);
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-comment">/* Ctrl-F11 = Toggle visibility of the panel */</span>
+	<span class="hljs-keyword">if</span> ((ke-&gt;event.modifiers &amp; KEY_MOD_LEFT_CTRL) &amp;&amp;
+		(ke-&gt;event.keycode == KEY_F11) &amp;&amp;
+		(ke-&gt;event.action == KEY_ACTION_DOWN)) {
+
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"[panel] Toggling visibility.\n"</span>);
+		toggle_hide_panel();
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-comment">/* Alt-F2 = Show the command entry window */</span>
+	<span class="hljs-keyword">if</span> ((ke-&gt;event.modifiers &amp; KEY_MOD_LEFT_ALT) &amp;&amp;
+		(ke-&gt;event.keycode == KEY_F2) &amp;&amp;
+		(ke-&gt;event.action == KEY_ACTION_DOWN)) {
+		<span class="hljs-comment">/* show menu */</span>
+		<span class="hljs-keyword">if</span> (!alt_f2) {
+			alt_f2 = yutani_window_create_flags(yctx, ALTF2_WIDTH, ALTF2_HEIGHT, YUTANI_WINDOW_FLAG_BLUR_BEHIND);
+			yutani_window_update_shape(yctx, alt_f2, <span class="hljs-number">5</span>);
+			yutani_window_move(yctx, alt_f2, center_x(ALTF2_WIDTH), center_y(ALTF2_HEIGHT));
+			a2ctx = init_graphics_yutani_double_buffer(alt_f2);
+			redraw_altf2();
+		}
+	}
+
+	<span class="hljs-comment">/* Maybe a plugin wants to handle this key bind */</span>
+	foreach(widget_node, widgets_enabled) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">PanelWidget</span> * <span class="hljs-title">widget</span> = <span class="hljs-title">widget_node</span>-&gt;<span class="hljs-title">value</span>;</span>
+		widget-&gt;onkey(widget, ke);
+	}
+
+	<span class="hljs-comment">/* Releasing Alt when the Alt-Tab switcher is visible */</span>
+	<span class="hljs-keyword">if</span> ((was_tabbing) &amp;&amp; (ke-&gt;event.keycode == <span class="hljs-number">0</span> || ke-&gt;event.keycode == KEY_LEFT_ALT) &amp;&amp;
+		(ke-&gt;event.modifiers == <span class="hljs-number">0</span>) &amp;&amp; (ke-&gt;event.action == KEY_ACTION_UP)) {
+
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"[panel] Stopping focus new_focused = %d\n"</span>, new_focused);
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">window_ad</span> * <span class="hljs-title">ad</span> = <span class="hljs-title">ads_by_z</span>[<span class="hljs-title">new_focused</span>];</span>
+
+		<span class="hljs-keyword">if</span> (!ad) <span class="hljs-keyword">return</span>;
+
+		yutani_focus_window(yctx, ad-&gt;wid);
+		was_tabbing = <span class="hljs-number">0</span>;
+		new_focused = <span class="hljs-number">-1</span>;
+
+		<span class="hljs-built_in">free</span>(actx-&gt;backbuffer);
+		<span class="hljs-built_in">free</span>(actx);
+		actx = <span class="hljs-literal">NULL</span>;
+
+		yutani_close(yctx, alttab);
+
+		<span class="hljs-keyword">return</span>;
+	}
+
+	<span class="hljs-comment">/* Alt-Tab = Switch windows */</span>
+	<span class="hljs-keyword">if</span> ((ke-&gt;event.modifiers &amp; KEY_MOD_LEFT_ALT) &amp;&amp;
+		(ke-&gt;event.keycode == <span class="hljs-string">'\t'</span>) &amp;&amp;
+		(ke-&gt;event.action == KEY_ACTION_DOWN)) {
+
+		<span class="hljs-comment">/* Alt-Tab and Alt-Shift-Tab should go in alternate directions */</span>
+		<span class="hljs-keyword">int</span> direction = (ke-&gt;event.modifiers &amp; KEY_MOD_LEFT_SHIFT) ? <span class="hljs-number">1</span> : <span class="hljs-number">-1</span>;
+
+		<span class="hljs-comment">/* Are there no windows to switch? */</span>
+		<span class="hljs-keyword">if</span> (window_list-&gt;length &lt; <span class="hljs-number">1</span>) <span class="hljs-keyword">return</span>;
+
+		<span class="hljs-comment">/* Figure out the new focused window */</span>
+		<span class="hljs-keyword">if</span> (was_tabbing) {
+			new_focused = new_focused + direction;
+		} <span class="hljs-keyword">else</span> {
+			new_focused = active_window + direction;
+			<span class="hljs-comment">/* Create tab window */</span>
+			alttab = yutani_window_create_flags(yctx, ALTTAB_WIDTH, ALTTAB_HEIGHT,
+				YUTANI_WINDOW_FLAG_NO_STEAL_FOCUS | YUTANI_WINDOW_FLAG_NO_ANIMATION | YUTANI_WINDOW_FLAG_BLUR_BEHIND);
+			yutani_window_update_shape(yctx, alttab, <span class="hljs-number">5</span>);
+
+			yutani_set_stack(yctx, alttab, YUTANI_ZORDER_OVERLAY);
+
+			<span class="hljs-comment">/* Initialize graphics context against the window */</span>
+			actx = init_graphics_yutani_double_buffer(alttab);
+		}
+
+		<span class="hljs-comment">/* Handle wraparound */</span>
+		<span class="hljs-keyword">if</span> (new_focused &lt; <span class="hljs-number">0</span>) {
+			new_focused = <span class="hljs-number">0</span>;
+			<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; MAX_WINDOW_COUNT; i++) {
+				<span class="hljs-keyword">if</span> (ads_by_z[i+<span class="hljs-number">1</span>] == <span class="hljs-literal">NULL</span>) {
+					new_focused = i;
+					<span class="hljs-keyword">break</span>;
+				}
+			}
+		} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (ads_by_z[new_focused] == <span class="hljs-literal">NULL</span>) {
+			<span class="hljs-keyword">if</span> (ads_by_z[<span class="hljs-number">0</span>]) {
+				new_focused = <span class="hljs-number">0</span>;
+			} <span class="hljs-keyword">else</span> {
+				new_focused = <span class="hljs-number">-1</span>;
+			}
+		}
+
+		was_tabbing = <span class="hljs-number">1</span>;
+		redraw_alttab();
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">redraw</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-built_in">memcpy</span>(ctx-&gt;backbuffer, bg_blob, bg_size);
+
+	foreach(widget_node, widgets_enabled) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">PanelWidget</span> * <span class="hljs-title">widget</span> = <span class="hljs-title">widget_node</span>-&gt;<span class="hljs-title">value</span>;</span>
+		<span class="hljs-keyword">gfx_context_t</span> * inner = init_graphics_subregion(ctx, widget-&gt;left, <span class="hljs-number">0</span>, widget-&gt;<span class="hljs-built_in">width</span>, PANEL_HEIGHT);
+		widget-&gt;draw(widget, inner);
+		<span class="hljs-built_in">free</span>(inner);
+	}
+
+	<span class="hljs-comment">/* Flip */</span>
+	flip(ctx);
+	yutani_flip(yctx, panel);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">update_window_list</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	yutani_query_windows(yctx);
+
+	<span class="hljs-keyword">list_t</span> * new_window_list = list_create();
+
+	ads_by_z[<span class="hljs-number">0</span>] = <span class="hljs-literal">NULL</span>;
+
+	<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">while</span> (<span class="hljs-number">1</span>) {
+		<span class="hljs-comment">/* We wait for a series of WINDOW_ADVERTISE messsages */</span>
+		<span class="hljs-keyword">yutani_msg_t</span> * m = yutani_wait_for(yctx, YUTANI_MSG_WINDOW_ADVERTISE);
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_advertise</span> * <span class="hljs-title">wa</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+
+		<span class="hljs-keyword">if</span> (wa-&gt;<span class="hljs-built_in">size</span> == <span class="hljs-number">0</span>) {
+			<span class="hljs-comment">/* A sentinal at the end will have a size of 0 */</span>
+			<span class="hljs-built_in">free</span>(m);
+			<span class="hljs-keyword">break</span>;
+		}
+
+		<span class="hljs-comment">/* Store each window advertisement */</span>
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">window_ad</span> * <span class="hljs-title">ad</span> = <span class="hljs-title">malloc</span>(<span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">window_ad</span>));</span>
+
+		<span class="hljs-keyword">char</span> * s = <span class="hljs-built_in">malloc</span>(wa-&gt;<span class="hljs-built_in">size</span>);
+		<span class="hljs-built_in">memcpy</span>(s, wa-&gt;strings, wa-&gt;<span class="hljs-built_in">size</span>);
+		ad-&gt;name = &amp;s[<span class="hljs-number">0</span>];
+		ad-&gt;icon = &amp;s[wa-&gt;icon];
+		ad-&gt;strings = s;
+		ad-&gt;flags = wa-&gt;flags;
+		ad-&gt;wid = wa-&gt;wid;
+		ad-&gt;bufid = wa-&gt;bufid;
+		ad-&gt;<span class="hljs-built_in">width</span> = wa-&gt;<span class="hljs-built_in">width</span>;
+		ad-&gt;<span class="hljs-built_in">height</span> = wa-&gt;<span class="hljs-built_in">height</span>;
+
+		ads_by_z[i] = ad;
+		i++;
+		ads_by_z[i] = <span class="hljs-literal">NULL</span>;
+
+		<span class="hljs-keyword">node_t</span> * next = <span class="hljs-literal">NULL</span>;
+
+		<span class="hljs-comment">/* And insert it, ordered by wid, into the window list */</span>
+		foreach(node, new_window_list) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">window_ad</span> * <span class="hljs-title">n</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+
+			<span class="hljs-keyword">if</span> (n-&gt;wid &gt; ad-&gt;wid) {
+				next = node;
+				<span class="hljs-keyword">break</span>;
+			}
+		}
+
+		<span class="hljs-keyword">if</span> (next) {
+			list_insert_before(new_window_list, next, ad);
+		} <span class="hljs-keyword">else</span> {
+			list_insert(new_window_list, ad);
+		}
+		<span class="hljs-built_in">free</span>(m);
+	}
+	active_window = i<span class="hljs-number">-1</span>;
+
+	<span class="hljs-keyword">if</span> (window_list) {
+		foreach(node, window_list) {
+			<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">window_ad</span> * <span class="hljs-title">ad</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+			<span class="hljs-built_in">free</span>(ad-&gt;strings);
+			<span class="hljs-built_in">free</span>(ad);
+		}
+		list_free(window_list);
+		<span class="hljs-built_in">free</span>(window_list);
+	}
+	window_list = new_window_list;
+
+	<span class="hljs-comment">/* And redraw the panel */</span>
+	redraw();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">redraw_panel_background</span><span class="hljs-params">(<span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">int</span> <span class="hljs-built_in">width</span>, <span class="hljs-keyword">int</span> <span class="hljs-built_in">height</span>)</span> </span>{
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">height</span>; ++i) {
+		<span class="hljs-keyword">float</span> t = (<span class="hljs-keyword">float</span>)i / (<span class="hljs-keyword">float</span>)<span class="hljs-built_in">height</span>;
+		<span class="hljs-keyword">uint32_t</span> c = lerp_rgba(rgba(<span class="hljs-number">25</span>,<span class="hljs-number">55</span>,<span class="hljs-number">120</span>,<span class="hljs-number">0xF0</span>), rgba(<span class="hljs-number">45</span>,<span class="hljs-number">85</span>,<span class="hljs-number">160</span>,<span class="hljs-number">0xF0</span>), t);
+		draw_line(ctx, <span class="hljs-number">0</span>, i, <span class="hljs-built_in">width</span>, i, c);
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">resize_finish</span><span class="hljs-params">(<span class="hljs-keyword">int</span> xwidth, <span class="hljs-keyword">int</span> xheight)</span> </span>{
+	yutani_window_resize_accept(yctx, panel, xwidth, xheight);
+
+	reinit_graphics_yutani(ctx, panel);
+	yutani_window_resize_done(yctx, panel);
+
+	<span class="hljs-built_in">width</span> = xwidth;
+
+	redraw_panel_background(ctx, xwidth, xheight);
+
+	<span class="hljs-comment">/* Copy the prerendered background so we can redraw it quickly */</span>
+	bg_size = panel-&gt;<span class="hljs-built_in">width</span> * panel-&gt;<span class="hljs-built_in">height</span> * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>);
+	bg_blob = <span class="hljs-built_in">realloc</span>(bg_blob, bg_size);
+	<span class="hljs-built_in">memcpy</span>(bg_blob, ctx-&gt;backbuffer, bg_size);
+
+	widgets_layout();
+	update_window_list();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">bind_keys</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+
+	<span class="hljs-comment">/* Cltr-Alt-T = launch terminal */</span>
+	yutani_key_bind(yctx, <span class="hljs-string">'t'</span>, KEY_MOD_LEFT_CTRL | KEY_MOD_LEFT_ALT, YUTANI_BIND_STEAL);
+
+	<span class="hljs-comment">/* Alt+Tab = app switcher*/</span>
+	yutani_key_bind(yctx, <span class="hljs-string">'\t'</span>, KEY_MOD_LEFT_ALT, YUTANI_BIND_STEAL);
+	yutani_key_bind(yctx, <span class="hljs-string">'\t'</span>, KEY_MOD_LEFT_ALT | KEY_MOD_LEFT_SHIFT, YUTANI_BIND_STEAL);
+
+	<span class="hljs-comment">/* Ctrl-F11 = toggle panel visibility */</span>
+	yutani_key_bind(yctx, KEY_F11, KEY_MOD_LEFT_CTRL, YUTANI_BIND_STEAL);
+
+	<span class="hljs-comment">/* Alt+F2 = show app runner */</span>
+	yutani_key_bind(yctx, KEY_F2, KEY_MOD_LEFT_ALT, YUTANI_BIND_STEAL);
+
+	<span class="hljs-comment">/* This lets us receive all just-modifier key releases */</span>
+	yutani_key_bind(yctx, KEY_LEFT_ALT, <span class="hljs-number">0</span>, YUTANI_BIND_PASSTHROUGH);
+
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">sig_usr2</span><span class="hljs-params">(<span class="hljs-keyword">int</span> sig)</span> </span>{
+	yutani_set_stack(yctx, panel, YUTANI_ZORDER_TOP);
+	yutani_flip(yctx, panel);
+	bind_keys();
+	signal(SIGUSR2, sig_usr2);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">mouse_event_ignore</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, struct yutani_msg_window_mouse_event * evt)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">widget_enter_generic</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, struct yutani_msg_window_mouse_event * evt)</span> </span>{
+	<span class="hljs-keyword">this</span>-&gt;highlighted = <span class="hljs-number">1</span>; <span class="hljs-comment">/* Highlighted */</span>
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">widget_leave_generic</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, struct yutani_msg_window_mouse_event * evt)</span> </span>{
+	<span class="hljs-keyword">this</span>-&gt;highlighted = <span class="hljs-number">0</span>; <span class="hljs-comment">/* Not highlighted */</span>
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">void</span> <span class="hljs-title">panel_highlight_widget</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">gfx_context_t</span> * ctx, <span class="hljs-keyword">int</span> active)</span> </span>{
+	<span class="hljs-keyword">if</span> (<span class="hljs-keyword">this</span>-&gt;highlighted || active) {
+		draw_rounded_rectangle(ctx, <span class="hljs-number">3</span>, <span class="hljs-number">3</span>, ctx-&gt;<span class="hljs-built_in">width</span> - <span class="hljs-number">6</span>, ctx-&gt;<span class="hljs-built_in">height</span> - <span class="hljs-number">6</span>, <span class="hljs-number">11</span>, premultiply(rgba(<span class="hljs-number">80</span>,<span class="hljs-number">140</span>,<span class="hljs-number">200</span>,active ? <span class="hljs-number">180</span> : <span class="hljs-number">150</span>)));
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">widget_draw_generic</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">gfx_context_t</span> * ctx)</span> </span>{
+	draw_rounded_rectangle(
+		ctx, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, ctx-&gt;<span class="hljs-built_in">width</span>, ctx-&gt;<span class="hljs-built_in">height</span>, <span class="hljs-number">7</span>, premultiply(rgba(<span class="hljs-number">60</span>,<span class="hljs-number">100</span>,<span class="hljs-number">160</span>,<span class="hljs-number">150</span>)));
+	<span class="hljs-keyword">if</span> (<span class="hljs-keyword">this</span>-&gt;highlighted) {
+		draw_rounded_rectangle(
+			ctx, <span class="hljs-number">1</span>, <span class="hljs-number">1</span>, ctx-&gt;<span class="hljs-built_in">width</span><span class="hljs-number">-2</span>, ctx-&gt;<span class="hljs-built_in">height</span><span class="hljs-number">-2</span>, <span class="hljs-number">6</span>, premultiply(rgba(<span class="hljs-number">80</span>,<span class="hljs-number">150</span>,<span class="hljs-number">220</span>,<span class="hljs-number">220</span>)));
+	} <span class="hljs-keyword">else</span> {
+		draw_rounded_rectangle(
+			ctx, <span class="hljs-number">1</span>, <span class="hljs-number">1</span>, ctx-&gt;<span class="hljs-built_in">width</span><span class="hljs-number">-2</span>, ctx-&gt;<span class="hljs-built_in">height</span><span class="hljs-number">-2</span>, <span class="hljs-number">6</span>, ALTTAB_BACKGROUND);
+	}
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">widget_update_generic</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, <span class="hljs-keyword">int</span> * force_updates)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">int</span> <span class="hljs-title">widget_onkey_generic</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, struct yutani_msg_key_event * evt)</span> </span>{
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+<span class="hljs-function">struct PanelWidget * <span class="hljs-title">widget_new</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">PanelWidget</span> * <span class="hljs-title">out</span> = <span class="hljs-title">calloc</span>(1, <span class="hljs-title">sizeof</span>(<span class="hljs-title">struct</span> <span class="hljs-title">PanelWidget</span>));</span>
+	out-&gt;pctx = &amp;panel_context;
+	out-&gt;draw = widget_draw_generic;
+	out-&gt;<span class="hljs-built_in">click</span> = mouse_event_ignore; <span class="hljs-comment">/* click_generic */</span>
+	out-&gt;right_click = mouse_event_ignore; <span class="hljs-comment">/* right_click_generic */</span>
+	out-&gt;leave = widget_leave_generic;
+	out-&gt;enter = widget_enter_generic;
+	out-&gt;update = widget_update_generic;
+	out-&gt;onkey = widget_onkey_generic;
+	out-&gt;<span class="hljs-built_in">move</span> = mouse_event_ignore; <span class="hljs-comment">/* move_generic */</span>
+	out-&gt;highlighted = <span class="hljs-number">0</span>;
+	out-&gt;<span class="hljs-built_in">fill</span> = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> out;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">widgets_layout</span><span class="hljs-params">(<span class="hljs-keyword">void</span>)</span> </span>{
+	<span class="hljs-keyword">int</span> total_width = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> flexible_widgets = <span class="hljs-number">0</span>;
+	foreach(node, widgets_enabled) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">PanelWidget</span> * <span class="hljs-title">widget</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+		<span class="hljs-keyword">if</span> (widget-&gt;<span class="hljs-built_in">fill</span>) {
+			flexible_widgets++;
+		} <span class="hljs-keyword">else</span> {
+			total_width += widget-&gt;<span class="hljs-built_in">width</span>;
+		}
+	}
+
+	<span class="hljs-comment">/* Now lay out the widgets */</span>
+	<span class="hljs-keyword">int</span> x = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> <span class="hljs-built_in">available</span> = <span class="hljs-built_in">width</span>;
+	foreach(node, widgets_enabled) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">PanelWidget</span> * <span class="hljs-title">widget</span> = <span class="hljs-title">node</span>-&gt;<span class="hljs-title">value</span>;</span>
+		widget-&gt;left = x;
+		<span class="hljs-keyword">if</span> (widget-&gt;<span class="hljs-built_in">fill</span>) {
+			widget-&gt;<span class="hljs-built_in">width</span> = (<span class="hljs-built_in">available</span> - total_width) / flexible_widgets;
+		}
+		x += widget-&gt;<span class="hljs-built_in">width</span>;
+	}
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-keyword">void</span> <span class="hljs-title">update_periodic_widgets</span><span class="hljs-params">(<span class="hljs-keyword">int</span> * force_updates)</span> </span>{
+	*force_updates = <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">int</span> needs_layout = <span class="hljs-number">0</span>;
+	foreach(widget_node, widgets_enabled) {
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">PanelWidget</span> * <span class="hljs-title">widget</span> = <span class="hljs-title">widget_node</span>-&gt;<span class="hljs-title">value</span>;</span>
+		needs_layout |= widget-&gt;update(widget, force_updates);
+	}
+	<span class="hljs-keyword">if</span> (needs_layout) widgets_layout();
+	redraw();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">panel_menu_show_at</span><span class="hljs-params">(struct MenuList * menu, <span class="hljs-keyword">int</span> x)</span> </span>{
+	<span class="hljs-keyword">int</span> mwidth, mheight, offset;
+
+	<span class="hljs-comment">/* Calculate the expected size of the menu window. */</span>
+	menu_calculate_dimensions(menu, &amp;mheight, &amp;mwidth);
+
+	<span class="hljs-keyword">if</span> (x - mwidth / <span class="hljs-number">2</span> &lt; MENU_PAD) {
+		offset = MENU_PAD;
+		menu-&gt;flags = (menu-&gt;flags &amp; ~MENU_FLAG_BUBBLE) | MENU_FLAG_BUBBLE_LEFT;
+	} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (x + mwidth / <span class="hljs-number">2</span> &gt; <span class="hljs-built_in">width</span> - MENU_PAD) {
+		offset = <span class="hljs-built_in">width</span> - MENU_PAD - mwidth;
+		menu-&gt;flags = (menu-&gt;flags &amp; ~MENU_FLAG_BUBBLE) | MENU_FLAG_BUBBLE_RIGHT;
+	} <span class="hljs-keyword">else</span> {
+		offset = x - mwidth / <span class="hljs-number">2</span>;
+		menu-&gt;flags = (menu-&gt;flags &amp; ~MENU_FLAG_BUBBLE) | MENU_FLAG_BUBBLE_CENTER;
+	}
+
+	menu-&gt;flags |= MENU_FLAG_TAIL_POSITION;
+	menu-&gt;tail_offset = x - offset;
+
+	<span class="hljs-comment">/* Prepare the menu, which creates the window. */</span>
+	menu_show_at(menu, panel, offset, DROPDOWN_OFFSET);
+
+	<span class="hljs-comment">/* If we succeeded, move it to the final offset and display it */</span>
+	<span class="hljs-keyword">if</span> (menu-&gt;window) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+	<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">panel_menu_show</span><span class="hljs-params">(struct PanelWidget * <span class="hljs-keyword">this</span>, struct MenuList * menu)</span> </span>{
+	<span class="hljs-keyword">return</span> panel_menu_show_at(menu, <span class="hljs-keyword">this</span>-&gt;left + <span class="hljs-keyword">this</span>-&gt;<span class="hljs-built_in">width</span> / <span class="hljs-number">2</span>);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">int</span> <span class="hljs-title">main</span> <span class="hljs-params">(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> ** argv)</span> </span>{
+	<span class="hljs-keyword">if</span> (argc &lt; <span class="hljs-number">2</span> || <span class="hljs-built_in">strcmp</span>(argv[<span class="hljs-number">1</span>],<span class="hljs-string">"--really"</span>)) {
+		<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>,
+				<span class="hljs-string">"%s: Desktop environment panel / dock\n"</span>
+				<span class="hljs-string">"\n"</span>
+				<span class="hljs-string">" Renders the application menu, window list, widgets,\n"</span>
+				<span class="hljs-string">" alt-tab window switcher, clock, etc.\n"</span>
+				<span class="hljs-string">" You probably don't want to run this directly - it is\n"</span>
+				<span class="hljs-string">" started automatically by the session manager.\n"</span>, argv[<span class="hljs-number">0</span>]);
+		<span class="hljs-keyword">return</span> <span class="hljs-number">1</span>;
+	}
+
+	<span class="hljs-comment">/* Connect to window server */</span>
+	yctx = yutani_init();
+
+	<span class="hljs-comment">/* Shared fonts */</span>
+	panel_context.font           = tt_font_from_shm(<span class="hljs-string">"sans-serif"</span>);
+	panel_context.font_bold      = tt_font_from_shm(<span class="hljs-string">"sans-serif.bold"</span>);
+	panel_context.font_mono      = tt_font_from_shm(<span class="hljs-string">"monospace"</span>);
+	panel_context.font_mono_bold = tt_font_from_shm(<span class="hljs-string">"monospace.bold"</span>);
+
+	<span class="hljs-comment">/* For convenience, store the display size */</span>
+	<span class="hljs-built_in">width</span>  = yctx-&gt;display_width;
+	<span class="hljs-built_in">height</span> = yctx-&gt;display_height;
+
+	panel_context.color_text_normal    = rgb(<span class="hljs-number">220</span>,<span class="hljs-number">230</span>,<span class="hljs-number">245</span>);
+	panel_context.color_text_hilighted = rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>);
+	panel_context.color_text_focused   = rgb(<span class="hljs-number">255</span>,<span class="hljs-number">255</span>,<span class="hljs-number">255</span>);
+	panel_context.color_icon_normal    = rgb(<span class="hljs-number">200</span>,<span class="hljs-number">215</span>,<span class="hljs-number">235</span>);
+	panel_context.color_special        = rgb(<span class="hljs-number">100</span>,<span class="hljs-number">180</span>,<span class="hljs-number">255</span>);
+	panel_context.font_size_default    = <span class="hljs-number">14</span>;
+	panel_context.extra_widget_spacing = <span class="hljs-number">12</span>;
+
+	<span class="hljs-comment">/* Create the panel window */</span>
+	panel = yutani_window_create_flags(yctx, <span class="hljs-built_in">width</span>, PANEL_HEIGHT, YUTANI_WINDOW_FLAG_NO_STEAL_FOCUS | YUTANI_WINDOW_FLAG_ALT_ANIMATION);
+	panel_context.basewindow = panel;
+
+	<span class="hljs-comment">/* And move it to the top layer */</span>
+	yutani_set_stack(yctx, panel, YUTANI_ZORDER_TOP);
+	yutani_window_update_shape(yctx, panel, YUTANI_SHAPE_THRESHOLD_CLEAR);
+
+	<span class="hljs-comment">/* Initialize graphics context against the window */</span>
+	ctx = init_graphics_yutani_double_buffer(panel);
+
+	<span class="hljs-comment">/* Draw the background */</span>
+	redraw_panel_background(ctx, panel-&gt;<span class="hljs-built_in">width</span>, panel-&gt;<span class="hljs-built_in">height</span>);
+
+	<span class="hljs-comment">/* Copy the prerendered background so we can redraw it quickly */</span>
+	bg_size = panel-&gt;<span class="hljs-built_in">width</span> * panel-&gt;<span class="hljs-built_in">height</span> * <span class="hljs-keyword">sizeof</span>(<span class="hljs-keyword">uint32_t</span>);
+	bg_blob = <span class="hljs-built_in">malloc</span>(bg_size);
+	<span class="hljs-built_in">memcpy</span>(bg_blob, ctx-&gt;backbuffer, bg_size);
+
+	<span class="hljs-comment">/* Catch SIGINT */</span>
+	signal(SIGINT, sig_int);
+	signal(SIGUSR2, sig_usr2);
+
+	widgets_enabled = list_create();
+
+	<span class="hljs-comment">/* Initialize requested widgets */</span>
+	<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> * widgets_to_load[] = {
+		<span class="hljs-string">"appmenu"</span>,
+		<span class="hljs-string">"windowlist"</span>,
+		<span class="hljs-string">"volume"</span>,
+		<span class="hljs-string">"network"</span>,
+		<span class="hljs-string">"weather"</span>,
+		<span class="hljs-string">"date"</span>,
+		<span class="hljs-string">"clock"</span>,
+		<span class="hljs-string">"logout"</span>,
+		<span class="hljs-literal">NULL</span>
+	};
+
+	<span class="hljs-keyword">for</span> (<span class="hljs-keyword">const</span> <span class="hljs-keyword">char</span> ** widget = widgets_to_load; *widget; widget++) {
+		<span class="hljs-keyword">char</span> lib_name[<span class="hljs-number">200</span>];
+		<span class="hljs-keyword">char</span> func_name[<span class="hljs-number">200</span>];
+
+		<span class="hljs-built_in">snprintf</span>(lib_name, <span class="hljs-number">200</span>, <span class="hljs-string">"libtoaru_panel_%s.so"</span>, *widget);
+		<span class="hljs-built_in">snprintf</span>(func_name, <span class="hljs-number">200</span>, <span class="hljs-string">"widget_init_%s"</span>, *widget);
+
+		<span class="hljs-keyword">void</span> * lib = dlopen(lib_name, <span class="hljs-number">0</span>);
+		<span class="hljs-keyword">if</span> (!lib) {
+			<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"panel: failed to load widget '%s'\n"</span>, *widget);
+		} <span class="hljs-keyword">else</span> {
+			<span class="hljs-keyword">void</span> (*widget_init)(<span class="hljs-keyword">void</span>) = dlsym(lib, func_name);
+			<span class="hljs-keyword">if</span> (!widget_init) {
+				<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"panel: failed to initialize widget '%s'\n"</span>, *widget);
+			} <span class="hljs-keyword">else</span> {
+				widget_init();
+			}
+		}
+	}
+
+	<span class="hljs-comment">/* Lay out the widgets */</span>
+	<span class="hljs-keyword">int</span> force_updates = <span class="hljs-number">0</span>;
+	update_periodic_widgets(&amp;force_updates);
+	widgets_layout();
+
+	<span class="hljs-comment">/* Subscribe to window updates */</span>
+	yutani_subscribe_windows(yctx);
+
+	<span class="hljs-comment">/* Ask compositor for window list */</span>
+	update_window_list();
+
+	<span class="hljs-comment">/* Key bindings */</span>
+	bind_keys();
+
+	<span class="hljs-keyword">time_t</span> last_tick = <span class="hljs-number">0</span>;
+
+	<span class="hljs-keyword">int</span> fds[<span class="hljs-number">1</span>] = {fileno(yctx-&gt;sock)};
+
+	<span class="hljs-built_in">fprintf</span>(<span class="hljs-built_in">stderr</span>, <span class="hljs-string">"entering loop?\n"</span>);
+
+	<span class="hljs-keyword">while</span> (_continue) {
+
+		<span class="hljs-keyword">int</span> index = fswait2(<span class="hljs-number">1</span>,fds,force_updates ? <span class="hljs-number">50</span> : <span class="hljs-number">200</span>); <span class="hljs-comment">/* ~20 fps? */</span>
+
+		<span class="hljs-keyword">if</span> (index == <span class="hljs-number">0</span>) {
+			<span class="hljs-comment">/* Respond to Yutani events */</span>
+			<span class="hljs-keyword">yutani_msg_t</span> * m = yutani_poll(yctx);
+			<span class="hljs-keyword">while</span> (m) {
+				menu_process_event(yctx, m);
+				<span class="hljs-keyword">switch</span> (m-&gt;type) {
+					<span class="hljs-comment">/* New window information is available */</span>
+					<span class="hljs-keyword">case</span> YUTANI_MSG_NOTIFY:
+						update_window_list();
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-comment">/* Mouse movement / click */</span>
+					<span class="hljs-keyword">case</span> YUTANI_MSG_WINDOW_MOUSE_EVENT:
+						panel_check_click((struct yutani_msg_window_mouse_event *)m-&gt;data);
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> YUTANI_MSG_KEY_EVENT:
+						handle_key_event((struct yutani_msg_key_event *)m-&gt;data);
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> YUTANI_MSG_WELCOME:
+						{
+							<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_welcome</span> * <span class="hljs-title">mw</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+							<span class="hljs-built_in">width</span> = mw-&gt;display_width;
+							<span class="hljs-built_in">height</span> = mw-&gt;display_height;
+							yutani_window_resize(yctx, panel, mw-&gt;display_width, PANEL_HEIGHT);
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">case</span> YUTANI_MSG_RESIZE_OFFER:
+						{
+							<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">yutani_msg_window_resize</span> * <span class="hljs-title">wr</span> = (<span class="hljs-title">void</span>*)<span class="hljs-title">m</span>-&gt;<span class="hljs-title">data</span>;</span>
+							<span class="hljs-keyword">if</span> (wr-&gt;wid == panel-&gt;wid) {
+								resize_finish(wr-&gt;<span class="hljs-built_in">width</span>, wr-&gt;<span class="hljs-built_in">height</span>);
+							} <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (alttab &amp;&amp; wr-&gt;wid == alttab-&gt;wid) {
+								yutani_window_resize_accept(yctx, alttab, wr-&gt;<span class="hljs-built_in">width</span>, wr-&gt;<span class="hljs-built_in">height</span>);
+								reinit_graphics_yutani(actx, alttab);
+								redraw_alttab();
+								yutani_window_resize_done(yctx, alttab);
+							}
+						}
+						<span class="hljs-keyword">break</span>;
+					<span class="hljs-keyword">default</span>:
+						<span class="hljs-keyword">break</span>;
+				}
+				<span class="hljs-built_in">free</span>(m);
+				m = yutani_poll_async(yctx);
+			}
+		}
+
+		<span class="hljs-class"><span class="hljs-keyword">struct</span> <span class="hljs-title">timeval</span> <span class="hljs-title">now</span>;</span>
+		gettimeofday(&amp;now, <span class="hljs-literal">NULL</span>);
+		<span class="hljs-keyword">if</span> (now.tv_sec != last_tick || force_updates) {
+			last_tick = now.tv_sec;
+			waitpid(<span class="hljs-number">-1</span>, <span class="hljs-literal">NULL</span>, WNOHANG);
+			<span class="hljs-keyword">if</span> (was_tabbing) {
+				redraw_alttab();
+			}
+			update_periodic_widgets(&amp;force_updates);
+		}
+	}
+
+	<span class="hljs-comment">/* Close the panel window */</span>
+	yutani_close(yctx, panel);
+
+	<span class="hljs-comment">/* Stop notifying us of window changes */</span>
+	yutani_unsubscribe_windows(yctx);
+
+	<span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+
+</pre>
+        </td>
+      </tr>
+    
+  </tbody>
+</table>
+
+  </div>
+</body>
+</html>
