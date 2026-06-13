@@ -1003,7 +1003,7 @@ _fail_free:
 }
 
 struct TT_Font * tt_font_from_file(const char * fileName) {
-	FILE * f = fopen(fileName, "r");
+	FILE * f = fopen(fileName, "rb");
 	if (!f) return NULL;
 
 	struct TT_Font * font = calloc(1, sizeof(struct TT_Font));
@@ -1028,7 +1028,7 @@ struct TT_Font * tt_font_from_memory(uint8_t * buffer) {
 }
 
 struct TT_Font * tt_font_from_file_mem(const char * fileName) {
-	FILE * f = fopen(fileName, "r");
+	FILE * f = fopen(fileName, "rb");
 	if (!f) return NULL;
 
 	struct stat sb;
@@ -1099,10 +1099,40 @@ void tt_draw_string_shadow(gfx_context_t * ctx, struct TT_Font * font, char * st
 }
 
 /**
+ * Global CJK font with automatic file-based fallback.
+ * Tries shared memory first, then loads directly from file system.
+ */
+static struct TT_Font * _global_cjk_font = NULL;
+static int _global_cjk_tried = 0;
+
+static struct TT_Font * _get_cjk_font(void) {
+	if (_global_cjk_font) return _global_cjk_font;
+	if (_global_cjk_tried) return NULL;
+	_global_cjk_tried = 1;
+
+	/* Try shared memory first */
+	struct TT_Font * f = tt_font_from_shm("cjk");
+	if (f) { _global_cjk_font = f; return f; }
+
+	/* Fallback: load directly from file system */
+	f = tt_font_from_file_mem("/usr/share/fonts/truetype/wqy/WenQuanYiMicroHei.ttc");
+	if (f) { _global_cjk_font = f; return f; }
+
+	/* Try alternate path */
+	f = tt_font_from_file_mem("/usr/share/fonts/truetype/wqy/wqy-microhei.ttc");
+	if (f) { _global_cjk_font = f; return f; }
+
+	fprintf(stderr, "CJK font load failed from all sources\n");
+	return NULL;
+}
+
+/**
  * CJK fallback string width: use main font, fall back to CJK font for missing glyphs.
+ * Automatically loads CJK font if font_cjk is NULL.
  */
 __attribute__((visibility("protected")))
 int tt_string_width_cjk(struct TT_Font * font, struct TT_Font * font_cjk, const char * s) {
+	if (!font_cjk) font_cjk = _get_cjk_font();
 	float x_offset = 0;
 	uint32_t cp = 0;
 	uint32_t istate = 0;
@@ -1130,9 +1160,11 @@ int tt_string_width_cjk(struct TT_Font * font, struct TT_Font * font_cjk, const 
 /**
  * CJK fallback string drawing: when main font lacks a glyph (returns 0),
  * try the CJK fallback font instead.
+ * Automatically loads CJK font if font_cjk is NULL.
  */
 __attribute__((visibility("protected")))
 int tt_draw_string_cjk(gfx_context_t * ctx, struct TT_Font * font, struct TT_Font * font_cjk, int x, int y, const char * s, uint32_t color) {
+	if (!font_cjk) font_cjk = _get_cjk_font();
 	struct TT_Contour * contour = tt_contour_start(0, 0);
 
 	float x_offset = x;
@@ -1171,8 +1203,10 @@ int tt_draw_string_cjk(gfx_context_t * ctx, struct TT_Font * font, struct TT_Fon
 
 /**
  * CJK fallback shadow drawing.
+ * Automatically loads CJK font if font_cjk is NULL.
  */
 void tt_draw_string_shadow_cjk(gfx_context_t * ctx, struct TT_Font * font, struct TT_Font * font_cjk, char * string, int font_size, int left, int top, uint32_t text_color, uint32_t shadow_color, int blur) {
+	if (!font_cjk) font_cjk = _get_cjk_font();
 	tt_set_size(font, font_size);
 	if (font_cjk) tt_set_size(font_cjk, font_size);
 	int w = tt_string_width_cjk(font, font_cjk, string);

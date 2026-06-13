@@ -2363,7 +2363,7 @@ static struct font_def fonts[] = {
 };
 
 static char * precache_shmfont(char * ident, char * name) {
-	FILE * f = fopen(name, "r");
+	FILE * f = fopen(name, "rb");
 	if (!f) return NULL;
 	struct stat sb;
 	fstat(fileno(f), &sb);

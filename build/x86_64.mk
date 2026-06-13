@@ -27,6 +27,7 @@ EMU_ARGS += ${EMU_KVM}
 EMU_ARGS += -no-reboot
 EMU_ARGS += -serial mon:stdio
 EMU_ARGS += -device AC97
+EMU_ARGS += -device isa-debug-exit,iobase=0x604,iosize=0x04
 EMU_ARGS += -name "ZRL ${ARCH}"
 
 # UTC is the default setting.

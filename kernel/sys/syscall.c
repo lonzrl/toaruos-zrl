@@ -1167,9 +1167,7 @@ long sys_sigqueue(pid_t process, int signal, union sigval value) {
 }
 
 long sys_reboot(int cmd) {
-	if (this_core->current_process->user != USER_ROOT_UID) {
-		return -EPERM;
-	}
+	/* Allow any user to reboot/poweroff - this is a desktop OS */
 
 	/* cmd == 0 (RB_AUTOBOOT) or default: reboot */
 	/* cmd != 0 (e.g. RB_POWER_OFF): power off */

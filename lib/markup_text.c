@@ -346,6 +346,17 @@ void markup_text_init(void) {
 		dejaVuSansMono_Oblique     = tt_font_from_shm("monospace.italic");
 		dejaVuSansMono_BoldOblique = tt_font_from_shm("monospace.bolditalic");
 		cjkFont                    = tt_font_from_shm("cjk");
+		if (!cjkFont) {
+			cjkFont = tt_font_from_file_mem("/usr/share/fonts/truetype/wqy/WenQuanYiMicroHei.ttc");
+		}
+		if (!cjkFont) {
+			cjkFont = tt_font_from_file_mem("/usr/share/fonts/truetype/wqy/wqy-microhei.ttc");
+		}
+		if (cjkFont) {
+			fprintf(stderr, "markup: CJK font loaded successfully\n");
+		} else {
+			fprintf(stderr, "markup: CJK font load FAILED\n");
+		}
 	}
 }
 
