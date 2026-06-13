@@ -154,10 +154,10 @@ void draw_text_box(gfx_context_t * ctx, struct text_box * tb) {
 	tt_set_size(tt_font_thin, 13);
 
 	gfx_context_t * clipped = init_graphics_subregion(ctx, x + 2, y + 2, tb->width - 4, tb->height - 4);
-	tt_draw_string(clipped, tt_font_thin, 2, 13, text, color);
+	tt_draw_string_cjk(clipped, tt_font_thin, tt_font_cjk, 2, 13, text, color);
 
 	if (tb->is_focused) {
-		int width = tt_string_width(tt_font_thin, text);
+		int width = tt_string_width_cjk(tt_font_thin, tt_font_cjk, text);
 		draw_line(clipped, width + 2, width + 2, 0, tb->height - 4, tb->text_color);
 	}
 
@@ -175,7 +175,7 @@ void draw_login_container(gfx_context_t * ctx, struct login_container * lc) {
 	if (lc->show_error) {
 		char * error_message = "\xe7\x94\xa8\xe6\x88\xb7\xe5\x90\x8d\xe6\x88\x96\xe5\xaf\x86\xe7\xa0\x81\xe9\x94\x99\xe8\xaf\xaf";
 		tt_set_size(tt_font_thin, 13);
-		tt_draw_string(ctx, tt_font_thin, lc->x + (lc->width - tt_string_width(tt_font_thin, error_message)) / 2, lc->y + 6 + EXTRA_TEXT_OFFSET - 1, error_message, rgb(240,20,20));
+		tt_draw_string_cjk(ctx, tt_font_thin, tt_font_cjk, lc->x + (lc->width - tt_string_width_cjk(tt_font_thin, tt_font_cjk, error_message)) / 2, lc->y + 6 + EXTRA_TEXT_OFFSET - 1, error_message, rgb(240,20,20));
 	}
 
 	draw_text_box(ctx, lc->username_box);
@@ -271,6 +271,7 @@ int main (int argc, char ** argv) {
 
 	tt_font_thin = tt_font_from_shm("sans-serif");
 	tt_font_bold = tt_font_from_shm("sans-serif.bold");
+	struct TT_Font * tt_font_cjk = tt_font_from_shm("cjk");
 
 redo_everything:
 	win_width = width;
@@ -384,8 +385,8 @@ redo_everything:
 				memcpy(ctx->backbuffer, bg_cache, sizeof(uint32_t) * width * height);
 				draw_sprite(ctx, &logo, center_x(logo.width), center_y(logo.height) - LOGO_FINAL_OFFSET);
 
-				tt_draw_string_shadow(ctx, tt_font_bold, hostname, 12, hostname_label_left, height - 22, rgb(255,255,255), rgb(0,0,0), 4);
-				tt_draw_string_shadow(ctx, tt_font_bold, kernel_v, 12, kernel_v_label_left, height - 22, rgb(255,255,255), rgb(0,0,0), 4);
+				tt_draw_string_shadow_cjk(ctx, tt_font_bold, tt_font_cjk, hostname, 12, hostname_label_left, height - 22, rgb(255,255,255), rgb(0,0,0), 4);
+				tt_draw_string_shadow_cjk(ctx, tt_font_bold, tt_font_cjk, kernel_v, 12, kernel_v_label_left, height - 22, rgb(255,255,255), rgb(0,0,0), 4);
 
 				if (focus == USERNAME_BOX) {
 					username_box.is_focused = 1;

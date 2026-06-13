@@ -2358,7 +2358,7 @@ static struct font_def fonts[] = {
 	FONT("monospace.bold",        "truetype/dejavu/DejaVuSansMono-Bold.ttf"),
 	FONT("monospace.italic",      "truetype/dejavu/DejaVuSansMono-Oblique.ttf"),
 	FONT("monospace.bolditalic",  "truetype/dejavu/DejaVuSansMono-BoldOblique.ttf"),
-	FONT("cjk",                   "truetype/wqy/WenQuanYiMicroHei.ttf"),
+	FONT("cjk",                   "truetype/wqy/WenQuanYiMicroHei.ttc"),
 	{NULL, NULL}
 };
 

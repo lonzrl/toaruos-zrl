@@ -22,6 +22,7 @@ static struct TT_Font * dejaVuSansMono = NULL;
 static struct TT_Font * dejaVuSansMono_Bold = NULL;
 static struct TT_Font * dejaVuSansMono_Oblique = NULL;
 static struct TT_Font * dejaVuSansMono_BoldOblique = NULL;
+static struct TT_Font * cjkFont = NULL;
 
 struct MarkupState {
 	struct markup_state * parser;
@@ -201,15 +202,24 @@ static int string_draw_internal(gfx_context_t * ctx, struct TT_Font * font, int 
 
 	if (bgcolor) {
 		/* temporary hack */
-		size_t width = tt_string_width(font, data);
+		size_t width = tt_string_width_cjk(font, cjkFont, data);
 		draw_rounded_rectangle(ctx, x - 2, y - font_size, width + 4, font_size + 4, 3, bgcolor);
 	}
 
 	for (const unsigned char * c = (const unsigned char*)data; *c; ++c) {
 		if (!decode(&istate, &cp, *c)) {
 			unsigned int glyph = tt_glyph_for_codepoint(font, cp);
-			draw_cached_glyph(ctx, font, font_size, (int)floor(x_offset), y, glyph, color, x_offset-floor(x_offset));
-			x_offset += tt_glyph_width(font, glyph);
+			struct TT_Font * use_font = font;
+			if (glyph == 0 && cjkFont) {
+				unsigned int cjk_glyph = tt_glyph_for_codepoint(cjkFont, cp);
+				if (cjk_glyph != 0) {
+					glyph = cjk_glyph;
+					use_font = cjkFont;
+					tt_set_size(cjkFont, font_size);
+				}
+			}
+			draw_cached_glyph(ctx, use_font, font_size, (int)floor(x_offset), y, glyph, color, x_offset-floor(x_offset));
+			x_offset += tt_glyph_width(use_font, glyph);
 		}
 	}
 
@@ -230,7 +240,7 @@ static int parser_dryrun(struct markup_state * self, void * user, char * data) {
 	struct MarkupState * state = (struct MarkupState*)user;
 	struct TT_Font * font = fontForState(state);
 	tt_set_size(font, sizeForState(state));
-	state->cursor_x += tt_string_width(font, data);
+	state->cursor_x += tt_string_width_cjk(font, cjkFont, data);
 	if (state->cursor_x > state->max_cursor_x) state->max_cursor_x = state->cursor_x;
 	return 0;
 }
@@ -335,6 +345,7 @@ void markup_text_init(void) {
 		dejaVuSansMono_Bold        = tt_font_from_shm("monospace.bold");
 		dejaVuSansMono_Oblique     = tt_font_from_shm("monospace.italic");
 		dejaVuSansMono_BoldOblique = tt_font_from_shm("monospace.bolditalic");
+		cjkFont                    = tt_font_from_shm("cjk");
 	}
 }
 

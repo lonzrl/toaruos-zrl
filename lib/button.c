@@ -14,6 +14,7 @@
 #include <toaru/icon_cache.h>
 
 static struct TT_Font * _tt_font_thin = NULL;
+static struct TT_Font * _tt_font_cjk = NULL;
 
 void ttk_button_draw(gfx_context_t * ctx, struct TTKButton * button) {
 	if (button->width == 0) {
@@ -48,13 +49,14 @@ void ttk_button_draw(gfx_context_t * ctx, struct TTKButton * button) {
 	if (button->title[0] != '\033') {
 		if (!_tt_font_thin) {
 			_tt_font_thin = tt_font_from_shm("sans-serif");
+			_tt_font_cjk = tt_font_from_shm("cjk");
 		}
 		tt_set_size(_tt_font_thin, 13);
-		int label_width = tt_string_width(_tt_font_thin, button->title);
+		int label_width = tt_string_width_cjk(_tt_font_thin, _tt_font_cjk, button->title);
 		int centered = (button->width - label_width) / 2;
 
 		int centered_y = (button->height - 16) / 2;
-		tt_draw_string(ctx, _tt_font_thin, button->x + centered + (hilight == 2), button->y + centered_y + (hilight == 2) + 13, button->title, disabled ? rgb(120,120,120) : rgb(0,0,0));
+		tt_draw_string_cjk(ctx, _tt_font_thin, _tt_font_cjk, button->x + centered + (hilight == 2), button->y + centered_y + (hilight == 2) + 13, button->title, disabled ? rgb(120,120,120) : rgb(0,0,0));
 	} else {
 		sprite_t * icon = icon_get_16(button->title+1);
 		int centered = button->x + (button->width - icon->width) / 2 + (hilight == 2);

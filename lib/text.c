@@ -1099,6 +1099,96 @@ void tt_draw_string_shadow(gfx_context_t * ctx, struct TT_Font * font, char * st
 	tt_draw_string(ctx, font, left, top + font_size, string, text_color);
 }
 
+/**
+ * CJK fallback string width: use main font, fall back to CJK font for missing glyphs.
+ */
+__attribute__((visibility("protected")))
+int tt_string_width_cjk(struct TT_Font * font, struct TT_Font * font_cjk, const char * s) {
+	float x_offset = 0;
+	uint32_t cp = 0;
+	uint32_t istate = 0;
+
+	for (const unsigned char * c = (const unsigned char*)s; *c; ++c) {
+		if (!decode(&istate, &cp, *c)) {
+			unsigned int glyph = tt_glyph_for_codepoint(font, cp);
+			if (glyph == 0 && font_cjk) {
+				glyph = tt_glyph_for_codepoint(font_cjk, cp);
+				if (glyph != 0) {
+					float saved_scale = font_cjk->scale;
+					font_cjk->scale = font->scale;
+					x_offset += tt_xadvance_for_glyph(font_cjk, glyph) * font_cjk->scale;
+					font_cjk->scale = saved_scale;
+					continue;
+				}
+			}
+			x_offset += tt_xadvance_for_glyph(font, glyph) * font->scale;
+		}
+	}
+
+	return x_offset;
+}
+
+/**
+ * CJK fallback string drawing: when main font lacks a glyph (returns 0),
+ * try the CJK fallback font instead.
+ */
+__attribute__((visibility("protected")))
+int tt_draw_string_cjk(gfx_context_t * ctx, struct TT_Font * font, struct TT_Font * font_cjk, int x, int y, const char * s, uint32_t color) {
+	struct TT_Contour * contour = tt_contour_start(0, 0);
+
+	float x_offset = x;
+	uint32_t cp = 0;
+	uint32_t istate = 0;
+
+	for (const unsigned char * c = (const unsigned char*)s; *c; ++c) {
+		if (!decode(&istate, &cp, *c)) {
+			unsigned int glyph = tt_glyph_for_codepoint(font, cp);
+			if (glyph == 0 && font_cjk) {
+				/* Try CJK fallback font */
+				unsigned int cjk_glyph = tt_glyph_for_codepoint(font_cjk, cp);
+				if (cjk_glyph != 0) {
+					float saved_scale = font_cjk->scale;
+					font_cjk->scale = font->scale;
+					contour = tt_draw_glyph_into(contour, font_cjk, x_offset, y, cjk_glyph);
+					x_offset += tt_xadvance_for_glyph(font_cjk, cjk_glyph) * font_cjk->scale;
+					font_cjk->scale = saved_scale;
+					continue;
+				}
+			}
+			contour = tt_draw_glyph_into(contour, font, x_offset, y, glyph);
+			x_offset += tt_xadvance_for_glyph(font, glyph) * font->scale;
+		}
+	}
+
+	float width = x_offset - x;
+	if (contour->edgeCount) {
+		struct TT_Shape * shape = tt_contour_finish(contour);
+		tt_path_paint(ctx, shape, color);
+		free(shape);
+	}
+	free(contour);
+	return width;
+}
+
+/**
+ * CJK fallback shadow drawing.
+ */
+void tt_draw_string_shadow_cjk(gfx_context_t * ctx, struct TT_Font * font, struct TT_Font * font_cjk, char * string, int font_size, int left, int top, uint32_t text_color, uint32_t shadow_color, int blur) {
+	tt_set_size(font, font_size);
+	if (font_cjk) tt_set_size(font_cjk, font_size);
+	int w = tt_string_width_cjk(font, font_cjk, string);
+	sprite_t * _tmp_s = create_sprite(w + blur * 2, font_size + blur * 2 + 5, ALPHA_EMBEDDED);
+	gfx_context_t * _tmp = init_graphics_sprite(_tmp_s);
+	draw_fill(_tmp, rgba(0,0,0,0));
+	tt_draw_string_cjk(_tmp, font, font_cjk, blur, blur + font_size, string, shadow_color);
+	blur_context_box(_tmp, blur);
+	blur_context_box(_tmp, blur);
+	free(_tmp);
+	draw_sprite(ctx, _tmp_s, left - blur, top - blur);
+	sprite_free(_tmp_s);
+	tt_draw_string_cjk(ctx, font, font_cjk, left, top + font_size, string, text_color);
+}
+
 static int to_eight(uint32_t codepoint, char * out) {
 	memset(out, 0x00, 7);
 

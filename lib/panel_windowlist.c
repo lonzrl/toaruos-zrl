@@ -96,7 +96,7 @@ static int widget_draw_windowlist(struct PanelWidget * this, gfx_context_t * ctx
 				sprite_t * icon = icon_get_48(ad->icon);
 				gfx_context_t * subctx = init_graphics_subregion(ctx, i, 0, w, ctx->height-1);
 				draw_sprite_scaled_alpha(subctx, icon, w - 48 - 2, 0, 48, 48, (ad->flags & 1) ? 1.0 : 0.7);
-				tt_draw_string_shadow(subctx, this->pctx->font, s, 14, 2, 6, text_color, rgb(0,0,0), 4);
+				tt_draw_string_shadow_cjk(subctx, this->pctx->font, this->pctx->font_cjk, s, 14, 2, 6, text_color, rgb(0,0,0), 4);
 				free(subctx);
 				free(s);
 			} else {

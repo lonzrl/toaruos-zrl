@@ -56,6 +56,7 @@ static struct TT_Font * tt_font_bold = NULL;
 static struct TT_Font * tt_font_oblique = NULL;
 static struct TT_Font * tt_font_bold_oblique = NULL;
 static struct TT_Font * tt_font_mono = NULL;
+static struct TT_Font * tt_font_cjk = NULL;
 
 struct Char {
 	char c; /* TODO: unicode */
@@ -95,7 +96,7 @@ static int buffer_width(list_t * buffer) {
 		char tmp[2] = {c->c, '\0'};
 
 		tt_set_size(state_to_font(c->state), current_size());
-		out += tt_string_width(state_to_font(c->state), tmp);
+		out += tt_string_width_cjk(state_to_font(c->state), tt_font_cjk, tmp);
 	}
 	return out;
 }
@@ -108,9 +109,9 @@ static int draw_buffer(list_t * buffer) {
 		char tmp[2] = { c->c, '\0' };
 		tt_set_size(state_to_font(c->state), current_size());
 		if (contents) {
-			x += tt_draw_string(contents, state_to_font(c->state), cursor_x + x, cursor_y + current_size(), tmp, 0xFF000000);
+			x += tt_draw_string_cjk(contents, state_to_font(c->state), tt_font_cjk, cursor_x + x, cursor_y + current_size(), tmp, 0xFF000000);
 		} else {
-			x += tt_string_width(state_to_font(c->state), tmp);
+			x += tt_string_width_cjk(state_to_font(c->state), tt_font_cjk, tmp);
 		}
 		free(c);
 		free(node);
@@ -493,6 +494,7 @@ int main(int argc, char * argv[]) {
 	tt_font_oblique      = tt_font_from_shm("sans-serif.italic");
 	tt_font_bold_oblique = tt_font_from_shm("sans-serif.bolditalic");
 	tt_font_mono         = tt_font_from_shm("monospace");
+	tt_font_cjk          = tt_font_from_shm("cjk");
 
 	yutani_window_advertise_icon(yctx, main_window, APPLICATION_TITLE, "help");
 

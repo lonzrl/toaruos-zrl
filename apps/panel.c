@@ -25,6 +25,7 @@
 #include <sys/wait.h>
 #include <sys/fswait.h>
 #include <sys/shm.h>
+#include <sys/reboot.h>
 
 /* auto-dep: export-dynamic */
 #include <dlfcn.h>
@@ -211,8 +212,8 @@ static void redraw_altf2(void) {
 	draw_rounded_rectangle(a2ctx,1,1, ALTF2_WIDTH-2, ALTF2_HEIGHT-2, 10, ALTTAB_BACKGROUND);
 
 	tt_set_size(panel_context.font, 20);
-	int t = tt_string_width(panel_context.font, altf2_buffer);
-	tt_draw_string(a2ctx, panel_context.font, center_x_a2(t), 80, altf2_buffer, rgb(255,255,255));
+	int t = tt_string_width_cjk(panel_context.font, panel_context.font_cjk, altf2_buffer);
+	tt_draw_string_cjk(a2ctx, panel_context.font, panel_context.font_cjk, center_x_a2(t), 80, altf2_buffer, rgb(255,255,255));
 
 	flip(a2ctx);
 	yutani_flip(yctx, alt_f2);
@@ -323,7 +324,7 @@ static void redraw_alttab(void) {
 		int t;
 		char * title = tt_ellipsify(ad->name, 16, panel_context.font, alttab->width - 20, &t);
 		tt_set_size(panel_context.font, 16);
-		tt_draw_string(actx, panel_context.font, center_x_a(t), rows * (ALTTAB_WIN_SIZE + 20) + 44, title, rgb(255,255,255));
+		tt_draw_string_cjk(actx, panel_context.font, panel_context.font_cjk, center_x_a(t), rows * (ALTTAB_WIN_SIZE + 20) + 44, title, rgb(255,255,255));
 		free(title);
 	}
 
@@ -349,11 +350,11 @@ void launch_application_menu(struct MenuEntry * self) {
 		pthread_create(&_waiter_thread, NULL, logout_prompt_waiter, NULL);
 	} else if (!strcmp((char *)_self->action,"reboot")) {
 		if (system("showdialog --title 'Reboot' --icon exit 'Are you sure you want to reboot?'") == 0) {
-			system("reboot");
+			reboot(RB_AUTOBOOT);
 		}
 	} else if (!strcmp((char *)_self->action,"poweroff")) {
 		if (system("showdialog --title '\xe5\x85\xb3\xe6\x9c\xba' --icon exit '\xe7\xa1\xae\xe5\xae\x9a\xe8\xa6\x81\xe5\x85\xb3\xe6\x9c\xba\xe7\xb3\xbb\xe7\xbb\x9f\xe5\x90\x97\xef\xbc\x9f'") == 0) {
-			system("poweroff");
+			reboot(RB_POWER_OFF);
 		}
 	} else {
 		launch_application((char *)_self->action);
@@ -813,6 +814,7 @@ int main (int argc, char ** argv) {
 	panel_context.font_bold      = tt_font_from_shm("sans-serif.bold");
 	panel_context.font_mono      = tt_font_from_shm("monospace");
 	panel_context.font_mono_bold = tt_font_from_shm("monospace.bold");
+	panel_context.font_cjk       = tt_font_from_shm("cjk");
 
 	/* For convenience, store the display size */
 	width  = yctx->display_width;

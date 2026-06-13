@@ -34,6 +34,7 @@ static void (*callback_resize)(yutani_window_t *) = NULL;
 static void (*callback_maximize)(yutani_window_t *) = NULL;
 
 static struct TT_Font * tt_font = NULL;
+static struct TT_Font * tt_font_cjk = NULL;
 
 static void render_decorations_simple(yutani_window_t * window, gfx_context_t * ctx, char * title, int decors_active) {
 
@@ -56,7 +57,7 @@ static void render_decorations_simple(yutani_window_t * window, gfx_context_t * 
 
 	tt_set_size(tt_font, 12);
 	uint32_t textcolor = (decors_active == DECOR_INACTIVE) ? TEXTCOLOR_INACTIVE : TEXTCOLOR;
-	tt_draw_string(ctx, tt_font, TEXT_OFFSET_X, TEXT_OFFSET_Y + 12, title, textcolor);
+	tt_draw_string_cjk(ctx, tt_font, tt_font_cjk, TEXT_OFFSET_X, TEXT_OFFSET_Y + 12, title, textcolor);
 	tt_draw_string(ctx, tt_font, window->width - 20, TEXT_OFFSET_Y + 12, "x", textcolor);
 
 	for (uint32_t i = 0; i < window->width; ++i) {
@@ -92,6 +93,7 @@ static void initialize_simple() {
 	decor_check_button_press = check_button_press_simple;
 	decor_get_bounds         = get_bounds_simple;
 	tt_font = tt_font_from_shm("sans-serif");
+	tt_font_cjk = tt_font_from_shm("cjk");
 }
 
 void render_decorations(yutani_window_t * window, gfx_context_t * ctx, char * title) {

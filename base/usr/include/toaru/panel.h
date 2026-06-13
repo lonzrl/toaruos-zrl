@@ -33,6 +33,7 @@ struct PanelContext {
 	struct TT_Font * font_bold;
 	struct TT_Font * font_mono;
 	struct TT_Font * font_mono_bold;
+	struct TT_Font * font_cjk;
 
 	int extra_widget_spacing;
 };

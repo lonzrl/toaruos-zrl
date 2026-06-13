@@ -28,6 +28,11 @@ extern int tt_string_width_int(struct TT_Font * font, const char * s);
 extern int tt_draw_string(gfx_context_t * ctx, struct TT_Font * font, int x, int y, const char * s, uint32_t color);
 extern void tt_draw_string_shadow(gfx_context_t * ctx, struct TT_Font * font, char * string, int font_size, int left, int top, uint32_t text_color, uint32_t shadow_color, int blur);
 
+/* CJK fallback: when main font lacks a glyph, use fallback font */
+extern int tt_draw_string_cjk(gfx_context_t * ctx, struct TT_Font * font, struct TT_Font * font_cjk, int x, int y, const char * s, uint32_t color);
+extern int tt_string_width_cjk(struct TT_Font * font, struct TT_Font * font_cjk, const char * s);
+extern void tt_draw_string_shadow_cjk(gfx_context_t * ctx, struct TT_Font * font, struct TT_Font * font_cjk, char * string, int font_size, int left, int top, uint32_t text_color, uint32_t shadow_color, int blur);
+
 struct TT_FontMetrics {
 	float ascender;
 	float descender;
