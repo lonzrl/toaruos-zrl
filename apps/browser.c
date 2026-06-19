@@ -19,6 +19,8 @@
 #include <signal.h>
 #include <strings.h>
 #include <sys/fswait.h>
+#include <sys/time.h>
+#include <ctype.h>
 
 #include <toaru/yutani.h>
 #include <toaru/graphics.h>
@@ -44,7 +46,7 @@ struct http_url {
 	int port;
 };
 
-static char * my_my_strcasestr(const char * haystack, const char * needle) {
+static char * strcasestr_impl(const char * haystack, const char * needle) {
 	size_t nlen = strlen(needle);
 	while (*haystack) {
 		if (strncasecmp(haystack, needle, nlen) == 0) return (char *)haystack;
@@ -120,7 +122,6 @@ static char * http_get(const char * url) {
 	tv.tv_sec = 10;
 	tv.tv_usec = 0;
 	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-	setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
 	if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
 		close(sock);
@@ -241,7 +242,7 @@ static char * html_to_markup(const char * html) {
 			/* Skip closing slash */
 			if (*p == '/') p++;
 			/* Read tag name */
-			while (*p && *p != '>' && *p != ' ' && ti < sizeof(tag_name) - 1) {
+			while (*p && *p != '>' && *p != ' ' && ti < (int)sizeof(tag_name) - 1) {
 				tag_name[ti++] = *p++;
 			}
 			tag_name[ti] = '\0';
@@ -339,6 +340,11 @@ static char * html_to_markup(const char * html) {
 }
 
 /* ─── Markup Renderer (from help-browser) ──────────────── */
+
+/* Forward declarations needed because draw_buffer uses contents */
+static gfx_context_t * contents;
+static sprite_t * contents_sprite;
+static int contents_width;
 
 #define BASE_X 8
 #define BASE_Y 8
@@ -497,10 +503,6 @@ static gfx_context_t * ctx;
 static int application_running = 1;
 static int scroll_offset = 0;
 
-static gfx_context_t * contents = NULL;
-static sprite_t * contents_sprite = NULL;
-static int contents_width = 0;
-
 static char current_url[MAX_URL] = "http://";
 static char nav_bar[MAX_URL] = "http://";
 static int nav_bar_cursor = 0;
@@ -533,6 +535,8 @@ static struct menu_bar_entries menu_entries[] = {
 static void _menu_action_exit(struct MenuEntry * entry) {
 	application_running = 0;
 }
+
+static void redraw_window(void);
 
 static void _menu_action_about(struct MenuEntry * entry) {
 	char about_cmd[1024] = "\0";
@@ -655,10 +659,10 @@ static void navigate_to(const char * url) {
 		snprintf(status_text, sizeof(status_text), "正在解析...");
 
 		/* Try to extract <title> */
-		char * title_start = my_strcasestr(raw, "<title>");
+		char * title_start = strcasestr_impl(raw, "<title>");
 		if (title_start) {
 			title_start += 7;
-			char * title_end = my_strcasestr(title_start, "</title>");
+			char * title_end = strcasestr_impl(title_start, "</title>");
 			if (title_end) {
 				size_t tlen = title_end - title_start;
 				if (tlen > 200) tlen = 200;

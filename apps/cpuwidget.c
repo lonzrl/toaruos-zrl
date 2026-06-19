@@ -388,7 +388,7 @@ static void draw_legend_element(int which, int count, int index, uint32_t color,
 
 static void draw_legend_cpu(void) {
 	for (int i = 0; i < cpu_count; ++i) {
-		char _cpu_name[] = "CPU    ";
+		char _cpu_name[32];
 		sprintf(_cpu_name, "处理器 %d", i+1);
 		draw_legend_element(0, cpu_count, i, colors[i], _cpu_name);
 	}
