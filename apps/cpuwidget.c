@@ -34,8 +34,8 @@ static int left, top, width, height;
 
 static struct menu_bar menu_bar = {0};
 static struct menu_bar_entries menu_entries[] = {
-	{"File", "file"},
-	{"Help", "help"},
+	{"文件", "file"},
+	{"帮助", "help"},
 	{NULL, NULL},
 };
 
@@ -389,19 +389,19 @@ static void draw_legend_element(int which, int count, int index, uint32_t color,
 static void draw_legend_cpu(void) {
 	for (int i = 0; i < cpu_count; ++i) {
 		char _cpu_name[] = "CPU    ";
-		sprintf(_cpu_name, "CPU %d", i+1);
+		sprintf(_cpu_name, "处理器 %d", i+1);
 		draw_legend_element(0, cpu_count, i, colors[i], _cpu_name);
 	}
 }
 
 static void draw_legend_mem(void) {
-	draw_legend_element(1, 1, 0, rgb(250,110,240), "Memory Usage");
+	draw_legend_element(1, 1, 0, rgb(250,110,240), "内存使用");
 }
 
 static void draw_legend_net(void) {
 	for (int i = 0; i < if_count; ++i) {
 		char _net_name[300];
-		sprintf(_net_name, "%s (%s)", (i & 1) ? "TX" : "RX", ifnames[i>>1]);
+		sprintf(_net_name, "%s (%s)", (i & 1) ? "发送" : "接收", ifnames[i>>1]);
 		draw_legend_element(2, if_count, i, if_colors[i], _net_name);
 	}
 }
@@ -445,7 +445,7 @@ static void redraw_net_scale(void) {
 }
 
 void render_base(void) {
-	render_decorations(wina, ctx_base, "System Monitor");
+	render_decorations(wina, ctx_base, "系统监视器");
 	menu_bar_render(&menu_bar, ctx_base);
 }
 
@@ -477,9 +477,9 @@ static void initial_stuff(void) {
 	draw_fill(ctx_net, rgb(0xF8,0xF8,0xF8));
 
 	tt_set_size(tt_bold, 13);
-	tt_draw_string(ctx_base, tt_bold, bounds.left_width + 3, MENU_BAR_HEIGHT + bounds.top_height + 14, "CPU", rgb(0,0,0));
-	tt_draw_string(ctx_base, tt_bold, bounds.left_width + 3, MENU_BAR_HEIGHT + bounds.top_height + (top_pad + bottom_pad + graph_height) + 14, "Memory", rgb(0,0,0));
-	tt_draw_string(ctx_base, tt_bold, bounds.left_width + 3, MENU_BAR_HEIGHT + bounds.top_height + 2 * (top_pad + bottom_pad + graph_height) + 14, "Network", rgb(0,0,0));
+	tt_draw_string(ctx_base, tt_bold, bounds.left_width + 3, MENU_BAR_HEIGHT + bounds.top_height + 14, "处理器", rgb(0,0,0));
+	tt_draw_string(ctx_base, tt_bold, bounds.left_width + 3, MENU_BAR_HEIGHT + bounds.top_height + (top_pad + bottom_pad + graph_height) + 14, "内存", rgb(0,0,0));
+	tt_draw_string(ctx_base, tt_bold, bounds.left_width + 3, MENU_BAR_HEIGHT + bounds.top_height + 2 * (top_pad + bottom_pad + graph_height) + 14, "网络", rgb(0,0,0));
 
 	tt_set_size(tt_thin, 10);
 	tt_draw_string(ctx_base, tt_thin, bounds.left_width + width - 30, MENU_BAR_HEIGHT + bounds.top_height + 17, "100%", rgb(0,0,0));
@@ -539,7 +539,7 @@ static void _menu_action_help(struct MenuEntry * entry) {
 static void _menu_action_about(struct MenuEntry * entry) {
 	/* Show About dialog */
 	char about_cmd[1024] = "\0";
-	strcat(about_cmd, "about \"About System Monitor\" /usr/share/icons/48/system-monitor.png \"System Monitor\" \"© 2021-2023 K. Lange\n-\nPart of ToaruOS, which is free software\nreleased under the NCSA/University of Illinois\nlicense.\n-\n%https://toaruos.org\n%https://github.com/klange/toaruos\" ");
+	strcat(about_cmd, "about \"关于系统监视器\" /usr/share/icons/48/system-monitor.png \"系统监视器\" \"© 2021-2023 K. Lange\n-\nZRL 是基于 ToaruOS 的自由软件，\n遵循 NCSA/伊利诺伊大学许可证发布。\n-\n%https://github.com/lonzrl/toaruos-zrl\" ");
 	char coords[100];
 	sprintf(coords, "%d %d &", (int)wina->x + (int)wina->width / 2, (int)wina->y + (int)wina->height / 2);
 	strcat(about_cmd, coords);
@@ -575,7 +575,7 @@ int main (int argc, char ** argv) {
 
 	wina = yutani_window_create(yctx, width + bounds.width, height + bounds.height + MENU_BAR_HEIGHT);
 	yutani_window_move(yctx, wina, left, top);
-	yutani_window_advertise_icon(yctx, wina, "System Monitor", "system-monitor");
+	yutani_window_advertise_icon(yctx, wina, "系统监视器", "system-monitor");
 
 	ctx_base = init_graphics_yutani_double_buffer(wina);
 
@@ -584,13 +584,13 @@ int main (int argc, char ** argv) {
 	menu_bar.set = menu_set_create();
 
 	struct MenuList * m = menu_create(); /* File */
-	menu_insert(m, menu_create_normal("exit",NULL,"Exit", _menu_action_exit));
+	menu_insert(m, menu_create_normal("exit",NULL,"退出", _menu_action_exit));
 	menu_set_insert(menu_bar.set, "file", m);
 
 	m = menu_create();
-	menu_insert(m, menu_create_normal("help",NULL,"Contents",_menu_action_help));
+	menu_insert(m, menu_create_normal("help",NULL,"内容",_menu_action_help));
 	menu_insert(m, menu_create_separator());
-	menu_insert(m, menu_create_normal("star",NULL,"About System Monitor",_menu_action_about));
+	menu_insert(m, menu_create_normal("star",NULL,"关于系统监视器",_menu_action_about));
 	menu_set_insert(menu_bar.set, "help", m);
 
 	tt_thin = tt_font_from_shm("sans-serif");

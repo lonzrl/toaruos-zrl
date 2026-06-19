@@ -24,8 +24,8 @@
 
 static struct menu_bar menu_bar = {0};
 static struct menu_bar_entries menu_entries[] = {
-	{"File", "file"},
-	{"Help", "help"},
+	{"文件", "file"},
+	{"帮助", "help"},
 	{NULL, NULL},
 };
 
@@ -36,7 +36,7 @@ static gfx_context_t * ctx = NULL;
 static int32_t width = 600;
 static int32_t height = 240;
 
-static char * title_str = "Calculator";
+static char * title_str = "计算器";
 
 static int textInputIsAccumulatorValue = 0;
 static char accumulator[1024] = {0};
@@ -314,13 +314,13 @@ int main(int argc, char * argv[]) {
 	menu_bar.set = menu_set_create();
 
 	struct MenuList * m = menu_create(); /* File */
-	menu_insert(m, menu_create_normal("exit",NULL,"Exit", _menu_action_exit));
+	menu_insert(m, menu_create_normal("exit",NULL,"退出", _menu_action_exit));
 	menu_set_insert(menu_bar.set, "file", m);
 
 	m = menu_create();
-	menu_insert(m, menu_create_normal("help",NULL,"Contents",_menu_action_help));
+	menu_insert(m, menu_create_normal("help",NULL,"内容",_menu_action_help));
 	menu_insert(m, menu_create_separator());
-	menu_insert(m, menu_create_normal("star",NULL,"About Calculator",_menu_action_about));
+	menu_insert(m, menu_create_normal("star",NULL,"关于计算器",_menu_action_about));
 	menu_set_insert(menu_bar.set, "help", m);
 
 	setup_buttons();

@@ -48,7 +48,7 @@ int current_scale = 100;
 
 sprite_t img = {0};
 
-#define APPLICATION_TITLE "Image Viewer"
+#define APPLICATION_TITLE "图片查看器"
 static char window_title[1024] = APPLICATION_TITLE;
 
 int usage(char * argv[]) {

@@ -146,7 +146,7 @@ int main(int argc, char * argv[]) {
 				title_str = optarg;
 				break;
 			case 'T':
-				asprintf(&title_str, "About %s", optarg);
+				asprintf(&title_str, "关于 %s", optarg);
 				break;
 			case 'n':
 				version_str = optarg;

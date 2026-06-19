@@ -35,7 +35,7 @@
 #include <toaru/text.h>
 #include <toaru/button.h>
 
-#define APPLICATION_TITLE "File Browser"
+#define APPLICATION_TITLE "文件浏览器"
 #define SCROLL_AMOUNT 120
 #define WALLPAPER_PATH "/usr/share/wallpaper.jpg"
 
@@ -109,11 +109,11 @@ static int _button_hover = -1;
 /* Menu bar entries */
 static struct menu_bar menu_bar = {0};
 static struct menu_bar_entries menu_entries[] = {
-	{"File", "file"}, /* 0 */
-	{"Edit", "edit"}, /* 1 */
-	{"View", "view"}, /* 2 */
-	{"Go", "go"},     /* 3 */
-	{"Help", "help"}, /* 4 */
+	{"文件", "file"}, /* 0 */
+	{"编辑", "edit"}, /* 1 */
+	{"查看", "view"}, /* 2 */
+	{"转到", "go"},   /* 3 */
+	{"帮助", "help"}, /* 4 */
 	{NULL, NULL},
 };
 
@@ -303,7 +303,7 @@ static void draw_file(struct File * f, int offset) {
 
 			char line_three[48] = {0};
 			if (*f->link) {
-				sprintf(line_three, "Symbolic link");
+				sprintf(line_three, "符号链接");
 			} else {
 				print_human_readable_size(line_three, f->size);
 			}
@@ -380,7 +380,7 @@ static void set_title(char * directory) {
 
 	if (is_picker_dialog) {
 		/* TODO: Maybe make this an option... */
-		sprintf(title, "Open File");
+		sprintf(title, "打开文件");
 	} else if (directory) {
 		sprintf(title, "%s - " APPLICATION_TITLE, directory);
 	} else {
@@ -441,13 +441,13 @@ static void update_status(void) {
 	char tmp_size[50];
 	if (selected_count == 0) {
 		print_human_readable_size(tmp_size, total_size);
-		sprintf(window_status, "%zd item%s (%s)", file_pointers_len, file_pointers_len == 1 ? "" : "s", tmp_size);
+		sprintf(window_status, "%zd 个项目 (%s)", file_pointers_len, tmp_size);
 	} else if (selected_count == 1) {
 		print_human_readable_size(tmp_size, selected->size);
 		sprintf(window_status, "\"%s\" (%s) %s", selected->name, tmp_size, selected->filetype);
 	} else {
 		print_human_readable_size(tmp_size, selected_size);
-		sprintf(window_status, "%d items selected (%s)", selected_count, tmp_size);
+		sprintf(window_status, "%d 个项目已选中 (%s)", selected_count, tmp_size);
 	}
 }
 
@@ -471,9 +471,9 @@ static void load_directory(const char * path, int modifies_history) {
 			snprintf(wid,100,"%d",main_window->wid);
 			char coords[100];
 			snprintf(coords,100,"%d,%d",(int)main_window->width / 2,(int)main_window->height / 2);
-			asprintf(&tmp, "Could not open directory \"%s\": %s", path, strerror(errno));
+			asprintf(&tmp, "无法打开目录 \"%s\": %s", path, strerror(errno));
 			char * args[] = {"showdialog",
-				"--title","File Browser",
+				"--title","文件浏览器",
 				"--icon","folder",
 				"--parent",wid,
 				"--at",coords,
@@ -520,11 +520,11 @@ static void load_directory(const char * path, int modifies_history) {
 	char * home = getenv("HOME");
 	if (home && !strcmp(path, home)) {
 		/* If the current directory is the user's homedir, present it that way in the title */
-		set_title("Home");
+		set_title("主目录");
 		/* Disable the 'go home' button */
 		_button_disabled[3] = 1;
 	} else if (!strcmp(path, "/")) {
-		set_title("File System");
+		set_title("文件系统");
 		/* If this is the root of the file system, disable the up button */
 		_button_disabled[2] = 1;
 	} else {
@@ -608,7 +608,7 @@ static void load_directory(const char * path, int modifies_history) {
 				} else {
 					sprintf(f->icon, "folder");
 				}
-				sprintf(f->filetype, "Directory");
+				sprintf(f->filetype, "目录");
 				f->type = 1;
 			} else {
 				/* Regular file */
@@ -637,132 +637,127 @@ static void load_directory(const char * path, int modifies_history) {
 						}
 					}
 					fclose(file);
-					sprintf(f->filetype, "Launcher");
+					sprintf(f->filetype, "启动器");
 					sprintf(f->filename, "%s", ent->d_name);
 					f->type = 2;
 				} else {
 					/* Handle various file types */
 					if (has_extension(f, ".c")) {
 						sprintf(f->icon, "c");
-						sprintf(f->filetype, "C Source");
+						sprintf(f->filetype, "C 源文件");
 					} else if (has_extension(f, ".h")) {
 						sprintf(f->icon, "h");
-						sprintf(f->filetype, "C Header");
+						sprintf(f->filetype, "C 头文件");
 					} else if (has_extension(f, ".bmp")) {
 						sprintf(f->icon, "image");
 						sprintf(f->launcher, "exec imgviewer");
-						sprintf(f->filetype, "Bitmap Image");
+						sprintf(f->filetype, "BMP 图像");
 					} else if (has_extension(f, ".tga")) {
 						sprintf(f->icon, "image");
 						sprintf(f->launcher, "exec imgviewer");
-						sprintf(f->filetype, "Targa Image");
+						sprintf(f->filetype, "TGA 图像");
 					} else if (has_extension(f, ".jpg") || has_extension(f,".jpeg")) {
 						sprintf(f->icon, "image");
 						sprintf(f->launcher, "exec imgviewer");
-						sprintf(f->filetype, "JPEG Image");
+						sprintf(f->filetype, "JPEG 图像");
 					} else if (has_extension(f, ".png")) {
 						sprintf(f->icon, "image");
 						sprintf(f->launcher, "exec imgviewer");
-						sprintf(f->filetype, "Portable Network Graphics Image");
+						sprintf(f->filetype, "PNG 图像");
 					} else if (has_extension(f, ".sdf")) {
 						sprintf(f->icon, "font");
-						sprintf(f->filetype, "Legacy SDF Font");
+						sprintf(f->filetype, "SDF 字体");
 					} else if (has_extension(f, ".ttf")) {
 						sprintf(f->icon, "font");
 						sprintf(f->launcher,"exec font-preview");
-						sprintf(f->filetype, "TrueType Font");
+						sprintf(f->filetype, "TrueType 字体");
 					} else if (has_extension(f, ".pdf")) {
 						sprintf(f->icon, "pdf");
 						sprintf(f->launcher,"exec maybe-pdfviewer.krk");
-						sprintf(f->filetype, "Portable Document Format");
+						sprintf(f->filetype, "PDF 文档");
 					} else if (has_extension(f, ".tgz") || has_extension(f, ".tar.gz")) {
 						sprintf(f->icon, "package_targz");
-						sprintf(f->filetype, "Compressed Archive File");
-						/* TODO: Archive viewer */
+						sprintf(f->filetype, "压缩归档文件");
 					} else if (has_extension(f, ".tar")) {
 						sprintf(f->icon, "package_tar");
-						sprintf(f->filetype, "Archive File");
+						sprintf(f->filetype, "归档文件");
 					} else if (has_extension(f, ".a")) {
 						sprintf(f->icon, "package_a");
-						sprintf(f->filetype, "Archive File");
+						sprintf(f->filetype, "归档文件");
 					} else if (has_extension(f, ".zip")) {
 						sprintf(f->icon, "package_zip");
-						sprintf(f->filetype, "ZIP Archive File");
+						sprintf(f->filetype, "ZIP 压缩文件");
 					} else if (has_extension(f, ".sh")) {
 						sprintf(f->icon, "sh");
 						if (statbuf.st_mode & 0111) {
-							/* Make executable */
 							sprintf(f->launcher, "SELF");
-							sprintf(f->filetype, "Executable Shell Script");
+							sprintf(f->filetype, "可执行 Shell 脚本");
 						} else {
-							sprintf(f->filetype, "Shell Script");
+							sprintf(f->filetype, "Shell 脚本");
 						}
 					} else if (has_extension(f, ".krk")) {
 						sprintf(f->icon, "krk");
 						if (statbuf.st_mode & 0111) {
-							/* Make executable */
 							sprintf(f->launcher, "SELF");
-							sprintf(f->filetype, "Executable Kuroko Script");
+							sprintf(f->filetype, "可执行 Kuroko 脚本");
 						} else {
-							sprintf(f->filetype, "Kuroko Script");
+							sprintf(f->filetype, "Kuroko 脚本");
 						}
 					} else if (has_extension(f, ".py")) {
 						sprintf(f->icon, "py");
 						if (statbuf.st_mode & 0111) {
-							/* Make executable */
 							sprintf(f->launcher, "SELF");
-							sprintf(f->filetype, "Executable Python Script");
+							sprintf(f->filetype, "可执行 Python 脚本");
 						} else {
-							sprintf(f->filetype, "Python Script");
+							sprintf(f->filetype, "Python 脚本");
 						}
 					} else if (has_extension(f, ".ko")) {
 						sprintf(f->icon, "so");
-						sprintf(f->filetype, "Kernel Module");
+						sprintf(f->filetype, "内核模块");
 					} else if (has_extension(f, ".o")) {
 						sprintf(f->icon, "so");
-						sprintf(f->filetype, "Object File");
+						sprintf(f->filetype, "目标文件");
 					} else if (has_extension(f, ".so")) {
 						sprintf(f->icon, "so");
-						sprintf(f->filetype, "Shared Object File");
+						sprintf(f->filetype, "共享库文件");
 					} else if (has_extension(f, ".S")) {
 						sprintf(f->icon, "file");
-						sprintf(f->filetype, "Assembly Source");
+						sprintf(f->filetype, "汇编源文件");
 					} else if (has_extension(f, ".ld")) {
 						sprintf(f->icon, "file");
-						sprintf(f->filetype, "Linker Script");
+						sprintf(f->filetype, "链接脚本");
 					} else if (has_extension(f, ".md")) {
 						sprintf(f->icon, "file");
-						sprintf(f->filetype, "Markdown Text Document");
+						sprintf(f->filetype, "Markdown 文档");
 					} else if (has_extension(f, ".eshrc")) {
 						sprintf(f->icon, "sh");
-						sprintf(f->filetype, "Shell Configuration");
+						sprintf(f->filetype, "Shell 配置");
 					} else if (has_extension(f, ".bim3rc")) {
 						sprintf(f->icon, "krk");
-						sprintf(f->filetype, "Bim Configuration");
+						sprintf(f->filetype, "Bim 配置");
 					} else if (has_extension(f, ".biminfo")) {
 						sprintf(f->icon, "file");
-						sprintf(f->filetype, "Bim Status Cache");
+						sprintf(f->filetype, "Bim 状态缓存");
 					} else if (has_extension(f, ".conf")) {
 						sprintf(f->icon, "file");
-						sprintf(f->filetype, "Configuration File");
+						sprintf(f->filetype, "配置文件");
 					} else if (has_extension(f, ".launcher")) {
 						sprintf(f->icon, "file");
-						sprintf(f->filetype, "Application Launcher");
+						sprintf(f->filetype, "应用启动器");
 					} else if (has_extension(f, ".trt")) {
 						sprintf(f->icon, "file");
-						sprintf(f->filetype, "Toaru Rich Text Document");
+						sprintf(f->filetype, "富文本文档");
 						sprintf(f->launcher, "exec help-browser");
 					} else if (has_extension(f, ".json")) {
 						sprintf(f->icon, "file");
-						sprintf(f->filetype, "JavaScript Object Notation File");
+						sprintf(f->filetype, "JSON 文件");
 					} else if (statbuf.st_mode & 0111) {
-						/* Executable files - use their name for their icon, and launch themselves. */
 						sprintf(f->icon, "%s", f->name);
 						sprintf(f->launcher, "SELF");
-						sprintf(f->filetype, "Executable");
+						sprintf(f->filetype, "可执行文件");
 					} else {
 						sprintf(f->icon, "file");
-						sprintf(f->filetype, "File");
+						sprintf(f->filetype, "文件");
 					}
 					f->type = 0;
 				}
@@ -1489,7 +1484,7 @@ static void _menu_action_delete(struct MenuEntry * entry) {
 static void _menu_action_about(struct MenuEntry * entry) {
 	/* Show About dialog */
 	char about_cmd[1024] = "\0";
-	strcat(about_cmd, "about \"About File Browser\" /usr/share/icons/48/folder.png \"ToaruOS File Browser\" \"© 2018-2026 K. Lange\n-\nPart of ToaruOS, which is free software\nreleased under the NCSA/University of Illinois\nlicense.\n-\n%https://toaruos.org\n%https://github.com/klange/toaruos\" ");
+	strcat(about_cmd, "about \"关于文件浏览器\" /usr/share/icons/48/folder.png \"ZRL 文件浏览器\" \"© 2018-2026 K. Lange\n-\nZRL 是基于 ToaruOS 的自由软件，\n遵循 NCSA/伊利诺伊大学许可证发布。\n-\n%https://github.com/lonzrl/toaruos-zrl\" ");
 	char coords[100];
 	sprintf(coords, "%d %d &", (int)main_window->x + (int)main_window->width / 2, (int)main_window->y + (int)main_window->height / 2);
 	strcat(about_cmd, coords);
@@ -1682,14 +1677,14 @@ static void handle_clipboard(char * contents) {
 		struct stat statbuf;
 		if (!stat(destination, &statbuf)) {
 			char message[4096];
-			sprintf(message, "showdialog \"File Browser\" /usr/share/icons/48/folder.png \"Not overwriting file '%s'.\"", cheap_basename);
+			sprintf(message, "showdialog \"文件浏览器\" /usr/share/icons/48/folder.png \"不会覆盖文件 '%s'。\"", cheap_basename);
 			launch_application(message);
 		} else {
 			char cp[1024];
 			sprintf(cp, "cp -r \"%s\" \"%s\"", file, current_directory);
 			if (system(cp)) {
 				char message[4096];
-				sprintf(message, "showdialog \"File Browser\" /usr/share/icons/48/folder.png \"Error copying file '%s'.\"", cheap_basename);
+				sprintf(message, "showdialog \"文件浏览器\" /usr/share/icons/48/folder.png \"复制文件 '%s' 时出错。\"", cheap_basename);
 				launch_application(message);
 			}
 		}
@@ -2010,64 +2005,64 @@ int main(int argc, char * argv[]) {
 		menu_bar.set = menu_set_create();
 
 		struct MenuList * m = menu_create(); /* File */
-		menu_insert(m, menu_create_normal("exit",NULL,"Exit", _menu_action_exit));
+		menu_insert(m, menu_create_normal("exit",NULL,"退出", _menu_action_exit));
 		menu_set_insert(menu_bar.set, "file", m);
 
 		m = menu_create();
-		menu_insert(m, menu_create_normal(NULL,NULL,"Copy",_menu_action_copy));
-		menu_insert(m, menu_create_normal(NULL,NULL,"Paste",_menu_action_paste));
+		menu_insert(m, menu_create_normal(NULL,NULL,"复制",_menu_action_copy));
+		menu_insert(m, menu_create_normal(NULL,NULL,"粘贴",_menu_action_paste));
 		menu_insert(m, menu_create_separator());
-		menu_insert(m, menu_create_normal(NULL,NULL,"Select all",_menu_action_select_all));
+		menu_insert(m, menu_create_normal(NULL,NULL,"全选",_menu_action_select_all));
 		menu_set_insert(menu_bar.set, "edit", m);
 
 		m = menu_create();
-		menu_insert(m, menu_create_normal("refresh",NULL,"Refresh", _menu_action_refresh));
+		menu_insert(m, menu_create_normal("refresh",NULL,"刷新", _menu_action_refresh));
 		menu_insert(m, menu_create_separator());
-		menu_insert(m, (_menu_entry_show_icons = menu_create_toggle("icons","Show Icons", view_mode == VIEW_MODE_ICONS, _menu_action_view_mode)));
-		menu_insert(m, (_menu_entry_show_tiles = menu_create_toggle("tiles","Show Tiles", view_mode == VIEW_MODE_TILES, _menu_action_view_mode)));
-		menu_insert(m, (_menu_entry_show_list  = menu_create_toggle("list", "Show List",  view_mode == VIEW_MODE_LIST,  _menu_action_view_mode)));
+		menu_insert(m, (_menu_entry_show_icons = menu_create_toggle("icons","图标视图", view_mode == VIEW_MODE_ICONS, _menu_action_view_mode)));
+		menu_insert(m, (_menu_entry_show_tiles = menu_create_toggle("tiles","平铺视图", view_mode == VIEW_MODE_TILES, _menu_action_view_mode)));
+		menu_insert(m, (_menu_entry_show_list  = menu_create_toggle("list", "列表视图",  view_mode == VIEW_MODE_LIST,  _menu_action_view_mode)));
 		menu_insert(m, menu_create_separator());
-		menu_insert(m, menu_create_toggle(NULL,"Show Hidden Files", 0, _menu_action_toggle_hidden));
+		menu_insert(m, menu_create_toggle(NULL,"显示隐藏文件", 0, _menu_action_toggle_hidden));
 		menu_set_insert(menu_bar.set, "view", m);
 
 		m = menu_create(); /* Go */
-		menu_insert(m, menu_create_normal("home",getenv("HOME"),"Home",_menu_action_navigate));
-		menu_insert(m, menu_create_normal(NULL,"/","File System",_menu_action_navigate));
-		menu_insert(m, (_menu_entry_up = menu_create_normal("up",NULL,"Up",_menu_action_up)));
+		menu_insert(m, menu_create_normal("home",getenv("HOME"),"主目录",_menu_action_navigate));
+		menu_insert(m, menu_create_normal(NULL,"/","文件系统",_menu_action_navigate));
+		menu_insert(m, (_menu_entry_up = menu_create_normal("up",NULL,"上级目录",_menu_action_up)));
 		menu_set_insert(menu_bar.set, "go", m);
 
 		m = menu_create();
-		menu_insert(m, menu_create_normal("help",NULL,"Contents",_menu_action_help));
+		menu_insert(m, menu_create_normal("help",NULL,"内容",_menu_action_help));
 		menu_insert(m, menu_create_separator());
-		menu_insert(m, menu_create_normal("star",NULL,"About " APPLICATION_TITLE,_menu_action_about));
+		menu_insert(m, menu_create_normal("star",NULL,"关于 " APPLICATION_TITLE,_menu_action_about));
 		menu_set_insert(menu_bar.set, "help", m);
 	}
 
 	available_height = ctx->height - menu_bar_height - nav_bar_height - bounds.height - (is_desktop_background ? 0 : STATUS_HEIGHT);
 
 	context_menu = menu_create(); /* Right-click menu */
-	menu_insert(context_menu, menu_create_normal(NULL,NULL,"Open",_menu_action_open));
-	menu_insert(context_menu, menu_create_normal(NULL,NULL,"Edit in Bim",_menu_action_edit));
+	menu_insert(context_menu, menu_create_normal(NULL,NULL,"打开",_menu_action_open));
+	menu_insert(context_menu, menu_create_normal(NULL,NULL,"在 Bim 中编辑",_menu_action_edit));
 	menu_insert(context_menu, menu_create_separator());
-	menu_insert(context_menu, menu_create_normal(NULL,NULL,"Copy",_menu_action_copy));
-	menu_insert(context_menu, menu_create_normal(NULL,NULL,"Paste",_menu_action_paste));
+	menu_insert(context_menu, menu_create_normal(NULL,NULL,"复制",_menu_action_copy));
+	menu_insert(context_menu, menu_create_normal(NULL,NULL,"粘贴",_menu_action_paste));
 	menu_insert(context_menu, menu_create_separator());
-	menu_insert(context_menu, menu_create_normal(NULL,NULL,"Delete",_menu_action_delete));
+	menu_insert(context_menu, menu_create_normal(NULL,NULL,"删除",_menu_action_delete));
 	if (!is_desktop_background) {
 		menu_insert(context_menu, menu_create_separator());
-		menu_insert(context_menu, (_menu_entry_up_ctx_a = menu_create_normal("up",NULL,"Up",_menu_action_up)));
+		menu_insert(context_menu, (_menu_entry_up_ctx_a = menu_create_normal("up",NULL,"上级目录",_menu_action_up)));
 	}
-	menu_insert(context_menu, menu_create_normal("refresh",NULL,"Refresh",_menu_action_refresh));
-	menu_insert(context_menu, menu_create_normal("utilities-terminal","terminal","Open Terminal",launch_application_menu));
+	menu_insert(context_menu, menu_create_normal("refresh",NULL,"刷新",_menu_action_refresh));
+	menu_insert(context_menu, menu_create_normal("utilities-terminal","terminal","打开终端",launch_application_menu));
 
 	directory_context_menu = menu_create(); /* the other right click menu */
-	menu_insert(directory_context_menu, menu_create_normal(NULL,NULL,"Paste",_menu_action_paste));
+	menu_insert(directory_context_menu, menu_create_normal(NULL,NULL,"粘贴",_menu_action_paste));
 	menu_insert(directory_context_menu, menu_create_separator());
 	if (!is_desktop_background) {
-		menu_insert(directory_context_menu, (_menu_entry_up_ctx_b = menu_create_normal("up",NULL,"Up",_menu_action_up)));
+		menu_insert(directory_context_menu, (_menu_entry_up_ctx_b = menu_create_normal("up",NULL,"上级目录",_menu_action_up)));
 	}
-	menu_insert(directory_context_menu, menu_create_normal("refresh",NULL,"Refresh",_menu_action_refresh));
-	menu_insert(directory_context_menu, menu_create_normal("utilities-terminal","terminal","Open Terminal",launch_application_menu));
+	menu_insert(directory_context_menu, menu_create_normal("refresh",NULL,"刷新",_menu_action_refresh));
+	menu_insert(directory_context_menu, menu_create_normal("utilities-terminal","terminal","打开终端",launch_application_menu));
 
 
 	history_back = list_create();

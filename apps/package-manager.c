@@ -24,7 +24,7 @@
 #include <toaru/confreader.h>
 #include <toaru/icon_cache.h>
 
-#define APPLICATION_TITLE "Package Manager"
+#define APPLICATION_TITLE "包管理器"
 #define SCROLL_AMOUNT 120
 #define VAR_PATH "/var/msk"
 
@@ -64,9 +64,9 @@ static ssize_t pkg_pointers_len = 0; /* How many packages are in the current lis
 
 static struct menu_bar menu_bar = {0};
 static struct menu_bar_entries menu_entries[] = {
-	{"File", "file"},
-	{"Index", "index"},
-	{"Help", "help"},
+	{"文件", "file"},
+	{"索引", "index"},
+	{"帮助", "help"},
 	{NULL, NULL},
 };
 
@@ -385,7 +385,7 @@ static void install_packages(void) {
 static void _menu_action_about(struct MenuEntry * entry) {
 	/* Show About dialog */
 	char about_cmd[1024] = "\0";
-	strcat(about_cmd, "about \"About " APPLICATION_TITLE "\" /usr/share/icons/48/package.png \"ToaruOS " APPLICATION_TITLE "\" \"© 2018 K. Lange\n-\nPart of ToaruOS, which is free software\nreleased under the NCSA/University of Illinois\nlicense.\n-\n%https://toaruos.org\n%https://github.com/klange/toaruos\" ");
+	strcat(about_cmd, "about \"关于 " APPLICATION_TITLE "\" /usr/share/icons/48/package.png \"ZRL " APPLICATION_TITLE "\" \"© 2018 K. Lange\n-\nZRL 是基于 ToaruOS 的自由软件\n遵循 NCSA/伊利诺伊大学许可证发布。\n-\n%https://github.com/lonzrl/toaruos-zrl\" ");
 	char coords[100];
 	sprintf(coords, "%d %d &", (int)main_window->x + (int)main_window->width / 2, (int)main_window->y + (int)main_window->height / 2);
 	strcat(about_cmd, coords);
@@ -490,10 +490,10 @@ int main(int argc, char * argv[]) {
 	if (geteuid() != 0) {
 		char * args[] = {
 			"showdialog",
-			"--title", "Package Manager",
+			"--title", "包管理器",
 			"--icon", "package",
 			"--disable-cancel",
-			"Only root can manage packages.",
+			"只有 root 才能管理软件包。",
 			NULL,
 		};
 		return execvp("showdialog", args);
@@ -516,15 +516,15 @@ int main(int argc, char * argv[]) {
 	menu_bar.set = menu_set_create();
 
 	struct MenuList * m = menu_create(); /* File */
-	menu_insert(m, menu_create_normal("exit",NULL,"Exit", _menu_action_exit));
+	menu_insert(m, menu_create_normal("exit",NULL,"退出", _menu_action_exit));
 	menu_set_insert(menu_bar.set, "file", m);
 
 	m = menu_create(); /* Go */
-	menu_insert(m, menu_create_normal("refresh",NULL,"Refresh",_menu_action_refresh));
+	menu_insert(m, menu_create_normal("refresh",NULL,"刷新",_menu_action_refresh));
 	menu_set_insert(menu_bar.set, "index", m);
 
 	m = menu_create();
-	menu_insert(m, menu_create_normal("help","help_browser.trt","Contents",_menu_action_help));
+	menu_insert(m, menu_create_normal("help","help_browser.trt","内容",_menu_action_help));
 	menu_insert(m, menu_create_separator());
 	menu_insert(m, menu_create_normal("star",NULL,"About " APPLICATION_TITLE,_menu_action_about));
 	menu_set_insert(menu_bar.set, "help", m);

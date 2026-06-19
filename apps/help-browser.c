@@ -24,7 +24,7 @@
 #include <toaru/text.h>
 #include <toaru/markup.h>
 
-#define APPLICATION_TITLE "Help Browser"
+#define APPLICATION_TITLE "帮助浏览器"
 #define HELP_DIR "/usr/share/help"
 
 static yutani_t * yctx;
@@ -222,9 +222,9 @@ static int parser_data(struct markup_state * self, void * user, char * data) {
 
 static struct menu_bar menu_bar = {0};
 static struct menu_bar_entries menu_entries[] = {
-	{"File", "file"},
-	{"Go", "go"},
-	{"Help", "help"},
+	{"文件", "file"},
+	{"转到", "go"},
+	{"帮助", "help"},
 	{NULL, NULL},
 };
 
@@ -339,7 +339,7 @@ static void resize_finish(int w, int h) {
 static char * generate_index(void) {
 	list_t * components = list_create();
 
-	list_insert(components, strdup("<h1>Topics</h1>\n"));
+	list_insert(components, strdup("<h1>主题</h1>\n"));
 
 	/* Open /usr/share/help */
 	DIR * dirp = opendir("/usr/share/help");
@@ -391,7 +391,7 @@ static void navigate(const char * t) {
 			/* Oh boy... */
 			current_topic = generate_index();
 		} else {
-			current_topic = strdup("File not found.");
+			current_topic = strdup("未找到文件。");
 		}
 
 	} else {
@@ -406,7 +406,7 @@ static void navigate(const char * t) {
 		FILE * f = fopen(file_path, "r");
 
 		if (!f) {
-			current_topic = strdup("File not found.");
+			current_topic = strdup("未找到文件。");
 		} else {
 			struct stat sb;
 			fstat(fileno(f), &sb);
@@ -504,12 +504,12 @@ int main(int argc, char * argv[]) {
 	menu_bar.set = menu_set_create();
 
 	struct MenuList * m = menu_create(); /* File */
-	menu_insert(m, menu_create_normal("exit",NULL,"Exit", _menu_action_exit));
+	menu_insert(m, menu_create_normal("exit",NULL,"退出", _menu_action_exit));
 	menu_set_insert(menu_bar.set, "file", m);
 
 	m = menu_create(); /* Go */
-	menu_insert(m, menu_create_normal("home","0_index.trt","Home",_menu_action_navigate));
-	menu_insert(m, menu_create_normal("bookmark","special:contents","Topics",_menu_action_navigate));
+	menu_insert(m, menu_create_normal("home","0_index.trt","主页",_menu_action_navigate));
+	menu_insert(m, menu_create_normal("bookmark","special:contents","主题",_menu_action_navigate));
 #if 0
 	/* TODO: History */
 	menu_insert(m, menu_create_separator());

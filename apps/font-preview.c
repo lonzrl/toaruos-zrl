@@ -36,7 +36,7 @@ static int height = 480;
 char * tt_get_name_string(struct TT_Font * font, int identifier);
 char * preview_string = "The quick brown fox jumps over the lazy dog.";
 char * tt_font_name = NULL;
-char window_title[1024] = "Font Preview";
+char window_title[1024] = "字体预览";
 
 void redraw(void) {
 	draw_fill(ctx, rgb(255,255,255));
@@ -138,7 +138,7 @@ int main(int argc, char * argv[]) {
 	tt_font_name = tt_get_name_string(tt_font, 4);
 
 	if (tt_font_name) {
-		sprintf(window_title, "%s - Font Preview", tt_font_name);
+		sprintf(window_title, "%s - 字体预览", tt_font_name);
 	}
 
 	yutani_window_advertise_icon(yctx, window, window_title, "font");

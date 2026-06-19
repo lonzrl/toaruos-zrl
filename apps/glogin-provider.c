@@ -202,7 +202,7 @@ static void get_updated_hostname_with_time_info(char hostname[]) {
 
 	// format the hostname info
 	char _date[256];
-	strftime(_date, 256, "%a %B %d %Y", timeinfo);
+	strftime(_date, 256, "%Y年%m月%d日 %A", timeinfo);
 	sprintf(hostname, "%s // %s", _hostname, _date);
 }
 

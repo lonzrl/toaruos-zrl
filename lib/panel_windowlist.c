@@ -224,11 +224,11 @@ static int widget_onkey_windowlist(struct PanelWidget * this, struct yutani_msg_
 struct PanelWidget * widget_init_windowlist(void) {
 	window_menu = menu_create();
 	window_menu->flags |= MENU_FLAG_BUBBLE_LEFT;
-	menu_insert(window_menu, menu_create_normal(NULL, NULL, "Maximize", _window_menu_start_maximize));
-	menu_insert(window_menu, menu_create_normal(NULL, NULL, "Minimize", _window_menu_start_minimize));
-	menu_insert(window_menu, menu_create_normal(NULL, NULL, "Move", _window_menu_start_move));
+	menu_insert(window_menu, menu_create_normal(NULL, NULL, "最大化", _window_menu_start_maximize));
+	menu_insert(window_menu, menu_create_normal(NULL, NULL, "最小化", _window_menu_start_minimize));
+	menu_insert(window_menu, menu_create_normal(NULL, NULL, "移动", _window_menu_start_move));
 	menu_insert(window_menu, menu_create_separator());
-	menu_insert(window_menu, menu_create_normal(NULL, NULL, "Close", _window_menu_close));
+	menu_insert(window_menu, menu_create_normal(NULL, NULL, "关闭", _window_menu_close));
 
 	/* Alt+F3 = window context menu */
 	yutani_key_bind(yctx, KEY_F3, KEY_MOD_LEFT_ALT, YUTANI_BIND_STEAL);

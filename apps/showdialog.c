@@ -30,7 +30,7 @@ static sprite_t * icon = NULL;
 static int32_t width = 600;
 static int32_t height = 150;
 
-static char * title_str = "Dialog Prompt";
+static char * title_str = "提示";
 static char * icon_path = "generic";
 static char * ad_icon = "generic";
 static char * okay_str = "\xe7\xa1\xae\xe5\xae\x9a";

@@ -203,11 +203,11 @@ static int decor_height = 0;
 /* Menu bar entries */
 struct menu_bar_with_tabs terminal_menu_bar = {0};
 struct menu_bar_entries terminal_menu_entries[] = {
-	{"File", "file"},
-	{"Edit", "edit"},
-	{"View", "view"},
-	{"Terminal", "terminal"},
-	{"Help", "help"},
+	{"文件", "file"},
+	{"编辑", "edit"},
+	{"查看", "view"},
+	{"终端", "terminal"},
+	{"帮助", "help"},
 	{NULL, NULL},
 };
 struct menu_bar_entries * terminal_menu_bar_with_tabs = NULL;
@@ -547,13 +547,13 @@ static char * map_color(int color, int active) {
 /* For the menus */
 static const char * map_color_name(int color) {
 	switch (color) {
-		default: return "None";
-		case 1: return "Red";
-		case 2: return "Green";
-		case 3: return "Yellow";
-		case 4: return "Blue";
-		case 5: return "Purple";
-		case 6: return "Cyan";
+		default: return "无";
+		case 1: return "红";
+		case 2: return "绿";
+		case 3: return "黄";
+		case 4: return "蓝";
+		case 5: return "紫";
+		case 6: return "青";
 	}
 }
 
@@ -649,7 +649,7 @@ static void render_decors(void) {
 
 	if (!_no_frame) {
 		/* Draw the decorations */
-		render_decorations(window, ctx, this_term()->terminal_title_length ? this_term()->terminal_title : "Terminal");
+		render_decorations(window, ctx, this_term()->terminal_title_length ? this_term()->terminal_title : "终端");
 	}
 
 	if (!_no_menu_bar) {
@@ -663,7 +663,7 @@ static void render_decors(void) {
 	}
 
 	/* Advertise the window icon to the panel. */
-	yutani_window_advertise_icon(yctx, window, this_term()->terminal_title_length ? this_term()->terminal_title : "Terminal", "utilities-terminal");
+	yutani_window_advertise_icon(yctx, window, this_term()->terminal_title_length ? this_term()->terminal_title : "终端", "utilities-terminal");
 
 	/*
 	 * Flip the whole window
@@ -1859,13 +1859,13 @@ static void * show_exit_dialog(void * _unused) {
 		char coords[100];
 		snprintf(coords,100,"%d,%d",(int)window->width / 2,(int)window->height / 2);
 		char * args[] = {"showdialog",
-			"--title","Quit Terminal?",
+			"--title","退出终端？",
 			"--icon","utilities-terminal",
 			"--parent",wid,
 			"--at",coords,
-			"--okay-label", "Exit",
-			"Multiple tabs are open.",
-			"Are you sure you want to exit?",
+			"--okay-label", "退出",
+			"有多个标签页已打开。",
+			"确定要退出吗？",
 			NULL
 		};
 		execvp(args[0],args);
@@ -2257,7 +2257,7 @@ static void _menu_action_toggle_paste_bracketing(struct MenuEntry * self) {
 
 static void _menu_action_show_about(struct MenuEntry * self) {
 	char about_cmd[1024] = "\0";
-	strcat(about_cmd, "about \"About Terminal\" /usr/share/icons/48/utilities-terminal.png \"ToaruOS Terminal\" \"© 2013-2026 K. Lange\n-\nPart of ToaruOS, which is free software\nreleased under the NCSA/University of Illinois\nlicense.\n-\n%https://toaruos.org\n%https://github.com/klange/toaruos\" ");
+	strcat(about_cmd, "about \"关于终端\" /usr/share/icons/48/utilities-terminal.png \"ZRL 终端\" \"© 2013-2026 K. Lange\n-\nZRL 是基于 ToaruOS 的自由软件，\n遵循 NCSA/伊利诺伊大学许可证发布。\n-\n%https://toaruos.org\n%https://github.com/klange/toaruos\" ");
 	char coords[100];
 	sprintf(coords, "%d %d &", (int)window->x + (int)window->width / 2, (int)window->y + (int)window->height / 2);
 	strcat(about_cmd, coords);
@@ -2643,11 +2643,11 @@ int main(int argc, char ** argv) {
 	terminal_menu_bar._super.entries = terminal_menu_entries;
 	terminal_menu_bar._super.redraw_callback = render_decors_callback;
 
-	_menu_new_tab = menu_create_normal("terminal-new-tab", NULL, "New Tab", _menu_action_new_tab);
-	_menu_exit = menu_create_normal("exit","exit","Exit", _menu_action_exit);
-	_menu_copy = menu_create_normal(NULL, NULL, "Copy", _menu_action_copy);
-	_menu_copy_escapes = menu_create_normal(NULL, NULL, "Copy with escapes", _menu_action_copy_escapes);
-	_menu_paste = menu_create_normal(NULL, NULL, "Paste", _menu_action_paste);
+	_menu_new_tab = menu_create_normal("terminal-new-tab", NULL, "新建标签页", _menu_action_new_tab);
+	_menu_exit = menu_create_normal("exit","exit","退出", _menu_action_exit);
+	_menu_copy = menu_create_normal(NULL, NULL, "复制", _menu_action_copy);
+	_menu_copy_escapes = menu_create_normal(NULL, NULL, "带转义复制", _menu_action_copy_escapes);
+	_menu_paste = menu_create_normal(NULL, NULL, "粘贴", _menu_action_paste);
 
 	menu_update_enabled(_menu_copy, 0);
 	menu_update_enabled(_menu_copy_escapes, 0);
@@ -2660,28 +2660,28 @@ int main(int argc, char ** argv) {
 	menu_insert(menu_right_click, _menu_paste);
 	menu_insert(menu_right_click, menu_create_separator());
 	if (!_fullscreen) {
-		_menu_toggle_borders_context = menu_create_toggle(NULL, "Show borders", !_no_frame, _menu_action_hide_borders);
+		_menu_toggle_borders_context = menu_create_toggle(NULL, "显示边框", !_no_frame, _menu_action_hide_borders);
 		menu_insert(menu_right_click, _menu_toggle_borders_context);
-		menu_insert(menu_right_click, menu_create_toggle(NULL, "Show menu bar", !_no_menu_bar, _menu_action_hide_menu_bar));
+		menu_insert(menu_right_click, menu_create_toggle(NULL, "显示菜单栏", !_no_menu_bar, _menu_action_hide_menu_bar));
 	}
-	_menu_toggle_bitmap_context = menu_create_toggle(NULL, "Bitmap font", !set_truetype, _menu_action_toggle_tt);
+	_menu_toggle_bitmap_context = menu_create_toggle(NULL, "位图字体", !set_truetype, _menu_action_toggle_tt);
 	menu_insert(menu_right_click, _menu_toggle_bitmap_context);
-	_menu_toggle_bold_context = menu_create_toggle(NULL, "Emulate bold", set_bold, _menu_action_toggle_bold);
+	_menu_toggle_bold_context = menu_create_toggle(NULL, "模拟粗体", set_bold, _menu_action_toggle_bold);
 	menu_update_enabled(_menu_toggle_bold_context, !set_truetype);
 	menu_insert(menu_right_click, _menu_toggle_bold_context);
 	menu_insert(menu_right_click, menu_create_separator());
-	menu_insert(menu_right_click, menu_create_submenu(NULL,"termstate","Terminal state..."));
-	menu_insert(menu_right_click, menu_create_submenu(NULL,"signal", "Send signal..."));
+	menu_insert(menu_right_click, menu_create_submenu(NULL,"termstate","终端状态..."));
+	menu_insert(menu_right_click, menu_create_submenu(NULL,"signal", "发送信号..."));
 	menu_insert(menu_right_click, menu_create_separator());
 	menu_insert(menu_right_click, _menu_exit);
 
 	menu_tab_context = menu_create();
-	menu_insert(menu_tab_context, menu_create_normal("back",NULL,"Move tab left",_menu_action_tab_move_left));
-	menu_insert(menu_tab_context, menu_create_normal("forward",NULL,"Move tab right",_menu_action_tab_move_right));
+	menu_insert(menu_tab_context, menu_create_normal("back",NULL,"左移标签页",_menu_action_tab_move_left));
+	menu_insert(menu_tab_context, menu_create_normal("forward",NULL,"右移标签页",_menu_action_tab_move_right));
 	menu_insert(menu_tab_context, menu_create_separator());
-	menu_insert(menu_tab_context, menu_create_submenu(NULL,"tab-color","Set tab color..."));
+	menu_insert(menu_tab_context, menu_create_submenu(NULL,"tab-color","设置标签颜色..."));
 	menu_insert(menu_tab_context, menu_create_separator());
-	menu_insert(menu_tab_context, menu_create_normal("close",NULL,"Close tab",_menu_action_tab_close));
+	menu_insert(menu_tab_context, menu_create_normal("close",NULL,"关闭标签页",_menu_action_tab_close));
 
 	/* Menu Bar menus */
 	terminal_menu_bar._super.set = menu_set_create();
@@ -2692,7 +2692,7 @@ int main(int argc, char ** argv) {
 	struct MenuList * m;
 
 	m = menu_create();
-	menu_insert(m, (_menu_tab_color[0] = menu_create_toggle("0", "    None", 1, _menu_action_tab_color)));
+	menu_insert(m, (_menu_tab_color[0] = menu_create_toggle("0", "    无", 1, _menu_action_tab_color)));
 	for (int i = 1; i < 7; ++i) {
 		char * title;
 		asprintf(&title, "<bgcolor #%s>   </bgcolor> %s", map_color(i, 1), map_color_name(i));
@@ -2722,46 +2722,46 @@ int main(int argc, char ** argv) {
 	menu_set_insert(terminal_menu_bar._super.set, "zoom", m);
 
 	m = menu_create();
-	menu_insert(m, menu_create_normal(NULL, NULL, "View stats", _menu_action_cache_stats));
-	menu_insert(m, menu_create_normal(NULL, NULL, "Clear cache", _menu_action_clear_cache));
+	menu_insert(m, menu_create_normal(NULL, NULL, "查看统计", _menu_action_cache_stats));
+	menu_insert(m, menu_create_normal(NULL, NULL, "清除缓存", _menu_action_clear_cache));
 	menu_set_insert(terminal_menu_bar._super.set, "cache", m);
 
 	m = menu_create();
-	menu_insert(m, (_menu_toggle_altscreen        = menu_create_toggle(NULL, "Alternate screen", 0,        _menu_action_toggle_altscreen)));
-	menu_insert(m, (_menu_toggle_mouse_reporting  = menu_create_toggle(NULL, "Mouse reporting", 0,         _menu_action_toggle_mouse_reporting)));
-	menu_insert(m, (_menu_toggle_mouse_drag       = menu_create_toggle(NULL, "Drag reporting", 0,          _menu_action_toggle_mouse_drag)));
-	menu_insert(m, (_menu_toggle_mouse_sgr        = menu_create_toggle(NULL, "SGR 1006 mouse mode", 0,     _menu_action_toggle_mouse_sgr)));
-	menu_insert(m, (_menu_toggle_mouse_altscroll  = menu_create_toggle(NULL, "Alt. screen scroll mode", 0, _menu_action_toggle_mouse_altscroll)));
-	menu_insert(m, (_menu_toggle_paste_bracketing = menu_create_toggle(NULL, "Paste bracketing", 0,        _menu_action_toggle_paste_bracketing)));
+	menu_insert(m, (_menu_toggle_altscreen        = menu_create_toggle(NULL, "备用屏幕", 0,        _menu_action_toggle_altscreen)));
+	menu_insert(m, (_menu_toggle_mouse_reporting  = menu_create_toggle(NULL, "鼠标报告", 0,         _menu_action_toggle_mouse_reporting)));
+	menu_insert(m, (_menu_toggle_mouse_drag       = menu_create_toggle(NULL, "拖拽报告", 0,          _menu_action_toggle_mouse_drag)));
+	menu_insert(m, (_menu_toggle_mouse_sgr        = menu_create_toggle(NULL, "SGR 1006 鼠标模式", 0,     _menu_action_toggle_mouse_sgr)));
+	menu_insert(m, (_menu_toggle_mouse_altscroll  = menu_create_toggle(NULL, "备用屏滚动模式", 0, _menu_action_toggle_mouse_altscroll)));
+	menu_insert(m, (_menu_toggle_paste_bracketing = menu_create_toggle(NULL, "粘贴括号模式", 0,        _menu_action_toggle_paste_bracketing)));
 	menu_set_insert(terminal_menu_bar._super.set, "termstate", m);
 
 	m = menu_create();
-	_menu_toggle_borders_bar = menu_create_toggle(NULL, "Show borders", !_no_frame, _menu_action_hide_borders);
+	_menu_toggle_borders_bar = menu_create_toggle(NULL, "显示边框", !_no_frame, _menu_action_hide_borders);
 	menu_insert(m, _menu_toggle_borders_bar);
-	menu_insert(m, menu_create_toggle(NULL, "Snap to Cell Size", !_free_size, _menu_action_toggle_free_size));
-	menu_insert(m, menu_create_toggle(NULL, "Beep on Bell", beep_on_bell, _menu_action_toggle_beep));
-	menu_insert(m, menu_create_toggle(NULL, "Show tab numbers", show_tab_numbers, _menu_action_toggle_tab_numbers));
+	menu_insert(m, menu_create_toggle(NULL, "对齐单元格", !_free_size, _menu_action_toggle_free_size));
+	menu_insert(m, menu_create_toggle(NULL, "响铃提示音", beep_on_bell, _menu_action_toggle_beep));
+	menu_insert(m, menu_create_toggle(NULL, "显示标签编号", show_tab_numbers, _menu_action_toggle_tab_numbers));
 
 	menu_insert(m, menu_create_separator());
 
-	menu_insert(m, (_menu_set_zoom = menu_create_submenu(NULL,"zoom","Set zoom...")));
+	menu_insert(m, (_menu_set_zoom = menu_create_submenu(NULL,"zoom","设置缩放...")));
 	menu_update_enabled(_menu_set_zoom, set_truetype);
-	_menu_toggle_bitmap_bar = menu_create_toggle(NULL, "Bitmap font", !set_truetype, _menu_action_toggle_tt);
+	_menu_toggle_bitmap_bar = menu_create_toggle(NULL, "位图字体", !set_truetype, _menu_action_toggle_tt);
 	menu_insert(m, _menu_toggle_bitmap_bar);
-	_menu_toggle_bold_bar = menu_create_toggle(NULL, "Emulate bold", set_bold, _menu_action_toggle_bold);
+	_menu_toggle_bold_bar = menu_create_toggle(NULL, "模拟粗体", set_bold, _menu_action_toggle_bold);
 	menu_update_enabled(_menu_toggle_bold_bar, !set_truetype);
 	menu_insert(m, _menu_toggle_bold_bar);
 
 	menu_insert(m, menu_create_separator());
 
-	menu_insert(m, menu_create_normal(NULL, NULL, "Redraw", _menu_action_redraw));
-	menu_insert(m, menu_create_submenu(NULL,"cache","Glyph cache..."));
+	menu_insert(m, menu_create_normal(NULL, NULL, "重绘", _menu_action_redraw));
+	menu_insert(m, menu_create_submenu(NULL,"cache","字形缓存..."));
 	menu_set_insert(terminal_menu_bar._super.set, "view", m);
 
 	m = menu_create();
-	menu_insert(m, menu_create_normal("help","help","Contents", _menu_action_show_help));
+	menu_insert(m, menu_create_normal("help","help","内容", _menu_action_show_help));
 	menu_insert(m, menu_create_separator());
-	menu_insert(m, menu_create_normal("star","star","About Terminal", _menu_action_show_about));
+	menu_insert(m, menu_create_normal("star","star","关于终端", _menu_action_show_about));
 	menu_set_insert(terminal_menu_bar._super.set, "help", m);
 
 	m = menu_create();
@@ -2773,12 +2773,12 @@ int main(int argc, char ** argv) {
 	m = menu_create();
 
 	m = menu_create();
-	menu_insert(m, menu_create_submenu(NULL,"termstate","Terminal state..."));
-	menu_insert(m, menu_create_submenu(NULL,"signal", "Send signal..."));
+	menu_insert(m, menu_create_submenu(NULL,"termstate","终端状态..."));
+	menu_insert(m, menu_create_submenu(NULL,"signal", "发送信号..."));
 	menu_insert(m, menu_create_separator());
-	menu_insert(m, menu_create_normal(NULL,NULL,"Reset", _menu_action_reset));
-	menu_insert(m, menu_create_normal(NULL,NULL,"Clear", _menu_action_clear));
-	menu_insert(m, menu_create_normal(NULL,NULL,"Clear scrollback", _menu_action_clear_scrollback));
+	menu_insert(m, menu_create_normal(NULL,NULL,"重置", _menu_action_reset));
+	menu_insert(m, menu_create_normal(NULL,NULL,"清除", _menu_action_clear));
+	menu_insert(m, menu_create_normal(NULL,NULL,"清除回滚缓冲", _menu_action_clear_scrollback));
 	menu_set_insert(terminal_menu_bar._super.set, "terminal", m);
 
 	/* FIXME hack */

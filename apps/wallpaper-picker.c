@@ -30,7 +30,7 @@ static struct TT_Font * tt_font = NULL;
 
 static int32_t width = 640;
 static int32_t height = 300;
-static char * title_str = "Wallpaper Picker";
+static char * title_str = "选择壁纸";
 #define DEFAULT_PATH "/usr/share/wallpaper.jpg"
 #define WALLPAPERS_PATH "/usr/share/wallpapers"
 
@@ -104,13 +104,13 @@ void setup_buttons(void) {
 	struct decor_bounds bounds;
 	decor_get_bounds(window, &bounds);
 
-	_set.title = "Set";
+	_set.title = "设置";
 	_set.width = BUTTON_WIDTH;
 	_set.height = BUTTON_HEIGHT;
 	_set.x = ctx->width - bounds.right_width - BUTTON_WIDTH - BUTTON_PADDING * 2 - BUTTON_HEIGHT;
 	_set.y = ctx->height - bounds.bottom_height - BUTTON_HEIGHT - BUTTON_PADDING;
 
-	_close.title = "Close";
+	_close.title = "关闭";
 	_close.width = BUTTON_WIDTH;
 	_close.height = BUTTON_HEIGHT;
 	_close.x = ctx->width - bounds.right_width - BUTTON_WIDTH * 2 - BUTTON_PADDING * 3 - BUTTON_HEIGHT;

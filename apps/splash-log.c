@@ -46,7 +46,7 @@ static void say_hello(void) {
 	char * tmp = strstr(u.release, "-");
 	if (tmp) *tmp = '\0';
 
-	printf("ZRL OS %s is starting up...\n", u.release);
+	printf("ZRL OS %s 正在启动...\n", u.release);
 }
 
 #include "../kernel/misc/args.c"
@@ -112,7 +112,7 @@ int main(int argc, char * argv[]) {
 				}
 			} else if (quiet && times(NULL) - start > TIMEOUT_SECS * 1000000L) {
 				quiet = 0;
-				printf("Startup is taking a while, enabling log.%s\n", last_message ? " Last message was:" :"");
+				printf("启动耗时较长，正在启用日志。%s\n", last_message ? " 最后一条消息为：" :"");
 				if (last_message) {
 					handle_message(last_message);
 					last_message = NULL;
