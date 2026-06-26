@@ -119,11 +119,12 @@ static char * http_get(const char * url) {
 	addr.sin_port = htons(parsed.port);
 	memcpy(&addr.sin_addr.s_addr, host->h_addr_list[0], host->h_length);
 
-	/* Set a 10-second timeout */
+	/* Set a 30-second timeout for better reliability */
 	struct timeval tv;
-	tv.tv_sec = 10;
+	tv.tv_sec = 30;
 	tv.tv_usec = 0;
 	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+	setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
 	if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
 		close(sock);
@@ -745,7 +746,14 @@ static void navigate_to(const char * url) {
 	char * raw = http_get(url);
 
 	if (!raw) {
-		page_content = strdup("<h1>无法连接</h1><br>无法连接到服务器。请检查网址是否正确。<br><br>提示：本浏览器仅支持 HTTP 协议和本地文件。<br>可以输入 file:///usr/share/help/index.trt 查看帮助。");
+		page_content = strdup("<h1>无法连接</h1><br>无法连接到服务器。请检查以下内容：<br><br>"
+			"<b>1. 网络是否已连接？</b><br>"
+			"在虚拟机中，请确保网络适配器已启用（推荐使用 Intel Gigabit NIC 或 e1000）。<br><br>"
+			"<b>2. 网址是否正确？</b><br>"
+			"本浏览器仅支持 HTTP 协议。<br><br>"
+			"<b>3. 尝试访问本地帮助：</b><br>"
+			"file:///usr/share/help/index.trt<br><br>"
+			"<b>提示：</b>某些网站可能阻止来自非浏览器客户端的请求。");
 		snprintf(status_text, sizeof(status_text), "连接失败");
 	} else {
 		snprintf(status_text, sizeof(status_text), "正在解析...");
