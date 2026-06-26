@@ -798,14 +798,28 @@ void tt_draw_glyph(gfx_context_t * ctx, struct TT_Font * font, int x, int y, uns
 	free(contour);
 }
 
+/* Forward declaration for CJK auto-loader (defined further down) */
+static struct TT_Font * _get_cjk_font(void);
+
 int tt_string_width(struct TT_Font * font, const char * s) {
 	float x_offset = 0;
 	uint32_t cp = 0;
 	uint32_t istate = 0;
+	struct TT_Font * cjk = _get_cjk_font();
 
 	for (const unsigned char * c = (const unsigned char*)s; *c; ++c) {
 		if (!decode(&istate, &cp, *c)) {
 			unsigned int glyph = tt_glyph_for_codepoint(font, cp);
+			if (glyph == 0 && cjk) {
+				glyph = tt_glyph_for_codepoint(cjk, cp);
+				if (glyph != 0) {
+					float saved_scale = cjk->scale;
+					cjk->scale = font->scale;
+					x_offset += tt_xadvance_for_glyph(cjk, glyph) * cjk->scale;
+					cjk->scale = saved_scale;
+					continue;
+				}
+			}
 			x_offset += tt_xadvance_for_glyph(font, glyph) * font->scale;
 		}
 	}
@@ -817,10 +831,21 @@ int tt_string_width_int(struct TT_Font * font, const char * s) {
 	int x_offset = 0;
 	uint32_t cp = 0;
 	uint32_t istate = 0;
+	struct TT_Font * cjk = _get_cjk_font();
 
 	for (const unsigned char * c = (const unsigned char*)s; *c; ++c) {
 		if (!decode(&istate, &cp, *c)) {
 			unsigned int glyph = tt_glyph_for_codepoint(font, cp);
+			if (glyph == 0 && cjk) {
+				glyph = tt_glyph_for_codepoint(cjk, cp);
+				if (glyph != 0) {
+					float saved_scale = cjk->scale;
+					cjk->scale = font->scale;
+					x_offset += tt_xadvance_for_glyph(cjk, glyph) * cjk->scale;
+					cjk->scale = saved_scale;
+					continue;
+				}
+			}
 			x_offset += tt_xadvance_for_glyph(font, glyph) * font->scale;
 		}
 	}
@@ -841,10 +866,22 @@ struct TT_Contour * tt_prepare_string_into(struct TT_Contour * contour, struct T
 	float x_offset = x;
 	uint32_t cp = 0;
 	uint32_t istate = 0;
+	struct TT_Font * cjk = _get_cjk_font();
 
 	for (const unsigned char * c = (const unsigned char*)s; *c; ++c) {
 		if (!decode(&istate, &cp, *c)) {
 			unsigned int glyph = tt_glyph_for_codepoint(font, cp);
+			if (glyph == 0 && cjk) {
+				unsigned int cjk_glyph = tt_glyph_for_codepoint(cjk, cp);
+				if (cjk_glyph != 0) {
+					float saved_scale = cjk->scale;
+					cjk->scale = font->scale;
+					contour = tt_draw_glyph_into(contour, cjk, x_offset, y, cjk_glyph);
+					x_offset += tt_xadvance_for_glyph(cjk, cjk_glyph) * cjk->scale;
+					cjk->scale = saved_scale;
+					continue;
+				}
+			}
 			contour = tt_draw_glyph_into(contour,font,x_offset,y,glyph);
 			x_offset += tt_xadvance_for_glyph(font, glyph) * font->scale;
 		}

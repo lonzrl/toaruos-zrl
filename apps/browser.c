@@ -363,8 +363,8 @@ static struct TT_Font * tt_font_bold_oblique = NULL;
 static struct TT_Font * tt_font_mono = NULL;
 static struct TT_Font * tt_font_cjk = NULL;
 
-struct Char {
-	char c;
+struct Word {
+	char * text;
 	char state;
 };
 
@@ -387,10 +387,9 @@ static int current_size(void) {
 static int buffer_width(list_t * buf) {
 	int out = 0;
 	foreach(node, buf) {
-		struct Char * c = node->value;
-		char tmp[2] = { c->c, '\0' };
-		tt_set_size(state_to_font(c->state), current_size());
-		out += tt_string_width_cjk(state_to_font(c->state), tt_font_cjk, tmp);
+		struct Word * w = node->value;
+		tt_set_size(state_to_font(w->state), current_size());
+		out += tt_string_width(state_to_font(w->state), w->text);
 	}
 	return out;
 }
@@ -399,15 +398,15 @@ static int draw_buffer(list_t * buf) {
 	int x = 0;
 	while (buf->length) {
 		node_t * node = list_dequeue(buf);
-		struct Char * c = node->value;
-		char tmp[2] = { c->c, '\0' };
-		tt_set_size(state_to_font(c->state), current_size());
+		struct Word * w = node->value;
+		tt_set_size(state_to_font(w->state), current_size());
 		if (contents) {
-			x += tt_draw_string_cjk(contents, state_to_font(c->state), tt_font_cjk, cursor_x + x, cursor_y + current_size(), tmp, 0xFF000000);
+			x += tt_draw_string(contents, state_to_font(w->state), cursor_x + x, cursor_y + current_size(), w->text, 0xFF000000);
 		} else {
-			x += tt_string_width_cjk(state_to_font(c->state), tt_font_cjk, tmp);
+			x += tt_string_width(state_to_font(w->state), w->text);
 		}
-		free(c);
+		free(w->text);
+		free(w);
 		free(node);
 	}
 	x += 4;
@@ -468,13 +467,34 @@ static int parser_close(struct markup_state * self, void * user, char * tag_name
 
 static int parser_data(struct markup_state * self, void * user, char * data) {
 	char * c = data;
+	char word_buf[4096];
+	int wi = 0;
+
 	while (*c) {
 		if (*c == ' ' && !(current_state & (1 << 3))) {
+			/* Flush current word */
+			if (wi > 0) {
+				word_buf[wi] = '\0';
+				struct Word * w = malloc(sizeof(struct Word));
+				w->text = strdup(word_buf);
+				w->state = current_state;
+				list_insert(text_buffer, w);
+				wi = 0;
+			}
 			if (text_buffer->length) {
 				int * cw = user;
 				write_buffer(*cw);
 			}
 		} else if (*c == '\n') {
+			/* Flush current word */
+			if (wi > 0) {
+				word_buf[wi] = '\0';
+				struct Word * w = malloc(sizeof(struct Word));
+				w->text = strdup(word_buf);
+				w->state = current_state;
+				list_insert(text_buffer, w);
+				wi = 0;
+			}
 			if (text_buffer->length) {
 				int * cw = user;
 				write_buffer(*cw);
@@ -484,13 +504,22 @@ static int parser_data(struct markup_state * self, void * user, char * data) {
 				cursor_y += current_line_height();
 			}
 		} else {
-			struct Char * ch = malloc(sizeof(struct Char));
-			ch->c = *c;
-			ch->state = current_state;
-			list_insert(text_buffer, ch);
+			if (wi < (int)sizeof(word_buf) - 1) {
+				word_buf[wi++] = *c;
+			}
 		}
 		c++;
 	}
+
+	/* Flush remaining word */
+	if (wi > 0) {
+		word_buf[wi] = '\0';
+		struct Word * w = malloc(sizeof(struct Word));
+		w->text = strdup(word_buf);
+		w->state = current_state;
+		list_insert(text_buffer, w);
+	}
+
 	return 0;
 }
 
@@ -564,10 +593,12 @@ static void reinitialize_contents(void) {
 		contents = init_graphics_sprite(contents_sprite);
 		draw_fill(contents, rgb(255,255,255));
 		tt_set_size(tt_font_thin, 16);
-		tt_draw_string_cjk(contents, tt_font_thin, tt_font_cjk, 20, 30, "欢迎使用 ZRL 浏览器", rgb(50,50,50));
+		tt_draw_string(contents, tt_font_thin, 20, 30, "欢迎使用 ZRL 浏览器", rgb(50,50,50));
 		tt_set_size(tt_font_thin, 13);
-		tt_draw_string_cjk(contents, tt_font_thin, tt_font_cjk, 20, 60, "在地址栏输入 HTTP 网址开始浏览。", rgb(100,100,100));
-		tt_draw_string_cjk(contents, tt_font_thin, tt_font_cjk, 20, 80, "注意：仅支持 HTTP 协议，不支持 HTTPS。", rgb(100,100,100));
+		tt_draw_string(contents, tt_font_thin, 20, 60, "支持 HTTP 网页和本地文件浏览。", rgb(100,100,100));
+		tt_draw_string(contents, tt_font_thin, 20, 80, "地址栏输入示例：", rgb(100,100,100));
+		tt_draw_string(contents, tt_font_thin, 20, 100, "  file:///usr/share/help/index.trt", rgb(0,80,180));
+		tt_draw_string(contents, tt_font_thin, 20, 120, "  http://toaruos.org", rgb(0,80,180));
 		return;
 	}
 
@@ -620,6 +651,20 @@ static void reinitialize_contents(void) {
 
 /* ─── Navigation ───────────────────────────────────────── */
 
+static char * load_local_file(const char * path) {
+	FILE * f = fopen(path, "r");
+	if (!f) return NULL;
+	fseek(f, 0, SEEK_END);
+	long size = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	char * buf = malloc(size + 1);
+	if (!buf) { fclose(f); return NULL; }
+	size_t rd = fread(buf, 1, size, f);
+	buf[rd] = '\0';
+	fclose(f);
+	return buf;
+}
+
 static void navigate_to(const char * url) {
 	if (!url || !*url) return;
 
@@ -639,12 +684,56 @@ static void navigate_to(const char * url) {
 	nav_bar_cursor = strlen(nav_bar);
 	nav_bar_focused = 0;
 
-	snprintf(status_text, sizeof(status_text), "正在连接 %s...", url);
 	scroll_offset = 0;
 
 	/* Free old content */
 	if (page_content) { free(page_content); page_content = NULL; }
 	if (page_title) { free(page_title); page_title = NULL; }
+
+	/* Check if this is a local file */
+	if (strncmp(url, "file://", 7) == 0 || url[0] == '/') {
+		const char * path = (strncmp(url, "file://", 7) == 0) ? url + 7 : url;
+		snprintf(status_text, sizeof(status_text), "正在打开 %s...", path);
+
+		reinitialize_contents();
+		redraw_window();
+
+		char * raw = load_local_file(path);
+		if (!raw) {
+			page_content = strdup("<h1>文件未找到</h1><br>无法打开本地文件。");
+			snprintf(status_text, sizeof(status_text), "文件未找到 - %s", path);
+		} else {
+			/* Check if it's a .trt (rich text) file - render directly */
+			size_t plen = strlen(path);
+			if (plen > 4 && strcmp(path + plen - 4, ".trt") == 0) {
+				page_content = raw;
+				raw = NULL;
+			} else {
+				/* Try to extract <title> */
+				char * title_start = strcasestr_impl(raw, "<title>");
+				if (title_start) {
+					title_start += 7;
+					char * title_end = strcasestr_impl(title_start, "</title>");
+					if (title_end) {
+						size_t tlen = title_end - title_start;
+						if (tlen > 200) tlen = 200;
+						page_title = malloc(tlen + 1);
+						memcpy(page_title, title_start, tlen);
+						page_title[tlen] = '\0';
+					}
+				}
+				page_content = html_to_markup(raw);
+				free(raw);
+			}
+			snprintf(status_text, sizeof(status_text), "完成 - %s", path);
+		}
+
+		reinitialize_contents();
+		redraw_window();
+		return;
+	}
+
+	snprintf(status_text, sizeof(status_text), "正在连接 %s...", url);
 
 	reinitialize_contents();
 	redraw_window();
@@ -653,7 +742,7 @@ static void navigate_to(const char * url) {
 	char * raw = http_get(url);
 
 	if (!raw) {
-		page_content = strdup("<h1>无法连接</h1><br>无法连接到服务器。请检查网址是否正确。");
+		page_content = strdup("<h1>无法连接</h1><br>无法连接到服务器。请检查网址是否正确。<br><br>提示：本浏览器仅支持 HTTP 协议和本地文件。<br>可以输入 file:///usr/share/help/index.trt 查看帮助。");
 		snprintf(status_text, sizeof(status_text), "连接失败");
 	} else {
 		snprintf(status_text, sizeof(status_text), "正在解析...");
@@ -753,7 +842,7 @@ static void _draw_nav_bar(struct decor_bounds bounds) {
 	/* URL text */
 	tt_set_size(tt_font_nav, 13);
 	char * display = tt_ellipsify(nav_bar, 13, tt_font_nav, input_width - 16, NULL);
-	tt_draw_string_cjk(ctx, tt_font_nav, tt_font_cjk, x + 5, y + 20, display, rgb(0,0,0));
+	tt_draw_string(ctx, tt_font_nav, x + 5, y + 20, display, rgb(0,0,0));
 	free(display);
 
 	/* Cursor */
@@ -777,7 +866,7 @@ static void _draw_status_bar(struct decor_bounds bounds) {
 	}
 
 	tt_set_size(tt_font_nav, 11);
-	tt_draw_string_cjk(ctx, tt_font_nav, tt_font_cjk, bounds.left_width + 5, status_y + 16, status_text, rgb(200,200,200));
+	tt_draw_string(ctx, tt_font_nav, bounds.left_width + 5, status_y + 16, status_text, rgb(200,200,200));
 }
 
 static void redraw_window(void) {
@@ -910,7 +999,7 @@ static void handle_nav_button(int button) {
 			if (current_url[0]) navigate_to(current_url);
 			break;
 		case 3: /* Home */
-			navigate_to("http://toaruos.org");
+			navigate_to("file:///usr/share/help/index.trt");
 			break;
 	}
 }
