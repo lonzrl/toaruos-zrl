@@ -1140,24 +1140,48 @@ void tt_draw_string_shadow(gfx_context_t * ctx, struct TT_Font * font, char * st
  * Tries shared memory first, then loads directly from file system.
  */
 static struct TT_Font * _global_cjk_font = NULL;
-static int _global_cjk_tried = 0;
+
+/**
+ * Try to load CJK font from a list of candidate paths.
+ * Returns the first successfully loaded font or NULL.
+ */
+static struct TT_Font * _try_load_cjk_font(void) {
+	struct TT_Font * f;
+
+	/* Try shared memory first (from compositor pre-cache) */
+	f = tt_font_from_shm("cjk");
+	if (f) return f;
+
+	/* Try system fonts paths */
+	const char * paths[] = {
+		"/usr/share/fonts/truetype/wqy/WenQuanYiMicroHei.ttc",
+		"/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+		/* Try local build directory */
+		"base/usr/share/fonts/truetype/wqy/WenQuanYiMicroHei.ttc",
+		"base/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+		/* Try Noto CJK fonts if available */
+		"/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+		"/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+		"/usr/share/fonts/truetype/noto-cjk/NotoSansCJK-Regular.ttc",
+		NULL
+	};
+
+	for (int i = 0; paths[i]; ++i) {
+		f = tt_font_from_file_mem(paths[i]);
+		if (f) {
+			fprintf(stderr, "tt: loaded CJK font from %s\n", paths[i]);
+			return f;
+		}
+	}
+
+	return NULL;
+}
 
 static struct TT_Font * _get_cjk_font(void) {
 	if (_global_cjk_font) return _global_cjk_font;
-	if (_global_cjk_tried) return NULL;
-	_global_cjk_tried = 1;
 
-	/* Try shared memory first */
-	struct TT_Font * f = tt_font_from_shm("cjk");
-	if (f) { _global_cjk_font = f; return f; }
-
-	/* Fallback: load directly from file system */
-	f = tt_font_from_file_mem("/usr/share/fonts/truetype/wqy/WenQuanYiMicroHei.ttc");
-	if (f) { _global_cjk_font = f; return f; }
-
-	/* Try alternate path */
-	f = tt_font_from_file_mem("/usr/share/fonts/truetype/wqy/wqy-microhei.ttc");
-	if (f) { _global_cjk_font = f; return f; }
+	_global_cjk_font = _try_load_cjk_font();
+	if (_global_cjk_font) return _global_cjk_font;
 
 	fprintf(stderr, "CJK font load failed from all sources\n");
 	return NULL;
