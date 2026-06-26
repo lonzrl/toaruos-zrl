@@ -154,13 +154,13 @@ static void load_page(int page) {
 			body_text[i++] = "";
 			body_text[i++] = "When you're ready to continue, press \"Next\".";
 			body_text[i++] = "";
-			body_text[i++] = "%https://github.com/klange/toaruos - https://toaruos.org";
+			body_text[i++] = "%https://github.com/ZRL-OS/toaruos-zrl - https://toaruos.org";
 			body_text[i++] = "";
 			body_text[i++] = "ToaruOS is free software, released under the terms of the";
 			body_text[i++] = "NCSA/University of Illinois license.";
 			body_text[i++] = "";
 			body_text[i++] = "You can help support the project through donations:";
-			body_text[i++] = "%https://github.com/sponsors/klange";
+			body_text[i++] = "%https://github.com/sponsors/ZRL";
 			body_text[i++] = NULL;
 			break;
 		case 1:

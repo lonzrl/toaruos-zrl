@@ -17,9 +17,8 @@
  * @copyright
  * This file is part of ToaruOS and is released under the terms
  * of the NCSA / University of Illinois License - see LICENSE.md
- * Copyright (c) 2010-2021 K. Lange.  All rights reserved.
- *
- * Developed by: K. Lange <klange@toaruos.org>
+ * Copyright (c) 2010-2021 ZRL.  All rights reserved.
+ * Developed by: ZRL <zrl@toaruos.org>
  *               Dave Majnemer <dmajnem2@acm.uiuc.edu>
  *               Assocation for Computing Machinery
  *               University of Illinois, Urbana-Champaign

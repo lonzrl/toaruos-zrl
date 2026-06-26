@@ -4,7 +4,7 @@
  * @copyright
  * This file is part of ToaruOS and is released under the terms
  * of the NCSA / University of Illinois License - see LICENSE.md
- * Copyright (C) 2021 K. Lange <klange@toaruos.org>
+ * Copyright (C) 2021 ZRL <zrl@toaruos.org>
  */
 #include <kernel/types.h>
 #include <kernel/printf.h>

@@ -1,8 +1,8 @@
 /*
- * Copyright (c) 2011-2018 K. Lange.  All rights reserved.
+ * Copyright (c) 2011-2018 ZRL.  All rights reserved.
  *
- * Developed by:            K. Lange
- *                          http://github.com/klange/nyancat
+ * Developed by:            ZRL
+ *                          http://github.com/ZRL-OS/nyancat
  *                          http://nyancat.dakko.us
  *
  * 40-column support by:    Peter Hazenberg
@@ -813,7 +813,7 @@ int main(int argc, char ** argv) {
 			newline(3);
 			printf("                             \033[1mNyancat Telnet Server\033[0m");
 			newline(2);
-			printf("                   written and run by \033[1;32mK. Lange\033[1;34m @_klange\033[0m");
+			printf("                   written and run by \033[1;32mZRL\033[1;34m @ZRL-OS\033[0m");
 			newline(2);
 			printf("        If things don't look right, try:");
 			newline(1);

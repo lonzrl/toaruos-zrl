@@ -57,12 +57,14 @@ static char * strcasestr_impl(const char * haystack, const char * needle) {
 
 static int parse_url(const char * url, struct http_url * result) {
 	const char * p = url;
-	if (strncmp(p, "http://", 7) == 0) {
-		p += 7;
-		result->port = 80;
-	} else if (strncmp(p, "https://", 8) == 0) {
-		/* No TLS support, try port 80 anyway */
+	int is_https = 0;
+	if (strncmp(p, "https://", 8) == 0) {
+		/* HTTPS detected - auto downgrade to HTTP for compatibility */
+		is_https = 1;
 		p += 8;
+		result->port = 80;
+	} else if (strncmp(p, "http://", 7) == 0) {
+		p += 7;
 		result->port = 80;
 	} else {
 		result->port = 80;
@@ -88,7 +90,7 @@ static int parse_url(const char * url, struct http_url * result) {
 		result->port = atoi(colon + 1);
 	}
 
-	return 0;
+	return is_https ? 1 : 0; /* Return 1 if HTTPS was auto-downgraded */
 }
 
 static int read_http_line(char * buf, size_t max, FILE * f) {
@@ -595,10 +597,11 @@ static void reinitialize_contents(void) {
 		tt_set_size(tt_font_thin, 16);
 		tt_draw_string(contents, tt_font_thin, 20, 30, "欢迎使用 ZRL 浏览器", rgb(50,50,50));
 		tt_set_size(tt_font_thin, 13);
-		tt_draw_string(contents, tt_font_thin, 20, 60, "支持 HTTP 网页和本地文件浏览。", rgb(100,100,100));
-		tt_draw_string(contents, tt_font_thin, 20, 80, "地址栏输入示例：", rgb(100,100,100));
-		tt_draw_string(contents, tt_font_thin, 20, 100, "  file:///usr/share/help/index.trt", rgb(0,80,180));
-		tt_draw_string(contents, tt_font_thin, 20, 120, "  http://toaruos.org", rgb(0,80,180));
+		tt_draw_string(contents, tt_font_thin, 20, 60, "支持 HTTP/HTTPS 网页和本地文件浏览。", rgb(100,100,100));
+		tt_draw_string(contents, tt_font_thin, 20, 78, "(HTTPS 将自动降级为 HTTP 访问)", rgb(150,100,100));
+		tt_draw_string(contents, tt_font_thin, 20, 100, "地址栏输入示例：", rgb(100,100,100));
+		tt_draw_string(contents, tt_font_thin, 20, 120, "  file:///usr/share/help/index.trt", rgb(0,80,180));
+		tt_draw_string(contents, tt_font_thin, 20, 140, "  https://toaruos.org", rgb(0,80,180));
 		return;
 	}
 

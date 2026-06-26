@@ -380,7 +380,7 @@ void handle_input(char * buf) {
 		WRITE("[help] help text goes here\n");
 	} else if (strstr(buf, "/quit") == buf) {
 		char * m = strstr(buf, " "); if (m) m++;
-		fprintf(sock_w, "QUIT :%s\r\n", m ? m : "https://github.com/klange/toaruos");
+		fprintf(sock_w, "QUIT :%s\r\n", m ? m : "https://github.com/ZRL-OS/toaruos-zrl");
 		fflush(sock_w);
 		fprintf(stderr,"\033[0m\n");
 		set_buffered();
@@ -465,8 +465,8 @@ int main(int argc, char * argv[]) {
 	set_unbuffered();
 
 	fprintf(stdout, " - Toaru IRC v %s - \n", VERSION_STRING);
-	fprintf(stdout, " Copyright 2015-2018 K. Lange\n");
-	fprintf(stdout, " https://toaruos.org - https://github.com/klange/toaruos\n");
+	fprintf(stdout, " Copyright 2015-2018 ZRL\n");
+	fprintf(stdout, " https://toaruos.org - https://github.com/ZRL-OS/toaruos-zrl\n");
 	fprintf(stdout, " \n");
 	fprintf(stdout, " For help, type /help\n");
 

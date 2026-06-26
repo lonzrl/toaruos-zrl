@@ -1,12 +1,11 @@
-# ToaruOS
+# ZRLOS
 
-ToaruOS is a complete, independent operating system for x86-64 PCs and ARMv8 VM environments.
+ZRLOS is a complete, independent operating system for x86-64 PCs and ARMv8 VM environments.
 
-The OS includes an SMP-capable modular kernel, C standard library with dynamic linker, a composited desktop environment, a [dynamic bytecode-compiled programming language](https://github.com/kuroko-lang/kuroko), [advanced code editor](https://github.com/klange/bim), and a rapidly expanding collection of POSIX utilities,
+The OS includes an SMP-capable modular kernel, C standard library with dynamic linker, a composited desktop environment, a [dynamic bytecode-compiled programming language](https://github.com/kuroko-lang/kuroko), [advanced code editor](https://github.com/ZRL-OS/bim), and a rapidly expanding collection of POSIX utilities,
 all of which is original to the project and has no third-party dependencies.
 
-![Screenshot](https://klange.dev/s/screenshot2026_03_24.png)
-*Demonstration of ToaruOS's UI and some applications.*
+
 
 ## History
 
@@ -43,12 +42,14 @@ General users hoping to build ToaruOS from source are recommended to fork the re
 
 For those looking to build locally on an appropriately configured Linux host with Docker, a build container is available. The ToaruOS repository should be used as a bind mount at `/root/misaka` and `util/build-in-docker.sh` can be run within this container to complete the compilation process:
 
-    git clone https://github.com/klange/toaruos
-    cd toaruos
-    git submodule update --init kuroko
-    git submodule update --init bim
-    docker pull toaruos/build-tools:1.99.x
-    docker run -v `pwd`:/root/misaka -w /root/misaka -e LANG=C.UTF-8 -t toaruos/build-tools:1.99.x util/build-in-docker.sh
+```
+git clone https://github.com/klange/toaruos
+cd toaruos
+git submodule update --init kuroko
+git submodule update --init bim
+docker pull toaruos/build-tools:1.99.x
+docker run -v `pwd`:/root/misaka -w /root/misaka -e LANG=C.UTF-8 -t toaruos/build-tools:1.99.x util/build-in-docker.sh
+```
 
 After building like this, you can run the various utility targets (`make run`, etc.). Try `make shell` to run a ToaruOS shell using a serial port with QEMU.
 
@@ -160,7 +161,7 @@ ToaruOS is regularly mirrored to multiple Git hosting sites.
 - Gitlab: [toaruos/toaruos](https://gitlab.com/toaruos/toaruos)
 - GitHub: [klange/toaruos](https://github.com/klange/toaruos)
 - Bitbucket: [klange/toaruos](https://bitbucket.org/klange/toaruos)
-- sourcehut: [~klange/toaruos](https://sr.ht/~klange/toaruos/)
+- sourcehut: [\~klange/toaruos](https://sr.ht/~klange/toaruos/)
 
 ## FAQs
 
@@ -170,7 +171,7 @@ The kernel and all userspace libraries and applications native to the operating 
 
 ### Is ToaruOS a Linux distribution?
 
-No. ToaruOS is a completely independent project, and all code in this repository - which is the entire codebase of the operating system, including its kernel, bootloaders, libraries, and applications - is original, written by myself and a handful of contributors over the course of fifteen years.
+No. ToaruOS is a completely independent project, and all code in this repository - which is the entire codebase of the operating system, including its kernel, bootloaders, libraries, and applications - is original, written by ourselves and a handful of contributors over the course of fifteen years.
 The complete source history, going back to when ToaruOS was nothing more than a baremetal "hello world" can be tracked through this git repository.
 
 ### Is ToaruOS POSIX-compliant?

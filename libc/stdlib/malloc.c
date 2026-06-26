@@ -1,6 +1,6 @@
 /* vim: tabstop=4 shiftwidth=4 noexpandtab
  *
- * klange's Slab Allocator
+ * ZRL's Slab Allocator
  *
  * Implemented for CS241, Fall 2010, machine problem 7
  * at the University of Illinois, Urbana-Champaign.
@@ -8,9 +8,8 @@
  * Overall competition winner for speed.
  * Well ranked in memory usage.
  *
- * Copyright (c) 2010-2018 K. Lange.  All rights reserved.
- *
- * Developed by: K. Lange <klange@toaruos.org>
+ * Copyright (c) 2010-2018 ZRL.  All rights reserved.
+ * Developed by: ZRL <zrl@toaruos.org>
  *               Dave Majnemer <dmajnem2@acm.uiuc.edu>
  *               Assocation for Computing Machinery
  *               University of Illinois, Urbana-Champaign
