@@ -124,7 +124,6 @@ static char * http_get(const char * url) {
 	tv.tv_sec = 30;
 	tv.tv_usec = 0;
 	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-	setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
 	if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
 		close(sock);
