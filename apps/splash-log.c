@@ -46,7 +46,7 @@ static void say_hello(void) {
 	char * tmp = strstr(u.release, "-");
 	if (tmp) *tmp = '\0';
 
-	printf("ZRL OS %s 正在启动...\n", u.release);
+	printf("ZRL OS %s Startup...\n", u.release);
 }
 
 #include "../kernel/misc/args.c"
