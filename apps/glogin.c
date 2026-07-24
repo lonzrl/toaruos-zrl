@@ -38,6 +38,20 @@ int main (int argc, char ** argv) {
 	setenv("PATH", "/usr/bin:/bin", 0);
 	setenv("WM_THEME", "fancy", 0);
 
+	/* Check if OOBE needs to run */
+	if (access("/etc/oobe_complete", F_OK) != 0) {
+		TRACE("OOBE not completed, launching setup wizard...");
+		pid_t _oobe = fork();
+		if (!_oobe) {
+			char * args[] = {"/bin/oobe", NULL};
+			execvp(args[0], args);
+			TRACE("Failed to start OOBE!");
+			exit(1);
+		}
+		waitpid(_oobe, NULL, 0);
+		TRACE("OOBE completed, continuing to login.");
+	}
+
 	while (1) {
 
 		char * username = NULL;

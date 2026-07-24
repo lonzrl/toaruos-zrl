@@ -20,10 +20,12 @@
 #define TEXT_OFFSET_X 10
 #define TEXT_OFFSET_Y 3
 
-#define BORDERCOLOR rgb(59,59,59)
-#define BORDERCOLOR_INACTIVE rgb(30,30,30)
-#define TEXTCOLOR rgb(230,230,230)
-#define TEXTCOLOR_INACTIVE rgb(140,140,140)
+#define BORDERCOLOR rgb(59,130,246)
+#define BORDERCOLOR_INACTIVE rgb(180,195,215)
+#define TITLEBAR_BG rgb(255,255,255)
+#define TITLEBAR_BG_INACTIVE rgb(245,247,250)
+#define TEXTCOLOR rgb(30,41,59)
+#define TEXTCOLOR_INACTIVE rgb(148,163,184)
 
 void (*decor_render_decorations)(yutani_window_t *, gfx_context_t *, char *, int) = NULL;
 int  (*decor_check_button_press)(yutani_window_t *, int x, int y) = NULL;
@@ -39,8 +41,10 @@ static struct TT_Font * tt_font_cjk = NULL;
 static void render_decorations_simple(yutani_window_t * window, gfx_context_t * ctx, char * title, int decors_active) {
 
 	uint32_t color = BORDERCOLOR;
+	uint32_t bg_color = TITLEBAR_BG;
 	if (decors_active == DECOR_INACTIVE) {
 		color = BORDERCOLOR_INACTIVE;
+		bg_color = TITLEBAR_BG_INACTIVE;
 	}
 
 
@@ -51,7 +55,7 @@ static void render_decorations_simple(yutani_window_t * window, gfx_context_t * 
 
 	for (int i = 1; i < (int)24; ++i) {
 		for (int j = 1; j < (int)window->width - 1; ++j) {
-			GFX(ctx, j, i) = color;
+			GFX(ctx, j, i) = bg_color;
 		}
 	}
 

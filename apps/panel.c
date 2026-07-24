@@ -208,7 +208,7 @@ static void close_altf2(void) {
 
 static void redraw_altf2(void) {
 	draw_fill(a2ctx, 0);
-	draw_rounded_rectangle(a2ctx,0,0, ALTF2_WIDTH, ALTF2_HEIGHT, 11, premultiply(rgba(60,100,160,150)));
+	draw_rounded_rectangle(a2ctx,0,0, ALTF2_WIDTH, ALTF2_HEIGHT, 11, premultiply(rgba(59,130,246,160)));
 	draw_rounded_rectangle(a2ctx,1,1, ALTF2_WIDTH-2, ALTF2_HEIGHT-2, 10, ALTTAB_BACKGROUND);
 
 	tt_set_size(panel_context.font, 20);
@@ -260,7 +260,7 @@ static void redraw_alttab(void) {
 
 	/* Draw the background, right now just a dark semi-transparent box */
 	draw_fill(actx, 0);
-	draw_rounded_rectangle(actx,0,0, alttab->width, alttab->height, 11, premultiply(rgba(60,100,160,150)));
+	draw_rounded_rectangle(actx,0,0, alttab->width, alttab->height, 11, premultiply(rgba(59,130,246,160)));
 	draw_rounded_rectangle(actx,1,1, alttab->width-2, alttab->height-2, 10, ALTTAB_BACKGROUND);
 
 	for (unsigned int i = 0; i < window_count; ++i) {
@@ -276,7 +276,7 @@ static void redraw_alttab(void) {
 		}
 
 		if (i == (unsigned int)new_focused) {
-			draw_rounded_rectangle(actx, pos_x, pos_y, ALTTAB_WIN_SIZE + 20, ALTTAB_WIN_SIZE + 20, 7, premultiply(rgba(80,150,220,180)));
+			draw_rounded_rectangle(actx, pos_x, pos_y, ALTTAB_WIN_SIZE + 20, ALTTAB_WIN_SIZE + 20, 7, premultiply(rgba(59,130,246,200)));
 		}
 
 		/* try very hard to get a window texture */
@@ -616,7 +616,8 @@ static uint32_t lerp_rgba(uint32_t c1, uint32_t c2, float t) {
 }
 
 static void redraw_panel_background(gfx_context_t * ctx, int width, int height) {
-	draw_fill(ctx, rgba(30,60,120,0xE8));
+	/* Modern blue-white panel: subtle gradient-like dark blue */
+	draw_fill(ctx, rgba(15,23,42,0xF0));
 }
 
 static void resize_finish(int xwidth, int xheight) {
@@ -681,16 +682,16 @@ static int widget_leave_generic(struct PanelWidget * this, struct yutani_msg_win
 
 void panel_highlight_widget(struct PanelWidget * this, gfx_context_t * ctx, int active) {
 	if (this->highlighted || active) {
-		draw_rounded_rectangle(ctx, 3, 3, ctx->width - 6, ctx->height - 6, 11, premultiply(rgba(80,140,200,active ? 180 : 150)));
+		draw_rounded_rectangle(ctx, 3, 3, ctx->width - 6, ctx->height - 6, 11, premultiply(rgba(59,130,246,active ? 200 : 160)));
 	}
 }
 
 static int widget_draw_generic(struct PanelWidget * this, gfx_context_t * ctx) {
 	draw_rounded_rectangle(
-		ctx, 0, 0, ctx->width, ctx->height, 7, premultiply(rgba(60,100,160,150)));
+		ctx, 0, 0, ctx->width, ctx->height, 7, premultiply(rgba(30,64,120,160)));
 	if (this->highlighted) {
 		draw_rounded_rectangle(
-			ctx, 1, 1, ctx->width-2, ctx->height-2, 6, premultiply(rgba(80,150,220,220)));
+			ctx, 1, 1, ctx->width-2, ctx->height-2, 6, premultiply(rgba(59,130,246,220)));
 	} else {
 		draw_rounded_rectangle(
 			ctx, 1, 1, ctx->width-2, ctx->height-2, 6, ALTTAB_BACKGROUND);
@@ -816,11 +817,11 @@ int main (int argc, char ** argv) {
 	width  = yctx->display_width;
 	height = yctx->display_height;
 
-	panel_context.color_text_normal    = rgb(220,230,245);
+	panel_context.color_text_normal    = rgb(203,213,225);
 	panel_context.color_text_hilighted = rgb(255,255,255);
 	panel_context.color_text_focused   = rgb(255,255,255);
-	panel_context.color_icon_normal    = rgb(200,215,235);
-	panel_context.color_special        = rgb(100,180,255);
+	panel_context.color_icon_normal    = rgb(148,163,184);
+	panel_context.color_special        = rgb(59,130,246);
 	panel_context.font_size_default    = 14;
 	panel_context.extra_widget_spacing = 12;
 
