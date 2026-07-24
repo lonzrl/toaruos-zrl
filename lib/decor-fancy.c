@@ -141,9 +141,6 @@ static void render_decorations_fancy(yutani_window_t * window, gfx_context_t * c
 		/* Draw border */
 		draw_rounded_rectangle(ctx, 3, 3, width - 6, height - 6, CORNER_RADIUS, border_color);
 
-		/* Draw white background for the window body */
-		draw_rounded_rectangle(ctx, 4, 4, width - 8, height - 8, CORNER_RADIUS - 1, rgb(255,255,255));
-
 		/* Draw titlebar area with rounded top corners */
 		draw_rounded_rectangle(ctx, 4, 4, width - 8, bounds.top_height + 4, CORNER_RADIUS - 1, titlebar_bg);
 		/* Square off the bottom of the titlebar (fill the rounded bottom part) */
@@ -158,12 +155,6 @@ static void render_decorations_fancy(yutani_window_t * window, gfx_context_t * c
 			GFX(ctx,i,bounds.top_height + 3) = top_border;
 		}
 
-		/* Fill window body with white */
-		for (int j = bounds.top_height + CORNER_RADIUS; j < height - CORNER_RADIUS; ++j) {
-			for (int i = CORNER_RADIUS; i < width - CORNER_RADIUS; ++i) {
-				GFX(ctx,i,j) = rgb(255,255,255);
-			}
-		}
 	}
 
 	uint32_t button_color = is_active ? ACTIVE_COLOR : INACTIVE_COLOR;
