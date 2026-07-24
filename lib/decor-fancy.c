@@ -133,28 +133,42 @@ static void render_decorations_fancy(yutani_window_t * window, gfx_context_t * c
 			}
 		}
 	} else {
-		/* Floating mode: Full rounded rectangle with shadow */
-		/* Draw outer shadow */
-		draw_rounded_rectangle(ctx, 1, 1, width - 2, height - 2, CORNER_RADIUS + 1, SHADOW_COLOR);
-		draw_rounded_rectangle(ctx, 2, 2, width - 4, height - 4, CORNER_RADIUS, SHADOW_COLOR);
+		/* Floating mode: rounded outline + titlebar, no content fill. */
+		int r = CORNER_RADIUS;
 
-		/* Draw border */
-		draw_rounded_rectangle(ctx, 3, 3, width - 6, height - 6, CORNER_RADIUS, border_color);
-
-		/* Draw titlebar area with rounded top corners */
-		draw_rounded_rectangle(ctx, 4, 4, width - 8, bounds.top_height + 4, CORNER_RADIUS - 1, titlebar_bg);
+		/* Draw titlebar area with rounded top corners (above content). */
+		draw_rounded_rectangle(ctx, 4, 4, width - 8, bounds.top_height + 4, r - 1, titlebar_bg);
 		/* Square off the bottom of the titlebar (fill the rounded bottom part) */
-		for (int j = bounds.top_height; j < bounds.top_height + CORNER_RADIUS; ++j) {
-			for (int i = CORNER_RADIUS; i < width - CORNER_RADIUS; ++i) {
+		for (int j = bounds.top_height; j < bounds.top_height + r; ++j) {
+			for (int i = r; i < width - r; ++i) {
 				GFX(ctx,i,j) = titlebar_bg;
 			}
 		}
 
 		/* Bottom accent line on titlebar */
-		for (int i = CORNER_RADIUS; i < width - CORNER_RADIUS; ++i) {
+		for (int i = r; i < width - r; ++i) {
 			GFX(ctx,i,bounds.top_height + 3) = top_border;
 		}
 
+		/* Draw the outer border as 4 line segments (stroke only). */
+		/* Top edge */
+		draw_line(ctx, r, width - r - 1, 3, 3, border_color);
+		/* Bottom edge */
+		draw_line(ctx, r, width - r - 1, height - 4, height - 4, border_color);
+		/* Left edge */
+		draw_line(ctx, 3, 3, r, height - r - 1, border_color);
+		/* Right edge */
+		draw_line(ctx, width - 4, width - 4, r, height - r - 1, border_color);
+
+		/* Approximate rounded corners with small filled squares. */
+		for (int dy = 0; dy < 3; ++dy) {
+			for (int dx = 0; dx < 3; ++dx) {
+				GFX(ctx, 3 + dx, 3 + dy) = border_color;
+				GFX(ctx, width - 4 - dx, 3 + dy) = border_color;
+				GFX(ctx, 3 + dx, height - 4 - dy) = border_color;
+				GFX(ctx, width - 4 - dx, height - 4 - dy) = border_color;
+			}
+		}
 	}
 
 	uint32_t button_color = is_active ? ACTIVE_COLOR : INACTIVE_COLOR;

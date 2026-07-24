@@ -22,6 +22,8 @@
 #include <toaru/kbd.h>
 #include <toaru/yutani.h>
 #include <toaru/text.h>
+#include <toaru/trace.h>
+#define TRACE_APP_NAME "oobe"
 
 #define OOBE_FLAG_FILE "/etc/oobe_complete"
 #define INPUT_SIZE 256
@@ -423,15 +425,27 @@ int main(int argc, char ** argv) {
 
 	/* Check if OOBE has already been completed */
 	if (!access(OOBE_FLAG_FILE, F_OK)) {
-		/* Already done, just exit */
+		TRACE("OOBE already completed, skipping.");
 		return 0;
 	}
 
+	TRACE("OOBE starting up...");
+
 	yctx = yutani_init();
 	if (!yctx) {
-		fprintf(stderr, "OOBE: Failed to connect to compositor.\n");
-		return 1;
+		fprintf(stderr, "OOBE: Failed to connect to compositor, retrying...\n");
+		/* Retry a few times in case compositor is still starting up */
+		for (int retry = 0; retry < 50; retry++) {
+			usleep(100000); /* 100ms */
+			yctx = yutani_init();
+			if (yctx) break;
+		}
+		if (!yctx) {
+			fprintf(stderr, "OOBE: Giving up, could not connect to compositor.\n");
+			return 1;
+		}
 	}
+	TRACE("OOBE connected to compositor.");
 
 	screen_w = yctx->display_width;
 	screen_h = yctx->display_height;
