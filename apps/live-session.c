@@ -26,28 +26,43 @@ int main(int argc, char * argv[]) {
 		return 1;
 	}
 
-	int _session_pid = fork();
-	if (!_session_pid) {
-		toaru_set_credentials(1000,1000);
-		char * args[] = {"/bin/session", NULL};
-		execvp(args[0], args);
-
-		return 1;
-	}
-
-	/* Dummy session for live-session prevents compositor from killing itself
-	 * when the main session dies the first time. */
+	/*
+	 * Hold a yutani connection in the parent so the compositor does not
+	 * terminate itself when the session it started first exits.
+	 */
 	yutani_init();
 
-	do {
-		pid = wait(NULL);
-	} while ((pid > 0 && pid != _session_pid) || (pid == -1 && errno == EINTR));
+	/*
+	 * First-boot setup (OOBE):
+	 * If the out-of-box experience has not been completed yet, run it
+	 * before presenting the login manager. This ensures a fresh install
+	 * goes through the setup wizard instead of silently dropping into the
+	 * 'local' account.
+	 */
+	if (access("/etc/oobe_complete", F_OK) != 0) {
+		TRACE("OOBE not completed, launching setup wizard...");
+		int _oobe_pid = fork();
+		if (!_oobe_pid) {
+			char * args[] = {"/bin/oobe", NULL};
+			execvp(args[0], args);
+			TRACE("Failed to start OOBE!");
+			exit(1);
+		}
+		int _status;
+		waitpid(_oobe_pid, &_status, 0);
+		TRACE("OOBE completed, launching graphical login.");
+	}
 
-	TRACE("Live session has ended, launching graphical login.");
+	/*
+	 * Hand off to the graphical login manager. We intentionally do NOT
+	 * auto-log-in as 'local' here: the user should log in with the account
+	 * they created during OOBE (or any other valid account).
+	 */
+	TRACE("Launching graphical login.");
 	int _glogin_pid = fork();
 	if (!_glogin_pid) {
-		char * args[] = {"/bin/glogin",NULL};
-		execvp(args[0],args);
+		char * args[] = {"/bin/glogin", NULL};
+		execvp(args[0], args);
 		system("reboot");
 		exit(127);
 	}

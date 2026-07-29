@@ -2257,7 +2257,7 @@ static void _menu_action_toggle_paste_bracketing(struct MenuEntry * self) {
 
 static void _menu_action_show_about(struct MenuEntry * self) {
 	char about_cmd[1024] = "\0";
-	strcat(about_cmd, "about \"关于终端\" /usr/share/icons/48/utilities-terminal.png \"ZRL 终端\" \"© 2013-2026 ZRL\n-\nZRL 是基于 ToaruOS 的自由软件，\n遵循 NCSA/伊利诺伊大学许可证发布。\n-\n%https://toaruos.org\n%https://github.com/ZRL-OS/toaruos-zrl\" ");
+	strcat(about_cmd, "about \"关于终端\" /usr/share/icons/48/utilities-terminal.png \"ZRL 终端\" \"© 2013-2026 ZRL\n%https://toaruos.org\n%https://github.com/ZRL-OS/toaruos-zrl\" ");
 	char coords[100];
 	sprintf(coords, "%d %d &", (int)window->x + (int)window->width / 2, (int)window->y + (int)window->height / 2);
 	strcat(about_cmd, coords);

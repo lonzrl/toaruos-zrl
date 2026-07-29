@@ -1484,7 +1484,7 @@ static void _menu_action_delete(struct MenuEntry * entry) {
 static void _menu_action_about(struct MenuEntry * entry) {
 	/* Show About dialog */
 	char about_cmd[1024] = "\0";
-	strcat(about_cmd, "about \"关于文件浏览器\" /usr/share/icons/48/folder.png \"ZRL 文件浏览器\" \"© 2018-2026 K. Lange\n-\nZRL 是基于 ToaruOS 的自由软件，\n遵循 NCSA/伊利诺伊大学许可证发布。\n-\n%https://github.com/lonzrl/toaruos-zrl\" ");
+	strcat(about_cmd, "about \"关于文件浏览器\" /usr/share/icons/48/folder.png \"ZRL 文件浏览器\" \"© 2018-2026 K. Lange\n%https://github.com/lonzrl/toaruos-zrl\" ");
 	char coords[100];
 	sprintf(coords, "%d %d &", (int)main_window->x + (int)main_window->width / 2, (int)main_window->y + (int)main_window->height / 2);
 	strcat(about_cmd, coords);

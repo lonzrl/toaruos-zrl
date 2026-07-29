@@ -539,7 +539,7 @@ static void _menu_action_help(struct MenuEntry * entry) {
 static void _menu_action_about(struct MenuEntry * entry) {
 	/* Show About dialog */
 	char about_cmd[1024] = "\0";
-	strcat(about_cmd, "about \"关于系统监视器\" /usr/share/icons/48/system-monitor.png \"系统监视器\" \"© 2021-2023 K. Lange\n-\nZRL 是基于 ToaruOS 的自由软件，\n遵循 NCSA/伊利诺伊大学许可证发布。\n-\n%https://github.com/lonzrl/toaruos-zrl\" ");
+	strcat(about_cmd, "about \"关于系统监视器\" /usr/share/icons/48/system-monitor.png \"系统监视器\" \"© 2021-2023 K. Lange\n%https://github.com/lonzrl/toaruos-zrl\" ");
 	char coords[100];
 	sprintf(coords, "%d %d &", (int)wina->x + (int)wina->width / 2, (int)wina->y + (int)wina->height / 2);
 	strcat(about_cmd, coords);

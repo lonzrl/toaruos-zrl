@@ -339,6 +339,37 @@ long arch_reboot(void) {
 	return 0;
 }
 
+/**
+ * @brief Power off the system.
+ *
+ * Uses PSCI SYSTEM_OFF (function ID 0x84000008) when available, which is
+ * the standard mechanism for QEMU's 'virt' and 'rpi400' machines. Falls
+ * back to the semihosting exit interface (for TCG) and finally halts.
+ */
+long arch_poweroff(void) {
+	arch_fatal_prepare(); /* Ensure other cores stop. */
+
+	/* Semihosting SYS_EXIT (only works under TCG) */
+	if (args_present("semihosting")) {
+		uint64_t payload[2] = {0x20026, 0x0};
+		register uint32_t w0 asm("w0") = 0x18;
+		register uint64_t x1 asm("x1") = (uintptr_t)payload;
+		asm volatile ("hlt #0xF000" :: "r"(w0), "r"(x1) : "memory");
+	}
+
+	uint32_t * psci = dtb_find_node("psci");
+	if (psci) {
+		/* PSCI SYSTEM_OFF (0x84000008) */
+		register uint64_t x0 asm("x0") = 0x84000008;
+		register uint64_t x1 asm("x1") = 0;
+		asm volatile ("hvc 0" :: "r"(x0), "r"(x1) : "memory");
+	}
+
+	dprintf("aarch64: No poweroff method. Halting.\n");
+	arch_fatal();
+	return 0;
+}
+
 void aarch64_regs(struct regs *r) {
 #define reg(a,b) printf(" X%02d=0x%016zx X%02d=0x%016zx\n",a,r->x ## a, b, r->x ## b)
 	reg(0,1);

@@ -278,7 +278,7 @@ static void _menu_action_help(struct MenuEntry * entry) {
 static void _menu_action_about(struct MenuEntry * entry) {
 	/* Show About dialog */
 	char about_cmd[1024] = "\0";
-	strcat(about_cmd, "about \"About Calculator\" /usr/share/icons/48/calculator.png \"Calculator\" \"© 2021-2026 ZRL\n-\nPart of ToaruOS, which is free software\nreleased under the NCSA/University of Illinois\nlicense.\n-\n%https://toaruos.org\n%https://github.com/ZRL-OS/toaruos-zrl\" ");
+	strcat(about_cmd, "about \"About Calculator\" /usr/share/icons/48/calculator.png \"Calculator\" \"© 2021-2026 ZRL\n%https://toaruos.org\n%https://github.com/ZRL-OS/toaruos-zrl\" ");
 	char coords[100];
 	sprintf(coords, "%d %d &", (int)window->x + (int)window->width / 2, (int)window->y + (int)window->height / 2);
 	strcat(about_cmd, coords);

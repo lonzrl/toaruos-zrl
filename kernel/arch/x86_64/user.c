@@ -15,6 +15,7 @@
 #include <kernel/syscall.h>
 #include <kernel/arch/x86_64/regs.h>
 #include <kernel/arch/x86_64/ports.h>
+#include <kernel/arch/x86_64/acpi.h>
 
 /**
  * @brief Enter userspace.
@@ -295,21 +296,128 @@ long arch_reboot(void) {
 }
 
 /**
+ * @brief Locate the RSDP by scanning the BIOS/EBDA region.
+ */
+static uintptr_t acpi_find_rsdp(void) {
+	/* Search the BIOS read-only memory region 0xE0000 - 0xFFFFF */
+	for (uintptr_t scan = 0x000E0000; scan < 0x00100000; scan += 16) {
+		char * p = mmu_map_from_physical(scan);
+		if (p[0] == 'R' && p[1] == 'S' && p[2] == 'D' &&
+		    p[3] == 'P' && p[4] == 'T' && p[5] == 'R') {
+			return scan;
+		}
+	}
+	return 0;
+}
+
+/**
+ * @brief Parse the _S5 package from a DSDT to find the S5 sleep type.
+ *
+ * Returns the PM1x SLP_TYP value for the S5 (soft off) state, or -1 if it
+ * could not be determined.
+ */
+static int acpi_find_s5_slptyp(uint8_t * dsdt, uint32_t length) {
+	/* Look for the "_S5_" name (root-relative NameString: 0x5F 'S' '5') */
+	for (uint32_t i = 0; i + 4 < length; ++i) {
+		if (dsdt[i] == '_' && dsdt[i+1] == 'S' && dsdt[i+2] == '5') {
+			uint32_t p = i + 3;
+			/* Skip to the PackageOp (0x12) */
+			while (p + 1 < length && dsdt[p] != 0x12) p++;
+			if (p + 1 >= length) return -1;
+			p++; /* now at PkgLength */
+			/* PkgLength may have continuation bits; decode */
+			uint8_t pkglen = dsdt[p++];
+			if (pkglen & 0x80) {
+				/* 2-byte form */
+				pkglen = (pkglen & 0x0F) | (dsdt[p++] << 4);
+			}
+			(void)pkglen;
+			/* Number of elements (ByteData) */
+			if (p >= length) return -1;
+			if (dsdt[p] == 0x0A) {
+				p += 2; /* ByteConst */
+			} else if (dsdt[p] == 0x0B) {
+				p += 3; /* WordConst */
+			} else {
+				p += 1; /* Zero / One / direct byte */
+			}
+			/* First element = SLP_TYPa */
+			if (p >= length) return -1;
+			if (dsdt[p] == 0x0A) {
+				return dsdt[p+1]; /* ByteConst */
+			} else if (dsdt[p] == 0x00) {
+				return 0; /* Zero */
+			} else if (dsdt[p] == 0x01) {
+				return 1; /* One */
+			} else if (dsdt[p] == 0x0B) {
+				return dsdt[p+1]; /* WordConst low byte */
+			}
+			return -1;
+		}
+	}
+	return -1;
+}
+
+/**
  * @brief Power off the system via ACPI or QEMU debug exit.
  *
- * Tries multiple methods:
- * 1. QEMU isa-debug-exit device (port 0x604, value 0x2000)
- * 2. ACPI PM1a_CNT.SLP_EN (port 0xB004, value 0x2000)
- * 3. Fallback to keyboard reset (reboot)
+ * Tries, in order:
+ * 1. ACPI FADT PM1a control block with the S5 sleep type (real hardware)
+ * 2. QEMU isa-debug-exit device (port 0x604)
+ * 3. Legacy ACPI PM1a_CNT (port 0xB004, common on BIOS/QEMU)
+ * 4. Fallback to keyboard reset (reboot)
  */
 long arch_poweroff(void) {
-	/* Method 1: QEMU isa-debug-exit (port 0x604) */
+	/* Method 1: Real ACPI power off via FADT */
+	uintptr_t rsdp_addr = acpi_find_rsdp();
+	if (rsdp_addr) {
+		struct rsdp_descriptor * rsdp = (void*)mmu_map_from_physical(rsdp_addr);
+		/* RSDP v1 checksum covers the first 20 bytes */
+		uint8_t rsdp_sum = 0;
+		uint8_t * rsdp_bytes = (uint8_t *)rsdp;
+		for (int i = 0; i < 20; ++i) rsdp_sum += rsdp_bytes[i];
+		if (rsdp_sum == 0) {
+			struct rsdt * rsdt = (void*)mmu_map_from_physical(rsdp->rsdt_address);
+			if (rsdt && acpi_checksum(&rsdt->header)) {
+				uint32_t entries = (rsdt->header.length - sizeof(struct acpi_sdt_header)) / 4;
+				for (uint32_t i = 0; i < entries; ++i) {
+					uint8_t * tbl = mmu_map_from_physical(rsdt->pointers[i]);
+					if (tbl[0] == 'F' && tbl[1] == 'A' && tbl[2] == 'C' && tbl[3] == 'P') {
+						struct fadt * fadt = (void*)tbl;
+						/* Locate the DSDT to read the _S5 sleep type */
+						int slp_typ = -1;
+						if (fadt->dsdt) {
+							uint8_t * dsdt = mmu_map_from_physical(fadt->dsdt);
+							if (dsdt && acpi_checksum((struct acpi_sdt_header *)dsdt)) {
+								slp_typ = acpi_find_s5_slptyp(dsdt,
+									((struct acpi_sdt_header *)dsdt)->length);
+							}
+						}
+						if (slp_typ < 0) slp_typ = 0; /* default S5 SLP_TYP */
+
+						if (fadt->pm1a_control_block) {
+							uint16_t val = (slp_typ << 10) | (1 << 13); /* SLP_TYP + SLP_EN */
+							outports(fadt->pm1a_control_block, val);
+						}
+						if (fadt->pm1b_control_block) {
+							uint16_t val = (slp_typ << 10) | (1 << 13);
+							outports(fadt->pm1b_control_block, val);
+						}
+						/* Give the hardware a moment; if it didn't work we fall through */
+						for (volatile int d = 0; d < 1000000; ++d) {}
+					}
+				}
+			}
+		}
+	}
+
+	/* Method 2: QEMU isa-debug-exit (port 0x604) */
 	outports(0x604, 0x2000);
 
-	/* Method 2: ACPI PM1 control (port 0xB004) - SLP_TYP=5(S5), SLP_EN=1 */
+	/* Method 3: Legacy ACPI PM1 control (port 0xB004) - SLP_TYP=0, SLP_EN=1 */
 	outports(0xB004, 0x2000);
 
-	/* Method 3: If nothing worked, at least reboot */
+	/* Method 4: If nothing worked, at least reboot */
 	return arch_reboot();
 }
 

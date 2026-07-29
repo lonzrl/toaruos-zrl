@@ -12,6 +12,7 @@ void arch_fatal(void) __attribute__((noreturn));
 
 void arch_set_tls_base(uintptr_t tlsbase);
 long arch_reboot(void);
+long arch_poweroff(void);
 
 void arch_fatal_prepare(void);
 void arch_dump_traceback(void);
